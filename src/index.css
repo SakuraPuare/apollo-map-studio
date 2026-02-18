@@ -1,0 +1,41 @@
+@import 'tailwindcss';
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: #0f172a;
+  color: #f1f5f9;
+  overflow: hidden;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.maplibregl-canvas {
+  cursor: default;
+}
+
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-top-right {
+  display: none;
+}
+
+/* mapbox-gl-draw overrides for dark theme */
+.mapboxgl-ctrl-group,
+.maplibregl-ctrl-group {
+  display: none !important;
+}
