@@ -1,3 +1,18 @@
+## [0.1.1] - 2026-02-18
+
+### 📚 Documentation
+
+- Rewrite README and rename package to apollo-map-studio
+- Add full VitePress documentation site with guide, architecture, and API reference
+- Update README with new repository link and add emoji to title
+
+### ⚙️ Miscellaneous Tasks
+
+- Add GitHub Actions workflows, release script, and Dependabot config
+- Update package-lock and package.json for version 0.1.0, adjust ESLint and TypeScript dependencies, and enhance CI workflows with Node version matrix
+- Enhance package.json with project description and keywords for better discoverability
+- _(release)_ Bump version to 0.1.1
+
 ## [0.1.0] - 2026-02-18
 
 ### 🚀 Features
@@ -17,3 +32,4 @@
 
 - Init Vite + React + TypeScript project
 - Configure ESLint, Prettier, and Husky pre-commit hooks
+- _(release)_ Add CHANGELOG and git-cliff config for v0.1.0
