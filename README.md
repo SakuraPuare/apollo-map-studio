@@ -1,4 +1,4 @@
-# Apollo Map Studio
+# 🚗 Apollo Map Studio
 
 A browser-based HD map editor for the [Apollo](https://github.com/ApolloAuto/apollo) autonomous driving platform. Draw lanes, junctions, signals, and all other map elements visually, then export Apollo-compatible binary map files directly from your browser — no C++ toolchain required.
 
@@ -56,7 +56,7 @@ Traditionally, generating these files requires the Apollo C++ build environment.
 
 ```bash
 # Clone and install
-git clone https://github.com/yourname/apollo-map-studio
+git clone https://github.com/SakuraPuare/apollo-map-studio
 cd apollo-map-studio
 npm install
 
