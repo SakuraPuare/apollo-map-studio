@@ -1,3 +1,11 @@
+## [0.1.2] - 2026-02-18
+
+### ⚙️ Miscellaneous Tasks
+
+- Update package-lock.json to reflect version 0.1.1
+- Replace npm ci with npm install in CI workflows for consistency
+- _(release)_ Bump version to 0.1.2
+
 ## [0.1.1] - 2026-02-18
 
 ### 📚 Documentation
@@ -12,6 +20,7 @@
 - Update package-lock and package.json for version 0.1.0, adjust ESLint and TypeScript dependencies, and enhance CI workflows with Node version matrix
 - Enhance package.json with project description and keywords for better discoverability
 - _(release)_ Bump version to 0.1.1
+- _(changelog)_ Update for v0.1.1
 
 ## [0.1.0] - 2026-02-18
 
