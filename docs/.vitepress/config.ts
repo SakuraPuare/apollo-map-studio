@@ -1,9 +1,13 @@
 import { defineConfig } from 'vitepress'
 
+// VITEPRESS_BASE is injected by GitHub Actions for sub-path deployment
+// e.g. /apollo-map-studio/ when hosted at github.io/<repo>/
+const base = process.env.VITEPRESS_BASE ?? '/'
+
 export default defineConfig({
   title: 'Apollo Map Studio',
   description: 'Browser-based HD map editor for the Apollo autonomous driving platform',
-  base: '/',
+  base,
 
   head: [['link', { rel: 'icon', href: '/favicon.ico' }]],
 
