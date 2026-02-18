@@ -1,7 +1,7 @@
 {
   "name": "apollo-map-studio",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Browser-based HD map editor for Apollo autonomous driving platform. Draw lanes, junctions, signals, export base_map/sim_map/routing_map .bin files.",
   "keywords": [
