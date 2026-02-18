@@ -12,17 +12,21 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint & Format
+    name: Lint & Format (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+      fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit
 
       - name: ESLint
         run: npm run lint
@@ -31,56 +35,68 @@ jobs:
         run: npm run format:check
 
   typecheck:
-    name: Type Check
+    name: Type Check (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+      fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit
 
       - run: npx tsc -b
 
   build:
-    name: Build App
+    name: Build App (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     needs: [lint, typecheck]
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+      fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit
 
       - run: npm run build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
-          name: dist-${{ github.sha }}
+          name: dist-node${{ matrix.node-version }}-${{ github.sha }}
           path: dist/
           retention-days: 7
 
   docs:
-    name: Build Docs
+    name: Build Docs (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     needs: [lint, typecheck]
+    strategy:
+      matrix:
+        node-version: [20, 22, 24]
+      fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - run: npm install --no-audit
 
       - run: npm run docs:build
