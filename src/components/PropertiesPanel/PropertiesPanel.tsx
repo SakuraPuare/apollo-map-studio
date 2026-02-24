@@ -1,6 +1,7 @@
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import LaneProperties from './LaneProperties'
+import RoadManager from './RoadManager'
 import type { MapElement } from '../../types/editor'
 
 export default function PropertiesPanel() {
@@ -23,17 +24,10 @@ export default function PropertiesPanel() {
           width: 220,
           background: '#1e293b',
           borderLeft: '1px solid #334155',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#475569',
-          fontSize: 11,
-          flexDirection: 'column',
-          gap: 8,
+          overflowY: 'auto',
         }}
       >
-        <span style={{ fontSize: 24 }}>↖</span>
-        <span>Select an element</span>
+        <RoadManager />
       </div>
     )
   }

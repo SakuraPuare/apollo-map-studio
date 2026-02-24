@@ -10,6 +10,9 @@ interface Props {
 export default function LaneProperties({ lane }: Props) {
   const updateElement = useMapStore((s) => s.updateElement)
   const removeElement = useMapStore((s) => s.removeElement)
+  const roads = useMapStore((s) => s.roads)
+  const assignLaneToRoad = useMapStore((s) => s.assignLaneToRoad)
+  const unassignLaneFromRoad = useMapStore((s) => s.unassignLaneFromRoad)
   const { setSelected } = useUIStore()
 
   const update = (patch: Partial<LaneFeature>) => {
@@ -128,6 +131,27 @@ export default function LaneProperties({ lane }: Props) {
             style={inputStyle}
           >
             {boundaryOptions}
+          </select>
+        </Field>
+        <Field label="Road">
+          <select
+            value={lane.roadId ?? ''}
+            onChange={(e) => {
+              const val = e.target.value
+              if (val) {
+                assignLaneToRoad(lane.id, val)
+              } else {
+                unassignLaneFromRoad(lane.id)
+              }
+            }}
+            style={inputStyle}
+          >
+            <option value="">-- None --</option>
+            {Object.values(roads).map((road) => (
+              <option key={road.id} value={road.id}>
+                {road.name}
+              </option>
+            ))}
           </select>
         </Field>
       </div>

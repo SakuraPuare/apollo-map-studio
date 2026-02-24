@@ -72,6 +72,7 @@ export default function ExportDialog() {
         clearAreas,
         speedBumps,
         parkingSpaces,
+        roads: Object.values(store.roads),
       })
 
       setStats({

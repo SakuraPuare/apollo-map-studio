@@ -8,6 +8,7 @@ import { useUIStore } from '../../store/uiStore'
 import type { LaneFeature, MapElement } from '../../types/editor'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
 import { computeBoundaries, buildLanePolygon, laneMidpointInfo } from '../../geo/laneGeometry'
+import { getRoadColor } from '../../utils/roadColors'
 import * as turf from '@turf/turf'
 
 // Counter for unique IDs
@@ -43,6 +44,7 @@ export default function MapEditor() {
     clearAreas,
     speedBumps,
     parkingSpaces,
+    roads,
     project,
   } = useMapStore()
   const { drawMode, layerVisibility } = useUIStore()
@@ -290,6 +292,7 @@ export default function MapEditor() {
     clearAreas,
     speedBumps,
     parkingSpaces,
+    roads,
     layerVisibility,
   ])
 
@@ -573,7 +576,7 @@ function addMapElementLayers(map: MapLibreMap) {
     source: 'lane-fills',
     paint: {
       'fill-color': ['coalesce', ['get', 'fillColor'], '#1d4ed8'],
-      'fill-opacity': 0.12,
+      'fill-opacity': ['case', ['boolean', ['get', 'hasRoad'], false], 0.25, 0.12],
     },
   })
 
@@ -816,7 +819,7 @@ function addMapElementLayers(map: MapLibreMap) {
 }
 
 function updateBoundaryLayers(map: MapLibreMap) {
-  const { lanes } = useMapStore.getState()
+  const { lanes, roads } = useMapStore.getState()
   const { selectedIds } = useUIStore.getState()
   const laneList = Object.values(lanes)
 
@@ -828,7 +831,10 @@ function updateBoundaryLayers(map: MapLibreMap) {
 
   for (const lane of laneList) {
     const isSelected = selectedIds.includes(lane.id)
-    const fillColor = LANE_TYPE_COLOR[lane.laneType] ?? '#1d4ed8'
+    const fillColor =
+      lane.roadId && roads[lane.roadId]
+        ? getRoadColor(lane.roadId, roads)
+        : (LANE_TYPE_COLOR[lane.laneType] ?? '#1d4ed8')
     const arrowColor = TURN_COLOR[lane.turn] ?? '#e2e8f0'
 
     try {
@@ -836,7 +842,8 @@ function updateBoundaryLayers(map: MapLibreMap) {
 
       // Lane fill polygon
       const fillPoly = buildLanePolygon(left, right)
-      fillFeatures.push({ ...fillPoly, properties: { id: lane.id, fillColor } })
+      const hasRoad = Boolean(lane.roadId && roads[lane.roadId])
+      fillFeatures.push({ ...fillPoly, properties: { id: lane.id, fillColor, hasRoad } })
 
       // Boundaries (carry color so MapLibre can look it up)
       boundaryFeatures.push({

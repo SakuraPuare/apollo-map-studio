@@ -30,8 +30,9 @@ import type {
   ClearAreaFeature,
   SpeedBumpFeature,
   ParkingSpaceFeature,
+  RoadDefinition,
+  ProjectConfig,
 } from '../types/editor'
-import type { ProjectConfig } from '../types/editor'
 
 /**
  * Convert an array of WGS84 positions to PointENU array using the global projection.
@@ -174,23 +175,32 @@ function buildLane(lane: LaneFeature, overlapIds: string[]): ApolloLane {
  * Lanes with the same roadId are in the same road.
  * Lanes without a roadId get their own single-section road.
  */
-function buildRoads(lanes: LaneFeature[]): ApolloRoad[] {
-  const roadMap = new Map<string, LaneFeature[]>()
+function buildRoads(lanes: LaneFeature[], roadDefs: RoadDefinition[]): ApolloRoad[] {
+  const roadDefMap = new Map<string, RoadDefinition>()
+  for (const rd of roadDefs) {
+    roadDefMap.set(rd.id, rd)
+  }
+
+  const roadLanesMap = new Map<string, LaneFeature[]>()
+  const unassignedLanes: LaneFeature[] = []
 
   for (const lane of lanes) {
-    const roadId = lane.roadId ?? `road_${lane.id}`
-    if (!roadMap.has(roadId)) roadMap.set(roadId, [])
-    roadMap.get(roadId)!.push(lane)
+    if (lane.roadId && roadDefMap.has(lane.roadId)) {
+      if (!roadLanesMap.has(lane.roadId)) roadLanesMap.set(lane.roadId, [])
+      roadLanesMap.get(lane.roadId)!.push(lane)
+    } else {
+      unassignedLanes.push(lane)
+    }
   }
 
   const roads: ApolloRoad[] = []
-  for (const [roadId, roadLanes] of roadMap) {
+
+  for (const [roadId, roadLanes] of roadLanesMap) {
+    const def = roadDefMap.get(roadId)!
     const section: RoadSection = {
       id: { id: `${roadId}_section_0` },
       laneId: roadLanes.map((l) => ({ id: l.id })),
     }
-
-    // Find junction ID if all lanes share the same junction
     const junctionIds = new Set(roadLanes.map((l) => l.junctionId).filter(Boolean))
     const junctionId = junctionIds.size === 1 ? { id: [...junctionIds][0]! } : undefined
 
@@ -198,6 +208,20 @@ function buildRoads(lanes: LaneFeature[]): ApolloRoad[] {
       id: { id: roadId },
       section: [section],
       junctionId,
+      type: def.type,
+    })
+  }
+
+  for (const lane of unassignedLanes) {
+    const autoRoadId = `road_${lane.id}`
+    const section: RoadSection = {
+      id: { id: `${autoRoadId}_section_0` },
+      laneId: [{ id: lane.id }],
+    }
+    roads.push({
+      id: { id: autoRoadId },
+      section: [section],
+      junctionId: lane.junctionId ? { id: lane.junctionId } : undefined,
       type: 2, // CITY_ROAD default
     })
   }
@@ -218,6 +242,7 @@ export async function buildBaseMap(params: {
   clearAreas: ClearAreaFeature[]
   speedBumps: SpeedBumpFeature[]
   parkingSpaces: ParkingSpaceFeature[]
+  roads: RoadDefinition[]
 }): Promise<ApolloMap> {
   const proj = getGlobalProjection()
   if (!proj) throw new Error('Projection not initialized')
@@ -251,7 +276,7 @@ export async function buildBaseMap(params: {
   )
 
   // 3. Build roads
-  const roads = buildRoads(params.lanes)
+  const roads = buildRoads(params.lanes, params.roads)
 
   // 4. Build junctions
   const junctions: ApolloJunction[] = params.junctions.map((j) => ({

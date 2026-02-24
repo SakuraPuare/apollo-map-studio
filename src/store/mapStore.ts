@@ -12,6 +12,7 @@ import type {
   ParkingSpaceFeature,
   MapElement,
   ProjectConfig,
+  RoadDefinition,
 } from '../types/editor'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../types/apollo-map'
 
@@ -25,6 +26,7 @@ interface MapState {
   clearAreas: Record<string, ClearAreaFeature>
   speedBumps: Record<string, SpeedBumpFeature>
   parkingSpaces: Record<string, ParkingSpaceFeature>
+  roads: Record<string, RoadDefinition>
 
   // Actions
   setProject: (config: ProjectConfig) => void
@@ -33,6 +35,11 @@ interface MapState {
   removeElement: (id: string, type: MapElement['type']) => void
   connectLanes: (fromId: string, toId: string) => void
   setLaneNeighbor: (laneId: string, neighborId: string, side: 'left' | 'right') => void
+  addRoad: (road: RoadDefinition) => void
+  updateRoad: (road: RoadDefinition) => void
+  removeRoad: (roadId: string) => void
+  assignLaneToRoad: (laneId: string, roadId: string) => void
+  unassignLaneFromRoad: (laneId: string) => void
   clear: () => void
   loadState: (state: Partial<MapState>) => void
 }
@@ -63,6 +70,7 @@ export const useMapStore = create<MapState>()(
       clearAreas: {},
       speedBumps: {},
       parkingSpaces: {},
+      roads: {},
 
       setProject: (config) =>
         set((state) => {
@@ -215,6 +223,42 @@ export const useMapStore = create<MapState>()(
           }
         }),
 
+      addRoad: (road) =>
+        set((state) => {
+          state.roads[road.id] = road
+        }),
+
+      updateRoad: (road) =>
+        set((state) => {
+          if (state.roads[road.id]) {
+            Object.assign(state.roads[road.id], road)
+          }
+        }),
+
+      removeRoad: (roadId) =>
+        set((state) => {
+          delete state.roads[roadId]
+          Object.values(state.lanes).forEach((lane) => {
+            if (lane.roadId === roadId) {
+              lane.roadId = undefined
+            }
+          })
+        }),
+
+      assignLaneToRoad: (laneId, roadId) =>
+        set((state) => {
+          if (state.lanes[laneId] && state.roads[roadId]) {
+            state.lanes[laneId].roadId = roadId
+          }
+        }),
+
+      unassignLaneFromRoad: (laneId) =>
+        set((state) => {
+          if (state.lanes[laneId]) {
+            state.lanes[laneId].roadId = undefined
+          }
+        }),
+
       clear: () =>
         set((state) => {
           state.lanes = {}
@@ -225,6 +269,7 @@ export const useMapStore = create<MapState>()(
           state.clearAreas = {}
           state.speedBumps = {}
           state.parkingSpaces = {}
+          state.roads = {}
         }),
 
       loadState: (newState) =>

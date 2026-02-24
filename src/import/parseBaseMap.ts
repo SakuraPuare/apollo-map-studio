@@ -10,6 +10,7 @@ import type {
   ClearAreaFeature,
   SpeedBumpFeature,
   ParkingSpaceFeature,
+  RoadDefinition,
   ProjectConfig,
 } from '../types/editor'
 import {
@@ -17,6 +18,7 @@ import {
   LaneDirection,
   LaneTurn,
   LaneType,
+  RoadType,
   SignalType,
   StopSignType,
 } from '../types/apollo-map'
@@ -32,6 +34,7 @@ interface ParsedMapState {
   clearAreas: ClearAreaFeature[]
   speedBumps: SpeedBumpFeature[]
   parkingSpaces: ParkingSpaceFeature[]
+  roads: RoadDefinition[]
 }
 
 /**
@@ -262,6 +265,37 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
       }
     }) ?? []
 
+  // Parse roads and assign roadId to lanes
+  const laneRoadMap = new Map<string, string>()
+  const allRoadDefs: RoadDefinition[] = []
+
+  for (const road of map.road) {
+    const roadId = road.id.id
+    for (const section of road.section) {
+      for (const laneRef of section.laneId) {
+        laneRoadMap.set(laneRef.id, roadId)
+      }
+    }
+    allRoadDefs.push({
+      id: roadId,
+      name: roadId,
+      type: (road.type as RoadType) ?? RoadType.CITY_ROAD,
+    })
+  }
+
+  for (const lane of lanes) {
+    const roadId = laneRoadMap.get(lane.id)
+    if (roadId) {
+      lane.roadId = roadId
+    }
+  }
+
+  // Filter out auto-generated single-lane roads to avoid clutter
+  const roads = allRoadDefs.filter((rd) => {
+    const lanesInRoad = lanes.filter((l) => l.roadId === rd.id)
+    return lanesInRoad.length > 1 || !rd.id.startsWith('road_')
+  })
+
   return {
     project,
     lanes,
@@ -272,5 +306,6 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
     clearAreas,
     speedBumps,
     parkingSpaces,
+    roads,
   }
 }

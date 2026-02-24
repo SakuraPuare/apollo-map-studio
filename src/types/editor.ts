@@ -5,6 +5,7 @@ import {
   LaneDirection,
   LaneTurn,
   LaneType,
+  RoadType,
   SignalType,
   StopSignType,
 } from './apollo-map'
@@ -103,4 +104,10 @@ export interface ProjectConfig {
   originLon: number
   version: string
   date: string
+}
+
+export interface RoadDefinition {
+  id: string
+  name: string
+  type: RoadType
 }

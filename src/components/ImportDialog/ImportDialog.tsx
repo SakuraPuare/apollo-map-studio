@@ -31,6 +31,7 @@ export default function ImportDialog() {
         clearAreas: Object.fromEntries(parsed.clearAreas.map((ca) => [ca.id, ca])),
         speedBumps: Object.fromEntries(parsed.speedBumps.map((sb) => [sb.id, sb])),
         parkingSpaces: Object.fromEntries(parsed.parkingSpaces.map((ps) => [ps.id, ps])),
+        roads: Object.fromEntries(parsed.roads.map((r) => [r.id, r])),
       })
 
       setMessage(
