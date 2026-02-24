@@ -158,7 +158,17 @@ export default function LaneProperties({ lane }: Props) {
 
       {/* Connections */}
       <div style={{ marginTop: 12, borderTop: '1px solid #334155', paddingTop: 8 }}>
-        <div style={{ color: '#64748b', fontSize: 10, marginBottom: 4 }}>CONNECTIONS</div>
+        <div
+          style={{
+            color: '#64748b',
+            fontSize: 11,
+            marginBottom: 6,
+            letterSpacing: '0.04em',
+            fontWeight: 600,
+          }}
+        >
+          CONNECTIONS
+        </div>
         {lane.predecessorIds.length > 0 && (
           <IdList label="Predecessors" ids={lane.predecessorIds} />
         )}
@@ -171,7 +181,18 @@ export default function LaneProperties({ lane }: Props) {
         )}
       </div>
 
-      <button onClick={handleDelete} style={{ ...deleteButtonStyle, marginTop: 12 }}>
+      <button
+        onClick={handleDelete}
+        style={{ ...deleteButtonStyle, marginTop: 12 }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = '#dc2626'
+          e.currentTarget.style.color = '#ffffff'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+          e.currentTarget.style.color = '#f87171'
+        }}
+      >
         Delete Lane
       </button>
     </div>
@@ -189,14 +210,34 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function IdList({ label, ids }: { label: string; ids: string[] }) {
   return (
-    <div style={{ marginBottom: 4 }}>
-      <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase' }}>{label}</div>
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', marginBottom: 2 }}>
+        {label}
+      </div>
       {ids.map((id) => (
         <div
           key={id}
-          style={{ fontSize: 9, color: '#94a3b8', paddingLeft: 4, wordBreak: 'break-all' }}
+          style={{
+            fontSize: 9,
+            color: '#94a3b8',
+            paddingLeft: 6,
+            wordBreak: 'break-all',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            lineHeight: 1.6,
+          }}
         >
-          • {id}
+          <span
+            style={{
+              width: 4,
+              height: 4,
+              borderRadius: '50%',
+              background: '#3b82f6',
+              flexShrink: 0,
+            }}
+          />
+          {id}
         </div>
       ))}
     </div>
@@ -206,22 +247,24 @@ function IdList({ label, ids }: { label: string; ids: string[] }) {
 const inputStyle: React.CSSProperties = {
   background: '#0f172a',
   border: '1px solid #334155',
-  borderRadius: 4,
+  borderRadius: 5,
   color: '#f1f5f9',
-  padding: '4px 6px',
+  padding: '5px 8px',
   fontSize: 11,
   width: '100%',
+  transition: 'border-color 0.15s',
 }
 
 const deleteButtonStyle: React.CSSProperties = {
-  background: '#7f1d1d',
-  border: 'none',
+  background: 'transparent',
+  border: '1px solid #dc2626',
   borderRadius: 4,
-  color: '#f1f5f9',
+  color: '#f87171',
   padding: '6px 8px',
   fontSize: 11,
   cursor: 'pointer',
   width: '100%',
+  transition: 'all 0.15s',
 }
 
 const boundaryOptions = (

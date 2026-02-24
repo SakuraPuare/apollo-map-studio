@@ -21,7 +21,7 @@ export default function PropertiesPanel() {
     return (
       <div
         style={{
-          width: 220,
+          width: 240,
           background: '#1e293b',
           borderLeft: '1px solid #334155',
           overflowY: 'auto',
@@ -48,7 +48,7 @@ export default function PropertiesPanel() {
     return (
       <div
         style={{
-          width: 220,
+          width: 240,
           background: '#1e293b',
           borderLeft: '1px solid #334155',
           padding: 12,
@@ -123,12 +123,28 @@ export default function PropertiesPanel() {
   return (
     <div
       style={{
-        width: 220,
+        width: 240,
         background: '#1e293b',
         borderLeft: '1px solid #334155',
         overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
+      <div
+        style={{
+          padding: '8px 12px',
+          borderBottom: '1px solid #334155',
+          fontSize: 10,
+          fontWeight: 600,
+          color: '#64748b',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          flexShrink: 0,
+        }}
+      >
+        Properties
+      </div>
       {renderContent(element)}
     </div>
   )
@@ -156,14 +172,23 @@ function GenericProperties({
           setSelected([])
         }}
         style={{
-          background: '#7f1d1d',
-          border: 'none',
+          background: 'transparent',
+          border: '1px solid #dc2626',
           borderRadius: 4,
-          color: '#f1f5f9',
+          color: '#f87171',
           padding: '6px 8px',
           fontSize: 11,
           cursor: 'pointer',
           width: '100%',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = '#dc2626'
+          e.currentTarget.style.color = '#ffffff'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent'
+          e.currentTarget.style.color = '#f87171'
         }}
       >
         Delete

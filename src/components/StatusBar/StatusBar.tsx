@@ -23,7 +23,7 @@ export default function StatusBar() {
   return (
     <div
       style={{
-        height: 28,
+        height: 30,
         background: '#0f172a',
         borderTop: '1px solid #334155',
         display: 'flex',
