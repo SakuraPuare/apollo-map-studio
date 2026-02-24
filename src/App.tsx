@@ -8,9 +8,16 @@ import StatusBar from './components/StatusBar/StatusBar'
 import NewProjectDialog from './components/NewProjectDialog/NewProjectDialog'
 import ExportDialog from './components/ExportDialog/ExportDialog'
 import ImportDialog from './components/ImportDialog/ImportDialog'
+import ValidationDialog from './components/ValidationDialog/ValidationDialog'
 
 export default function App() {
-  const { showNewProjectDialog, showExportDialog, showImportDialog, setDrawMode } = useUIStore()
+  const {
+    showNewProjectDialog,
+    showExportDialog,
+    showImportDialog,
+    showValidationDialog,
+    setDrawMode,
+  } = useUIStore()
   const { project } = useMapStore()
 
   // Keyboard shortcuts
@@ -175,6 +182,7 @@ export default function App() {
       {showNewProjectDialog && <NewProjectDialog />}
       {showExportDialog && <ExportDialog />}
       {showImportDialog && <ImportDialog />}
+      {showValidationDialog && <ValidationDialog />}
     </div>
   )
 }
