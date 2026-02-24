@@ -249,9 +249,10 @@ export default function MapEditor() {
     }
   }, [])
 
-  // Fly to origin when project is set
+  // Fly to origin when project is set, and re-center grid
   useEffect(() => {
     if (mapRef.current && project) {
+      updateGridLayer(mapRef.current, project.originLon, project.originLat)
       mapRef.current.flyTo({
         center: [project.originLon, project.originLat],
         zoom: 17,
@@ -312,31 +313,36 @@ export default function MapEditor() {
 // Map Layer Management (module-level, no closure issues)
 // ============================================================
 
-function addGridLayer(map: MapLibreMap) {
+function buildGridGeoJSON(originLon: number, originLat: number): GeoJSON.FeatureCollection {
+  const GRID_EXTENT = 0.1
+  const GRID_STEP = 0.001
   const gridLines: [number, number][][] = []
-  for (let lon = -0.1; lon <= 0.1; lon += 0.001) {
+  for (let d = -GRID_EXTENT; d <= GRID_EXTENT; d += GRID_STEP) {
     gridLines.push([
-      [lon, -0.1],
-      [lon, 0.1],
+      [originLon + d, originLat - GRID_EXTENT],
+      [originLon + d, originLat + GRID_EXTENT],
     ])
   }
-  for (let lat = -0.1; lat <= 0.1; lat += 0.001) {
+  for (let d = -GRID_EXTENT; d <= GRID_EXTENT; d += GRID_STEP) {
     gridLines.push([
-      [-0.1, lat],
-      [0.1, lat],
+      [originLon - GRID_EXTENT, originLat + d],
+      [originLon + GRID_EXTENT, originLat + d],
     ])
   }
+  return {
+    type: 'FeatureCollection',
+    features: gridLines.map((coords) => ({
+      type: 'Feature' as const,
+      geometry: { type: 'LineString' as const, coordinates: coords },
+      properties: {},
+    })),
+  }
+}
 
+function addGridLayer(map: MapLibreMap, originLon = 0, originLat = 0) {
   map.addSource('grid', {
     type: 'geojson',
-    data: {
-      type: 'FeatureCollection',
-      features: gridLines.map((coords) => ({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: coords },
-        properties: {},
-      })),
-    },
+    data: buildGridGeoJSON(originLon, originLat),
   })
 
   map.addLayer({
@@ -345,6 +351,13 @@ function addGridLayer(map: MapLibreMap) {
     source: 'grid',
     paint: { 'line-color': '#1e293b', 'line-width': 0.5, 'line-opacity': 0.5 },
   })
+}
+
+function updateGridLayer(map: MapLibreMap, originLon: number, originLat: number) {
+  const source = map.getSource('grid')
+  if (source && 'setData' in source) {
+    ;(source as maplibregl.GeoJSONSource).setData(buildGridGeoJSON(originLon, originLat))
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
