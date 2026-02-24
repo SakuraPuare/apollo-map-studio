@@ -232,7 +232,15 @@ export default function MapEditor() {
               return
             }
             connectLanes(connectFromId, id)
-            setStatus(`Connected ${connectFromId} → ${id}`)
+            // Check if endpoints were snapped
+            const storeState = useMapStore.getState()
+            const fromLane = storeState.lanes[connectFromId]
+            const toLane = storeState.lanes[id]
+            const fromEnd = fromLane?.centerLine.geometry.coordinates.at(-1)
+            const toStart = toLane?.centerLine.geometry.coordinates[0]
+            const snapped =
+              fromEnd && toStart && fromEnd[0] === toStart[0] && fromEnd[1] === toStart[1]
+            setStatus(`Connected ${connectFromId} → ${id}${snapped ? ' (endpoints snapped)' : ''}`)
             setConnectFromId(null)
           }
         } else {

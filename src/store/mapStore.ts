@@ -15,6 +15,7 @@ import type {
   RoadDefinition,
 } from '../types/editor'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../types/apollo-map'
+import { snapLaneEndpoints } from '../geo/snapEndpoints'
 
 interface MapState {
   project: ProjectConfig | null
@@ -199,6 +200,14 @@ export const useMapStore = create<MapState>()(
             }
             if (!state.lanes[toId].predecessorIds.includes(fromId)) {
               state.lanes[toId].predecessorIds.push(fromId)
+            }
+            // Auto-snap endpoints
+            const snapResult = snapLaneEndpoints(
+              state.lanes[fromId].centerLine,
+              state.lanes[toId].centerLine
+            )
+            if (snapResult) {
+              state.lanes[toId].centerLine = snapResult.snappedToLine
             }
           }
         }),
