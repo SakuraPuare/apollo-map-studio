@@ -226,6 +226,11 @@ export default function MapEditor() {
             setConnectFromId(id)
             setStatus(`Source: ${id}. Now click the target lane.`)
           } else {
+            if (connectFromId === id) {
+              setStatus('Cannot connect a lane to itself')
+              setConnectFromId(null)
+              return
+            }
             connectLanes(connectFromId, id)
             setStatus(`Connected ${connectFromId} → ${id}`)
             setConnectFromId(null)

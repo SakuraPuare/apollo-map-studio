@@ -192,6 +192,7 @@ export const useMapStore = create<MapState>()(
 
       connectLanes: (fromId, toId) =>
         set((state) => {
+          if (fromId === toId) return // Prevent self-connection
           if (state.lanes[fromId] && state.lanes[toId]) {
             if (!state.lanes[fromId].successorIds.includes(toId)) {
               state.lanes[fromId].successorIds.push(toId)
@@ -204,6 +205,7 @@ export const useMapStore = create<MapState>()(
 
       setLaneNeighbor: (laneId, neighborId, side) =>
         set((state) => {
+          if (laneId === neighborId) return // Prevent self-neighbor
           if (state.lanes[laneId] && state.lanes[neighborId]) {
             if (side === 'left') {
               if (!state.lanes[laneId].leftNeighborIds.includes(neighborId)) {
