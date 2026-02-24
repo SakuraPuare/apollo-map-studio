@@ -8,6 +8,7 @@ interface UIState {
   showNewProjectDialog: boolean
   showExportDialog: boolean
   showImportDialog: boolean
+  showValidationDialog: boolean
   connectFromId: string | null // first lane selected for connection
   layerVisibility: Record<string, boolean>
   statusMessage: string
@@ -20,6 +21,7 @@ interface UIState {
   setShowNewProjectDialog: (show: boolean) => void
   setShowExportDialog: (show: boolean) => void
   setShowImportDialog: (show: boolean) => void
+  setShowValidationDialog: (show: boolean) => void
   setConnectFromId: (id: string | null) => void
   toggleLayer: (layerId: string) => void
   setLayerVisible: (layerId: string, visible: boolean) => void
@@ -33,6 +35,7 @@ export const useUIStore = create<UIState>((set) => ({
   showNewProjectDialog: true,
   showExportDialog: false,
   showImportDialog: false,
+  showValidationDialog: false,
   connectFromId: null,
   layerVisibility: {
     lanes: true,
@@ -56,6 +59,7 @@ export const useUIStore = create<UIState>((set) => ({
   setShowNewProjectDialog: (show) => set({ showNewProjectDialog: show }),
   setShowExportDialog: (show) => set({ showExportDialog: show }),
   setShowImportDialog: (show) => set({ showImportDialog: show }),
+  setShowValidationDialog: (show) => set({ showValidationDialog: show }),
   setConnectFromId: (id) => set({ connectFromId: id }),
   toggleLayer: (layerId) =>
     set((s) => ({
