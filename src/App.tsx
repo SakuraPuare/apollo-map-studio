@@ -108,19 +108,48 @@ export default function App() {
       {/* Header */}
       <div
         style={{
-          height: 40,
+          height: 44,
           background: '#1e293b',
           borderBottom: '1px solid #334155',
           display: 'flex',
           alignItems: 'center',
           padding: '0 16px',
-          gap: 12,
+          gap: 10,
           flexShrink: 0,
         }}
       >
-        <span style={{ fontWeight: 700, fontSize: 14, color: '#f1f5f9' }}>Apollo Map Editor</span>
+        {/* Logo */}
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <path
+            d="M11 2L4 7V15L11 20L18 15V7L11 2Z"
+            stroke="#3b82f6"
+            strokeWidth="1.5"
+            fill="#3b82f610"
+          />
+          <path
+            d="M11 7V15M7 9.5L11 7L15 9.5"
+            stroke="#3b82f6"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <circle cx="11" cy="12" r="1.5" fill="#3b82f6" />
+        </svg>
+        <span style={{ fontWeight: 700, fontSize: 14, color: '#f1f5f9' }}>Apollo Map Studio</span>
+        <span
+          style={{
+            fontSize: 10,
+            color: '#64748b',
+            background: '#0f172a',
+            padding: '2px 6px',
+            borderRadius: 4,
+            fontWeight: 500,
+          }}
+        >
+          v0.1.2
+        </span>
         <span style={{ color: '#334155' }}>|</span>
-        <span style={{ fontSize: 12, color: '#64748b' }}>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
           {project ? project.name : 'No project open'}
         </span>
       </div>
