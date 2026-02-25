@@ -290,11 +290,10 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
     }
   }
 
-  // Filter out auto-generated single-lane roads to avoid clutter
-  const roads = allRoadDefs.filter((rd) => {
-    const lanesInRoad = lanes.filter((l) => l.roadId === rd.id)
-    return lanesInRoad.length > 1 || !rd.id.startsWith('road_')
-  })
+  const roads = allRoadDefs
+  console.log(
+    `[Import] ${map.road.length} roads, ${map.lane.length} lanes, ${map.junction.length} junctions, ${map.signal?.length ?? 0} signals`
+  )
 
   return {
     project,
