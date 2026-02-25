@@ -200,6 +200,11 @@ export default function MapEditor() {
         setSelected([element.id])
         draw.delete([feature.id as string])
         setDrawMode('select')
+        // Force re-render after draw.delete to prevent the first element from
+        // being invisible. draw.delete triggers a MapLibre repaint that can race
+        // ahead of the GeoJSON worker processing the initial setData call.
+        updateBoundaryLayers(map)
+        updateElementLayers(map)
       }
     })
 
