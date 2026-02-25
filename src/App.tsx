@@ -155,7 +155,7 @@ export default function App() {
             fontWeight: 500,
           }}
         >
-          v0.1.2
+          v0.2.0
         </span>
         <span style={{ fontSize: 13, color: '#cccccc' }}>
           {project ? project.name : 'No project open'}
