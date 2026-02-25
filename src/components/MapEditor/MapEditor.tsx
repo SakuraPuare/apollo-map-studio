@@ -34,20 +34,10 @@ export default function MapEditor() {
   const mapRef = useRef<MapLibreMap | null>(null)
   const drawRef = useRef<MapboxDraw | null>(null)
 
-  // Read reactive state for effects that re-run when state changes
-  const {
-    lanes,
-    junctions,
-    signals,
-    stopSigns,
-    crosswalks,
-    clearAreas,
-    speedBumps,
-    parkingSpaces,
-    roads,
-    project,
-  } = useMapStore()
-  const { drawMode, layerVisibility } = useUIStore()
+  const project = useMapStore((s) => s.project)
+  const drawMode = useUIStore((s) => s.drawMode)
+  const fitBoundsCounter = useUIStore((s) => s.fitBoundsCounter)
+  const flyToCounter = useUIStore((s) => s.flyToCounter)
 
   // Initialize MapLibre + Draw once
   useEffect(() => {
@@ -65,10 +55,30 @@ export default function MapEditor() {
       attributionControl: false,
     })
 
+    let ready = false
+
     map.on('load', () => {
       addGridLayer(map)
       addMapElementLayers(map)
+      updateGridFromViewport(map)
+      ready = true
+      // Render any data already in the store
+      updateBoundaryLayers(map)
+      updateElementLayers(map)
     })
+
+    map.on('moveend', () => {
+      updateGridFromViewport(map)
+    })
+
+    // Subscribe directly to store changes — bypasses React effect deps
+    const renderMap = () => {
+      if (!ready || !map.isStyleLoaded()) return
+      updateBoundaryLayers(map)
+      updateElementLayers(map)
+    }
+    const unsubMap = useMapStore.subscribe(renderMap)
+    const unsubUI = useUIStore.subscribe(renderMap)
 
     const draw = new MapboxDraw({
       displayControlsDefault: false,
@@ -252,21 +262,88 @@ export default function MapEditor() {
     })
 
     return () => {
+      unsubMap()
+      unsubUI()
       map.remove()
       mapRef.current = null
     }
   }, [])
 
-  // Fly to origin when project is set, and re-center grid
+  // Jump to origin when project is set
   useEffect(() => {
     if (mapRef.current && project) {
-      updateGridLayer(mapRef.current, project.originLon, project.originLat)
-      mapRef.current.flyTo({
+      mapRef.current.jumpTo({
         center: [project.originLon, project.originLat],
         zoom: 17,
       })
     }
   }, [project])
+
+  // Fit map to all features when requested (e.g. after import)
+  useEffect(() => {
+    if (!fitBoundsCounter || !mapRef.current) return
+    const { lanes, junctions, crosswalks, clearAreas, parkingSpaces } = useMapStore.getState()
+
+    const allCoords: [number, number][] = []
+
+    for (const lane of Object.values(lanes)) {
+      for (const coord of lane.centerLine.geometry.coordinates) {
+        allCoords.push(coord as [number, number])
+      }
+    }
+    for (const j of Object.values(junctions)) {
+      for (const ring of j.polygon.geometry.coordinates) {
+        for (const coord of ring) allCoords.push(coord as [number, number])
+      }
+    }
+    for (const cw of Object.values(crosswalks)) {
+      for (const ring of cw.polygon.geometry.coordinates) {
+        for (const coord of ring) allCoords.push(coord as [number, number])
+      }
+    }
+    for (const ca of Object.values(clearAreas)) {
+      for (const ring of ca.polygon.geometry.coordinates) {
+        for (const coord of ring) allCoords.push(coord as [number, number])
+      }
+    }
+    for (const ps of Object.values(parkingSpaces)) {
+      for (const ring of ps.polygon.geometry.coordinates) {
+        for (const coord of ring) allCoords.push(coord as [number, number])
+      }
+    }
+
+    if (allCoords.length === 0) return
+
+    let minLng = Infinity,
+      maxLng = -Infinity,
+      minLat = Infinity,
+      maxLat = -Infinity
+    for (const [lng, lat] of allCoords) {
+      if (lng < minLng) minLng = lng
+      if (lng > maxLng) maxLng = lng
+      if (lat < minLat) minLat = lat
+      if (lat > maxLat) maxLat = lat
+    }
+
+    mapRef.current.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 60, maxZoom: 19, animate: false }
+    )
+  }, [fitBoundsCounter])
+
+  // Jump to a specific element when requested (e.g. from element list)
+  useEffect(() => {
+    if (!flyToCounter || !mapRef.current) return
+    const target = useUIStore.getState().flyToTarget
+    if (!target) return
+    mapRef.current.jumpTo({
+      center: [target.lng, target.lat],
+      zoom: Math.max(mapRef.current.getZoom(), 18),
+    })
+  }, [flyToCounter])
 
   // Sync draw mode to mapbox-gl-draw
   useEffect(() => {
@@ -291,25 +368,6 @@ export default function MapEditor() {
     }
   }, [drawMode])
 
-  // Re-render layers when store data or visibility changes
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
-    updateBoundaryLayers(map)
-    updateElementLayers(map)
-  }, [
-    lanes,
-    junctions,
-    signals,
-    stopSigns,
-    crosswalks,
-    clearAreas,
-    speedBumps,
-    parkingSpaces,
-    roads,
-    layerVisibility,
-  ])
-
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainerRef} className="w-full h-full" />
@@ -321,22 +379,55 @@ export default function MapEditor() {
 // Map Layer Management (module-level, no closure issues)
 // ============================================================
 
-function buildGridGeoJSON(originLon: number, originLat: number): GeoJSON.FeatureCollection {
-  const GRID_EXTENT = 0.1
-  const GRID_STEP = 0.001
+/** Round a value down to a "nice" number (1, 2, 5 × 10^n) for grid spacing. */
+function niceStep(value: number): number {
+  const exp = Math.floor(Math.log10(value))
+  const base = 10 ** exp
+  const norm = value / base
+  if (norm <= 1) return base
+  if (norm <= 2) return 2 * base
+  if (norm <= 5) return 5 * base
+  return 10 * base
+}
+
+/** Build a grid GeoJSON that covers the given map viewport. */
+function buildViewportGrid(map: MapLibreMap): GeoJSON.FeatureCollection {
+  const bounds = map.getBounds()
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+
+  // Pad by 50% so panning doesn't immediately show blank areas
+  const lngSpan = ne.lng - sw.lng
+  const latSpan = ne.lat - sw.lat
+  const padLng = lngSpan * 0.5
+  const padLat = latSpan * 0.5
+
+  const minLng = sw.lng - padLng
+  const maxLng = ne.lng + padLng
+  const minLat = sw.lat - padLat
+  const maxLat = ne.lat + padLat
+
+  // Pick a step that yields ~80-120 lines per axis
+  const step = niceStep(Math.max(lngSpan, latSpan) / 100)
+
+  // Snap start coordinates to step multiples for stable grid positions
+  const startLng = Math.floor(minLng / step) * step
+  const startLat = Math.floor(minLat / step) * step
+
   const gridLines: [number, number][][] = []
-  for (let d = -GRID_EXTENT; d <= GRID_EXTENT; d += GRID_STEP) {
+  for (let lng = startLng; lng <= maxLng; lng += step) {
     gridLines.push([
-      [originLon + d, originLat - GRID_EXTENT],
-      [originLon + d, originLat + GRID_EXTENT],
+      [lng, minLat],
+      [lng, maxLat],
     ])
   }
-  for (let d = -GRID_EXTENT; d <= GRID_EXTENT; d += GRID_STEP) {
+  for (let lat = startLat; lat <= maxLat; lat += step) {
     gridLines.push([
-      [originLon - GRID_EXTENT, originLat + d],
-      [originLon + GRID_EXTENT, originLat + d],
+      [minLng, lat],
+      [maxLng, lat],
     ])
   }
+
   return {
     type: 'FeatureCollection',
     features: gridLines.map((coords) => ({
@@ -347,10 +438,10 @@ function buildGridGeoJSON(originLon: number, originLat: number): GeoJSON.Feature
   }
 }
 
-function addGridLayer(map: MapLibreMap, originLon = 0, originLat = 0) {
+function addGridLayer(map: MapLibreMap) {
   map.addSource('grid', {
     type: 'geojson',
-    data: buildGridGeoJSON(originLon, originLat),
+    data: { type: 'FeatureCollection', features: [] },
   })
 
   map.addLayer({
@@ -361,10 +452,10 @@ function addGridLayer(map: MapLibreMap, originLon = 0, originLat = 0) {
   })
 }
 
-function updateGridLayer(map: MapLibreMap, originLon: number, originLat: number) {
+function updateGridFromViewport(map: MapLibreMap) {
   const source = map.getSource('grid')
   if (source && 'setData' in source) {
-    ;(source as maplibregl.GeoJSONSource).setData(buildGridGeoJSON(originLon, originLat))
+    ;(source as maplibregl.GeoJSONSource).setData(buildViewportGrid(map))
   }
 }
 
@@ -601,8 +692,18 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'fill',
     source: 'lane-fills',
     paint: {
-      'fill-color': ['coalesce', ['get', 'fillColor'], '#1d4ed8'],
-      'fill-opacity': ['case', ['boolean', ['get', 'hasRoad'], false], 0.25, 0.12],
+      'fill-color': [
+        'case',
+        ['boolean', ['get', 'selected'], false],
+        '#fbbf24',
+        ['coalesce', ['get', 'fillColor'], '#1d4ed8'],
+      ],
+      'fill-opacity': [
+        'case',
+        ['boolean', ['get', 'selected'], false],
+        0.45,
+        ['case', ['boolean', ['get', 'hasRoad'], false], 0.25, 0.12],
+      ],
     },
   })
 
@@ -681,13 +782,19 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'junction-fills',
     type: 'fill',
     source: 'junctions',
-    paint: { 'fill-color': '#818cf8', 'fill-opacity': 0.2 },
+    paint: {
+      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#818cf8'],
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.45, 0.2],
+    },
   })
   map.addLayer({
     id: 'junction-outlines',
     type: 'line',
     source: 'junctions',
-    paint: { 'line-color': '#818cf8', 'line-width': 1.5 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#818cf8'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 1.5],
+    },
   })
 
   // ── Crosswalks ────────────────────────────────────────────────────────────
@@ -698,7 +805,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'crosswalk-fills',
     type: 'fill',
     source: 'crosswalks',
-    paint: { 'fill-color': '#f0abfc', 'fill-opacity': 0.25 },
+    paint: {
+      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#f0abfc'],
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.45, 0.25],
+    },
   })
   map.addLayer({
     id: 'crosswalk-pattern',
@@ -710,7 +820,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'crosswalk-outlines',
     type: 'line',
     source: 'crosswalks',
-    paint: { 'line-color': '#e9d5ff', 'line-width': 2 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#e9d5ff'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
+    },
   })
 
   // ── Signals ───────────────────────────────────────────────────────────────
@@ -719,7 +832,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'signal-lines',
     type: 'line',
     source: 'signals',
-    paint: { 'line-color': '#4ade80', 'line-width': 3 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#4ade80'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 5, 3],
+    },
   })
 
   // ── Stop signs ────────────────────────────────────────────────────────────
@@ -728,7 +844,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'stop-sign-lines',
     type: 'line',
     source: 'stop-signs',
-    paint: { 'line-color': '#f87171', 'line-width': 3 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#f87171'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 5, 3],
+    },
   })
 
   // ── Clear areas ───────────────────────────────────────────────────────────
@@ -739,7 +858,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'clear-area-fills',
     type: 'fill',
     source: 'clear-areas',
-    paint: { 'fill-color': '#fbbf24', 'fill-opacity': 0.08 },
+    paint: {
+      'fill-color': '#fbbf24',
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.3, 0.08],
+    },
   })
   map.addLayer({
     id: 'clear-area-pattern',
@@ -751,7 +873,11 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'clear-area-outlines',
     type: 'line',
     source: 'clear-areas',
-    paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-dasharray': [5, 3] },
+    paint: {
+      'line-color': '#fbbf24',
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3.5, 2],
+      'line-dasharray': [5, 3],
+    },
   })
 
   // ── Speed bumps ───────────────────────────────────────────────────────────
@@ -762,7 +888,10 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'line',
     source: 'speed-bumps',
     layout: { 'line-cap': 'butt', 'line-join': 'miter' },
-    paint: { 'line-color': '#1c1917', 'line-width': 14 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#1c1917'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 18, 14],
+    },
   })
   map.addLayer({
     id: 'speed-bump-lines',
@@ -780,7 +909,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'parking-fills',
     type: 'fill',
     source: 'parking-spaces',
-    paint: { 'fill-color': '#7dd3fc', 'fill-opacity': 0.15 },
+    paint: {
+      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#7dd3fc'],
+      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.4, 0.15],
+    },
   })
   map.addLayer({
     id: 'parking-pattern',
@@ -792,7 +924,10 @@ function addMapElementLayers(map: MapLibreMap) {
     id: 'parking-outlines',
     type: 'line',
     source: 'parking-spaces',
-    paint: { 'line-color': '#38bdf8', 'line-width': 2 },
+    paint: {
+      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#38bdf8'],
+      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
+    },
   })
 
   // ── Centroid icons (rendered last so they sit on top of all fills) ────────
@@ -849,6 +984,16 @@ function updateBoundaryLayers(map: MapLibreMap) {
   const { selectedIds } = useUIStore.getState()
   const laneList = Object.values(lanes)
 
+  // Expand selection: if a road is selected, include its lanes
+  const effectiveSelected = new Set(selectedIds)
+  for (const selId of selectedIds) {
+    if (roads[selId]) {
+      for (const lane of laneList) {
+        if (lane.roadId === selId) effectiveSelected.add(lane.id)
+      }
+    }
+  }
+
   const fillFeatures: GeoJSON.Feature[] = []
   const centerFeatures: GeoJSON.Feature[] = []
   const boundaryFeatures: GeoJSON.Feature[] = []
@@ -856,7 +1001,7 @@ function updateBoundaryLayers(map: MapLibreMap) {
   const connFeatures: GeoJSON.Feature[] = []
 
   for (const lane of laneList) {
-    const isSelected = selectedIds.includes(lane.id)
+    const isSelected = effectiveSelected.has(lane.id)
     const fillColor =
       lane.roadId && roads[lane.roadId]
         ? getRoadColor(lane.roadId, roads)
@@ -869,7 +1014,10 @@ function updateBoundaryLayers(map: MapLibreMap) {
       // Lane fill polygon
       const fillPoly = buildLanePolygon(left, right)
       const hasRoad = Boolean(lane.roadId && roads[lane.roadId])
-      fillFeatures.push({ ...fillPoly, properties: { id: lane.id, fillColor, hasRoad } })
+      fillFeatures.push({
+        ...fillPoly,
+        properties: { id: lane.id, fillColor, hasRoad, selected: isSelected },
+      })
 
       // Boundaries (carry color so MapLibre can look it up)
       boundaryFeatures.push({
@@ -964,7 +1112,8 @@ function updateBoundaryLayers(map: MapLibreMap) {
 function updateElementLayers(map: MapLibreMap) {
   const { junctions, signals, stopSigns, crosswalks, clearAreas, speedBumps, parkingSpaces } =
     useMapStore.getState()
-  const { layerVisibility } = useUIStore.getState()
+  const { layerVisibility, selectedIds } = useUIStore.getState()
+  const selSet = new Set(selectedIds)
 
   const set = (sourceId: string, features: GeoJSON.Feature[]) =>
     (map.getSource(sourceId) as maplibregl.GeoJSONSource)?.setData({
@@ -974,31 +1123,52 @@ function updateElementLayers(map: MapLibreMap) {
 
   set(
     'junctions',
-    Object.values(junctions).map((j) => ({ ...j.polygon, properties: { id: j.id } }))
+    Object.values(junctions).map((j) => ({
+      ...j.polygon,
+      properties: { id: j.id, selected: selSet.has(j.id) },
+    }))
   )
   set(
     'crosswalks',
-    Object.values(crosswalks).map((cw) => ({ ...cw.polygon, properties: { id: cw.id } }))
+    Object.values(crosswalks).map((cw) => ({
+      ...cw.polygon,
+      properties: { id: cw.id, selected: selSet.has(cw.id) },
+    }))
   )
   set(
     'signals',
-    Object.values(signals).map((s) => ({ ...s.stopLine, properties: { id: s.id } }))
+    Object.values(signals).map((s) => ({
+      ...s.stopLine,
+      properties: { id: s.id, selected: selSet.has(s.id) },
+    }))
   )
   set(
     'stop-signs',
-    Object.values(stopSigns).map((ss) => ({ ...ss.stopLine, properties: { id: ss.id } }))
+    Object.values(stopSigns).map((ss) => ({
+      ...ss.stopLine,
+      properties: { id: ss.id, selected: selSet.has(ss.id) },
+    }))
   )
   set(
     'clear-areas',
-    Object.values(clearAreas).map((ca) => ({ ...ca.polygon, properties: { id: ca.id } }))
+    Object.values(clearAreas).map((ca) => ({
+      ...ca.polygon,
+      properties: { id: ca.id, selected: selSet.has(ca.id) },
+    }))
   )
   set(
     'speed-bumps',
-    Object.values(speedBumps).map((sb) => ({ ...sb.line, properties: { id: sb.id } }))
+    Object.values(speedBumps).map((sb) => ({
+      ...sb.line,
+      properties: { id: sb.id, selected: selSet.has(sb.id) },
+    }))
   )
   set(
     'parking-spaces',
-    Object.values(parkingSpaces).map((ps) => ({ ...ps.polygon, properties: { id: ps.id } }))
+    Object.values(parkingSpaces).map((ps) => ({
+      ...ps.polygon,
+      properties: { id: ps.id, selected: selSet.has(ps.id) },
+    }))
   )
 
   // Centroid point sources for icon label placement

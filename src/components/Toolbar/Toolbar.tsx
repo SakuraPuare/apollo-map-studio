@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Download,
   Check,
+  ListTree,
 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
@@ -124,6 +125,8 @@ export default function Toolbar(): React.ReactElement {
     setShowValidationDialog,
     layerVisibility,
     toggleLayer,
+    showElementListPanel,
+    setShowElementListPanel,
   } = useUIStore()
 
   const handleUndo = () => {
@@ -153,6 +156,15 @@ export default function Toolbar(): React.ReactElement {
             icon={tool.icon}
           />
         ))}
+
+        <Divider />
+
+        <ToolButton
+          icon={<ListTree size={20} />}
+          tooltip="Element List"
+          active={showElementListPanel}
+          onClick={() => setShowElementListPanel(!showElementListPanel)}
+        />
 
         <div className="flex-1" />
 

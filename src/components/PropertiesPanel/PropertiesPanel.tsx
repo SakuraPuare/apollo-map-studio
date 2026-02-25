@@ -1,7 +1,6 @@
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import LaneProperties from './LaneProperties'
-import RoadManager from './RoadManager'
 import { Button } from '@/components/ui/button'
 import type { MapElement } from '../../types/editor'
 
@@ -20,8 +19,8 @@ export default function PropertiesPanel() {
 
   if (selectedIds.length === 0) {
     return (
-      <div className="w-[300px] bg-card border-l border-border overflow-y-auto">
-        <RoadManager />
+      <div className="w-[300px] bg-card border-l border-border overflow-y-auto p-4 text-[11px] text-muted-foreground">
+        Select an element to view properties.
       </div>
     )
   }

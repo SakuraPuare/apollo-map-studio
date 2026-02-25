@@ -4,6 +4,7 @@ import { useMapStore } from './store/mapStore'
 import MapEditor from './components/MapEditor/MapEditor'
 import Toolbar from './components/Toolbar/Toolbar'
 import PropertiesPanel from './components/PropertiesPanel/PropertiesPanel'
+import ElementListPanel from './components/ElementListPanel/ElementListPanel'
 import StatusBar from './components/StatusBar/StatusBar'
 import NewProjectDialog from './components/NewProjectDialog/NewProjectDialog'
 import ExportDialog from './components/ExportDialog/ExportDialog'
@@ -16,6 +17,7 @@ export default function App() {
     showExportDialog,
     showImportDialog,
     showValidationDialog,
+    showElementListPanel,
     setDrawMode,
   } = useUIStore()
   const { project } = useMapStore()
@@ -164,6 +166,9 @@ export default function App() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left toolbar */}
         <Toolbar />
+
+        {/* Element list panel */}
+        {showElementListPanel && <ElementListPanel />}
 
         {/* Map canvas */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
