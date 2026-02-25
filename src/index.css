@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 @import 'maplibre-gl/dist/maplibre-gl.css';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
 
 * {
   box-sizing: border-box;
@@ -8,13 +12,15 @@
 body {
   margin: 0;
   font-family:
-    'Inter',
-    system-ui,
+    'Segoe UI',
     -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
     sans-serif;
-  background: #0f172a;
-  color: #f1f5f9;
+  font-size: 13px;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
@@ -24,6 +30,38 @@ body {
   flex-direction: column;
 }
 
+/* Scrollbar (VS Code style) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(121, 121, 121, 0.7);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(0, 122, 204, 0.3);
+}
+
+/* MapLibre overrides */
 .maplibregl-canvas {
   cursor: default;
 }
@@ -34,46 +72,137 @@ body {
   display: none;
 }
 
-/* Focus styles */
-:focus-visible {
-  outline: 2px solid #3b82f6;
-  outline-offset: 2px;
-}
-
-button:focus-visible {
-  outline: 2px solid #3b82f6;
-  outline-offset: 1px;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: #3b82f6 !important;
-  outline: none;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.25);
-}
-
-/* Dark scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #0f172a;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
-
-/* mapbox-gl-draw overrides for dark theme */
 .mapboxgl-ctrl-group,
 .maplibregl-ctrl-group {
   display: none !important;
+}
+
+/* === shadcn theme mapping === */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* VS Code dark theme -- always dark, no light mode */
+:root {
+  --radius: 0.25rem;
+  --background: #1e1e1e;
+  --foreground: #cccccc;
+  --card: #252526;
+  --card-foreground: #cccccc;
+  --popover: #252526;
+  --popover-foreground: #cccccc;
+  --primary: #007acc;
+  --primary-foreground: #ffffff;
+  --secondary: #333333;
+  --secondary-foreground: #cccccc;
+  --muted: #252526;
+  --muted-foreground: #858585;
+  --accent: #37373d;
+  --accent-foreground: #e0e0e0;
+  --destructive: #f14c4c;
+  --border: #3c3c3c;
+  --input: #3c3c3c;
+  --ring: #007acc;
+  --chart-1: #007acc;
+  --chart-2: #89d185;
+  --chart-3: #cca700;
+  --chart-4: #f14c4c;
+  --chart-5: #3794ff;
+  --sidebar: #252526;
+  --sidebar-foreground: #cccccc;
+  --sidebar-primary: #007acc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #37373d;
+  --sidebar-accent-foreground: #e0e0e0;
+  --sidebar-border: #3c3c3c;
+  --sidebar-ring: #007acc;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Panel form elements (compact native inputs for properties panel) */
+.panel-input {
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  height: 28px;
+  width: 100%;
+  transition: border-color 0.1s ease;
+  outline: none;
+}
+
+.panel-input:focus {
+  border-color: var(--ring);
+}
+
+.panel-select {
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  height: 28px;
+  width: 100%;
+  transition: border-color 0.1s ease;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23858585' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+  cursor: pointer;
+}
+
+.panel-select:focus {
+  border-color: var(--ring);
 }

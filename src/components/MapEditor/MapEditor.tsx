@@ -24,7 +24,7 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
     {
       id: 'background',
       type: 'background',
-      paint: { 'background-color': '#0d1117' },
+      paint: { 'background-color': '#1e1e1e' },
     },
   ],
 }
@@ -357,7 +357,7 @@ function addGridLayer(map: MapLibreMap, originLon = 0, originLat = 0) {
     id: 'grid-lines',
     type: 'line',
     source: 'grid',
-    paint: { 'line-color': '#1e293b', 'line-width': 0.5, 'line-opacity': 0.5 },
+    paint: { 'line-color': '#2a2d2e', 'line-width': 0.5, 'line-opacity': 0.5 },
   })
 }
 
@@ -661,7 +661,7 @@ function addMapElementLayers(map: MapLibreMap) {
     },
     paint: {
       'text-color': ['coalesce', ['get', 'arrowColor'], '#e2e8f0'],
-      'text-halo-color': '#0d1117',
+      'text-halo-color': '#1e1e1e',
       'text-halo-width': 1,
     },
   })
