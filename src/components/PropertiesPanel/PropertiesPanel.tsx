@@ -2,6 +2,7 @@ import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import LaneProperties from './LaneProperties'
 import RoadManager from './RoadManager'
+import { Button } from '@/components/ui/button'
 import type { MapElement } from '../../types/editor'
 
 export default function PropertiesPanel() {
@@ -19,14 +20,7 @@ export default function PropertiesPanel() {
 
   if (selectedIds.length === 0) {
     return (
-      <div
-        style={{
-          width: 240,
-          background: '#1e293b',
-          borderLeft: '1px solid #334155',
-          overflowY: 'auto',
-        }}
-      >
+      <div className="w-[300px] bg-card border-l border-border overflow-y-auto">
         <RoadManager />
       </div>
     )
@@ -46,16 +40,7 @@ export default function PropertiesPanel() {
 
   if (!element) {
     return (
-      <div
-        style={{
-          width: 240,
-          background: '#1e293b',
-          borderLeft: '1px solid #334155',
-          padding: 12,
-          fontSize: 11,
-          color: '#475569',
-        }}
-      >
+      <div className="w-[300px] bg-card border-l border-border p-3 text-[11px] text-[#5a5a5a]">
         Element not found: {id}
       </div>
     )
@@ -121,28 +106,8 @@ export default function PropertiesPanel() {
   }
 
   return (
-    <div
-      style={{
-        width: 240,
-        background: '#1e293b',
-        borderLeft: '1px solid #334155',
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <div
-        style={{
-          padding: '8px 12px',
-          borderBottom: '1px solid #334155',
-          fontSize: 10,
-          fontWeight: 600,
-          color: '#64748b',
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          flexShrink: 0,
-        }}
-      >
+    <div className="w-[300px] bg-card border-l border-border overflow-y-auto flex flex-col">
+      <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background shrink-0">
         Properties
       </div>
       {renderContent(element)}
@@ -161,38 +126,20 @@ function GenericProperties({
 }) {
   const { setSelected } = useUIStore()
   return (
-    <div style={{ padding: 12, fontSize: 12 }}>
-      <div style={{ marginBottom: 4, color: '#94a3b8', fontSize: 10 }}>{type.toUpperCase()}</div>
-      <div style={{ fontSize: 11, color: '#e2e8f0', wordBreak: 'break-all', marginBottom: 12 }}>
-        {id}
-      </div>
-      <button
+    <div className="p-4 text-xs">
+      <div className="mb-1 text-muted-foreground text-[11px]">{type.toUpperCase()}</div>
+      <div className="text-xs text-accent-foreground font-mono break-all mb-3">{id}</div>
+      <Button
+        variant="destructive"
+        size="sm"
+        className="w-full"
         onClick={() => {
           onDelete()
           setSelected([])
         }}
-        style={{
-          background: 'transparent',
-          border: '1px solid #dc2626',
-          borderRadius: 4,
-          color: '#f87171',
-          padding: '6px 8px',
-          fontSize: 11,
-          cursor: 'pointer',
-          width: '100%',
-          transition: 'all 0.15s',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = '#dc2626'
-          e.currentTarget.style.color = '#ffffff'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = '#f87171'
-        }}
       >
         Delete
-      </button>
+      </Button>
     </div>
   )
 }

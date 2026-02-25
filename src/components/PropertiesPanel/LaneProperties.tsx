@@ -1,6 +1,7 @@
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
+import { Button } from '@/components/ui/button'
 import type { LaneFeature } from '../../types/editor'
 
 interface Props {
@@ -25,35 +26,26 @@ export default function LaneProperties({ lane }: Props) {
   }
 
   return (
-    <div style={{ padding: 12, fontSize: 12 }}>
-      <div style={{ marginBottom: 4, color: '#94a3b8', fontSize: 10 }}>LANE</div>
-      <div
-        style={{
-          marginBottom: 10,
-          fontWeight: 600,
-          fontSize: 11,
-          color: '#e2e8f0',
-          wordBreak: 'break-all',
-        }}
-      >
+    <div className="p-4 text-xs">
+      <div className="mb-1 text-muted-foreground text-[11px]">LANE</div>
+      <div className="mb-2.5 font-semibold text-xs text-accent-foreground font-mono break-all">
         {lane.id}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex flex-col gap-3">
         <Field label="Speed Limit (km/h)">
           <input
             type="number"
             min={0}
             max={360}
             step={1}
-            // Display km/h, store m/s
             defaultValue={Math.round(lane.speedLimit * 3.6)}
             key={`${lane.id}-speed`}
             onBlur={(e) => {
               const v = parseFloat(e.target.value)
               if (!isNaN(v) && v >= 0) update({ speedLimit: v / 3.6 })
             }}
-            style={inputStyle}
+            className="panel-input"
           />
         </Field>
 
@@ -69,7 +61,7 @@ export default function LaneProperties({ lane }: Props) {
               const v = parseFloat(e.target.value)
               if (!isNaN(v) && v >= 0.5) update({ width: v })
             }}
-            style={inputStyle}
+            className="panel-input"
           />
         </Field>
 
@@ -77,7 +69,7 @@ export default function LaneProperties({ lane }: Props) {
           <select
             value={lane.laneType}
             onChange={(e) => update({ laneType: Number(e.target.value) as LaneType })}
-            style={inputStyle}
+            className="panel-select"
           >
             <option value={LaneType.CITY_DRIVING}>City Driving</option>
             <option value={LaneType.BIKING}>Biking</option>
@@ -93,7 +85,7 @@ export default function LaneProperties({ lane }: Props) {
           <select
             value={lane.turn}
             onChange={(e) => update({ turn: Number(e.target.value) as LaneTurn })}
-            style={inputStyle}
+            className="panel-select"
           >
             <option value={LaneTurn.NO_TURN}>No Turn</option>
             <option value={LaneTurn.LEFT_TURN}>Left Turn</option>
@@ -106,7 +98,7 @@ export default function LaneProperties({ lane }: Props) {
           <select
             value={lane.direction}
             onChange={(e) => update({ direction: Number(e.target.value) as LaneDirection })}
-            style={inputStyle}
+            className="panel-select"
           >
             <option value={LaneDirection.FORWARD}>Forward</option>
             <option value={LaneDirection.BACKWARD}>Backward</option>
@@ -118,7 +110,7 @@ export default function LaneProperties({ lane }: Props) {
           <select
             value={lane.leftBoundaryType}
             onChange={(e) => update({ leftBoundaryType: Number(e.target.value) as BoundaryType })}
-            style={inputStyle}
+            className="panel-select"
           >
             {boundaryOptions}
           </select>
@@ -128,7 +120,7 @@ export default function LaneProperties({ lane }: Props) {
           <select
             value={lane.rightBoundaryType}
             onChange={(e) => update({ rightBoundaryType: Number(e.target.value) as BoundaryType })}
-            style={inputStyle}
+            className="panel-select"
           >
             {boundaryOptions}
           </select>
@@ -144,7 +136,7 @@ export default function LaneProperties({ lane }: Props) {
                 unassignLaneFromRoad(lane.id)
               }
             }}
-            style={inputStyle}
+            className="panel-select"
           >
             <option value="">-- None --</option>
             {Object.values(roads).map((road) => (
@@ -157,16 +149,8 @@ export default function LaneProperties({ lane }: Props) {
       </div>
 
       {/* Connections */}
-      <div style={{ marginTop: 12, borderTop: '1px solid #334155', paddingTop: 8 }}>
-        <div
-          style={{
-            color: '#64748b',
-            fontSize: 11,
-            marginBottom: 6,
-            letterSpacing: '0.04em',
-            fontWeight: 600,
-          }}
-        >
+      <div className="mt-3 border-t border-border pt-2">
+        <div className="text-muted-foreground text-[11px] mb-1.5 tracking-wide font-semibold">
           CONNECTIONS
         </div>
         {lane.predecessorIds.length > 0 && (
@@ -181,28 +165,17 @@ export default function LaneProperties({ lane }: Props) {
         )}
       </div>
 
-      <button
-        onClick={handleDelete}
-        style={{ ...deleteButtonStyle, marginTop: 12 }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = '#dc2626'
-          e.currentTarget.style.color = '#ffffff'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent'
-          e.currentTarget.style.color = '#f87171'
-        }}
-      >
+      <Button variant="destructive" className="w-full mt-3" size="sm" onClick={handleDelete}>
         Delete Lane
-      </button>
+      </Button>
     </div>
   )
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <label style={{ color: '#94a3b8', fontSize: 10 }}>{label}</label>
+    <div className="flex flex-col gap-0.5">
+      <label className="text-muted-foreground text-xs font-medium">{label}</label>
       {children}
     </div>
   )
@@ -210,61 +183,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function IdList({ label, ids }: { label: string; ids: string[] }) {
   return (
-    <div style={{ marginBottom: 6 }}>
-      <div style={{ color: '#64748b', fontSize: 9, textTransform: 'uppercase', marginBottom: 2 }}>
-        {label}
-      </div>
+    <div className="mb-1.5">
+      <div className="text-muted-foreground text-[11px] uppercase mb-0.5">{label}</div>
       {ids.map((id) => (
         <div
           key={id}
-          style={{
-            fontSize: 9,
-            color: '#94a3b8',
-            paddingLeft: 6,
-            wordBreak: 'break-all',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            lineHeight: 1.6,
-          }}
+          className="text-[11px] text-foreground pl-1.5 break-all flex items-center gap-1 leading-relaxed"
         >
-          <span
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: '50%',
-              background: '#3b82f6',
-              flexShrink: 0,
-            }}
-          />
+          <span className="w-[5px] h-[5px] rounded-full bg-primary shrink-0" />
           {id}
         </div>
       ))}
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  background: '#0f172a',
-  border: '1px solid #334155',
-  borderRadius: 5,
-  color: '#f1f5f9',
-  padding: '5px 8px',
-  fontSize: 11,
-  width: '100%',
-  transition: 'border-color 0.15s',
-}
-
-const deleteButtonStyle: React.CSSProperties = {
-  background: 'transparent',
-  border: '1px solid #dc2626',
-  borderRadius: 4,
-  color: '#f87171',
-  padding: '6px 8px',
-  fontSize: 11,
-  cursor: 'pointer',
-  width: '100%',
-  transition: 'all 0.15s',
 }
 
 const boundaryOptions = (

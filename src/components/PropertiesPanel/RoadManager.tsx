@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMapStore } from '../../store/mapStore'
 import { RoadType } from '../../types/apollo-map'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { RoadDefinition } from '../../types/editor'
 import { getRoadColor } from '../../utils/roadColors'
 
@@ -26,23 +28,16 @@ export default function RoadManager() {
   }
 
   return (
-    <div style={{ padding: 12, fontSize: 12 }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 8,
-        }}
-      >
-        <div style={{ color: '#94a3b8', fontSize: 10 }}>ROADS</div>
-        <button onClick={handleCreate} style={addBtnStyle} title="Create Road">
+    <div className="p-3 text-xs">
+      <div className="flex justify-between items-center mb-2">
+        <div className="text-muted-foreground text-[11px] font-semibold">ROADS</div>
+        <Button size="xs" onClick={handleCreate} title="Create Road">
           + New
-        </button>
+        </Button>
       </div>
 
       {roadList.length === 0 && (
-        <div style={{ color: '#475569', fontSize: 11, padding: '8px 0' }}>
+        <div className="text-[#5a5a5a] text-xs py-2">
           No roads defined. Create a road to group lanes.
         </div>
       )}
@@ -83,39 +78,26 @@ function RoadItem({
 
   return (
     <div
-      style={{
-        border: `1px solid ${isEditing ? color : '#334155'}`,
-        borderRadius: 6,
-        marginBottom: 6,
-        overflow: 'hidden',
-      }}
+      className={cn(
+        'border rounded-md mb-1.5 overflow-hidden',
+        isEditing ? 'border-border' : 'border-border'
+      )}
+      style={isEditing ? { borderColor: color } : undefined}
     >
       <div
         onClick={onToggleEdit}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 8px',
-          cursor: 'pointer',
-          background: isEditing ? '#0f172a' : 'transparent',
-        }}
+        className={cn(
+          'flex items-center gap-2 py-2 px-2.5 cursor-pointer',
+          isEditing ? 'bg-background' : 'bg-transparent'
+        )}
       >
-        <span
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background: color,
-            flexShrink: 0,
-          }}
-        />
-        <span style={{ flex: 1, color: '#e2e8f0', fontSize: 11 }}>{road.name}</span>
-        <span style={{ color: '#64748b', fontSize: 10 }}>{laneCount}</span>
+        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />
+        <span className="flex-1 text-accent-foreground text-[13px]">{road.name}</span>
+        <span className="text-muted-foreground text-[11px]">{laneCount}</span>
       </div>
 
       {isEditing && (
-        <div style={{ padding: '4px 8px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="px-2.5 pt-1.5 pb-2.5 flex flex-col gap-2">
           <input
             defaultValue={road.name}
             key={`${road.id}-name`}
@@ -123,61 +105,32 @@ function RoadItem({
               const v = e.target.value.trim()
               if (v) updateRoad({ ...road, name: v })
             }}
-            style={inputStyle}
+            className="panel-input"
             placeholder="Road name"
           />
           <select
             value={road.type}
             onChange={(e) => updateRoad({ ...road, type: Number(e.target.value) as RoadType })}
-            style={inputStyle}
+            className="panel-select"
           >
             <option value={RoadType.HIGHWAY}>Highway</option>
             <option value={RoadType.CITY_ROAD}>City Road</option>
             <option value={RoadType.PARK}>Park</option>
             <option value={RoadType.UNKNOWN}>Unknown</option>
           </select>
-          <button
+          <Button
+            variant="destructive"
+            size="sm"
+            className="w-full"
             onClick={() => {
               removeRoad(road.id)
               onClearEditing()
             }}
-            style={deleteBtnStyle}
           >
             Delete Road
-          </button>
+          </Button>
         </div>
       )}
     </div>
   )
-}
-
-const inputStyle: React.CSSProperties = {
-  background: '#0f172a',
-  border: '1px solid #334155',
-  borderRadius: 4,
-  color: '#f1f5f9',
-  padding: '4px 6px',
-  fontSize: 11,
-  width: '100%',
-}
-
-const addBtnStyle: React.CSSProperties = {
-  background: '#1d4ed8',
-  border: 'none',
-  borderRadius: 4,
-  color: '#f1f5f9',
-  padding: '3px 8px',
-  fontSize: 10,
-  cursor: 'pointer',
-}
-
-const deleteBtnStyle: React.CSSProperties = {
-  background: '#7f1d1d',
-  border: 'none',
-  borderRadius: 4,
-  color: '#f1f5f9',
-  padding: '4px 8px',
-  fontSize: 10,
-  cursor: 'pointer',
-  width: '100%',
 }
