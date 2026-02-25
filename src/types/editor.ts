@@ -11,17 +11,7 @@ import {
 } from './apollo-map'
 import type { Feature, LineString, Point, Polygon } from 'geojson'
 
-export type DrawMode =
-  | 'select'
-  | 'draw_lane'
-  | 'draw_junction'
-  | 'draw_crosswalk'
-  | 'draw_clear_area'
-  | 'draw_speed_bump'
-  | 'draw_parking_space'
-  | 'draw_signal'
-  | 'draw_stop_sign'
-  | 'connect_lanes'
+export type DrawMode = 'select' | 'creating' | 'connect_lanes'
 
 export interface LaneFeature {
   id: string

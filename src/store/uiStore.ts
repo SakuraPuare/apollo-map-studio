@@ -1,8 +1,13 @@
 import { create } from 'zustand'
-import type { DrawMode } from '../types/editor'
+import type { DrawMode, MapElement } from '../types/editor'
+
+interface ActiveCreation {
+  elementType: MapElement['type']
+}
 
 interface UIState {
   drawMode: DrawMode
+  activeCreation: ActiveCreation | null
   selectedIds: string[]
   hoveredId: string | null
   showNewProjectDialog: boolean
@@ -18,6 +23,7 @@ interface UIState {
   flyToCounter: number
 
   setDrawMode: (mode: DrawMode) => void
+  setActiveCreation: (info: ActiveCreation | null) => void
   setSelected: (ids: string[]) => void
   addSelected: (id: string) => void
   clearSelected: () => void
@@ -37,6 +43,7 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   drawMode: 'select',
+  activeCreation: null,
   selectedIds: [],
   hoveredId: null,
   showNewProjectDialog: true,
@@ -62,7 +69,8 @@ export const useUIStore = create<UIState>((set) => ({
   flyToTarget: null,
   flyToCounter: 0,
 
-  setDrawMode: (mode) => set({ drawMode: mode, connectFromId: null }),
+  setDrawMode: (mode) => set({ drawMode: mode, connectFromId: null, activeCreation: null }),
+  setActiveCreation: (info) => set({ activeCreation: info }),
   setSelected: (ids) => set({ selectedIds: ids }),
   addSelected: (id) => set((s) => ({ selectedIds: [...s.selectedIds, id] })),
   clearSelected: () => set({ selectedIds: [] }),

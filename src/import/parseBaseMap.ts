@@ -23,6 +23,9 @@ import {
   StopSignType,
 } from '../types/apollo-map'
 import type { Feature, LineString, Polygon, Point } from 'geojson'
+import { decodeToolMeta } from '../drawing/metadata/coordCodec'
+import { detectToolFromGeometry } from '../drawing/metadata/geometryDetector'
+import type { ToolMeta } from '../drawing/primitives/types'
 
 /**
  * Decode a proto bytes field (base64 string from protobufjs toObject or Uint8Array) to a UTF-8 string.
@@ -66,13 +69,56 @@ function parseProjString(projStr: string): { lat: number; lon: number } | null {
 }
 
 /**
- * Convert PointENU array to WGS84 LineString coordinates.
+ * Process polygon ENU points with three-level metadata recovery:
+ * Level 1: mantissa decoding → Level 2: geometric heuristic → Level 3: default 'polygon'.
  */
-function enuPointsToCoords(
+function processPolygonPoints(
   points: PointENU[],
   toLngLat: (x: number, y: number) => [number, number]
-): [number, number][] {
-  return points.map((p) => toLngLat(p.x, p.y))
+): { coords: [number, number][]; toolMeta: ToolMeta } {
+  // Level 1: Try mantissa decoding
+  const decoded = decodeToolMeta(points)
+  if (decoded) {
+    const coords = decoded.cleanPoints.map((p) => toLngLat(p.x, p.y))
+    return { coords, toolMeta: decoded.meta }
+  }
+
+  // No encoding — convert raw points
+  const coords = points.map((p) => toLngLat(p.x, p.y))
+
+  // Level 2+3: Geometric heuristic detection (returns default 'polygon' if no pattern detected)
+  const closedCoords = [...coords, coords[0]]
+  const tempPolygon: Feature<Polygon> = {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [closedCoords] },
+  }
+  const toolMeta = detectToolFromGeometry('Polygon', tempPolygon)
+  return { coords, toolMeta }
+}
+
+/**
+ * Process curve ENU points with three-level metadata recovery:
+ * Level 1: mantissa decoding → Level 2/3: default 'line'.
+ */
+function processCurvePoints(
+  points: PointENU[],
+  toLngLat: (x: number, y: number) => [number, number]
+): { coords: [number, number][]; toolMeta: ToolMeta } {
+  if (points.length === 0) {
+    return { coords: [], toolMeta: { tool: 'line' } }
+  }
+
+  // Level 1: Try mantissa decoding
+  const decoded = decodeToolMeta(points)
+  if (decoded) {
+    const coords = decoded.cleanPoints.map((p) => toLngLat(p.x, p.y))
+    return { coords, toolMeta: decoded.meta }
+  }
+
+  // No encoding — convert raw points, default to line tool
+  const coords = points.map((p) => toLngLat(p.x, p.y))
+  return { coords, toolMeta: detectToolFromGeometry('LineString') }
 }
 
 /**
@@ -99,14 +145,15 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse lanes
   const lanes: LaneFeature[] = map.lane.map((lane) => {
-    const coords = lane.centralCurve.segment.flatMap((seg) =>
-      seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
+    const rawPoints: PointENU[] = lane.centralCurve.segment.flatMap(
+      (seg) => seg.lineSegment?.point ?? []
     )
+    const { coords, toolMeta: centerToolMeta } = processCurvePoints(rawPoints, proj.toLngLat)
 
     const centerLine: Feature<LineString> = {
       type: 'Feature',
       id: lane.id.id,
-      properties: {},
+      properties: { _toolMeta: centerToolMeta },
       geometry: { type: 'LineString', coordinates: coords },
     }
 
@@ -145,14 +192,14 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse junctions
   const junctions: JunctionFeature[] = map.junction.map((j) => {
-    const coords = j.polygon.point.map((p) => proj.toLngLat(p.x, p.y))
+    const { coords, toolMeta } = processPolygonPoints(j.polygon.point, proj.toLngLat)
     return {
       id: j.id.id,
       type: 'junction' as const,
       polygon: {
         type: 'Feature',
         id: j.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: {
           type: 'Polygon',
           coordinates: [[...coords, coords[0]].map(([lng, lat]) => [lng, lat])],
@@ -163,14 +210,14 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse crosswalks
   const crosswalks: CrosswalkFeature[] = map.crosswalk.map((cw) => {
-    const coords = cw.polygon.point.map((p) => proj.toLngLat(p.x, p.y))
+    const { coords, toolMeta } = processPolygonPoints(cw.polygon.point, proj.toLngLat)
     return {
       id: cw.id.id,
       type: 'crosswalk' as const,
       polygon: {
         type: 'Feature',
         id: cw.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: {
           type: 'Polygon',
           coordinates: [[...coords, coords[0]].map(([lng, lat]) => [lng, lat])],
@@ -181,17 +228,16 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse stop signs
   const stopSigns: StopSignFeature[] = map.stopSign.map((ss) => {
-    const stopLineCoords =
-      ss.stopLine[0]?.segment.flatMap((seg) =>
-        seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
-      ) ?? []
+    const rawPoints: PointENU[] =
+      ss.stopLine[0]?.segment.flatMap((seg) => seg.lineSegment?.point ?? []) ?? []
+    const { coords: stopLineCoords, toolMeta } = processCurvePoints(rawPoints, proj.toLngLat)
     return {
       id: ss.id.id,
       type: 'stop_sign' as const,
       stopLine: {
         type: 'Feature',
         id: ss.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: { type: 'LineString', coordinates: stopLineCoords },
       } as Feature<LineString>,
       stopSignType: (ss.type as StopSignType) ?? StopSignType.ONE_WAY,
@@ -200,14 +246,14 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse clear areas
   const clearAreas: ClearAreaFeature[] = map.clearArea.map((ca) => {
-    const coords = ca.polygon.point.map((p) => proj.toLngLat(p.x, p.y))
+    const { coords, toolMeta } = processPolygonPoints(ca.polygon.point, proj.toLngLat)
     return {
       id: ca.id.id,
       type: 'clear_area' as const,
       polygon: {
         type: 'Feature',
         id: ca.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: {
           type: 'Polygon',
           coordinates: [[...coords, coords[0]].map(([lng, lat]) => [lng, lat])],
@@ -218,17 +264,16 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse speed bumps
   const speedBumps: SpeedBumpFeature[] = map.speedBump.map((sb) => {
-    const coords =
-      sb.position[0]?.segment.flatMap((seg) =>
-        seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
-      ) ?? []
+    const rawPoints: PointENU[] =
+      sb.position[0]?.segment.flatMap((seg) => seg.lineSegment?.point ?? []) ?? []
+    const { coords, toolMeta } = processCurvePoints(rawPoints, proj.toLngLat)
     return {
       id: sb.id.id,
       type: 'speed_bump' as const,
       line: {
         type: 'Feature',
         id: sb.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: { type: 'LineString', coordinates: coords },
       } as Feature<LineString>,
     }
@@ -236,14 +281,14 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
 
   // Parse parking spaces
   const parkingSpaces: ParkingSpaceFeature[] = map.parkingSpace.map((ps) => {
-    const coords = ps.polygon.point.map((p) => proj.toLngLat(p.x, p.y))
+    const { coords, toolMeta } = processPolygonPoints(ps.polygon.point, proj.toLngLat)
     return {
       id: ps.id.id,
       type: 'parking_space' as const,
       polygon: {
         type: 'Feature',
         id: ps.id.id,
-        properties: {},
+        properties: { _toolMeta: toolMeta },
         geometry: {
           type: 'Polygon',
           coordinates: [[...coords, coords[0]].map(([lng, lat]) => [lng, lat])],
@@ -253,15 +298,19 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
     }
   })
 
-  // Signals - minimal parse (position from first stop line midpoint)
+  // Signals - parse stopLine with metadata recovery, derive position from midpoint
   const signals: SignalFeature[] =
     map.signal?.map((s) => {
-      const stopLineCoords = s.stopLine[0]?.segment.flatMap((seg) =>
-        seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
-      ) ?? [[originLon, originLat]]
+      const rawPoints: PointENU[] =
+        s.stopLine[0]?.segment.flatMap((seg) => seg.lineSegment?.point ?? []) ?? []
+      const { coords: stopLineCoords, toolMeta: stopLineToolMeta } = processCurvePoints(
+        rawPoints,
+        proj.toLngLat
+      )
 
+      const fallbackCoord: [number, number] = [originLon, originLat]
       const midIdx = Math.floor(stopLineCoords.length / 2)
-      const center = stopLineCoords[midIdx] ?? [originLon, originLat]
+      const center = stopLineCoords[midIdx] ?? fallbackCoord
 
       return {
         id: s.id.id,
@@ -275,7 +324,7 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
         stopLine: {
           type: 'Feature',
           id: s.id.id,
-          properties: {},
+          properties: { _toolMeta: stopLineToolMeta },
           geometry: { type: 'LineString', coordinates: stopLineCoords },
         } as Feature<LineString>,
         signalType: (s.type as SignalType) ?? SignalType.MIX_3_VERTICAL,

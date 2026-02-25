@@ -33,6 +33,8 @@ import type {
   RoadDefinition,
   ProjectConfig,
 } from '../types/editor'
+import type { ToolMeta } from '../drawing/primitives/types'
+import { encodeToolMeta } from '../drawing/metadata/coordCodec'
 
 const textEncoder = new TextEncoder()
 
@@ -102,17 +104,22 @@ function buildLaneBoundary(
 
 /**
  * Build a Polygon proto from WGS84 ring coordinates.
+ * If toolMeta is provided, encode it into the coordinate mantissa.
  */
-function buildPolygon(coords: Position[]): Polygon {
-  return { point: positionsToENU(coords) }
+function buildPolygon(coords: Position[], toolMeta?: ToolMeta): Polygon {
+  const points = positionsToENU(coords)
+  if (toolMeta) encodeToolMeta(points, toolMeta)
+  return { point: points }
 }
 
 /**
  * Build a Curve from a GeoJSON LineString in WGS84.
+ * If toolMeta is provided, encode it into the coordinate mantissa.
  */
-function linestringToCurve(coords: Position[]): Curve {
+function linestringToCurve(coords: Position[], toolMeta?: ToolMeta): Curve {
   const points = positionsToENU(coords)
   if (points.length < 2) return { segment: [] }
+  if (toolMeta) encodeToolMeta(points, toolMeta)
   const heading = computeStartHeading({
     type: 'Feature',
     geometry: { type: 'LineString', coordinates: coords },
@@ -127,6 +134,8 @@ function linestringToCurve(coords: Position[]): Curve {
 function buildLane(lane: LaneFeature, overlapIds: string[]): ApolloLane {
   const centerCoords = lane.centerLine.geometry.coordinates
   const centerENU = positionsToENU(centerCoords)
+  const toolMeta = lane.centerLine.properties?._toolMeta as ToolMeta | undefined
+  if (toolMeta) encodeToolMeta(centerENU, toolMeta)
   const heading = computeStartHeading(lane.centerLine)
   const centralCurve = buildCurve(centerENU, heading)
   const laneLength = turf.length(lane.centerLine, { units: 'meters' })
@@ -283,8 +292,11 @@ export async function buildBaseMap(params: {
   // 4. Build junctions
   const junctions: ApolloJunction[] = params.junctions.map((j) => ({
     id: { id: j.id },
-    polygon: buildPolygon(j.polygon.geometry.coordinates[0]),
-    overlapId: [], // populated from overlap results
+    polygon: buildPolygon(
+      j.polygon.geometry.coordinates[0],
+      j.polygon.properties?._toolMeta as ToolMeta | undefined
+    ),
+    overlapId: [],
   }))
 
   // 5. Build signals
@@ -298,13 +310,23 @@ export async function buildBaseMap(params: {
     subsignal: [],
     overlapId: [],
     type: s.signalType,
-    stopLine: [linestringToCurve(s.stopLine.geometry.coordinates)],
+    stopLine: [
+      linestringToCurve(
+        s.stopLine.geometry.coordinates,
+        s.stopLine.properties?._toolMeta as ToolMeta | undefined
+      ),
+    ],
   }))
 
   // 6. Build stop signs
   const stopSigns: ApolloStopSign[] = params.stopSigns.map((ss) => ({
     id: { id: ss.id },
-    stopLine: [linestringToCurve(ss.stopLine.geometry.coordinates)],
+    stopLine: [
+      linestringToCurve(
+        ss.stopLine.geometry.coordinates,
+        ss.stopLine.properties?._toolMeta as ToolMeta | undefined
+      ),
+    ],
     overlapId: [],
     type: ss.stopSignType,
   }))
@@ -312,28 +334,42 @@ export async function buildBaseMap(params: {
   // 7. Build crosswalks
   const crosswalks: ApolloCrosswalk[] = params.crosswalks.map((cw) => ({
     id: { id: cw.id },
-    polygon: buildPolygon(cw.polygon.geometry.coordinates[0]),
+    polygon: buildPolygon(
+      cw.polygon.geometry.coordinates[0],
+      cw.polygon.properties?._toolMeta as ToolMeta | undefined
+    ),
     overlapId: [],
   }))
 
   // 8. Build clear areas
   const clearAreas: ApolloClearArea[] = params.clearAreas.map((ca) => ({
     id: { id: ca.id },
-    polygon: buildPolygon(ca.polygon.geometry.coordinates[0]),
+    polygon: buildPolygon(
+      ca.polygon.geometry.coordinates[0],
+      ca.polygon.properties?._toolMeta as ToolMeta | undefined
+    ),
     overlapId: [],
   }))
 
   // 9. Build speed bumps
   const speedBumps: ApolloSpeedBump[] = params.speedBumps.map((sb) => ({
     id: { id: sb.id },
-    position: [linestringToCurve(sb.line.geometry.coordinates)],
+    position: [
+      linestringToCurve(
+        sb.line.geometry.coordinates,
+        sb.line.properties?._toolMeta as ToolMeta | undefined
+      ),
+    ],
     overlapId: [],
   }))
 
   // 10. Build parking spaces
   const parkingSpaces: ApolloParkingSpace[] = params.parkingSpaces.map((ps) => ({
     id: { id: ps.id },
-    polygon: buildPolygon(ps.polygon.geometry.coordinates[0]),
+    polygon: buildPolygon(
+      ps.polygon.geometry.coordinates[0],
+      ps.polygon.properties?._toolMeta as ToolMeta | undefined
+    ),
     overlapId: [],
     heading: ps.heading,
   }))

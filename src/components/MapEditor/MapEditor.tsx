@@ -1,21 +1,17 @@
 import { useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
-import MapboxDraw from '@mapbox/mapbox-gl-draw'
 import type { Map as MapLibreMap } from 'maplibre-gl'
-import type { Feature } from 'geojson'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
-import type { LaneFeature, MapElement } from '../../types/editor'
-import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
+import { LaneDirection } from '../../types/apollo-map'
 import { computeBoundaries, buildLanePolygon, laneMidpointInfo } from '../../geo/laneGeometry'
 import { getRoadColor } from '../../utils/roadColors'
+import { DrawingController } from '../../drawing/DrawingController'
+import { addDrawingPreviewLayers } from '../../drawing/primitives/BasePrimitiveTool'
+import { setDrawingController } from '../../drawing/controllerRef'
+import { EditingController } from '../../drawing/editing/EditingController'
+import { setEditingController, getEditingController } from '../../drawing/editing/editingRef'
 import * as turf from '@turf/turf'
-
-// Counter for unique IDs
-let idCounter = 0
-function nextId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${++idCounter}`
-}
 
 const BLANK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -32,7 +28,7 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
 export default function MapEditor() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
-  const drawRef = useRef<MapboxDraw | null>(null)
+  const controllerRef = useRef<DrawingController | null>(null)
 
   const project = useMapStore((s) => s.project)
   const drawMode = useUIStore((s) => s.drawMode)
@@ -60,6 +56,7 @@ export default function MapEditor() {
     map.on('load', () => {
       addGridLayer(map)
       addMapElementLayers(map)
+      addDrawingPreviewLayers(map)
       updateGridFromViewport(map)
       ready = true
       // Render any data already in the store
@@ -72,141 +69,34 @@ export default function MapEditor() {
     })
 
     // Subscribe directly to store changes — bypasses React effect deps
+    let idlePending = false
     const renderMap = () => {
-      if (!ready || !map.isStyleLoaded()) return
+      if (!ready) return
+      if (!map.isStyleLoaded()) {
+        // GeoJSON worker may still be processing — defer until map is idle
+        if (!idlePending) {
+          idlePending = true
+          map.once('idle', () => {
+            idlePending = false
+            renderMap()
+          })
+        }
+        return
+      }
       updateBoundaryLayers(map)
       updateElementLayers(map)
     }
     const unsubMap = useMapStore.subscribe(renderMap)
     const unsubUI = useUIStore.subscribe(renderMap)
 
-    const draw = new MapboxDraw({
-      displayControlsDefault: false,
-      controls: {},
-      defaultMode: 'simple_select',
-      styles: getDrawStyles(),
-    })
+    const controller = new DrawingController(map)
+    controllerRef.current = controller
+    setDrawingController(controller)
 
-    ;(map as unknown as maplibregl.Map & { addControl: (ctrl: unknown) => void }).addControl(
-      draw as unknown as maplibregl.IControl
-    )
-    drawRef.current = draw
+    const editingCtrl = new EditingController(map)
+    setEditingController(editingCtrl)
+
     mapRef.current = map
-
-    // All handlers access store via getState() to avoid stale closures
-    map.on('draw.create', (e: { features: Feature[] }) => {
-      const feature = e.features[0]
-      if (!feature) return
-
-      const { drawMode } = useUIStore.getState()
-      const { addElement } = useMapStore.getState()
-      const { setSelected, setDrawMode, setStatus } = useUIStore.getState()
-
-      let element: MapElement | null = null
-
-      switch (drawMode) {
-        case 'draw_lane': {
-          if (feature.geometry.type !== 'LineString') return
-          const lane: LaneFeature = {
-            id: nextId('lane'),
-            type: 'lane',
-            centerLine: feature as Feature<import('geojson').LineString>,
-            width: 3.75,
-            speedLimit: 13.89,
-            laneType: LaneType.CITY_DRIVING,
-            turn: LaneTurn.NO_TURN,
-            direction: LaneDirection.FORWARD,
-            leftBoundaryType: BoundaryType.DOTTED_WHITE,
-            rightBoundaryType: BoundaryType.DOTTED_WHITE,
-            predecessorIds: [],
-            successorIds: [],
-            leftNeighborIds: [],
-            rightNeighborIds: [],
-          }
-          element = lane
-          setStatus(`Lane ${lane.id} created`)
-          break
-        }
-        case 'draw_junction':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('junction'),
-            type: 'junction',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_crosswalk':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('crosswalk'),
-            type: 'crosswalk',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_clear_area':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('clear_area'),
-            type: 'clear_area',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_speed_bump':
-          if (feature.geometry.type !== 'LineString') return
-          element = {
-            id: nextId('speed_bump'),
-            type: 'speed_bump',
-            line: feature as Feature<import('geojson').LineString>,
-          }
-          break
-        case 'draw_parking_space':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('parking_space'),
-            type: 'parking_space',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_signal': {
-          if (feature.geometry.type !== 'LineString') return
-          const coords = feature.geometry.coordinates
-          const midIdx = Math.floor(coords.length / 2)
-          element = {
-            id: nextId('signal'),
-            type: 'signal',
-            stopLine: feature as Feature<import('geojson').LineString>,
-            position: {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: coords[midIdx] },
-              properties: null,
-            } as Feature<import('geojson').Point>,
-            signalType: 5,
-          }
-          break
-        }
-        case 'draw_stop_sign':
-          if (feature.geometry.type !== 'LineString') return
-          element = {
-            id: nextId('stop_sign'),
-            type: 'stop_sign',
-            stopLine: feature as Feature<import('geojson').LineString>,
-            stopSignType: 1,
-          }
-          break
-      }
-
-      if (element) {
-        addElement(element)
-        setSelected([element.id])
-        draw.delete([feature.id as string])
-        setDrawMode('select')
-        // Force re-render after draw.delete to prevent the first element from
-        // being invisible. draw.delete triggers a MapLibre repaint that can race
-        // ahead of the GeoJSON worker processing the initial setData call.
-        updateBoundaryLayers(map)
-        updateElementLayers(map)
-      }
-    })
 
     map.on('click', (e: maplibregl.MapMouseEvent) => {
       const { drawMode, connectFromId, setSelected, setConnectFromId, setStatus } =
@@ -215,6 +105,9 @@ export default function MapEditor() {
 
       // Don't interfere while actively drawing
       if (drawMode !== 'select' && drawMode !== 'connect_lanes') return
+
+      // Don't change selection when clicking on edit handles
+      if (drawMode === 'select' && getEditingController()?.isHandleHit(e.point)) return
 
       const features = map.queryRenderedFeatures(e.point, {
         layers: [
@@ -267,6 +160,11 @@ export default function MapEditor() {
     })
 
     return () => {
+      editingCtrl.destroy()
+      setEditingController(null)
+      controller.destroy()
+      setDrawingController(null)
+      controllerRef.current = null
       unsubMap()
       unsubUI()
       map.remove()
@@ -350,26 +248,10 @@ export default function MapEditor() {
     })
   }, [flyToCounter])
 
-  // Sync draw mode to mapbox-gl-draw
+  // Cancel active drawing when switching away from 'creating' mode
   useEffect(() => {
-    const draw = drawRef.current
-    if (!draw) return
-    const modeMap: Record<string, string> = {
-      select: 'simple_select',
-      draw_lane: 'draw_line_string',
-      draw_junction: 'draw_polygon',
-      draw_crosswalk: 'draw_polygon',
-      draw_clear_area: 'draw_polygon',
-      draw_speed_bump: 'draw_line_string',
-      draw_parking_space: 'draw_polygon',
-      draw_signal: 'draw_line_string',
-      draw_stop_sign: 'draw_line_string',
-      connect_lanes: 'simple_select',
-    }
-    try {
-      draw.changeMode(modeMap[drawMode] ?? 'simple_select')
-    } catch {
-      // ignore if map not ready
+    if (drawMode !== 'creating' && controllerRef.current?.isActive()) {
+      controllerRef.current.cancel()
     }
   }, [drawMode])
 
@@ -1232,35 +1114,4 @@ function updateElementLayers(map: MapLibreMap) {
 
 function emptyFC(): GeoJSON.FeatureCollection {
   return { type: 'FeatureCollection', features: [] }
-}
-
-function getDrawStyles() {
-  return [
-    {
-      id: 'gl-draw-line',
-      type: 'line',
-      filter: ['all', ['==', '$type', 'LineString'], ['!=', 'mode', 'static']],
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#3b82f6', 'line-dasharray': [0.2, 2], 'line-width': 2 },
-    },
-    {
-      id: 'gl-draw-polygon-fill',
-      type: 'fill',
-      filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
-      paint: { 'fill-color': '#3b82f6', 'fill-outline-color': '#3b82f6', 'fill-opacity': 0.1 },
-    },
-    {
-      id: 'gl-draw-polygon-stroke-active',
-      type: 'line',
-      filter: ['all', ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#3b82f6', 'line-dasharray': [0.2, 2], 'line-width': 2 },
-    },
-    {
-      id: 'gl-draw-point-active',
-      type: 'circle',
-      filter: ['all', ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
-      paint: { 'circle-radius': 4, 'circle-color': '#3b82f6' },
-    },
-  ]
 }

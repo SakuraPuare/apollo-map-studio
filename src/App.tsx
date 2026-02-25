@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { useUIStore } from './store/uiStore'
 import { useMapStore } from './store/mapStore'
+import { getDrawingController } from './drawing/controllerRef'
 import MapEditor from './components/MapEditor/MapEditor'
 import Toolbar from './components/Toolbar/Toolbar'
 import PropertiesPanel from './components/PropertiesPanel/PropertiesPanel'
@@ -70,36 +71,37 @@ export default function App() {
       }
 
       // Single key shortcuts
+      const ctrl = getDrawingController()
       switch (e.key.toLowerCase()) {
         case 's':
           setDrawMode('select')
           break
         case 'l':
-          setDrawMode('draw_lane')
+          ctrl?.startCreation('lane')
           break
         case 'c':
           setDrawMode('connect_lanes')
           break
         case 'j':
-          setDrawMode('draw_junction')
+          ctrl?.startCreation('junction')
           break
         case 'w':
-          setDrawMode('draw_crosswalk')
+          ctrl?.startCreation('crosswalk')
           break
         case 't':
-          setDrawMode('draw_signal')
+          ctrl?.startCreation('signal')
           break
         case 'p':
-          setDrawMode('draw_stop_sign')
+          ctrl?.startCreation('stop_sign')
           break
         case 'a':
-          setDrawMode('draw_clear_area')
+          ctrl?.startCreation('clear_area')
           break
         case 'b':
-          setDrawMode('draw_speed_bump')
+          ctrl?.startCreation('speed_bump')
           break
         case 'k':
-          setDrawMode('draw_parking_space')
+          ctrl?.startCreation('parking_space')
           break
         case 'escape':
           setDrawMode('select')

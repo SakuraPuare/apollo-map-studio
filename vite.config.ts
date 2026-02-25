@@ -25,7 +25,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'map-vendor': ['maplibre-gl', '@mapbox/mapbox-gl-draw'],
+          'map-vendor': ['maplibre-gl'],
           protobuf: ['protobufjs'],
           turf: ['@turf/turf'],
           'ui-vendor': [

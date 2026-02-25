@@ -2,22 +2,15 @@ import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 
 export default function StatusBar() {
-  const { statusMessage, drawMode, selectedIds } = useUIStore()
+  const { statusMessage, drawMode, activeCreation, selectedIds } = useUIStore()
   const { lanes, project } = useMapStore()
 
   const laneCount = Object.keys(lanes).length
 
   const modeLabel: Record<string, string> = {
     select: 'Select',
-    draw_lane: 'Drawing Lane (click to add points, double-click to finish)',
+    creating: activeCreation ? `Creating ${activeCreation.elementType}` : 'Creating',
     connect_lanes: 'Connect Mode (click source lane, then target lane)',
-    draw_junction: 'Drawing Junction',
-    draw_crosswalk: 'Drawing Crosswalk',
-    draw_clear_area: 'Drawing Clear Area',
-    draw_speed_bump: 'Drawing Speed Bump',
-    draw_parking_space: 'Drawing Parking Space',
-    draw_signal: 'Drawing Signal Stop Line',
-    draw_stop_sign: 'Drawing Stop Sign Line',
   }
 
   return (

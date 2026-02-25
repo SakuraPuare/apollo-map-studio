@@ -16,11 +16,14 @@ import {
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { cn } from '@/lib/utils'
-import type { DrawMode } from '../../types/editor'
+import type { MapElement } from '../../types/editor'
+import { getDrawingController } from '../../drawing/controllerRef'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
-interface Tool {
-  mode: DrawMode
+interface DrawTool {
+  id: string
+  elementType?: MapElement['type']
+  special?: 'select' | 'connect'
   label: string
   icon: React.ReactNode
   shortcut?: string
@@ -90,17 +93,59 @@ const ParkingIcon = () => (
   </svg>
 )
 
-const DRAW_TOOLS: Tool[] = [
-  { mode: 'select', label: 'Select', shortcut: 'S', icon: <MousePointer size={20} /> },
-  { mode: 'draw_lane', label: 'Lane', shortcut: 'L', icon: <LaneIcon /> },
-  { mode: 'connect_lanes', label: 'Connect', shortcut: 'C', icon: <Link2 size={20} /> },
-  { mode: 'draw_junction', label: 'Junction', shortcut: 'J', icon: <Hexagon size={20} /> },
-  { mode: 'draw_crosswalk', label: 'Crosswalk', shortcut: 'W', icon: <CrosswalkIcon /> },
-  { mode: 'draw_signal', label: 'Signal', shortcut: 'T', icon: <SignalIcon /> },
-  { mode: 'draw_stop_sign', label: 'Stop Sign', shortcut: 'P', icon: <Octagon size={20} /> },
-  { mode: 'draw_clear_area', label: 'Clear Area', shortcut: 'A', icon: <SquareX size={20} /> },
-  { mode: 'draw_speed_bump', label: 'Speed Bump', shortcut: 'B', icon: <Waves size={20} /> },
-  { mode: 'draw_parking_space', label: 'Parking', shortcut: 'K', icon: <ParkingIcon /> },
+const DRAW_TOOLS: DrawTool[] = [
+  {
+    id: 'select',
+    special: 'select',
+    label: 'Select',
+    shortcut: 'S',
+    icon: <MousePointer size={20} />,
+  },
+  { id: 'lane', elementType: 'lane', label: 'Lane', shortcut: 'L', icon: <LaneIcon /> },
+  { id: 'connect', special: 'connect', label: 'Connect', shortcut: 'C', icon: <Link2 size={20} /> },
+  {
+    id: 'junction',
+    elementType: 'junction',
+    label: 'Junction',
+    shortcut: 'J',
+    icon: <Hexagon size={20} />,
+  },
+  {
+    id: 'crosswalk',
+    elementType: 'crosswalk',
+    label: 'Crosswalk',
+    shortcut: 'W',
+    icon: <CrosswalkIcon />,
+  },
+  { id: 'signal', elementType: 'signal', label: 'Signal', shortcut: 'T', icon: <SignalIcon /> },
+  {
+    id: 'stop_sign',
+    elementType: 'stop_sign',
+    label: 'Stop Sign',
+    shortcut: 'P',
+    icon: <Octagon size={20} />,
+  },
+  {
+    id: 'clear_area',
+    elementType: 'clear_area',
+    label: 'Clear Area',
+    shortcut: 'A',
+    icon: <SquareX size={20} />,
+  },
+  {
+    id: 'speed_bump',
+    elementType: 'speed_bump',
+    label: 'Speed Bump',
+    shortcut: 'B',
+    icon: <Waves size={20} />,
+  },
+  {
+    id: 'parking_space',
+    elementType: 'parking_space',
+    label: 'Parking',
+    shortcut: 'K',
+    icon: <ParkingIcon />,
+  },
 ]
 
 const LAYER_GROUPS: { key: string; label: string; abbrev: string; color: string }[] = [
@@ -118,6 +163,7 @@ const LAYER_GROUPS: { key: string; label: string; abbrev: string; color: string 
 export default function Toolbar(): React.ReactElement {
   const {
     drawMode,
+    activeCreation,
     setDrawMode,
     setShowNewProjectDialog,
     setShowExportDialog,
@@ -128,6 +174,22 @@ export default function Toolbar(): React.ReactElement {
     showElementListPanel,
     setShowElementListPanel,
   } = useUIStore()
+
+  const handleToolClick = (tool: DrawTool) => {
+    if (tool.special === 'select') {
+      setDrawMode('select')
+    } else if (tool.special === 'connect') {
+      setDrawMode('connect_lanes')
+    } else if (tool.elementType) {
+      getDrawingController()?.startCreation(tool.elementType)
+    }
+  }
+
+  const isToolActive = (tool: DrawTool): boolean => {
+    if (tool.special === 'select') return drawMode === 'select'
+    if (tool.special === 'connect') return drawMode === 'connect_lanes'
+    return drawMode === 'creating' && activeCreation?.elementType === tool.elementType
+  }
 
   const handleUndo = () => {
     const temporal = (
@@ -149,9 +211,9 @@ export default function Toolbar(): React.ReactElement {
         {/* Draw tools */}
         {DRAW_TOOLS.map((tool) => (
           <ToolButton
-            key={tool.mode}
-            active={drawMode === tool.mode}
-            onClick={() => setDrawMode(tool.mode)}
+            key={tool.id}
+            active={isToolActive(tool)}
+            onClick={() => handleToolClick(tool)}
             tooltip={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
             icon={tool.icon}
           />

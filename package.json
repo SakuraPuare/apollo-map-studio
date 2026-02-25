@@ -13,7 +13,6 @@
     "autonomous-driving",
     "apollo-autopilot",
     "maplibre",
-    "mapbox-gl-draw",
     "protobuf",
     "routing-map",
     "lane-editor",
@@ -46,7 +45,6 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
-    "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@turf/turf": "^7.3.4",
     "access-guard": "^0.1.0",
     "class-variance-authority": "^0.7.1",
@@ -68,7 +66,6 @@
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@tailwindcss/vite": "^4.2.1",
-    "@types/mapbox__mapbox-gl-draw": "^1.4.9",
     "@types/node": "^25.3.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
