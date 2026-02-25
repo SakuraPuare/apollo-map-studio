@@ -72,11 +72,11 @@ export default defineConfig({
       ],
     },
 
-    socialLinks: [{ icon: 'github', link: 'https://github.com/yourname/apollo-map-studio' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/SakuraPuare/apollo-map-studio' }],
 
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Apollo Map Studio',
+      message: 'Released under the CC BY-NC-SA 4.0 License.',
+      copyright: 'ShuYingJiYu',
     },
 
     search: {

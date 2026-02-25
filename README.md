@@ -2,7 +2,7 @@
 
 A browser-based HD map editor for the [Apollo](https://github.com/ApolloAuto/apollo) autonomous driving platform. Draw lanes, junctions, signals, and all other map elements visually, then export Apollo-compatible binary map files directly from your browser — no C++ toolchain required.
 
-![License](https://img.shields.io/badge/license-MIT-blue)
+![License](https://img.shields.io/badge/license-CC%20BY--NC%204.0-orange)
 ![Version](https://img.shields.io/badge/version-0.2.0-green)
 
 ---
@@ -176,4 +176,15 @@ Pre-commit hooks (Husky + lint-staged) run ESLint and Prettier automatically on 
 
 ## License
 
-MIT
+This project is licensed under the [Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](https://creativecommons.org/licenses/by-nc/4.0/).
+
+**Commercial use of this project is prohibited.**
+
+### Third-Party Code
+
+This project includes protocol buffer definitions and algorithm ports from the [Apollo autonomous driving platform](https://github.com/ApolloAuto/apollo), which is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Specifically:
+
+- `public/proto/` — Protocol buffer definitions from Apollo
+- `src/export/` — TypeScript ports of Apollo's `sim_map_generator` and `topo_creator`
+
+These portions remain subject to the Apache License 2.0. See the [LICENSE](./LICENSE) file for full details.

@@ -37,4 +37,8 @@ features:
   - icon: 📡
     title: Offline First
     details: Runs entirely in the browser. No tile server, no backend, no network required after the initial page load.
+
+  - icon: 📜
+    title: CC BY-NC 4.0 License
+    details: Licensed under Creative Commons Attribution-NonCommercial 4.0. Free for personal and academic use. Commercial use is prohibited. Portions derived from Apollo (Apache 2.0) are attributed accordingly.
 ---
