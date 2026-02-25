@@ -61,6 +61,7 @@ export default defineConfig({
             { text: 'geo/overlapCalc', link: '/api/geo-overlap-calc' },
             { text: 'proto/loader', link: '/api/proto-loader' },
             { text: 'proto/codec', link: '/api/proto-codec' },
+            { text: 'proto/schema', link: '/api/proto-schema' },
             { text: 'export/buildBaseMap', link: '/api/export-base-map' },
             { text: 'export/buildSimMap', link: '/api/export-sim-map' },
             { text: 'export/buildRoutingMap', link: '/api/export-routing-map' },
