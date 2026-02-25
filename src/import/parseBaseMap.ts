@@ -138,7 +138,7 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
         properties: {},
         geometry: {
           type: 'Polygon',
-          coordinates: [coords.map(([lng, lat]) => [lng, lat])],
+          coordinates: [[...coords, coords[0]].map(([lng, lat]) => [lng, lat])],
         },
       } as Feature<Polygon>,
     }
