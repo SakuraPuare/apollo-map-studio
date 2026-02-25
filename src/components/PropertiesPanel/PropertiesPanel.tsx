@@ -15,6 +15,7 @@ export default function PropertiesPanel() {
     clearAreas,
     speedBumps,
     parkingSpaces,
+    roads,
   } = useMapStore()
 
   if (selectedIds.length === 0) {
@@ -27,6 +28,20 @@ export default function PropertiesPanel() {
 
   // Find the selected element
   const id = selectedIds[0]
+
+  // Check if it's a road
+  const road = roads[id]
+  if (road) {
+    return (
+      <div className="w-[300px] bg-card border-l border-border overflow-y-auto flex flex-col">
+        <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background shrink-0">
+          Properties
+        </div>
+        <RoadProperties roadId={id} />
+      </div>
+    )
+  }
+
   const element: MapElement | undefined =
     lanes[id] ??
     junctions[id] ??
@@ -155,5 +170,55 @@ function SignalPropertiesSimple({ id }: { id: string }) {
         setSelected([])
       }}
     />
+  )
+}
+
+function RoadProperties({ roadId }: { roadId: string }) {
+  const { roads, lanes, updateRoad, removeRoad } = useMapStore()
+  const { setSelected } = useUIStore()
+  const road = roads[roadId]
+  if (!road) return null
+
+  const laneCount = Object.values(lanes).filter((l) => l.roadId === roadId).length
+
+  return (
+    <div className="p-4 text-xs flex flex-col gap-2">
+      <div className="mb-1 text-muted-foreground text-[11px]">ROAD</div>
+      <div className="text-xs text-accent-foreground font-mono break-all">{road.id}</div>
+      <label className="text-muted-foreground text-[11px]">Name</label>
+      <input
+        defaultValue={road.name}
+        key={`${road.id}-name`}
+        onBlur={(e) => {
+          const v = e.target.value.trim()
+          if (v) updateRoad({ ...road, name: v })
+        }}
+        className="panel-input"
+        placeholder="Road name"
+      />
+      <label className="text-muted-foreground text-[11px]">Type</label>
+      <select
+        value={road.type}
+        onChange={(e) => updateRoad({ ...road, type: Number(e.target.value) })}
+        className="panel-select"
+      >
+        <option value={0}>UNKNOWN</option>
+        <option value={1}>HIGHWAY</option>
+        <option value={2}>CITY_ROAD</option>
+        <option value={3}>PARK</option>
+      </select>
+      <div className="text-muted-foreground text-[11px]">Lanes: {laneCount}</div>
+      <Button
+        variant="destructive"
+        size="sm"
+        className="w-full mt-1"
+        onClick={() => {
+          removeRoad(roadId)
+          setSelected([])
+        }}
+      >
+        Delete Road
+      </Button>
+    </div>
   )
 }
