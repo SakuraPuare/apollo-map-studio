@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
-import { Overlay, Dialog } from '../ExportDialog/ExportDialog'
 import { validateMap } from '../../validation/mapValidator'
 import type { ValidationReport, ValidationIssue } from '../../validation/mapValidator'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
-const severityColors: Record<string, string> = {
-  error: '#f87171',
-  warning: '#fbbf24',
-  info: '#94a3b8',
+const severityBgColors: Record<string, string> = {
+  error: 'bg-destructive/10 text-destructive',
+  warning: 'bg-[#cca700]/10 text-[#cca700]',
+  info: 'bg-muted text-muted-foreground',
 }
 
 const severityLabels: Record<string, string> = {
@@ -43,78 +45,64 @@ export default function ValidationDialog() {
   }
 
   return (
-    <Overlay>
-      <Dialog title="Map Validation Report" onClose={() => setShowValidationDialog(false)}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <Dialog open onOpenChange={() => setShowValidationDialog(false)}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Map Validation Report</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
           {/* Validate button */}
-          <button
-            onClick={handleValidate}
-            style={{
-              background: '#1d4ed8',
-              border: 'none',
-              borderRadius: 6,
-              padding: '8px 16px',
-              fontSize: 12,
-              cursor: 'pointer',
-              color: '#f1f5f9',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#2563eb'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#1d4ed8'
-            }}
-          >
+          <Button onClick={handleValidate} className="w-full">
             {report ? 'Re-validate' : 'Run Validation'}
-          </button>
+          </Button>
 
           {/* Stats summary */}
           {report && (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 8,
-              }}
-            >
-              <StatCard label="Lanes" value={report.stats.totalLanes} color="#f1f5f9" />
-              <StatCard label="Connections" value={report.stats.totalConnections} color="#f1f5f9" />
-              <StatCard label="Isolated" value={report.stats.isolatedLanes} color="#fbbf24" />
-              <StatCard label="Errors" value={report.stats.errorCount} color="#f87171" />
-              <StatCard label="Warnings" value={report.stats.warningCount} color="#fbbf24" />
-              <StatCard label="Info" value={report.stats.infoCount} color="#94a3b8" />
+            <div className="grid grid-cols-3 gap-2">
+              <StatCard
+                label="Lanes"
+                value={report.stats.totalLanes}
+                className="text-accent-foreground"
+              />
+              <StatCard
+                label="Connections"
+                value={report.stats.totalConnections}
+                className="text-accent-foreground"
+              />
+              <StatCard
+                label="Isolated"
+                value={report.stats.isolatedLanes}
+                className="text-[#cca700]"
+              />
+              <StatCard
+                label="Errors"
+                value={report.stats.errorCount}
+                className="text-destructive"
+              />
+              <StatCard
+                label="Warnings"
+                value={report.stats.warningCount}
+                className="text-[#cca700]"
+              />
+              <StatCard
+                label="Info"
+                value={report.stats.infoCount}
+                className="text-muted-foreground"
+              />
             </div>
           )}
 
           {/* Result message */}
           {report && report.issues.length === 0 && (
-            <div
-              style={{
-                background: '#0f172a',
-                border: '1px solid #334155',
-                borderRadius: 6,
-                padding: 16,
-                textAlign: 'center',
-                color: '#4ade80',
-                fontSize: 13,
-              }}
-            >
+            <div className="bg-background border border-border rounded-md p-4 text-center text-chart-2 text-[13px]">
               No issues found. Map is valid.
             </div>
           )}
 
           {/* Issues list */}
           {report && report.issues.length > 0 && (
-            <div
-              style={{
-                maxHeight: 300,
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-              }}
-            >
+            <div className="max-h-[350px] overflow-y-auto flex flex-col gap-1.5">
               {report.issues.map((issue, i) => (
                 <IssueRow
                   key={i}
@@ -125,74 +113,47 @@ export default function ValidationDialog() {
             </div>
           )}
         </div>
-      </Dialog>
-    </Overlay>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({
+  label,
+  value,
+  className,
+}: {
+  label: string
+  value: number
+  className?: string
+}) {
   return (
-    <div
-      style={{
-        background: '#0f172a',
-        border: '1px solid #334155',
-        borderRadius: 6,
-        padding: '8px 10px',
-        textAlign: 'center',
-      }}
-    >
-      <div style={{ fontSize: 16, fontWeight: 700, color }}>{value}</div>
-      <div style={{ fontSize: 9, color: '#64748b', marginTop: 2 }}>{label}</div>
+    <div className="bg-background border border-border rounded-md py-2 px-2.5 text-center">
+      <div className={cn('text-lg font-bold', className)}>{value}</div>
+      <div className="text-[11px] text-muted-foreground mt-0.5">{label}</div>
     </div>
   )
 }
 
 function IssueRow({ issue, onClick }: { issue: ValidationIssue; onClick: () => void }) {
-  const color = severityColors[issue.severity]
   return (
-    <div
-      style={{
-        background: '#0f172a',
-        border: '1px solid #334155',
-        borderRadius: 4,
-        padding: '6px 10px',
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 8,
-        fontSize: 11,
-      }}
-    >
+    <div className="bg-background border border-border rounded p-1.5 px-2.5 flex items-start gap-2 text-xs">
       {/* Severity badge */}
       <span
-        style={{
-          fontSize: 9,
-          color,
-          background: `${color}15`,
-          padding: '1px 5px',
-          borderRadius: 3,
-          flexShrink: 0,
-          fontWeight: 600,
-          marginTop: 1,
-        }}
+        className={cn(
+          'text-[9px] px-1.5 py-px rounded-sm shrink-0 font-semibold mt-px',
+          severityBgColors[issue.severity]
+        )}
       >
         {severityLabels[issue.severity]}
       </span>
 
       {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: '#e2e8f0', marginBottom: 2 }}>{issue.message}</div>
+      <div className="flex-1 min-w-0">
+        <div className="text-accent-foreground mb-0.5">{issue.message}</div>
         <button
           onClick={onClick}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#3b82f6',
-            fontSize: 9,
-            padding: 0,
-            cursor: 'pointer',
-            wordBreak: 'break-all',
-            textAlign: 'left',
-          }}
+          className="bg-transparent border-none text-primary text-[10px] p-0 cursor-pointer break-all text-left hover:underline"
           title="Click to select this element"
         >
           {issue.elementId}
@@ -200,16 +161,7 @@ function IssueRow({ issue, onClick }: { issue: ValidationIssue; onClick: () => v
       </div>
 
       {/* Category */}
-      <span
-        style={{
-          fontSize: 9,
-          color: '#475569',
-          flexShrink: 0,
-          marginTop: 1,
-        }}
-      >
-        {issue.category}
-      </span>
+      <span className="text-[10px] text-[#5a5a5a] shrink-0 mt-px">{issue.category}</span>
     </div>
   )
 }

@@ -6,6 +6,16 @@ import { buildSimMap } from '../../export/buildSimMap'
 import { buildRoutingMap } from '../../export/buildRoutingMap'
 import { encodeMap, encodeGraph, downloadBinary } from '../../proto/codec'
 import { setGlobalProjection } from '../../geo/projection'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { cn } from '@/lib/utils'
 
 type ExportStep =
   | 'idle'
@@ -127,15 +137,21 @@ export default function ExportDialog() {
     error: 'Export failed',
   }
 
+  const isExporting = step !== 'idle' && step !== 'done' && step !== 'error'
+
   return (
-    <Overlay>
-      <Dialog title="Export Map Files" onClose={() => setShowExportDialog(false)}>
-        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 16px' }}>
+    <Dialog open onOpenChange={() => setShowExportDialog(false)}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Export Map Files</DialogTitle>
+        </DialogHeader>
+
+        <p className="text-muted-foreground text-xs m-0">
           Exports Apollo HD Map binary files to your downloads folder.
         </p>
 
         {/* File selection */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        <div className="flex flex-col gap-2">
           <CheckItem
             checked={exportBase}
             onChange={setExportBase}
@@ -158,59 +174,37 @@ export default function ExportDialog() {
 
         {/* Progress */}
         {step !== 'idle' && (
-          <div
-            style={{
-              background: '#0f172a',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              padding: 12,
-              marginBottom: 12,
-              fontSize: 12,
-            }}
-          >
+          <div className="bg-background border border-border rounded p-3 text-xs">
             <div
-              style={{
-                color: step === 'error' ? '#f87171' : step === 'done' ? '#4ade80' : '#93c5fd',
-                marginBottom: 4,
-              }}
+              className={cn(
+                'mb-1',
+                step === 'error' && 'text-destructive',
+                step === 'done' && 'text-chart-2',
+                step !== 'error' && step !== 'done' && 'text-chart-5'
+              )}
             >
               {stepLabels[step]}
             </div>
             {stats && (
-              <div style={{ color: '#64748b', fontSize: 11 }}>
+              <div className="text-muted-foreground text-[11px]">
                 {stats.lanes} lanes · {stats.roads} roads
                 {stats.nodes > 0 && ` · ${stats.nodes} nodes · ${stats.edges} edges`}
               </div>
             )}
-            {error && (
-              <div style={{ color: '#f87171', fontSize: 11, marginTop: 4, wordBreak: 'break-all' }}>
-                {error}
-              </div>
-            )}
+            {error && <div className="text-destructive text-[11px] mt-1 break-all">{error}</div>}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={() => setShowExportDialog(false)}
-            style={{ ...btnStyle, background: '#374151' }}
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowExportDialog(false)}>
             Close
-          </button>
-          <button
-            onClick={handleExport}
-            disabled={step !== 'idle' && step !== 'done' && step !== 'error'}
-            style={{
-              ...btnStyle,
-              background: '#1d4ed8',
-              opacity: step !== 'idle' && step !== 'done' && step !== 'error' ? 0.5 : 1,
-            }}
-          >
+          </Button>
+          <Button onClick={handleExport} disabled={isExporting}>
             {step === 'done' ? 'Export Again' : 'Export'}
-          </button>
-        </div>
-      </Dialog>
-    </Overlay>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -227,104 +221,20 @@ function CheckItem({
 }) {
   return (
     <label
-      style={{
-        display: 'flex',
-        gap: 8,
-        cursor: 'pointer',
-        alignItems: 'flex-start',
-        padding: 8,
-        borderRadius: 6,
-        border: `1px solid ${checked ? '#1d4ed8' : '#334155'}`,
-        background: checked ? '#1e3a8a20' : 'transparent',
-      }}
+      className={cn(
+        'flex gap-2 cursor-pointer items-start p-2 rounded border transition-colors',
+        checked ? 'border-primary bg-primary/10' : 'border-border bg-transparent'
+      )}
     >
-      <input
-        type="checkbox"
+      <Checkbox
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        style={{ marginTop: 1 }}
+        onCheckedChange={(v) => onChange(v === true)}
+        className="mt-0.5"
       />
       <div>
-        <div style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500 }}>{label}</div>
-        <div style={{ fontSize: 10, color: '#64748b' }}>{desc}</div>
+        <div className="text-xs text-accent-foreground font-medium">{label}</div>
+        <div className="text-[10px] text-muted-foreground">{desc}</div>
       </div>
     </label>
-  )
-}
-
-const btnStyle: React.CSSProperties = {
-  border: 'none',
-  borderRadius: 6,
-  padding: '8px 16px',
-  fontSize: 12,
-  cursor: 'pointer',
-  color: '#f1f5f9',
-}
-
-export function Overlay({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.7)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-export function Dialog({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      style={{
-        background: '#1e293b',
-        border: '1px solid #334155',
-        borderRadius: 12,
-        padding: 24,
-        width: 480,
-        maxWidth: '95vw',
-        maxHeight: '90vh',
-        overflowY: 'auto',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 16, color: '#f1f5f9' }}>{title}</h2>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: '#94a3b8',
-            fontSize: 20,
-            cursor: 'pointer',
-            lineHeight: 1,
-          }}
-        >
-          ×
-        </button>
-      </div>
-      {children}
-    </div>
   )
 }

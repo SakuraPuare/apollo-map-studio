@@ -1,8 +1,17 @@
 import { useState, useRef } from 'react'
+import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { parseBaseMap } from '../../import/parseBaseMap'
-import { Overlay, Dialog } from '../ExportDialog/ExportDialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function ImportDialog() {
   const { setShowImportDialog } = useUIStore()
@@ -58,9 +67,13 @@ export default function ImportDialog() {
   }
 
   return (
-    <Overlay>
-      <Dialog title="Import base_map.bin" onClose={() => setShowImportDialog(false)}>
-        <p style={{ margin: '0 0 16px', color: '#94a3b8', fontSize: 12 }}>
+    <Dialog open onOpenChange={() => setShowImportDialog(false)}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>Import base_map.bin</DialogTitle>
+        </DialogHeader>
+
+        <p className="text-muted-foreground text-[13px] m-0">
           Load an existing Apollo HD Map binary file to edit it.
         </p>
 
@@ -69,21 +82,13 @@ export default function ImportDialog() {
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           onClick={() => fileRef.current?.click()}
-          style={{
-            border: '2px dashed #334155',
-            borderRadius: 8,
-            padding: 32,
-            textAlign: 'center',
-            cursor: 'pointer',
-            marginBottom: 12,
-            transition: 'border-color 0.2s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#3b82f6')}
-          onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#334155')}
+          className="border-2 border-dashed border-border rounded-lg p-10 text-center cursor-pointer bg-background transition-colors hover:border-primary"
         >
-          <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
-          <div style={{ fontSize: 13, color: '#e2e8f0' }}>Drop base_map.bin here</div>
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>or click to browse</div>
+          <div className="mb-2 flex justify-center">
+            <Upload size={32} className="text-muted-foreground" />
+          </div>
+          <div className="text-sm text-accent-foreground">Drop base_map.bin here</div>
+          <div className="text-[11px] text-muted-foreground mt-1">or click to browse</div>
         </div>
 
         <input
@@ -91,46 +96,32 @@ export default function ImportDialog() {
           type="file"
           accept=".bin"
           onChange={handleFileInput}
-          style={{ display: 'none' }}
+          className="hidden"
         />
 
         {/* Status */}
         {status !== 'idle' && (
           <div
-            style={{
-              background: '#0f172a',
-              border: '1px solid #334155',
-              borderRadius: 6,
-              padding: 10,
-              marginBottom: 12,
-              fontSize: 11,
-              color: status === 'error' ? '#f87171' : status === 'done' ? '#4ade80' : '#93c5fd',
-            }}
+            className={cn(
+              'bg-background border border-border rounded-md p-2.5 text-xs flex items-center gap-1.5',
+              status === 'error' && 'text-destructive',
+              status === 'done' && 'text-chart-2',
+              status === 'loading' && 'text-chart-5'
+            )}
           >
-            {status === 'loading' && '⏳ '}
-            {status === 'done' && '✓ '}
-            {status === 'error' && '✗ '}
+            {status === 'loading' && <Loader2 size={14} className="animate-spin" />}
+            {status === 'done' && <CheckCircle size={14} />}
+            {status === 'error' && <XCircle size={14} />}
             {message}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
-            onClick={() => setShowImportDialog(false)}
-            style={{
-              background: '#374151',
-              border: 'none',
-              borderRadius: 6,
-              padding: '8px 16px',
-              fontSize: 12,
-              cursor: 'pointer',
-              color: '#f1f5f9',
-            }}
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowImportDialog(false)}>
             {status === 'done' ? 'Close' : 'Cancel'}
-          </button>
-        </div>
-      </Dialog>
-    </Overlay>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
