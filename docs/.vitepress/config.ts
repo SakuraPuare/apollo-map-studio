@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import { version } from '../../package.json'
 
 // VITEPRESS_BASE is injected by GitHub Actions for sub-path deployment
 // e.g. /apollo-map-studio/ when hosted at github.io/<repo>/
@@ -17,9 +18,9 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Architecture', link: '/architecture/overview' },
-      { text: 'API', link: '/api/geo' },
+      { text: 'API', link: '/api/geo-projection' },
       {
-        text: 'v0.1.0',
+        text: `v${version}`,
         items: [{ text: 'Changelog', link: '/changelog' }],
       },
     ],
