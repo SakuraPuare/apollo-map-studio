@@ -34,6 +34,8 @@ import type {
   ProjectConfig,
 } from '../types/editor'
 
+const textEncoder = new TextEncoder()
+
 /**
  * Convert an array of WGS84 positions to PointENU array using the global projection.
  */
@@ -352,15 +354,15 @@ export async function buildBaseMap(params: {
 
   return {
     header: {
-      version: params.project.version,
-      date: params.project.date,
+      version: textEncoder.encode(params.project.version ?? ''),
+      date: textEncoder.encode(params.project.date ?? ''),
       projection: { proj: proj.projString },
-      district: params.project.name,
+      district: textEncoder.encode(params.project.name ?? ''),
       left: isFinite(minLon) ? minLon : 0,
       top: isFinite(maxLat) ? maxLat : 0,
       right: isFinite(maxLon) ? maxLon : 0,
       bottom: isFinite(minLat) ? minLat : 0,
-      vendor: 'Apollo Map Editor',
+      vendor: textEncoder.encode('Apollo Map Editor'),
     },
     crosswalk: crosswalks,
     junction: junctions,

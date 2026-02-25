@@ -259,15 +259,15 @@ export interface MapProjection {
 }
 
 export interface MapHeader {
-  version?: string
-  date?: string
+  version?: Uint8Array | string
+  date?: Uint8Array | string
   projection?: MapProjection
-  district?: string
+  district?: Uint8Array | string
   left?: number
   top?: number
   right?: number
   bottom?: number
-  vendor?: string
+  vendor?: Uint8Array | string
 }
 
 // Complete Map
