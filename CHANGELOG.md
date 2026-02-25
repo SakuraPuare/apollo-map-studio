@@ -2,51 +2,54 @@
 
 ### 🚀 Features
 
-- _(ui)_ Add road grouping UI for lane-to-road assignment
-- _(ui)_ Add element list explorer panel with selection highlighting
-- _(ui)_ Add map validation report dialog
-- _(ui)_ Add road properties panel with name, type, and lane info
-- _(ui)_ Add welcome intro and onboarding to new project dialog
-- _(ui)_ Redesign toolbar with SVG icons and improved layout
-- _(ui)_ Improve header with logo, version badge, and branding
-- _(ui)_ Improve global styles, properties panel, and status bar
+- *(ui)* Add road grouping UI for lane-to-road assignment
+- *(ui)* Add welcome intro and onboarding to new project dialog
+- *(ui)* Improve global styles, properties panel, and status bar
+- *(ui)* Redesign toolbar with SVG icons and improved layout
+- *(ui)* Improve header with logo, version badge, and branding
 - Add lane endpoint snapping on connect
+- Add map validation report dialog
+- Add element list explorer panel with selection highlighting
+- Add road properties panel with name, type, and lane info
 
 ### 🐛 Bug Fixes
 
-- _(export)_ Encode header bytes fields as Uint8Array for correct protobuf encoding
-- _(export)_ Convert header bytes to string for routing graph
-- _(import)_ Decode proto bytes header fields to UTF-8 strings
-- _(import)_ Close junction polygon ring for valid GeoJSON
-- _(import)_ Remove single-lane road filter and add import logging
 - Prevent lane self-connection in connectLanes and setLaneNeighbor
 - Center grid layer on project origin coordinates
+- *(import)* Remove single-lane road filter and add import logging
+- *(import)* Close junction polygon ring for valid GeoJSON
+- *(export)* Encode header bytes fields as Uint8Array
+- *(import)* Decode proto bytes header fields to UTF-8 strings
+- *(export)* Convert header bytes to string for routing graph
 
-### 🔧 Refactor
+### 🚜 Refactor
 
-- _(ui)_ Add shadcn/ui, Tailwind CSS, and design token infrastructure
-- _(toolbar)_ Replace inline SVGs with lucide-react icons
-- _(dialogs)_ Migrate to shadcn Dialog, Button, and Checkbox
-- _(properties)_ Replace inline styles with shadcn Button and Tailwind
-- _(dialogs)_ Add DialogDescription to all dialogs
+- *(toolbar)* Replace inline SVGs with lucide-react icons
+- *(dialogs)* Migrate to shadcn Dialog, Button and Checkbox
+- *(properties)* Replace inline styles with shadcn Button and tailwind
+- *(dialogs)* Add DialogDescription to all dialogs
+
+### 📚 Documentation
+
+- *(changelog)* Update for v0.2.0
+- Update README for v0.2.0
+- *(guide)* Fix keyboard shortcuts and update guides
+- *(arch)* Update architecture and API reference
 
 ### ⚙️ Miscellaneous Tasks
 
+- *(changelog)* Update for v0.1.2
 - Clean up dependencies and fix changelog formatting
-- _(deps)_ Bump the production-dependencies group with 2 updates
-- _(deps-dev)_ Bump the dev-dependencies group with 5 updates
-- _(release)_ Bump version to 0.2.0
-- _(changelog)_ Update for v0.2.0
-
+- Add shadcn/ui, tailwind css and design token infrastructure
+- *(release)* Bump version to 0.2.0
 ## [0.1.2] - 2026-02-18
 
 ### ⚙️ Miscellaneous Tasks
 
 - Update package-lock.json to reflect version 0.1.1
 - Replace npm ci with npm install in CI workflows for consistency
-- _(release)_ Bump version to 0.1.2
-- _(changelog)_ Update for v0.1.2
-
+- *(release)* Bump version to 0.1.2
+- *(changelog)* Update for v0.1.2
 ## [0.1.1] - 2026-02-18
 
 ### 📚 Documentation
@@ -60,26 +63,25 @@
 - Add GitHub Actions workflows, release script, and Dependabot config
 - Update package-lock and package.json for version 0.1.0, adjust ESLint and TypeScript dependencies, and enhance CI workflows with Node version matrix
 - Enhance package.json with project description and keywords for better discoverability
-- _(release)_ Bump version to 0.1.1
-- _(changelog)_ Update for v0.1.1
-
+- *(release)* Bump version to 0.1.1
+- *(changelog)* Update for v0.1.1
 ## [0.1.0] - 2026-02-18
 
 ### 🚀 Features
 
-- _(types)_ Define Apollo HD Map and editor type system
-- _(proto)_ Add protobuf loader and binary codec for Apollo map files
-- _(store)_ Add Zustand state stores with undo/redo support
-- _(geo)_ Add coordinate projection and spatial geometry utilities
-- _(export)_ Add Apollo binary export engine for base_map, sim_map, and routing_map
-- _(import)_ Add base_map.bin parser to restore editor state
-- _(editor)_ Add MapLibre GL interactive map editor with draw controls and layer rendering
-- _(ui)_ Add toolbar and properties panel for map element editing
-- _(ui)_ Add new project dialog, export/import dialogs, and status bar
+- *(types)* Define Apollo HD Map and editor type system
+- *(proto)* Add protobuf loader and binary codec for Apollo map files
+- *(store)* Add Zustand state stores with undo/redo support
+- *(geo)* Add coordinate projection and spatial geometry utilities
+- *(export)* Add Apollo binary export engine for base_map, sim_map, and routing_map
+- *(import)* Add base_map.bin parser to restore editor state
+- *(editor)* Add MapLibre GL interactive map editor with draw controls and layer rendering
+- *(ui)* Add toolbar and properties panel for map element editing
+- *(ui)* Add new project dialog, export/import dialogs, and status bar
 - Wire up app entry point and global styles
 
 ### ⚙️ Miscellaneous Tasks
 
 - Init Vite + React + TypeScript project
 - Configure ESLint, Prettier, and Husky pre-commit hooks
-- _(release)_ Add CHANGELOG and git-cliff config for v0.1.0
+- *(release)* Add CHANGELOG and git-cliff config for v0.1.0
