@@ -24,6 +24,23 @@ import {
 } from '../types/apollo-map'
 import type { Feature, LineString, Polygon, Point } from 'geojson'
 
+/**
+ * Decode a proto bytes field (base64 string from protobufjs toObject or Uint8Array) to a UTF-8 string.
+ */
+function bytesToString(value: unknown): string {
+  if (value instanceof Uint8Array) {
+    return new TextDecoder().decode(value)
+  }
+  if (typeof value === 'string' && value.length > 0) {
+    try {
+      return new TextDecoder().decode(Uint8Array.from(atob(value), (c) => c.charCodeAt(0)))
+    } catch {
+      return value
+    }
+  }
+  return ''
+}
+
 interface ParsedMapState {
   project: ProjectConfig
   lanes: LaneFeature[]
@@ -73,11 +90,11 @@ export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> 
   const proj = setGlobalProjection(originLat, originLon)
 
   const project: ProjectConfig = {
-    name: map.header?.district ?? 'Imported Map',
+    name: bytesToString(map.header?.district) || 'Imported Map',
     originLat,
     originLon,
-    version: (map.header?.version as unknown as string) ?? '1.0.0',
-    date: (map.header?.date as unknown as string) ?? new Date().toISOString().slice(0, 10),
+    version: bytesToString(map.header?.version) || '1.0.0',
+    date: bytesToString(map.header?.date) || new Date().toISOString().slice(0, 10),
   }
 
   // Parse lanes
