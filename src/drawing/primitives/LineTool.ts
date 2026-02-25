@@ -22,7 +22,7 @@ export class LineTool extends BasePrimitiveTool {
 
     this.bindMap('dblclick', (e) => {
       e.preventDefault()
-      // The single click already added this point, just finish
+      // Browsers fire two click events before dblclick; finish() will collapse duplicate tail points.
       this.finish()
     })
 
@@ -47,10 +47,23 @@ export class LineTool extends BasePrimitiveTool {
   }
 
   private finish(): void {
-    if (this.vertices.length < 2) return
+    const cleaned: [number, number][] = []
+    for (const v of this.vertices) {
+      const prev = cleaned[cleaned.length - 1]
+      if (!prev) {
+        cleaned.push(v)
+        continue
+      }
+      const a = this.map.project(prev)
+      const b = this.map.project(v)
+      // Drop zero/near-zero segments (e.g. duplicate point introduced by dblclick).
+      if (Math.hypot(b.x - a.x, b.y - a.y) >= 1) cleaned.push(v)
+    }
+
+    if (cleaned.length < 2) return
     this.onComplete({
       tool: 'line',
-      geometry: { type: 'LineString', coordinates: this.vertices },
+      geometry: { type: 'LineString', coordinates: cleaned },
       meta: { tool: 'line' },
     })
   }
