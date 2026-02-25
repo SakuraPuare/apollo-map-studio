@@ -8,7 +8,7 @@
 ## Installation
 
 ```bash
-git clone https://github.com/yourname/apollo-map-studio
+git clone https://github.com/SakuraPuare/apollo-map-studio
 cd apollo-map-studio
 npm install
 ```
@@ -23,7 +23,7 @@ Open `http://localhost:5173`. The editor loads immediately with no external depe
 
 ## Create your first project
 
-When the editor opens, a **New Project** dialog appears automatically.
+When the editor opens, a **New Project** dialog appears automatically with a welcome screen. You can choose from **location presets** (Borregas Ave, San Francisco, Beijing, Shanghai) for quick setup, or enter custom coordinates.
 
 | Field                | Description                                                        |
 | -------------------- | ------------------------------------------------------------------ |
@@ -57,6 +57,7 @@ Pick a point near the center of your intended map area. Apollo's ENU projection 
 - **Toolbar** — switch between draw modes and the connect-lanes tool
 - **Canvas** — draw and select elements; scroll to zoom, drag to pan
 - **Properties panel** — edit attributes of the selected element
+- **Element list** — browse, search, and select all map elements by type
 - **Status bar** — shows current draw mode, selection, and action feedback
 
 ## Build for production

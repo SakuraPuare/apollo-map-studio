@@ -2,18 +2,18 @@
 
 ## Draw modes
 
-| Key | Action                      |
-| --- | --------------------------- |
-| `S` | Select mode                 |
-| `L` | Draw Lane                   |
-| `J` | Draw Junction               |
-| `W` | Draw Crosswalk              |
-| `G` | Draw Signal (traffic liGht) |
-| `T` | Draw Stop sign              |
-| `B` | Draw Speed Bump             |
-| `P` | Draw Parking space          |
-| `A` | Draw cleAr area             |
-| `C` | Connect Lanes mode          |
+| Key | Action             |
+| --- | ------------------ |
+| `S` | Select mode        |
+| `L` | Draw Lane          |
+| `J` | Draw Junction      |
+| `W` | Draw Crosswalk     |
+| `T` | Draw Signal        |
+| `P` | Draw Stop Sign     |
+| `B` | Draw Speed Bump    |
+| `K` | Draw Parking Space |
+| `A` | Draw Clear Area    |
+| `C` | Connect Lanes mode |
 
 ## Editing (mapbox-gl-draw)
 

@@ -66,7 +66,17 @@ Virtual nodes correspond to junction-internal connecting lanes that drivers cann
 
 ## Road assignment
 
-Lanes that share the same `roadId` property are grouped into one `Road` proto object at export time. You can set `roadId` in the Properties panel. Lanes without a `roadId` each become their own single-lane road section.
+Lanes can be grouped into named roads using the **Road Properties** panel. Each road has a name, type (Highway, City Road, Park), and a list of assigned lanes.
+
+### Managing roads
+
+1. Open the **Road Properties** panel from the right sidebar
+2. Click **Add Road** to create a new road definition
+3. Set the road name and type
+4. Select a lane, then use **Assign to Road** to add it to a road
+5. Lanes assigned to the same road are color-coded on the map for easy identification
+
+At export time, lanes sharing the same `roadId` are grouped into one `Road` proto object with a single `RoadSection`. The road's `type` field is preserved (Highway = 1, City Road = 2, Park = 3). Lanes without a `roadId` each become their own single-lane road section.
 
 ## Viewing connections
 
