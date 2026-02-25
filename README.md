@@ -3,7 +3,7 @@
 A browser-based HD map editor for the [Apollo](https://github.com/ApolloAuto/apollo) autonomous driving platform. Draw lanes, junctions, signals, and all other map elements visually, then export Apollo-compatible binary map files directly from your browser — no C++ toolchain required.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Version](https://img.shields.io/badge/version-0.1.0-green)
+![Version](https://img.shields.io/badge/version-0.2.0-green)
 
 ---
 
@@ -25,13 +25,16 @@ Traditionally, generating these files requires the Apollo C++ build environment.
 
 - **Interactive drawing** — lanes, junctions, crosswalks, signals, stop signs, speed bumps, clear areas, parking spaces
 - **Real-time boundary rendering** — left/right lane boundaries computed and rendered as you draw, with correct dash styles per boundary type
-- **Lane topology editor** — connect predecessor/successor lanes, set left/right neighbors
+- **Lane topology editor** — connect predecessor/successor lanes, set left/right neighbors, with endpoint snapping
+- **Road grouping** — assign lanes to named roads with type (highway, city road, park), color-coded visualization
+- **Element list explorer** — browse, search, and select all map elements from a filterable panel
+- **Map validation** — pre-export validation report detecting orphan lanes, missing connections, and structural issues
 - **Properties panel** — edit speed limit, lane type, turn direction, boundary types per element
 - **Binary export** — produces all three Apollo `.bin` files in the browser via protobufjs
   - `base_map.bin` with full overlap computation (lane ↔ signal, crosswalk, junction, etc.)
   - `sim_map.bin` using the same downsampling algorithm as `sim_map_generator.cc`
   - `routing_map.bin` with node/edge costs matching `topo_creator` exactly
-- **Binary import** — load an existing `base_map.bin` and continue editing it
+- **Binary import** — load an existing `base_map.bin` and continue editing it, including road assignments
 - **Undo / Redo** — full history via Zustand temporal middleware
 - **Layer toggles** — show/hide any element type
 - **Offline capable** — blank map background, no tile server or external API needed
@@ -98,7 +101,8 @@ src/
 ├── geo/
 │   ├── projection.ts        # proj4: WGS84 ↔ ENU coordinate conversion
 │   ├── laneGeometry.ts      # turf: boundary offset, width sampling, headings
-│   └── overlapCalc.ts       # turf: lane/element intersection → Overlap proto
+│   ├── overlapCalc.ts       # turf: lane/element intersection → Overlap proto
+│   └── snapEndpoints.ts     # Lane endpoint snapping for connect mode
 │
 ├── proto/
 │   ├── loader.ts            # protobufjs: dynamic .proto loading
@@ -112,14 +116,20 @@ src/
 ├── import/
 │   └── parseBaseMap.ts      # Decode base_map.bin → editor GeoJSON state
 │
+├── validation/
+│   └── mapValidator.ts      # Pre-export map validation rules
+│
 └── components/
     ├── MapEditor/            # MapLibre GL container, draw control, layer rendering
-    ├── Toolbar/              # Draw mode buttons
+    ├── Toolbar/              # Draw mode buttons (lucide-react icons)
     ├── PropertiesPanel/      # Per-element attribute forms
-    ├── NewProjectDialog/     # Project name + origin coordinate setup
+    ├── ElementListPanel/     # Element browser with search and selection
+    ├── NewProjectDialog/     # Project name + origin coordinate setup (with presets)
     ├── ExportDialog/         # Export all three .bin files
     ├── ImportDialog/         # Import base_map.bin
-    └── StatusBar/            # Status messages and undo/redo controls
+    ├── ValidationDialog/     # Map validation report
+    ├── StatusBar/            # Status messages and undo/redo controls
+    └── ui/                   # shadcn/ui base components (Button, Dialog, ...)
 
 public/proto/                 # Apollo .proto files served statically
 ```
@@ -155,9 +165,9 @@ Pre-commit hooks (Husky + lint-staged) run ESLint and Prettier automatically on 
 
 ## Roadmap
 
-- [ ] Road grouping UI (assign lanes to named roads)
-- [ ] Snap-to-endpoint when connecting lanes
-- [ ] Map validation report (orphan lanes, missing overlaps, ID conflicts)
+- [x] Road grouping UI (assign lanes to named roads)
+- [x] Snap-to-endpoint when connecting lanes
+- [x] Map validation report (orphan lanes, missing overlaps, ID conflicts)
 - [ ] OSM tile background option
 - [ ] Multi-select and bulk property editing
 - [ ] Export to Apollo text proto format (`.txt`) for inspection
