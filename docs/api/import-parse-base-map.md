@@ -27,6 +27,7 @@ interface ParsedMapState {
   clearAreas: ClearAreaFeature[]
   speedBumps: SpeedBumpFeature[]
   parkingSpaces: ParkingSpaceFeature[]
+  roads: RoadDefinition[]
 }
 ```
 
@@ -87,9 +88,12 @@ This produces a single uniform width value, which is acceptable for lanes with a
 
 ---
 
+## Header bytes decoding
+
+Proto `Header` fields `version`, `date`, `district`, and `vendor` are `bytes` type. The `bytesToString()` helper decodes them from base64 (protobufjs `toObject` output) or `Uint8Array` back to UTF-8 strings.
+
 ## Known limitations
 
 - `overlap_id` arrays are not restored (recomputed on next export)
-- `road` grouping is not restored (`roadId` is not set on imported lanes)
 - Signal `subsignal` geometry is not restored
 - `z` coordinates are discarded (editor is 2D)

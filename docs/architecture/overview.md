@@ -62,25 +62,30 @@ Zustand mapStore                    ←── uiStore (draw mode, selection)
 
 ## Module responsibilities
 
-| Module                           | Responsibility                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `src/types/`                     | TypeScript interfaces mirroring Apollo proto definitions; editor-internal GeoJSON types |
-| `src/store/mapStore`             | Single source of truth for all map elements; undo/redo history                          |
-| `src/store/uiStore`              | Transient UI state (draw mode, hover, selection, layer visibility)                      |
-| `src/geo/projection`             | WGS84 ↔ ENU conversion via proj4                                                        |
-| `src/geo/laneGeometry`           | Lane boundary computation, width sampling, heading                                      |
-| `src/geo/overlapCalc`            | Spatial intersection detection → Overlap proto objects                                  |
-| `src/proto/loader`               | Dynamic `.proto` loading from `public/proto/` via protobufjs                            |
-| `src/proto/codec`                | Encode/decode `apollo.hdmap.Map` and `apollo.routing.Graph`                             |
-| `src/export/buildBaseMap`        | Translate editor state → full `apollo.hdmap.Map` proto object                           |
-| `src/export/buildSimMap`         | Downsample a base map for Dreamview                                                     |
-| `src/export/buildRoutingMap`     | Build routing topology graph from lane connectivity                                     |
-| `src/import/parseBaseMap`        | Decode `base_map.bin` → restore editor GeoJSON state                                    |
-| `src/components/MapEditor`       | MapLibre GL map + draw controls + all rendering layers                                  |
-| `src/components/Toolbar`         | Draw mode selection buttons                                                             |
-| `src/components/PropertiesPanel` | Per-element attribute editing forms                                                     |
-| `src/components/*Dialog`         | New project / Export / Import modal dialogs                                             |
-| `src/components/StatusBar`       | Mode indicator, undo/redo controls                                                      |
+| Module                            | Responsibility                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| `src/types/`                      | TypeScript interfaces mirroring Apollo proto definitions; editor-internal GeoJSON types |
+| `src/store/mapStore`              | Single source of truth for all map elements; undo/redo history                          |
+| `src/store/uiStore`               | Transient UI state (draw mode, hover, selection, layer visibility)                      |
+| `src/geo/projection`              | WGS84 ↔ ENU conversion via proj4                                                        |
+| `src/geo/laneGeometry`            | Lane boundary computation, width sampling, heading                                      |
+| `src/geo/overlapCalc`             | Spatial intersection detection → Overlap proto objects                                  |
+| `src/geo/snapEndpoints`           | Lane endpoint snapping for connect mode                                                 |
+| `src/validation/mapValidator`     | Pre-export map validation rules (orphan lanes, missing connections)                     |
+| `src/proto/loader`                | Dynamic `.proto` loading from `public/proto/` via protobufjs                            |
+| `src/proto/codec`                 | Encode/decode `apollo.hdmap.Map` and `apollo.routing.Graph`                             |
+| `src/export/buildBaseMap`         | Translate editor state → full `apollo.hdmap.Map` proto object                           |
+| `src/export/buildSimMap`          | Downsample a base map for Dreamview                                                     |
+| `src/export/buildRoutingMap`      | Build routing topology graph from lane connectivity                                     |
+| `src/import/parseBaseMap`         | Decode `base_map.bin` → restore editor GeoJSON state                                    |
+| `src/components/MapEditor`        | MapLibre GL map + draw controls + all rendering layers                                  |
+| `src/components/Toolbar`          | Draw mode selection buttons (lucide-react icons)                                        |
+| `src/components/PropertiesPanel`  | Per-element attribute editing forms (including road properties)                         |
+| `src/components/ElementListPanel` | Filterable element browser with selection highlighting                                  |
+| `src/components/ValidationDialog` | Map validation report dialog                                                            |
+| `src/components/*Dialog`          | New project / Export / Import modal dialogs                                             |
+| `src/components/StatusBar`        | Mode indicator, undo/redo controls                                                      |
+| `src/components/ui/`              | shadcn/ui base components (Button, Dialog, Input, Select, etc.)                         |
 
 ## Dependency graph (simplified)
 
@@ -95,6 +100,10 @@ App
  ├── Toolbar  → uiStore (write drawMode)
  │
  ├── PropertiesPanel → mapStore (write element)
+ │
+ ├── ElementListPanel → mapStore (read), uiStore (write selection)
+ │
+ ├── ValidationDialog → mapStore (read), validation/mapValidator
  │
  └── ExportDialog
       ├── mapStore (read all elements)

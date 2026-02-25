@@ -5,16 +5,17 @@ Assembles a complete `apollo.hdmap.Map` proto object from editor state.
 ## buildBaseMap
 
 ```ts
-async function buildBaseMap(state: {
+async function buildBaseMap(params: {
   project: ProjectConfig
-  lanes: Record<string, LaneFeature>
-  junctions: Record<string, JunctionFeature>
-  signals: Record<string, SignalFeature>
-  stopSigns: Record<string, StopSignFeature>
-  crosswalks: Record<string, CrosswalkFeature>
-  clearAreas: Record<string, ClearAreaFeature>
-  speedBumps: Record<string, SpeedBumpFeature>
-  parkingSpaces: Record<string, ParkingSpaceFeature>
+  lanes: LaneFeature[]
+  junctions: JunctionFeature[]
+  signals: SignalFeature[]
+  stopSigns: StopSignFeature[]
+  crosswalks: CrosswalkFeature[]
+  clearAreas: ClearAreaFeature[]
+  speedBumps: SpeedBumpFeature[]
+  parkingSpaces: ParkingSpaceFeature[]
+  roads: RoadDefinition[]
 }): Promise<ApolloMap>
 ```
 
@@ -72,19 +73,27 @@ ApolloLane {
 
 ### Road grouping
 
-```ts
-// Group lanes by roadId (undefined → each lane is its own road)
-const roadGroups = new Map<string, string[]>()
-for (const lane of lanes) {
-  const key = lane.roadId ?? `road_${lane.id}`
-  roadGroups.get(key)?.push(lane.id) ?? roadGroups.set(key, [lane.id])
-}
+`buildRoads()` groups lanes using `RoadDefinition` objects that carry a name and type:
 
-for (const [roadId, laneIds] of roadGroups) {
+```ts
+// Lanes assigned to a RoadDefinition are grouped into that road
+for (const [roadId, roadLanes] of roadLanesMap) {
+  const def = roadDefMap.get(roadId)!
   roads.push({
     id: { id: roadId },
-    section: [{ id: { id: `${roadId}_section` }, lane_id: laneIds.map((id) => ({ id })) }],
+    section: [{ id: { id: `${roadId}_section_0` }, lane_id: roadLanes.map((l) => ({ id: l.id })) }],
+    type: def.type, // RoadType from the definition (HIGHWAY, CITY_ROAD, PARK)
+  })
+}
+
+// Unassigned lanes each get their own single-lane road
+for (const lane of unassignedLanes) {
+  roads.push({
+    id: { id: `road_${lane.id}` },
+    section: [{ id: { id: `road_${lane.id}_section_0` }, lane_id: [{ id: lane.id }] }],
     type: RoadType.CITY_ROAD,
   })
 }
 ```
+
+Header `bytes` fields (`version`, `date`, `district`, `vendor`) are encoded as `Uint8Array` via `TextEncoder` to satisfy protobuf's `bytes` wire type.

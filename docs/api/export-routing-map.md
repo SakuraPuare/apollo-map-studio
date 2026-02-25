@@ -5,15 +5,16 @@ Builds an `apollo.routing.Graph` topological map from lane connectivity, porting
 ## buildRoutingMap
 
 ```ts
-function buildRoutingMap(state: { lanes: Record<string, LaneFeature> }): TopoGraph
+function buildRoutingMap(map: ApolloMap): TopoGraph
 ```
 
-Returns a `TopoGraph` (plain JS object, not encoded) containing one `TopoNode` per lane and `TopoEdge` objects for each traversable transition.
+Takes a fully built `ApolloMap` object (from `buildBaseMap()`) and returns a `TopoGraph` containing one `TopoNode` per lane and `TopoEdge` objects for each traversable transition.
 
 **Example**
 
 ```ts
-const graph = buildRoutingMap({ lanes: mapStore.getState().lanes })
+const baseMap = await buildBaseMap({ ... })
+const graph = buildRoutingMap(baseMap)
 const bytes = await encodeGraph(graph)
 downloadBinary(bytes, 'routing_map.bin')
 ```
@@ -31,8 +32,8 @@ TopoNode {
   length: turf.length(lane.centerLine, { units: 'meters' })
   cost: length * Math.sqrt(BASE_SPEED / lane.speedLimit) + turnPenalty(lane.turn)
   is_virtual: isInsideJunction && !hasNeighbors
-  left_out: []   // not used by current routing
-  right_out: []
+  left_out: CurveRange[]   // populated by buildOutBoundary() if boundary allows lane change
+  right_out: CurveRange[]
 }
 ```
 

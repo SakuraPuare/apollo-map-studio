@@ -12,7 +12,7 @@ Encodes an `ApolloMap` JavaScript object to Protocol Buffer binary format.
 
 1. Loads `map.proto` via `loadProtoRoot`
 2. Looks up `apollo.hdmap.Map`
-3. Calls `MapType.verify(mapObj)` — throws if structure is invalid
+3. Calls `MapType.verify(mapObj)` — logs a warning if structure has issues
 4. Returns `MapType.encode(MapType.create(mapObj)).finish()`
 
 **Example**

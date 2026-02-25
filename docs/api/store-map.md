@@ -42,6 +42,7 @@ interface MapState {
   clearAreas: Record<string, ClearAreaFeature>
   speedBumps: Record<string, SpeedBumpFeature>
   parkingSpaces: Record<string, ParkingSpaceFeature>
+  roads: Record<string, RoadDefinition>
 }
 ```
 
@@ -128,6 +129,56 @@ Establishes a bilateral neighbor link:
 
 - `side = 'left'`: `laneId.leftNeighborIds` ← `neighborId`, `neighborId.rightNeighborIds` ← `laneId`
 - `side = 'right'`: `laneId.rightNeighborIds` ← `neighborId`, `neighborId.leftNeighborIds` ← `laneId`
+
+---
+
+### addRoad
+
+```ts
+addRoad(road: RoadDefinition): void
+```
+
+Adds a road definition to the `roads` collection.
+
+---
+
+### updateRoad
+
+```ts
+updateRoad(road: RoadDefinition): void
+```
+
+Updates an existing road definition by ID.
+
+---
+
+### removeRoad
+
+```ts
+removeRoad(roadId: string): void
+```
+
+Deletes a road definition and unassigns all lanes that referenced it.
+
+---
+
+### assignLaneToRoad
+
+```ts
+assignLaneToRoad(laneId: string, roadId: string): void
+```
+
+Sets `lane.roadId = roadId` for the specified lane.
+
+---
+
+### unassignLaneFromRoad
+
+```ts
+unassignLaneFromRoad(laneId: string): void
+```
+
+Clears `lane.roadId` for the specified lane.
 
 ---
 
