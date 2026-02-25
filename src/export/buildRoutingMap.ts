@@ -3,6 +3,13 @@ import { BoundaryType, LaneTurn } from '../types/apollo-map'
 import type { TopoGraph, TopoNode, TopoEdge, CurveRange } from '../types/apollo-routing'
 import { EdgeDirection } from '../types/apollo-routing'
 
+const textDecoder = new TextDecoder()
+
+function headerBytesToString(value: Uint8Array | string | undefined, fallback: string): string {
+  if (value instanceof Uint8Array) return textDecoder.decode(value)
+  return value ?? fallback
+}
+
 // Default routing config (from modules/routing/conf/routing_config.pb.txt)
 const ROUTING_CONFIG = {
   baseSpeed: 4.167, // m/s (~15 km/h)
@@ -189,8 +196,8 @@ export function buildRoutingMap(map: ApolloMap): TopoGraph {
   }
 
   return {
-    hdmapVersion: map.header?.version ?? '1.0.0',
-    hdmapDistrict: map.header?.district ?? '',
+    hdmapVersion: headerBytesToString(map.header?.version, '1.0.0'),
+    hdmapDistrict: headerBytesToString(map.header?.district, ''),
     node: nodes,
     edge: edges,
   }
