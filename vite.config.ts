@@ -21,4 +21,22 @@ export default defineConfig({
   optimizeDeps: {
     include: ['protobufjs'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'map-vendor': ['maplibre-gl', '@mapbox/mapbox-gl-draw'],
+          protobuf: ['protobufjs'],
+          turf: ['@turf/turf'],
+          'ui-vendor': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-select',
+            '@radix-ui/react-label',
+            '@radix-ui/react-checkbox',
+            '@radix-ui/react-slot',
+          ],
+        },
+      },
+    },
+  },
 })

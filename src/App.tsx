@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { useUIStore } from './store/uiStore'
 import { useMapStore } from './store/mapStore'
 import MapEditor from './components/MapEditor/MapEditor'
@@ -7,9 +7,10 @@ import PropertiesPanel from './components/PropertiesPanel/PropertiesPanel'
 import ElementListPanel from './components/ElementListPanel/ElementListPanel'
 import StatusBar from './components/StatusBar/StatusBar'
 import NewProjectDialog from './components/NewProjectDialog/NewProjectDialog'
-import ExportDialog from './components/ExportDialog/ExportDialog'
-import ImportDialog from './components/ImportDialog/ImportDialog'
-import ValidationDialog from './components/ValidationDialog/ValidationDialog'
+
+const ExportDialog = lazy(() => import('./components/ExportDialog/ExportDialog'))
+const ImportDialog = lazy(() => import('./components/ImportDialog/ImportDialog'))
+const ValidationDialog = lazy(() => import('./components/ValidationDialog/ValidationDialog'))
 
 export default function App() {
   const {
@@ -184,9 +185,11 @@ export default function App() {
 
       {/* Dialogs */}
       {showNewProjectDialog && <NewProjectDialog />}
-      {showExportDialog && <ExportDialog />}
-      {showImportDialog && <ImportDialog />}
-      {showValidationDialog && <ValidationDialog />}
+      <Suspense>
+        {showExportDialog && <ExportDialog />}
+        {showImportDialog && <ImportDialog />}
+        {showValidationDialog && <ValidationDialog />}
+      </Suspense>
     </div>
   )
 }
