@@ -8,7 +8,7 @@ import accessGuard from 'access-guard/vite'
 export default defineConfig({
   plugins: [
     accessGuard({
-      blocklist: [],
+      blocklist: ['daohu527', 'wheelos', 'wheel.os', 'daohu527@gmail.com'],
     }),
     react(),
     tailwindcss(),
