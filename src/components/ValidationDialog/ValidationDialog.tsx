@@ -3,7 +3,13 @@ import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
 import { validateMap } from '../../validation/mapValidator'
 import type { ValidationReport, ValidationIssue } from '../../validation/mapValidator'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +55,9 @@ export default function ValidationDialog() {
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Map Validation Report</DialogTitle>
+          <DialogDescription>
+            Validate map elements for errors, warnings, and connectivity issues.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">

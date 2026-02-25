@@ -7,6 +7,7 @@ import { setGlobalProjection } from '../../geo/projection'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -79,6 +80,9 @@ export default function NewProjectDialog() {
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Welcome to Apollo Map Studio</DialogTitle>
+          <DialogDescription>
+            Create a new HD map project by setting the map name and coordinate origin.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">

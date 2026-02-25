@@ -6,6 +6,7 @@ import { parseBaseMap } from '../../import/parseBaseMap'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export default function ImportDialog() {
-  const { setShowImportDialog } = useUIStore()
+  const { setShowImportDialog, requestFitBounds } = useUIStore()
   const { setProject, loadState } = useMapStore()
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
@@ -48,6 +49,7 @@ export default function ImportDialog() {
           `${parsed.signals.length} signals, ${parsed.crosswalks.length} crosswalks`
       )
       setStatus('done')
+      requestFitBounds()
     } catch (err) {
       setMessage(String(err))
       setStatus('error')
@@ -71,11 +73,10 @@ export default function ImportDialog() {
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Import base_map.bin</DialogTitle>
+          <DialogDescription>
+            Load an existing Apollo HD Map binary file to edit it.
+          </DialogDescription>
         </DialogHeader>
-
-        <p className="text-muted-foreground text-[13px] m-0">
-          Load an existing Apollo HD Map binary file to edit it.
-        </p>
 
         {/* Drop zone */}
         <div

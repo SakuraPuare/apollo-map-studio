@@ -9,6 +9,7 @@ import { setGlobalProjection } from '../../geo/projection'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -144,11 +145,10 @@ export default function ExportDialog() {
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Export Map Files</DialogTitle>
+          <DialogDescription>
+            Exports Apollo HD Map binary files to your downloads folder.
+          </DialogDescription>
         </DialogHeader>
-
-        <p className="text-muted-foreground text-xs m-0">
-          Exports Apollo HD Map binary files to your downloads folder.
-        </p>
 
         {/* File selection */}
         <div className="flex flex-col gap-2">
