@@ -1,3 +1,43 @@
+## [0.2.0] - 2026-02-25
+
+### 🚀 Features
+
+- _(ui)_ Add road grouping UI for lane-to-road assignment
+- _(ui)_ Add element list explorer panel with selection highlighting
+- _(ui)_ Add map validation report dialog
+- _(ui)_ Add road properties panel with name, type, and lane info
+- _(ui)_ Add welcome intro and onboarding to new project dialog
+- _(ui)_ Redesign toolbar with SVG icons and improved layout
+- _(ui)_ Improve header with logo, version badge, and branding
+- _(ui)_ Improve global styles, properties panel, and status bar
+- Add lane endpoint snapping on connect
+
+### 🐛 Bug Fixes
+
+- _(export)_ Encode header bytes fields as Uint8Array for correct protobuf encoding
+- _(export)_ Convert header bytes to string for routing graph
+- _(import)_ Decode proto bytes header fields to UTF-8 strings
+- _(import)_ Close junction polygon ring for valid GeoJSON
+- _(import)_ Remove single-lane road filter and add import logging
+- Prevent lane self-connection in connectLanes and setLaneNeighbor
+- Center grid layer on project origin coordinates
+
+### 🔧 Refactor
+
+- _(ui)_ Add shadcn/ui, Tailwind CSS, and design token infrastructure
+- _(toolbar)_ Replace inline SVGs with lucide-react icons
+- _(dialogs)_ Migrate to shadcn Dialog, Button, and Checkbox
+- _(properties)_ Replace inline styles with shadcn Button and Tailwind
+- _(dialogs)_ Add DialogDescription to all dialogs
+
+### ⚙️ Miscellaneous Tasks
+
+- Clean up dependencies and fix changelog formatting
+- _(deps)_ Bump the production-dependencies group with 2 updates
+- _(deps-dev)_ Bump the dev-dependencies group with 5 updates
+- _(release)_ Bump version to 0.2.0
+- _(changelog)_ Update for v0.2.0
+
 ## [0.1.2] - 2026-02-18
 
 ### ⚙️ Miscellaneous Tasks
