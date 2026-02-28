@@ -362,6 +362,7 @@ export default function MapEditor() {
       connect_lanes: 'simple_select',
     }
     try {
+      draw.deleteAll() // clear any in-progress drawing to prevent ghost features
       draw.changeMode(modeMap[drawMode] ?? 'simple_select')
     } catch {
       // ignore if map not ready
