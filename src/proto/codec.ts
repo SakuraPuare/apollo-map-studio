@@ -50,8 +50,20 @@ export async function decodeMap(buffer: Uint8Array): Promise<ApolloMap> {
 }
 
 /**
- * Download a Uint8Array as a file.
+ * Download a string as a text file.
  */
+export function downloadText(data: string, filename: string): void {
+  const blob = new Blob([data], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 export function downloadBinary(data: Uint8Array, filename: string): void {
   const blob = new Blob([data.buffer as ArrayBuffer], { type: 'application/octet-stream' })
   const url = URL.createObjectURL(blob)

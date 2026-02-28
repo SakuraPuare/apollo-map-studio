@@ -111,3 +111,16 @@ export interface RoadDefinition {
   name: string
   type: RoadType
 }
+
+export interface ParsedMapState {
+  project: ProjectConfig
+  lanes: LaneFeature[]
+  junctions: JunctionFeature[]
+  signals: SignalFeature[]
+  stopSigns: StopSignFeature[]
+  crosswalks: CrosswalkFeature[]
+  clearAreas: ClearAreaFeature[]
+  speedBumps: SpeedBumpFeature[]
+  parkingSpaces: ParkingSpaceFeature[]
+  roads: RoadDefinition[]
+}

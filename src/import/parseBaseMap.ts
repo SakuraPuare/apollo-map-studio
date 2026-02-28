@@ -1,6 +1,6 @@
 import { decodeMap } from '../proto/codec'
 import { setGlobalProjection } from '../geo/projection'
-import type { PointENU } from '../types/apollo-map'
+import type { ApolloMap, PointENU } from '../types/apollo-map'
 import type {
   LaneFeature,
   JunctionFeature,
@@ -12,6 +12,7 @@ import type {
   ParkingSpaceFeature,
   RoadDefinition,
   ProjectConfig,
+  ParsedMapState,
 } from '../types/editor'
 import {
   BoundaryType,
@@ -41,19 +42,6 @@ function bytesToString(value: unknown): string {
   return ''
 }
 
-interface ParsedMapState {
-  project: ProjectConfig
-  lanes: LaneFeature[]
-  junctions: JunctionFeature[]
-  signals: SignalFeature[]
-  stopSigns: StopSignFeature[]
-  crosswalks: CrosswalkFeature[]
-  clearAreas: ClearAreaFeature[]
-  speedBumps: SpeedBumpFeature[]
-  parkingSpaces: ParkingSpaceFeature[]
-  roads: RoadDefinition[]
-}
-
 /**
  * Extract projection parameters from a proj4 string.
  * e.g. "+proj=tmerc +lat_0=37.4 +lon_0=-122.0 +k=1 +ellps=WGS84 +no_defs"
@@ -80,7 +68,14 @@ function enuPointsToCoords(
  */
 export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> {
   const map = await decodeMap(buffer)
+  return parseBaseMapFromObject(map)
+}
 
+/**
+ * Parse an ApolloMap object (already decoded) and return editor state.
+ * Used by TXT import which skips the binary decode step.
+ */
+export async function parseBaseMapFromObject(map: ApolloMap): Promise<ParsedMapState> {
   // Extract projection from header
   const projStr = map.header?.projection?.proj ?? ''
   const originCoords = parseProjString(projStr)

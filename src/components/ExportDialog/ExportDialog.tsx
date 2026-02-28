@@ -4,7 +4,7 @@ import { useMapStore } from '../../store/mapStore'
 import { buildBaseMap } from '../../export/buildBaseMap'
 import { buildSimMap } from '../../export/buildSimMap'
 import { buildRoutingMap } from '../../export/buildRoutingMap'
-import { encodeMap, encodeGraph, downloadBinary } from '../../proto/codec'
+import { encodeMap, encodeGraph, downloadBinary, downloadText } from '../../proto/codec'
 import { setGlobalProjection } from '../../geo/projection'
 import {
   Dialog,
@@ -43,6 +43,7 @@ export default function ExportDialog() {
   const [exportBase, setExportBase] = useState(true)
   const [exportSim, setExportSim] = useState(true)
   const [exportRouting, setExportRouting] = useState(true)
+  const [exportTxt, setExportTxt] = useState(false)
 
   const handleExport = async () => {
     try {
@@ -120,6 +121,16 @@ export default function ExportDialog() {
         downloadBinary(routingData, 'routing_map.bin')
       }
 
+      // Export TXT files
+      if (exportTxt) {
+        setStep('encoding')
+        downloadText(JSON.stringify(baseMap, null, 2), 'base_map.txt')
+        const simMapForTxt = buildSimMap(baseMap)
+        downloadText(JSON.stringify(simMapForTxt, null, 2), 'sim_map.txt')
+        const routingGraphForTxt = buildRoutingMap(baseMap)
+        downloadText(JSON.stringify(routingGraphForTxt, null, 2), 'routing_map.txt')
+      }
+
       setStep('done')
     } catch (err) {
       setError(String(err))
@@ -146,7 +157,7 @@ export default function ExportDialog() {
         <DialogHeader>
           <DialogTitle>Export Map Files</DialogTitle>
           <DialogDescription>
-            Exports Apollo HD Map binary files to your downloads folder.
+            Export Apollo HD Map files (.bin binary or .txt JSON) to your downloads folder.
           </DialogDescription>
         </DialogHeader>
 
@@ -169,6 +180,12 @@ export default function ExportDialog() {
             onChange={setExportRouting}
             label="routing_map.bin"
             desc="Routing topology graph"
+          />
+          <CheckItem
+            checked={exportTxt}
+            onChange={setExportTxt}
+            label="Also export as TXT (JSON)"
+            desc="Downloads base_map.txt, sim_map.txt, routing_map.txt as human-readable JSON"
           />
         </div>
 
