@@ -2,7 +2,8 @@ import { useState, useRef } from 'react'
 import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
-import { parseBaseMap } from '../../import/parseBaseMap'
+import { parseBaseMap, parseBaseMapFromObject } from '../../import/parseBaseMap'
+import type { ApolloMap } from '../../types/apollo-map'
 import {
   Dialog,
   DialogContent,
@@ -25,10 +26,18 @@ export default function ImportDialog() {
   const handleFile = async (file: File) => {
     try {
       setStatus('loading')
-      setMessage('Parsing base_map.bin...')
+      const isTxt = file.name.endsWith('.txt')
+      setMessage(isTxt ? 'Parsing base_map.txt...' : 'Parsing base_map.bin...')
 
-      const buffer = await file.arrayBuffer()
-      const parsed = await parseBaseMap(new Uint8Array(buffer))
+      let parsed
+      if (isTxt) {
+        const text = await file.text()
+        const obj = JSON.parse(text) as ApolloMap
+        parsed = await parseBaseMapFromObject(obj)
+      } else {
+        const buffer = await file.arrayBuffer()
+        parsed = await parseBaseMap(new Uint8Array(buffer))
+      }
 
       // Update store
       setProject(parsed.project)
@@ -72,9 +81,9 @@ export default function ImportDialog() {
     <Dialog open onOpenChange={() => setShowImportDialog(false)}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Import base_map.bin</DialogTitle>
+          <DialogTitle>Import Map File</DialogTitle>
           <DialogDescription>
-            Load an existing Apollo HD Map binary file to edit it.
+            Load a base_map.bin (binary protobuf) or base_map.txt (JSON) file to edit it.
           </DialogDescription>
         </DialogHeader>
 
@@ -88,14 +97,16 @@ export default function ImportDialog() {
           <div className="mb-2 flex justify-center">
             <Upload size={32} className="text-muted-foreground" />
           </div>
-          <div className="text-sm text-accent-foreground">Drop base_map.bin here</div>
+          <div className="text-sm text-accent-foreground">
+            Drop base_map.bin or base_map.txt here
+          </div>
           <div className="text-[11px] text-muted-foreground mt-1">or click to browse</div>
         </div>
 
         <input
           ref={fileRef}
           type="file"
-          accept=".bin"
+          accept=".bin,.txt"
           onChange={handleFileInput}
           className="hidden"
         />

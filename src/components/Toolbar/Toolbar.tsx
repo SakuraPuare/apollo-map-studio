@@ -184,12 +184,12 @@ export default function Toolbar(): React.ReactElement {
         />
         <ToolButton
           icon={<FolderOpen size={20} />}
-          tooltip="Import base_map.bin"
+          tooltip="Import Map File"
           onClick={() => setShowImportDialog(true)}
         />
         <ToolButton
           icon={<Download size={20} />}
-          tooltip="Export .bin files"
+          tooltip="Export Map Files"
           onClick={() => setShowExportDialog(true)}
         />
         <ToolButton
