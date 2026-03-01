@@ -103,6 +103,7 @@ export default function MapEditor() {
       const { setSelected, setDrawMode, setStatus } = useUIStore.getState()
 
       let element: MapElement | null = null
+      let statusMsg = ''
 
       switch (drawMode) {
         case 'draw_lane': {
@@ -124,7 +125,7 @@ export default function MapEditor() {
             rightNeighborIds: [],
           }
           element = lane
-          setStatus(`Lane ${lane.id} created`)
+          statusMsg = `Lane ${lane.id} created`
           break
         }
         case 'draw_junction':
@@ -198,8 +199,13 @@ export default function MapEditor() {
       if (element) {
         addElement(element)
         setSelected([element.id])
+        if (statusMsg) setStatus(statusMsg)
         draw.delete([feature.id as string])
         setDrawMode('select')
+        // 核心修复：在所有 draw 操作完成后显式刷新，
+        // 防止 draw.delete/changeMode 触发的 repaint 与 source.setData 产生竞态
+        updateBoundaryLayers(map)
+        updateElementLayers(map)
       }
     })
 
