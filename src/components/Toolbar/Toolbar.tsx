@@ -12,12 +12,23 @@ import {
   Download,
   Check,
   ListTree,
+  Trash2,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { cn } from '@/lib/utils'
 import type { DrawMode } from '../../types/editor'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 
 interface Tool {
   mode: DrawMode
@@ -116,6 +127,8 @@ const LAYER_GROUPS: { key: string; label: string; abbrev: string; color: string 
 ]
 
 export default function Toolbar(): React.ReactElement {
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+
   const {
     drawMode,
     setDrawMode,
@@ -127,7 +140,18 @@ export default function Toolbar(): React.ReactElement {
     toggleLayer,
     showElementListPanel,
     setShowElementListPanel,
+    setStatus,
+    clearSelected,
   } = useUIStore()
+
+  const { clear } = useMapStore()
+
+  const handleClearMap = () => {
+    clear()
+    clearSelected()
+    setStatus('Map cleared')
+    setShowClearConfirm(false)
+  }
 
   const handleUndo = () => {
     const temporal = (
@@ -144,86 +168,113 @@ export default function Toolbar(): React.ReactElement {
   }
 
   return (
-    <TooltipProvider>
-      <div className="flex w-12 flex-col items-center bg-[#333333] z-10 overflow-y-auto">
-        {/* Draw tools */}
-        {DRAW_TOOLS.map((tool) => (
+    <>
+      <TooltipProvider>
+        <div className="flex w-12 flex-col items-center bg-[#333333] z-10 overflow-y-auto">
+          {/* Draw tools */}
+          {DRAW_TOOLS.map((tool) => (
+            <ToolButton
+              key={tool.mode}
+              active={drawMode === tool.mode}
+              onClick={() => setDrawMode(tool.mode)}
+              tooltip={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
+              icon={tool.icon}
+            />
+          ))}
+
+          <Divider />
+
           <ToolButton
-            key={tool.mode}
-            active={drawMode === tool.mode}
-            onClick={() => setDrawMode(tool.mode)}
-            tooltip={`${tool.label}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
-            icon={tool.icon}
+            icon={<ListTree size={20} />}
+            tooltip="Element List"
+            active={showElementListPanel}
+            onClick={() => setShowElementListPanel(!showElementListPanel)}
           />
-        ))}
 
-        <Divider />
+          <div className="flex-1" />
 
-        <ToolButton
-          icon={<ListTree size={20} />}
-          tooltip="Element List"
-          active={showElementListPanel}
-          onClick={() => setShowElementListPanel(!showElementListPanel)}
-        />
+          <Divider />
 
-        <div className="flex-1" />
+          {/* Edit tools */}
+          <ToolButton icon={<RotateCcw size={20} />} tooltip="Undo (Ctrl+Z)" onClick={handleUndo} />
+          <ToolButton icon={<RotateCw size={20} />} tooltip="Redo (Ctrl+Y)" onClick={handleRedo} />
 
-        <Divider />
+          <Divider />
 
-        {/* Edit tools */}
-        <ToolButton icon={<RotateCcw size={20} />} tooltip="Undo (Ctrl+Z)" onClick={handleUndo} />
-        <ToolButton icon={<RotateCw size={20} />} tooltip="Redo (Ctrl+Y)" onClick={handleRedo} />
+          {/* File tools */}
+          <ToolButton
+            icon={<Plus size={20} />}
+            tooltip="New Project"
+            onClick={() => setShowNewProjectDialog(true)}
+          />
+          <ToolButton
+            icon={<FolderOpen size={20} />}
+            tooltip="Import Map File"
+            onClick={() => setShowImportDialog(true)}
+          />
+          <ToolButton
+            icon={<Download size={20} />}
+            tooltip="Export Map Files"
+            onClick={() => setShowExportDialog(true)}
+          />
+          <ToolButton
+            icon={<Check size={20} />}
+            tooltip="Validate map"
+            onClick={() => setShowValidationDialog(true)}
+          />
+          <ToolButton
+            icon={<Trash2 size={20} />}
+            tooltip="Clear Map"
+            onClick={() => setShowClearConfirm(true)}
+          />
 
-        <Divider />
-
-        {/* File tools */}
-        <ToolButton
-          icon={<Plus size={20} />}
-          tooltip="New Project"
-          onClick={() => setShowNewProjectDialog(true)}
-        />
-        <ToolButton
-          icon={<FolderOpen size={20} />}
-          tooltip="Import Map File"
-          onClick={() => setShowImportDialog(true)}
-        />
-        <ToolButton
-          icon={<Download size={20} />}
-          tooltip="Export Map Files"
-          onClick={() => setShowExportDialog(true)}
-        />
-        <ToolButton
-          icon={<Check size={20} />}
-          tooltip="Validate map"
-          onClick={() => setShowValidationDialog(true)}
-        />
-
-        {/* Layer toggles */}
-        <Divider />
-        {LAYER_GROUPS.map((layer) => {
-          const visible = layerVisibility[layer.key] !== false
-          return (
-            <button
-              key={layer.key}
-              onClick={() => toggleLayer(layer.key)}
-              title={`Toggle ${layer.label}`}
-              className="flex w-12 h-[22px] items-center justify-center gap-1 border-none bg-transparent cursor-pointer p-0 hover:bg-[#2a2d2e]"
-            >
-              <span
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{ background: visible ? layer.color : '#5a5a5a' }}
-              />
-              <span
-                className="text-[10px] leading-none"
-                style={{ color: visible ? '#cccccc' : '#5a5a5a' }}
+          {/* Layer toggles */}
+          <Divider />
+          {LAYER_GROUPS.map((layer) => {
+            const visible = layerVisibility[layer.key] !== false
+            return (
+              <button
+                key={layer.key}
+                onClick={() => toggleLayer(layer.key)}
+                title={`Toggle ${layer.label}`}
+                className="flex w-12 h-[22px] items-center justify-center gap-1 border-none bg-transparent cursor-pointer p-0 hover:bg-[#2a2d2e]"
               >
-                {layer.abbrev}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </TooltipProvider>
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: visible ? layer.color : '#5a5a5a' }}
+                />
+                <span
+                  className="text-[10px] leading-none"
+                  style={{ color: visible ? '#cccccc' : '#5a5a5a' }}
+                >
+                  {layer.abbrev}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </TooltipProvider>
+
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent className="sm:max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle>Clear Map</DialogTitle>
+            <DialogDescription>
+              This will permanently delete all map elements (lanes, junctions, signals, crosswalks,
+              etc.). This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleClearMap}>
+              Clear Map
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
