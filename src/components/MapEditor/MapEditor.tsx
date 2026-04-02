@@ -99,11 +99,16 @@ export default function MapEditor() {
     // Data changes → rebuild GeoJSON sources + re-apply feature state
     let dataPending = false
     const renderData = () => {
-      if (!ready || !map.isStyleLoaded() || dataPending) return
+      if (!ready || dataPending) return
       dataPending = true
-      requestAnimationFrame(() => {
+      requestAnimationFrame(function tryRender() {
+        if (!map.isStyleLoaded()) {
+          // Style temporarily unavailable (e.g. during jumpTo after import)
+          // — retry on next frame instead of silently dropping the render.
+          requestAnimationFrame(tryRender)
+          return
+        }
         dataPending = false
-        if (!map.isStyleLoaded()) return
         updateBoundaryLayers(map)
         updateElementLayers(map)
         // setData() clears MapLibre feature state — re-apply after data rebuild
@@ -114,11 +119,14 @@ export default function MapEditor() {
     // Selection changes → O(1) feature-state update, zero data rebuild
     let selectionPending = false
     const renderSelection = () => {
-      if (!ready || !map.isStyleLoaded() || selectionPending) return
+      if (!ready || selectionPending) return
       selectionPending = true
-      requestAnimationFrame(() => {
+      requestAnimationFrame(function trySelection() {
+        if (!map.isStyleLoaded()) {
+          requestAnimationFrame(trySelection)
+          return
+        }
         selectionPending = false
-        if (!map.isStyleLoaded()) return
         const { selectedIds } = useUIStore.getState()
         const { lanes, roads } = useMapStore.getState()
         applySelectionState(selectedIds, lanes, roads)
