@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useDeferredValue } from 'react'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { useMapStore } from '@/store/mapStore'
 import { useUIStore } from '@/store/uiStore'
@@ -63,6 +63,7 @@ export default function ElementListPanel() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['lanes']))
   const [showAll, setShowAll] = useState<Set<string>>(() => new Set())
   const [searchQuery, setSearchQuery] = useState('')
+  const deferredQuery = useDeferredValue(searchQuery)
 
   const storeData: Record<string, Record<string, unknown>> = {
     roads,
@@ -77,7 +78,7 @@ export default function ElementListPanel() {
   }
 
   const groups = useMemo(() => {
-    const query = searchQuery.toLowerCase()
+    const query = deferredQuery.toLowerCase()
     return ELEMENT_GROUPS.map((g) => {
       const elements = Object.values(storeData[g.storeKey]) as (MapElement | { id: string })[]
       const filtered = query
@@ -95,33 +96,35 @@ export default function ElementListPanel() {
     clearAreas,
     speedBumps,
     parkingSpaces,
-    searchQuery,
+    deferredQuery,
   ])
 
-  const getRoadCenter = useCallback(
-    (roadId: string): [number, number] | null => {
+  const roadCenterCache = useMemo(() => {
+    const cache = new Map<string, [number, number]>()
+    for (const roadId of Object.keys(roads)) {
       const roadLanes = Object.values(lanes).filter((l) => l.roadId === roadId)
-      if (roadLanes.length === 0) return null
-      const allCoords = roadLanes.flatMap((l) => l.centerLine.geometry.coordinates)
+      if (roadLanes.length === 0) continue
       let minLng = Infinity,
         maxLng = -Infinity,
         minLat = Infinity,
         maxLat = -Infinity
-      for (const [lng, lat] of allCoords) {
-        if (lng < minLng) minLng = lng
-        if (lng > maxLng) maxLng = lng
-        if (lat < minLat) minLat = lat
-        if (lat > maxLat) maxLat = lat
+      for (const l of roadLanes) {
+        for (const [lng, lat] of l.centerLine.geometry.coordinates) {
+          if (lng < minLng) minLng = lng
+          if (lng > maxLng) maxLng = lng
+          if (lat < minLat) minLat = lat
+          if (lat > maxLat) maxLat = lat
+        }
       }
-      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
-    },
-    [lanes]
-  )
+      cache.set(roadId, [(minLng + maxLng) / 2, (minLat + maxLat) / 2])
+    }
+    return cache
+  }, [lanes, roads])
 
   const handleClick = (el: MapElement | { id: string }, storeKey: string) => {
     setSelected([el.id])
     if (storeKey === 'roads') {
-      const center = getRoadCenter(el.id)
+      const center = roadCenterCache.get(el.id)
       if (center) requestFlyTo(center[0], center[1])
     } else {
       const [lng, lat] = getElementCenter(el as MapElement)
