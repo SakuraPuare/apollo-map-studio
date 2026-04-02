@@ -36,31 +36,32 @@ function deduplicateVertices(line: Feature<LineString>, minDistMeters = 0.05): F
 }
 
 /**
- * Remove outlier vertices from an offset line.
- * Any vertex farther than `maxDistMeters` from the original centerline
- * is replaced by the nearest point on the centerline offset by the
- * expected distance — effectively clamping miter spikes.
+ * Remove outlier vertices from an offset line using a fast bbox check.
+ * Expands the centerline's bounding box by a generous tolerance and
+ * drops any vertex that falls outside — O(n) with no heavy geo calls.
  */
 function clampOffsetOutliers(
   offsetLine: Feature<LineString>,
   centerLine: Feature<LineString>,
   expectedDistMeters: number
 ): Feature<LineString> {
-  const maxDist = expectedDistMeters * 3
-  const coords = offsetLine.geometry.coordinates
-  const clamped: Position[] = []
+  const [minLng, minLat, maxLng, maxLat] = turf.bbox(centerLine)
+  // ~5× expected offset in degrees (1° ≈ 111 km), generous enough for any latitude < 70°
+  const tolDeg = (expectedDistMeters * 5) / 111_000
+  const lo0 = minLng - tolDeg
+  const lo1 = maxLng + tolDeg
+  const la0 = minLat - tolDeg
+  const la1 = maxLat + tolDeg
 
-  for (const coord of coords) {
-    const nearest = turf.nearestPointOnLine(centerLine, turf.point(coord), { units: 'meters' })
-    const dist = nearest.properties?.dist ?? 0
-    if (dist <= maxDist) {
-      clamped.push(coord)
-    } else {
-      // Replace with the nearest point on the centerline — not perfect,
-      // but prevents the polygon from flying off screen.
-      clamped.push(nearest.geometry.coordinates)
-    }
+  const coords = offsetLine.geometry.coordinates
+
+  // Fast path: if no vertex is outside the bbox, return as-is
+  if (coords.every((c) => c[0] >= lo0 && c[0] <= lo1 && c[1] >= la0 && c[1] <= la1)) {
+    return offsetLine
   }
+
+  const clamped = coords.filter((c) => c[0] >= lo0 && c[0] <= lo1 && c[1] >= la0 && c[1] <= la1)
+  if (clamped.length < 2) return offsetLine
 
   return {
     ...offsetLine,
