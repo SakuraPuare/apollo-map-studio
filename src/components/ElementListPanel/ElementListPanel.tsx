@@ -1,4 +1,4 @@
-import { useState, useMemo, useDeferredValue } from 'react'
+import { useState, useMemo, useDeferredValue, memo, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { useMapStore } from '@/store/mapStore'
 import { useUIStore } from '@/store/uiStore'
@@ -6,9 +6,20 @@ import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import type { MapElement } from '@/types/editor'
+import type { MapElement, LaneFeature, RoadDefinition } from '@/types/editor'
 
-const ELEMENT_GROUPS = [
+type StoreKeys =
+  | 'roads'
+  | 'lanes'
+  | 'junctions'
+  | 'signals'
+  | 'stopSigns'
+  | 'crosswalks'
+  | 'clearAreas'
+  | 'speedBumps'
+  | 'parkingSpaces'
+
+const ELEMENT_GROUPS: { storeKey: StoreKeys; label: string; color: string }[] = [
   { storeKey: 'roads', label: 'Roads', color: '#81c784' },
   { storeKey: 'lanes', label: 'Lanes', color: '#4fc3f7' },
   { storeKey: 'junctions', label: 'Junctions', color: '#ffb74d' },
@@ -18,9 +29,32 @@ const ELEMENT_GROUPS = [
   { storeKey: 'clearAreas', label: 'Clear Areas', color: '#fff176' },
   { storeKey: 'speedBumps', label: 'Speed Bumps', color: '#a1887f' },
   { storeKey: 'parkingSpaces', label: 'Parking', color: '#90a4ae' },
-] as const
+]
 
 const MAX_VISIBLE = 200
+
+// Single selector — one subscription, one re-render per store update
+const selectElementCounts = (s: {
+  lanes: Record<string, LaneFeature>
+  roads: Record<string, RoadDefinition>
+  junctions: Record<string, unknown>
+  signals: Record<string, unknown>
+  stopSigns: Record<string, unknown>
+  crosswalks: Record<string, unknown>
+  clearAreas: Record<string, unknown>
+  speedBumps: Record<string, unknown>
+  parkingSpaces: Record<string, unknown>
+}) => ({
+  lanes: s.lanes,
+  roads: s.roads,
+  junctions: s.junctions,
+  signals: s.signals,
+  stopSigns: s.stopSigns,
+  crosswalks: s.crosswalks,
+  clearAreas: s.clearAreas,
+  speedBumps: s.speedBumps,
+  parkingSpaces: s.parkingSpaces,
+})
 
 function getElementCenter(el: MapElement): [number, number] {
   if (el.type === 'signal') {
@@ -48,16 +82,34 @@ function getElementCenter(el: MapElement): [number, number] {
   return [lng, lat]
 }
 
+/** Memoized list item — only re-renders when its own selection state changes */
+const ElementItem = memo(function ElementItem({
+  id,
+  isSelected,
+  onClick,
+}: {
+  id: string
+  isSelected: boolean
+  onClick: () => void
+}) {
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        'px-7 py-1 text-[11px] font-mono cursor-pointer truncate transition-colors',
+        isSelected
+          ? 'bg-primary/15 text-primary'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+      )}
+    >
+      {id}
+    </div>
+  )
+})
+
 export default function ElementListPanel() {
-  const lanes = useMapStore((s) => s.lanes)
-  const roads = useMapStore((s) => s.roads)
-  const junctions = useMapStore((s) => s.junctions)
-  const signals = useMapStore((s) => s.signals)
-  const stopSigns = useMapStore((s) => s.stopSigns)
-  const crosswalks = useMapStore((s) => s.crosswalks)
-  const clearAreas = useMapStore((s) => s.clearAreas)
-  const speedBumps = useMapStore((s) => s.speedBumps)
-  const parkingSpaces = useMapStore((s) => s.parkingSpaces)
+  const storeData = useMapStore(selectElementCounts)
+  const { lanes } = storeData
 
   const { selectedIds, setSelected, requestFlyTo } = useUIStore()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['lanes']))
@@ -65,72 +117,72 @@ export default function ElementListPanel() {
   const [searchQuery, setSearchQuery] = useState('')
   const deferredQuery = useDeferredValue(searchQuery)
 
-  const storeData: Record<string, Record<string, unknown>> = {
-    roads,
-    lanes,
-    junctions,
-    signals,
-    stopSigns,
-    crosswalks,
-    clearAreas,
-    speedBumps,
-    parkingSpaces,
-  }
+  // O(1) lookup instead of selectedIds.includes() O(n)
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
-  const groups = useMemo(() => {
-    const query = deferredQuery.toLowerCase()
+  // Only compute element counts (cheap) — defer full filtering to expanded groups
+  const groupMeta = useMemo(() => {
     return ELEMENT_GROUPS.map((g) => {
+      const count = Object.keys(storeData[g.storeKey]).length
+      return { ...g, totalCount: count }
+    })
+  }, [storeData])
+
+  // Filtered elements only for expanded groups (avoid work for collapsed groups)
+  const expandedGroupElements = useMemo(() => {
+    const query = deferredQuery.toLowerCase()
+    const result = new Map<string, (MapElement | { id: string })[]>()
+    for (const g of ELEMENT_GROUPS) {
+      if (!expanded.has(g.storeKey) && !query) continue
       const elements = Object.values(storeData[g.storeKey]) as (MapElement | { id: string })[]
       const filtered = query
         ? elements.filter((el) => el.id.toLowerCase().includes(query))
         : elements
-      return { ...g, elements: filtered, totalCount: elements.length }
-    })
-  }, [
-    lanes,
-    roads,
-    junctions,
-    signals,
-    stopSigns,
-    crosswalks,
-    clearAreas,
-    speedBumps,
-    parkingSpaces,
-    deferredQuery,
-  ])
+      result.set(g.storeKey, filtered)
+    }
+    return result
+  }, [storeData, deferredQuery, expanded])
 
+  // Road center cache — single pass O(lanes) instead of O(roads × lanes)
   const roadCenterCache = useMemo(() => {
     const cache = new Map<string, [number, number]>()
-    for (const roadId of Object.keys(roads)) {
-      const roadLanes = Object.values(lanes).filter((l) => l.roadId === roadId)
-      if (roadLanes.length === 0) continue
-      let minLng = Infinity,
-        maxLng = -Infinity,
-        minLat = Infinity,
-        maxLat = -Infinity
-      for (const l of roadLanes) {
-        for (const [lng, lat] of l.centerLine.geometry.coordinates) {
-          if (lng < minLng) minLng = lng
-          if (lng > maxLng) maxLng = lng
-          if (lat < minLat) minLat = lat
-          if (lat > maxLat) maxLat = lat
-        }
+    const bboxes = new Map<string, [number, number, number, number]>()
+
+    // Single pass: group bbox computation by roadId
+    for (const lane of Object.values(lanes)) {
+      if (!lane.roadId) continue
+      let bbox = bboxes.get(lane.roadId)
+      if (!bbox) {
+        bbox = [Infinity, Infinity, -Infinity, -Infinity]
+        bboxes.set(lane.roadId, bbox)
       }
-      cache.set(roadId, [(minLng + maxLng) / 2, (minLat + maxLat) / 2])
+      for (const [lng, lat] of lane.centerLine.geometry.coordinates) {
+        if (lng < bbox[0]) bbox[0] = lng
+        if (lat < bbox[1]) bbox[1] = lat
+        if (lng > bbox[2]) bbox[2] = lng
+        if (lat > bbox[3]) bbox[3] = lat
+      }
+    }
+
+    for (const [roadId, bbox] of bboxes) {
+      cache.set(roadId, [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2])
     }
     return cache
-  }, [lanes, roads])
+  }, [lanes])
 
-  const handleClick = (el: MapElement | { id: string }, storeKey: string) => {
-    setSelected([el.id])
-    if (storeKey === 'roads') {
-      const center = roadCenterCache.get(el.id)
-      if (center) requestFlyTo(center[0], center[1])
-    } else {
-      const [lng, lat] = getElementCenter(el as MapElement)
-      requestFlyTo(lng, lat)
-    }
-  }
+  const handleClick = useCallback(
+    (el: MapElement | { id: string }, storeKey: string) => {
+      setSelected([el.id])
+      if (storeKey === 'roads') {
+        const center = roadCenterCache.get(el.id)
+        if (center) requestFlyTo(center[0], center[1])
+      } else {
+        const [lng, lat] = getElementCenter(el as MapElement)
+        requestFlyTo(lng, lat)
+      }
+    },
+    [setSelected, requestFlyTo, roadCenterCache]
+  )
 
   const handleShowAll = (storeKey: string) => {
     setShowAll((prev) => {
@@ -158,8 +210,9 @@ export default function ElementListPanel() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {groups.map((group) => {
-          const count = group.elements.length
+        {groupMeta.map((group) => {
+          const elements = expandedGroupElements.get(group.storeKey)
+          const count = elements?.length ?? group.totalCount
           if (count === 0 && !searchQuery) return null
 
           const isExpanded = expanded.has(group.storeKey)
@@ -199,29 +252,20 @@ export default function ElementListPanel() {
               </CollapsibleTrigger>
 
               <CollapsibleContent>
-                {count === 0 ? (
+                {!elements || count === 0 ? (
                   <div className="px-7 py-2 text-[10px] text-muted-foreground italic">
                     No matches
                   </div>
                 ) : (
                   <>
-                    {group.elements.slice(0, visibleLimit).map((el) => {
-                      const isSelected = selectedIds.includes(el.id)
-                      return (
-                        <div
-                          key={el.id}
-                          onClick={() => handleClick(el, group.storeKey)}
-                          className={cn(
-                            'px-7 py-1 text-[11px] font-mono cursor-pointer truncate transition-colors',
-                            isSelected
-                              ? 'bg-primary/15 text-primary'
-                              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
-                          )}
-                        >
-                          {el.id}
-                        </div>
-                      )
-                    })}
+                    {elements.slice(0, visibleLimit).map((el) => (
+                      <ElementItem
+                        key={el.id}
+                        id={el.id}
+                        isSelected={selectedSet.has(el.id)}
+                        onClick={() => handleClick(el, group.storeKey)}
+                      />
+                    ))}
                     {hiddenCount > 0 && (
                       <button
                         onClick={() => handleShowAll(group.storeKey)}
