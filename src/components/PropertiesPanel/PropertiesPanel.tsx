@@ -174,12 +174,17 @@ function SignalPropertiesSimple({ id }: { id: string }) {
 }
 
 function RoadProperties({ roadId }: { roadId: string }) {
-  const { roads, lanes, updateRoad, removeRoad } = useMapStore()
-  const { setSelected } = useUIStore()
+  const { roads, lanes, updateRoad, removeRoad, autoComputeNeighbors } = useMapStore()
+  const { setSelected, setStatus } = useUIStore()
   const road = roads[roadId]
   if (!road) return null
 
   const laneCount = Object.values(lanes).filter((l) => l.roadId === roadId).length
+
+  const handleAutoNeighbors = () => {
+    const count = autoComputeNeighbors(roadId)
+    setStatus(`Auto-computed ${count} neighbor pair(s) for road "${road.name}"`)
+  }
 
   return (
     <div className="p-4 text-xs flex flex-col gap-2">
@@ -208,6 +213,15 @@ function RoadProperties({ roadId }: { roadId: string }) {
         <option value={3}>PARK</option>
       </select>
       <div className="text-muted-foreground text-[11px]">Lanes: {laneCount}</div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full mt-1"
+        onClick={handleAutoNeighbors}
+        disabled={laneCount < 2}
+      >
+        Auto-Compute Neighbors
+      </Button>
       <Button
         variant="destructive"
         size="sm"
