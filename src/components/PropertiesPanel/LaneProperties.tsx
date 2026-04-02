@@ -1,8 +1,19 @@
-import { useMapStore } from '../../store/mapStore'
-import { useUIStore } from '../../store/uiStore'
-import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
+import { useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useMapStore } from '@/store/mapStore'
+import { useUIStore } from '@/store/uiStore'
+import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '@/types/apollo-map'
 import { Button } from '@/components/ui/button'
-import type { LaneFeature } from '../../types/editor'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import type { LaneFeature } from '@/types/editor'
 
 interface Props {
   lane: LaneFeature
@@ -26,15 +37,18 @@ export default function LaneProperties({ lane }: Props) {
   }
 
   return (
-    <div className="p-4 text-xs">
-      <div className="mb-1 text-muted-foreground text-[11px]">LANE</div>
-      <div className="mb-2.5 font-semibold text-xs text-accent-foreground font-mono break-all">
+    <div className="p-3 text-xs flex flex-col gap-1">
+      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
+        Lane
+      </div>
+      <div className="text-xs text-accent-foreground font-mono break-all bg-muted/50 px-2 py-1.5 rounded mb-2">
         {lane.id}
       </div>
 
-      <div className="flex flex-col gap-3">
+      {/* General Section */}
+      <CollapsibleSection title="General" defaultOpen>
         <Field label="Speed Limit (km/h)">
-          <input
+          <Input
             type="number"
             min={0}
             max={360}
@@ -45,12 +59,12 @@ export default function LaneProperties({ lane }: Props) {
               const v = parseFloat(e.target.value)
               if (!isNaN(v) && v >= 0) update({ speedLimit: v / 3.6 })
             }}
-            className="panel-input"
+            className="h-7 text-xs"
           />
         </Field>
 
         <Field label="Lane Width (m)">
-          <input
+          <Input
             type="number"
             min={0.5}
             max={20}
@@ -61,151 +75,214 @@ export default function LaneProperties({ lane }: Props) {
               const v = parseFloat(e.target.value)
               if (!isNaN(v) && v >= 0.5) update({ width: v })
             }}
-            className="panel-input"
+            className="h-7 text-xs"
           />
         </Field>
 
         <Field label="Type">
-          <select
-            value={lane.laneType}
-            onChange={(e) => update({ laneType: Number(e.target.value) as LaneType })}
-            className="panel-select"
+          <Select
+            value={String(lane.laneType)}
+            onValueChange={(v) => update({ laneType: Number(v) as LaneType })}
           >
-            <option value={LaneType.CITY_DRIVING}>City Driving</option>
-            <option value={LaneType.BIKING}>Biking</option>
-            <option value={LaneType.SIDEWALK}>Sidewalk</option>
-            <option value={LaneType.PARKING}>Parking</option>
-            <option value={LaneType.SHOULDER}>Shoulder</option>
-            <option value={LaneType.SHARED}>Shared</option>
-            <option value={LaneType.NONE}>None</option>
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(LaneType.CITY_DRIVING)}>City Driving</SelectItem>
+              <SelectItem value={String(LaneType.BIKING)}>Biking</SelectItem>
+              <SelectItem value={String(LaneType.SIDEWALK)}>Sidewalk</SelectItem>
+              <SelectItem value={String(LaneType.PARKING)}>Parking</SelectItem>
+              <SelectItem value={String(LaneType.SHOULDER)}>Shoulder</SelectItem>
+              <SelectItem value={String(LaneType.SHARED)}>Shared</SelectItem>
+              <SelectItem value={String(LaneType.NONE)}>None</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field label="Turn">
-          <select
-            value={lane.turn}
-            onChange={(e) => update({ turn: Number(e.target.value) as LaneTurn })}
-            className="panel-select"
+          <Select
+            value={String(lane.turn)}
+            onValueChange={(v) => update({ turn: Number(v) as LaneTurn })}
           >
-            <option value={LaneTurn.NO_TURN}>No Turn</option>
-            <option value={LaneTurn.LEFT_TURN}>Left Turn</option>
-            <option value={LaneTurn.RIGHT_TURN}>Right Turn</option>
-            <option value={LaneTurn.U_TURN}>U-Turn</option>
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(LaneTurn.NO_TURN)}>No Turn</SelectItem>
+              <SelectItem value={String(LaneTurn.LEFT_TURN)}>Left Turn</SelectItem>
+              <SelectItem value={String(LaneTurn.RIGHT_TURN)}>Right Turn</SelectItem>
+              <SelectItem value={String(LaneTurn.U_TURN)}>U-Turn</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field label="Direction">
-          <select
-            value={lane.direction}
-            onChange={(e) => update({ direction: Number(e.target.value) as LaneDirection })}
-            className="panel-select"
+          <Select
+            value={String(lane.direction)}
+            onValueChange={(v) => update({ direction: Number(v) as LaneDirection })}
           >
-            <option value={LaneDirection.FORWARD}>Forward</option>
-            <option value={LaneDirection.BACKWARD}>Backward</option>
-            <option value={LaneDirection.BIDIRECTION}>Bidirectional</option>
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(LaneDirection.FORWARD)}>Forward</SelectItem>
+              <SelectItem value={String(LaneDirection.BACKWARD)}>Backward</SelectItem>
+              <SelectItem value={String(LaneDirection.BIDIRECTION)}>Bidirectional</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
+      </CollapsibleSection>
 
+      {/* Boundaries Section */}
+      <CollapsibleSection title="Boundaries" defaultOpen>
         <Field label="Left Boundary">
-          <select
-            value={lane.leftBoundaryType}
-            onChange={(e) => update({ leftBoundaryType: Number(e.target.value) as BoundaryType })}
-            className="panel-select"
+          <Select
+            value={String(lane.leftBoundaryType)}
+            onValueChange={(v) => update({ leftBoundaryType: Number(v) as BoundaryType })}
           >
-            {boundaryOptions}
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>Dotted White</SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>Dotted Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>Solid White</SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>Solid Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>Double Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.CURB)}>Curb</SelectItem>
+              <SelectItem value={String(BoundaryType.UNKNOWN)}>Unknown</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
 
         <Field label="Right Boundary">
-          <select
-            value={lane.rightBoundaryType}
-            onChange={(e) => update({ rightBoundaryType: Number(e.target.value) as BoundaryType })}
-            className="panel-select"
+          <Select
+            value={String(lane.rightBoundaryType)}
+            onValueChange={(v) => update({ rightBoundaryType: Number(v) as BoundaryType })}
           >
-            {boundaryOptions}
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>Dotted White</SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>Dotted Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>Solid White</SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>Solid Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>Double Yellow</SelectItem>
+              <SelectItem value={String(BoundaryType.CURB)}>Curb</SelectItem>
+              <SelectItem value={String(BoundaryType.UNKNOWN)}>Unknown</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
-        <Field label="Road">
-          <select
-            value={lane.roadId ?? ''}
-            onChange={(e) => {
-              const val = e.target.value
-              if (val) {
-                assignLaneToRoad(lane.id, val)
-              } else {
+      </CollapsibleSection>
+
+      {/* Road Assignment */}
+      <CollapsibleSection title="Road" defaultOpen>
+        <Field label="Assigned Road">
+          <Select
+            value={lane.roadId ?? '__none__'}
+            onValueChange={(v) => {
+              if (v === '__none__') {
                 unassignLaneFromRoad(lane.id)
+              } else {
+                assignLaneToRoad(lane.id, v)
               }
             }}
-            className="panel-select"
           >
-            <option value="">-- None --</option>
-            {Object.values(roads).map((road) => (
-              <option key={road.id} value={road.id}>
-                {road.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue placeholder="-- None --" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">-- None --</SelectItem>
+              {Object.values(roads).map((road) => (
+                <SelectItem key={road.id} value={road.id}>
+                  {road.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
-      </div>
+      </CollapsibleSection>
 
-      {/* Connections */}
-      <div className="mt-3 border-t border-border pt-2">
-        <div className="text-muted-foreground text-[11px] mb-1.5 tracking-wide font-semibold">
-          CONNECTIONS
-        </div>
-        {lane.predecessorIds.length > 0 && (
-          <IdList label="Predecessors" ids={lane.predecessorIds} />
-        )}
-        {lane.successorIds.length > 0 && <IdList label="Successors" ids={lane.successorIds} />}
-        {lane.leftNeighborIds.length > 0 && (
-          <IdList label="Left Neighbors" ids={lane.leftNeighborIds} />
-        )}
-        {lane.rightNeighborIds.length > 0 && (
-          <IdList label="Right Neighbors" ids={lane.rightNeighborIds} />
-        )}
-      </div>
+      {/* Connections Section */}
+      {(lane.predecessorIds.length > 0 ||
+        lane.successorIds.length > 0 ||
+        lane.leftNeighborIds.length > 0 ||
+        lane.rightNeighborIds.length > 0) && (
+        <CollapsibleSection title="Connections" defaultOpen>
+          {lane.predecessorIds.length > 0 && (
+            <IdList label="Predecessors" ids={lane.predecessorIds} />
+          )}
+          {lane.successorIds.length > 0 && <IdList label="Successors" ids={lane.successorIds} />}
+          {lane.leftNeighborIds.length > 0 && (
+            <IdList label="Left Neighbors" ids={lane.leftNeighborIds} />
+          )}
+          {lane.rightNeighborIds.length > 0 && (
+            <IdList label="Right Neighbors" ids={lane.rightNeighborIds} />
+          )}
+        </CollapsibleSection>
+      )}
 
-      <Button variant="destructive" className="w-full mt-3" size="sm" onClick={handleDelete}>
+      <Button variant="destructive" className="w-full mt-2" size="sm" onClick={handleDelete}>
         Delete Lane
       </Button>
     </div>
   )
 }
 
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-1.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors">
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {title}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-col gap-2.5 pb-2 pl-1">{children}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <label className="text-muted-foreground text-xs font-medium">{label}</label>
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-muted-foreground font-medium">{label}</label>
       {children}
     </div>
   )
 }
 
 function IdList({ label, ids }: { label: string; ids: string[] }) {
+  const { setSelected } = useUIStore()
+
+  const handleClick = (clickedId: string) => {
+    setSelected([clickedId])
+  }
+
   return (
-    <div className="mb-1.5">
-      <div className="text-muted-foreground text-[11px] uppercase mb-0.5">{label}</div>
-      {ids.map((id) => (
+    <div className="mb-1">
+      <div className="text-[10px] text-muted-foreground uppercase font-medium mb-0.5">{label}</div>
+      {ids.map((connId) => (
         <div
-          key={id}
-          className="text-[11px] text-foreground pl-1.5 break-all flex items-center gap-1 leading-relaxed"
+          key={connId}
+          className="text-[11px] text-foreground pl-2 break-all flex items-center gap-1.5 leading-relaxed cursor-pointer hover:text-primary transition-colors"
+          onClick={() => handleClick(connId)}
         >
-          <span className="w-[5px] h-[5px] rounded-full bg-primary shrink-0" />
-          {id}
+          <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+          <span className="font-mono">{connId}</span>
         </div>
       ))}
     </div>
   )
 }
-
-const boundaryOptions = (
-  <>
-    <option value={BoundaryType.DOTTED_WHITE}>Dotted White</option>
-    <option value={BoundaryType.DOTTED_YELLOW}>Dotted Yellow</option>
-    <option value={BoundaryType.SOLID_WHITE}>Solid White</option>
-    <option value={BoundaryType.SOLID_YELLOW}>Solid Yellow</option>
-    <option value={BoundaryType.DOUBLE_YELLOW}>Double Yellow</option>
-    <option value={BoundaryType.CURB}>Curb</option>
-    <option value={BoundaryType.UNKNOWN}>Unknown</option>
-  </>
-)
