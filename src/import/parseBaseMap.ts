@@ -1,3 +1,4 @@
+import * as turf from '@turf/turf'
 import { decodeMap } from '../proto/codec'
 import { setGlobalProjection } from '../geo/projection'
 import type { ApolloMap, PointENU } from '../types/apollo-map'
@@ -61,6 +62,80 @@ function enuPointsToCoords(
   toLngLat: (x: number, y: number) => [number, number]
 ): [number, number][] {
   return points.map((p) => toLngLat(p.x, p.y))
+}
+
+/**
+ * Merge consecutive lanes whose connection lateral error < 1cm.
+ * Lateral error = bearing_diff_rad × successor_length.
+ * Only merges 1:1 connections (one successor, one predecessor).
+ */
+function mergeConsecutiveLanes(lanes: LaneFeature[]): LaneFeature[] {
+  const laneMap = new Map<string, LaneFeature>()
+  for (const lane of lanes) laneMap.set(lane.id, lane)
+
+  // Identify lanes that form a 1:1 chain with their predecessor
+  const isChainMiddle = new Set<string>()
+  for (const lane of lanes) {
+    if (lane.predecessorIds.length !== 1) continue
+    const pred = laneMap.get(lane.predecessorIds[0])
+    if (!pred || pred.successorIds.length !== 1) continue
+    isChainMiddle.add(lane.id)
+  }
+
+  const absorbed = new Set<string>()
+  const remap = new Map<string, string>() // absorbed ID → absorber (head) ID
+
+  for (const head of lanes) {
+    if (isChainMiddle.has(head.id) || absorbed.has(head.id)) continue
+
+    const current = head
+
+    while (current.successorIds.length === 1) {
+      const succId = current.successorIds[0]
+      const succ = laneMap.get(succId)
+      if (!succ || absorbed.has(succId) || !isChainMiddle.has(succId)) break
+
+      const ca = current.centerLine.geometry.coordinates
+      const cb = succ.centerLine.geometry.coordinates
+      if (ca.length < 2 || cb.length < 2) break
+
+      // Bearing at connection point
+      const bearA = turf.bearing(turf.point(ca[ca.length - 2]), turf.point(ca[ca.length - 1]))
+      const bearB = turf.bearing(turf.point(cb[0]), turf.point(cb[1]))
+      let diffDeg = Math.abs(bearA - bearB)
+      if (diffDeg > 180) diffDeg = 360 - diffDeg
+      const diffRad = (diffDeg * Math.PI) / 180
+
+      const succLength = turf.length(succ.centerLine, { units: 'meters' })
+      if (diffRad * succLength >= 0.01) break
+
+      // Merge successor into current
+      current.centerLine = {
+        ...current.centerLine,
+        geometry: {
+          ...current.centerLine.geometry,
+          coordinates: [...ca, ...cb.slice(1)],
+        },
+      }
+      current.successorIds = succ.successorIds
+      absorbed.add(succId)
+      remap.set(succId, head.id)
+    }
+  }
+
+  if (absorbed.size === 0) return lanes
+
+  // Fix references in surviving lanes
+  const result = lanes.filter((l) => !absorbed.has(l.id))
+  for (const lane of result) {
+    lane.predecessorIds = lane.predecessorIds.map((id) => remap.get(id) ?? id)
+    lane.successorIds = lane.successorIds.map((id) => remap.get(id) ?? id)
+    lane.leftNeighborIds = lane.leftNeighborIds.filter((id) => !absorbed.has(id))
+    lane.rightNeighborIds = lane.rightNeighborIds.filter((id) => !absorbed.has(id))
+  }
+
+  console.log(`[Import] Merged ${absorbed.size} lanes (${lanes.length} → ${result.length})`)
+  return result
 }
 
 /**
@@ -313,7 +388,10 @@ export async function parseBaseMapFromObject(
     })
   }
 
-  for (const lane of lanes) {
+  // Merge nearly-collinear consecutive lanes before road assignment
+  const mergedLanes = mergeConsecutiveLanes(lanes)
+
+  for (const lane of mergedLanes) {
     const roadId = laneRoadMap.get(lane.id)
     if (roadId) {
       lane.roadId = roadId
@@ -322,12 +400,12 @@ export async function parseBaseMapFromObject(
 
   const roads = allRoadDefs
   console.log(
-    `[Import] ${map.road.length} roads, ${map.lane.length} lanes, ${map.junction.length} junctions, ${map.signal?.length ?? 0} signals`
+    `[Import] ${map.road.length} roads, ${mergedLanes.length} lanes, ${map.junction.length} junctions, ${map.signal?.length ?? 0} signals`
   )
 
   return {
     project,
-    lanes,
+    lanes: mergedLanes,
     junctions,
     signals,
     stopSigns,
