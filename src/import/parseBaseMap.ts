@@ -107,7 +107,7 @@ function mergeConsecutiveLanes(lanes: LaneFeature[]): LaneFeature[] {
       const diffRad = (diffDeg * Math.PI) / 180
 
       const succLength = turf.length(succ.centerLine, { units: 'meters' })
-      if (diffRad * succLength >= 0.01) break
+      if (diffRad * succLength >= 0.05) break
 
       // Merge successor into current
       current.centerLine = {
