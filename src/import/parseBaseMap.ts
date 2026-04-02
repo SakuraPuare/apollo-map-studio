@@ -404,9 +404,14 @@ export async function parseBaseMapFromObject(
     }
   }
 
-  const roads = allRoadDefs
+  // Remove roads that have no lanes referencing them
+  const usedRoadIds = new Set(mergedLanes.map((l) => l.roadId).filter(Boolean))
+  const roads = allRoadDefs.filter((r) => usedRoadIds.has(r.id))
+  if (roads.length < allRoadDefs.length) {
+    console.log(`[Import] Removed ${allRoadDefs.length - roads.length} empty roads`)
+  }
   console.log(
-    `[Import] ${map.road.length} roads, ${mergedLanes.length} lanes, ${map.junction.length} junctions, ${map.signal?.length ?? 0} signals`
+    `[Import] ${roads.length} roads, ${mergedLanes.length} lanes, ${map.junction.length} junctions, ${map.signal?.length ?? 0} signals`
   )
 
   return {
