@@ -14,6 +14,7 @@
 import type { Position } from 'geojson'
 import type { BezierAnchor } from '../geo/bezier'
 import { flattenBezier, mirrorHandle } from '../geo/bezier'
+import { useUIStore } from '../store/uiStore'
 
 /** Drag detection threshold in screen pixels. */
 const DRAG_THRESHOLD_PX = 3
@@ -245,8 +246,9 @@ const DrawBezierMode = {
     }
 
     if (e.key === 'Escape') {
-      // Cancel drawing
+      // Cancel drawing and reset tool state
       state.anchors = []
+      useUIStore.getState().setToolState({ kind: 'select' })
       this.changeMode('simple_select')
       return
     }
