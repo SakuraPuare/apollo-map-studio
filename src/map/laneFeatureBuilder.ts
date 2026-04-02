@@ -3,7 +3,7 @@ import { LaneDirection } from '../types/apollo-map'
 import { getOrComputeBoundary } from '../geo/boundaryCache'
 import { getRoadColor } from '../utils/roadColors'
 
-export const LANE_TYPE_COLOR: Record<number, string> = {
+const LANE_TYPE_COLOR: Record<number, string> = {
   1: '#475569',
   2: '#1d4ed8',
   3: '#15803d',
@@ -13,14 +13,14 @@ export const LANE_TYPE_COLOR: Record<number, string> = {
   7: '#0e7490',
 }
 
-export const TURN_COLOR: Record<number, string> = {
+const TURN_COLOR: Record<number, string> = {
   1: '#e2e8f0',
   2: '#f59e0b',
   3: '#f59e0b',
   4: '#ef4444',
 }
 
-export const BOUNDARY_COLOR: Record<number, string> = {
+const BOUNDARY_COLOR: Record<number, string> = {
   1: '#eab308',
   2: '#cbd5e1',
   3: '#eab308',

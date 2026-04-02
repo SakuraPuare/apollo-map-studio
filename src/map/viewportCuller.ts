@@ -58,7 +58,6 @@ let _prevSpeedBumps: Record<string, SpeedBumpFeature> | null = null
 let _prevParkingSpaces: Record<string, ParkingSpaceFeature> | null = null
 let _prevLaneMap = new Map<string, LaneFeature>()
 
-let _unculledMode = false
 let _initialized = false
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -81,26 +80,13 @@ function makeLaneEntry(lane: LaneFeature): SpatialEntry {
   }
 }
 
-function makePolygonEntry(
+function makeSpatialEntry(
   id: string,
   coords: number[][],
   elementType: SpatialEntry['elementType']
 ): SpatialEntry {
   const bbox = buildBBox(coords)
   return { ...bbox, id, elementType }
-}
-
-function makeLineEntry(
-  id: string,
-  coords: number[][],
-  elementType: SpatialEntry['elementType']
-): SpatialEntry {
-  const bbox = buildBBox(coords)
-  return { ...bbox, id, elementType }
-}
-
-function laneCompositeIds(laneId: string): string[] {
-  return [laneId, `${laneId}__left`, `${laneId}__right`, `${laneId}__fwd`, `${laneId}__bwd`]
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -124,8 +110,54 @@ export function resetCuller(): void {
   _prevSpeedBumps = null
   _prevParkingSpaces = null
   _prevLaneMap = new Map()
-  _unculledMode = false
   _initialized = false
+}
+
+/** Build spatial entries for all non-lane element types. */
+function buildElementEntries(state: {
+  junctions: Record<string, JunctionFeature>
+  crosswalks: Record<string, CrosswalkFeature>
+  signals: Record<string, SignalFeature>
+  stopSigns: Record<string, StopSignFeature>
+  clearAreas: Record<string, ClearAreaFeature>
+  speedBumps: Record<string, SpeedBumpFeature>
+  parkingSpaces: Record<string, ParkingSpaceFeature>
+}): SpatialEntry[] {
+  const entries: SpatialEntry[] = []
+  for (const j of Object.values(state.junctions)) {
+    entries.push(
+      makeSpatialEntry(j.id, j.polygon.geometry.coordinates[0] as number[][], 'junction')
+    )
+  }
+  for (const cw of Object.values(state.crosswalks)) {
+    entries.push(
+      makeSpatialEntry(cw.id, cw.polygon.geometry.coordinates[0] as number[][], 'crosswalk')
+    )
+  }
+  for (const sig of Object.values(state.signals)) {
+    entries.push(
+      makeSpatialEntry(sig.id, sig.stopLine.geometry.coordinates as number[][], 'signal')
+    )
+  }
+  for (const ss of Object.values(state.stopSigns)) {
+    entries.push(
+      makeSpatialEntry(ss.id, ss.stopLine.geometry.coordinates as number[][], 'stop_sign')
+    )
+  }
+  for (const ca of Object.values(state.clearAreas)) {
+    entries.push(
+      makeSpatialEntry(ca.id, ca.polygon.geometry.coordinates[0] as number[][], 'clear_area')
+    )
+  }
+  for (const sb of Object.values(state.speedBumps)) {
+    entries.push(makeSpatialEntry(sb.id, sb.line.geometry.coordinates as number[][], 'speed_bump'))
+  }
+  for (const ps of Object.values(state.parkingSpaces)) {
+    entries.push(
+      makeSpatialEntry(ps.id, ps.polygon.geometry.coordinates[0] as number[][], 'parking_space')
+    )
+  }
+  return entries
 }
 
 /**
@@ -172,67 +204,8 @@ export async function initFromImport(
     await new Promise((r) => setTimeout(r, 0))
   }
 
-  // Junctions
-  for (const j of Object.values(junctions)) {
-    const entry = makePolygonEntry(
-      j.id,
-      j.polygon.geometry.coordinates[0] as number[][],
-      'junction'
-    )
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Crosswalks
-  for (const cw of Object.values(crosswalks)) {
-    const entry = makePolygonEntry(
-      cw.id,
-      cw.polygon.geometry.coordinates[0] as number[][],
-      'crosswalk'
-    )
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Signals
-  for (const sig of Object.values(signals)) {
-    const entry = makeLineEntry(sig.id, sig.stopLine.geometry.coordinates as number[][], 'signal')
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Stop signs
-  for (const ss of Object.values(stopSigns)) {
-    const entry = makeLineEntry(ss.id, ss.stopLine.geometry.coordinates as number[][], 'stop_sign')
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Clear areas
-  for (const ca of Object.values(clearAreas)) {
-    const entry = makePolygonEntry(
-      ca.id,
-      ca.polygon.geometry.coordinates[0] as number[][],
-      'clear_area'
-    )
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Speed bumps
-  for (const sb of Object.values(speedBumps)) {
-    const entry = makeLineEntry(sb.id, sb.line.geometry.coordinates as number[][], 'speed_bump')
-    entries.push(entry)
-    _entryById.set(entry.id, entry)
-  }
-
-  // Parking spaces
-  for (const ps of Object.values(parkingSpaces)) {
-    const entry = makePolygonEntry(
-      ps.id,
-      ps.polygon.geometry.coordinates[0] as number[][],
-      'parking_space'
-    )
+  const elementEntries = buildElementEntries(state)
+  for (const entry of elementEntries) {
     entries.push(entry)
     _entryById.set(entry.id, entry)
   }
@@ -301,13 +274,6 @@ export function syncViewport(map: MapLibreMap): void {
 
   const results = _tree.search(queryBBox)
 
-  // Hysteresis for unculled mode
-  if (!_unculledMode && results.length > 10000) {
-    _unculledMode = true
-  } else if (_unculledMode && results.length < 8000) {
-    _unculledMode = false
-  }
-
   // Partition results by type
   const queryLaneIds = new Set<string>()
   const queryIds: Record<string, Set<string>> = {
@@ -373,14 +339,6 @@ export function syncViewport(map: MapLibreMap): void {
 
     // Remove leaving + changed
     if (leaving.size > 0 || changed.size > 0) {
-      const removeIds: string[] = []
-      for (const id of leaving) {
-        removeIds.push(...laneCompositeIds(id))
-      }
-      for (const id of changed) {
-        removeIds.push(...laneCompositeIds(id))
-      }
-
       const fillSrc = src(map, 'lane-fills')
       const centerSrc = src(map, 'lane-centers')
       const boundarySrc = src(map, 'lane-boundaries')
@@ -413,17 +371,7 @@ export function syncViewport(map: MapLibreMap): void {
     // Add entering + changed
     if (entering.size > 0 || changed.size > 0) {
       const out: LaneFeatureArrays = { fill: [], center: [], boundary: [], arrow: [], conn: [] }
-      for (const id of entering) {
-        const lane = lanes[id]
-        if (lane) {
-          try {
-            buildLaneFeaturesInto(lane, lanes, roads, out)
-          } catch {
-            // skip malformed
-          }
-        }
-      }
-      for (const id of changed) {
+      for (const id of [...entering, ...changed]) {
         const lane = lanes[id]
         if (lane) {
           try {
@@ -533,136 +481,20 @@ export function syncViewport(map: MapLibreMap): void {
 
   // ── Sync other element types ────────────────────────────────────────
 
-  type ElementSyncConfig = {
-    sourceId: string
-    centroidSourceId?: string
-    visibilityKey: string
-    elements: Record<string, { id: string }>
-    toFeature: (el: Record<string, unknown>) => GeoJSON.Feature
-    toCentroid?: (el: Record<string, unknown>) => GeoJSON.Feature
-  }
-
-  const syncConfigs: ElementSyncConfig[] = [
-    {
-      sourceId: 'junctions',
-      visibilityKey: 'junctions',
-      elements: junctions as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as JunctionFeature).polygon.geometry,
-        properties: { id: (el as unknown as JunctionFeature).id, type: 'junction' },
-        id: (el as unknown as JunctionFeature).id,
-      }),
-    },
-    {
-      sourceId: 'crosswalks',
-      centroidSourceId: 'crosswalk-centers',
-      visibilityKey: 'crosswalks',
-      elements: crosswalks as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as CrosswalkFeature).polygon.geometry,
-        properties: { id: (el as unknown as CrosswalkFeature).id, type: 'crosswalk' },
-        id: (el as unknown as CrosswalkFeature).id,
-      }),
-      toCentroid: (el) => {
-        const cw = el as unknown as CrosswalkFeature
-        const center = turf.centroid(cw.polygon)
-        return {
-          type: 'Feature',
-          geometry: center.geometry,
-          properties: { id: cw.id, type: 'crosswalk' },
-          id: cw.id,
-        }
-      },
-    },
-    {
-      sourceId: 'signals',
-      visibilityKey: 'signals',
-      elements: signals as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as SignalFeature).stopLine.geometry,
-        properties: { id: (el as unknown as SignalFeature).id, type: 'signal' },
-        id: (el as unknown as SignalFeature).id,
-      }),
-    },
-    {
-      sourceId: 'stop-signs',
-      visibilityKey: 'stopSigns',
-      elements: stopSigns as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as StopSignFeature).stopLine.geometry,
-        properties: { id: (el as unknown as StopSignFeature).id, type: 'stop_sign' },
-        id: (el as unknown as StopSignFeature).id,
-      }),
-    },
-    {
-      sourceId: 'clear-areas',
-      centroidSourceId: 'clear-area-centers',
-      visibilityKey: 'clearAreas',
-      elements: clearAreas as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as ClearAreaFeature).polygon.geometry,
-        properties: { id: (el as unknown as ClearAreaFeature).id, type: 'clear_area' },
-        id: (el as unknown as ClearAreaFeature).id,
-      }),
-      toCentroid: (el) => {
-        const ca = el as unknown as ClearAreaFeature
-        const center = turf.centroid(ca.polygon)
-        return {
-          type: 'Feature',
-          geometry: center.geometry,
-          properties: { id: ca.id, type: 'clear_area' },
-          id: ca.id,
-        }
-      },
-    },
-    {
-      sourceId: 'speed-bumps',
-      visibilityKey: 'speedBumps',
-      elements: speedBumps as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as SpeedBumpFeature).line.geometry,
-        properties: { id: (el as unknown as SpeedBumpFeature).id, type: 'speed_bump' },
-        id: (el as unknown as SpeedBumpFeature).id,
-      }),
-    },
-    {
-      sourceId: 'parking-spaces',
-      centroidSourceId: 'parking-centers',
-      visibilityKey: 'parkingSpaces',
-      elements: parkingSpaces as unknown as Record<string, { id: string }>,
-      toFeature: (el) => ({
-        type: 'Feature',
-        geometry: (el as unknown as ParkingSpaceFeature).polygon.geometry,
-        properties: { id: (el as unknown as ParkingSpaceFeature).id, type: 'parking_space' },
-        id: (el as unknown as ParkingSpaceFeature).id,
-      }),
-      toCentroid: (el) => {
-        const ps = el as unknown as ParkingSpaceFeature
-        const center = turf.centroid(ps.polygon)
-        return {
-          type: 'Feature',
-          geometry: center.geometry,
-          properties: { id: ps.id, type: 'parking_space' },
-          id: ps.id,
-        }
-      },
-    },
-  ]
-
-  for (const cfg of syncConfigs) {
-    const visible = layerVisibility[cfg.visibilityKey] !== false
-    const prev = _visibleIds[cfg.sourceId] ?? new Set()
-    const curr = visible ? (queryIds[cfg.sourceId] ?? new Set()) : new Set<string>()
+  const syncEl = <T extends { id: string }>(
+    sourceId: string,
+    visibilityKey: string,
+    elements: Record<string, T>,
+    toFeature: (el: T) => GeoJSON.Feature,
+    centroidSourceId?: string,
+    toCentroid?: (el: T) => GeoJSON.Feature
+  ) => {
+    const visible = layerVisibility[visibilityKey] !== false
+    const prev = _visibleIds[sourceId] ?? new Set()
+    const curr = visible ? (queryIds[sourceId] ?? new Set()) : new Set<string>()
 
     const entering: string[] = []
     const leaving: string[] = []
-
     for (const id of curr) {
       if (!prev.has(id)) entering.push(id)
     }
@@ -670,20 +502,18 @@ export function syncViewport(map: MapLibreMap): void {
       if (!curr.has(id)) leaving.push(id)
     }
 
-    const s = src(map, cfg.sourceId)
+    const s = src(map, sourceId)
     if (s) {
-      if (leaving.length > 0) {
-        s.updateData({ remove: leaving })
-      }
+      if (leaving.length > 0) s.updateData({ remove: leaving })
       if (entering.length > 0) {
         const features: GeoJSON.Feature[] = []
         for (const id of entering) {
-          const el = cfg.elements[id]
+          const el = elements[id]
           if (el) {
             try {
-              features.push(cfg.toFeature(el as unknown as Record<string, unknown>))
+              features.push(toFeature(el))
             } catch {
-              // skip malformed
+              /* skip */
             }
           }
         }
@@ -691,22 +521,19 @@ export function syncViewport(map: MapLibreMap): void {
       }
     }
 
-    // Centroid source
-    if (cfg.centroidSourceId && cfg.toCentroid) {
-      const cs = src(map, cfg.centroidSourceId)
+    if (centroidSourceId && toCentroid) {
+      const cs = src(map, centroidSourceId)
       if (cs) {
-        if (leaving.length > 0) {
-          cs.updateData({ remove: leaving })
-        }
+        if (leaving.length > 0) cs.updateData({ remove: leaving })
         if (entering.length > 0) {
           const centroids: GeoJSON.Feature[] = []
           for (const id of entering) {
-            const el = cfg.elements[id]
+            const el = elements[id]
             if (el) {
               try {
-                centroids.push(cfg.toCentroid(el as unknown as Record<string, unknown>))
+                centroids.push(toCentroid(el))
               } catch {
-                // skip
+                /* skip */
               }
             }
           }
@@ -715,8 +542,67 @@ export function syncViewport(map: MapLibreMap): void {
       }
     }
 
-    _visibleIds[cfg.sourceId] = curr
+    _visibleIds[sourceId] = curr
   }
+
+  const polyFeature =
+    <T extends { id: string; polygon: GeoJSON.Feature<GeoJSON.Polygon> }>(type: string) =>
+    (el: T): GeoJSON.Feature => ({
+      type: 'Feature',
+      geometry: el.polygon.geometry,
+      properties: { id: el.id, type },
+      id: el.id,
+    })
+
+  const lineFeature =
+    <T extends { id: string; stopLine: GeoJSON.Feature<GeoJSON.LineString> }>(type: string) =>
+    (el: T): GeoJSON.Feature => ({
+      type: 'Feature',
+      geometry: el.stopLine.geometry,
+      properties: { id: el.id, type },
+      id: el.id,
+    })
+
+  const polyCentroid =
+    <T extends { id: string; polygon: GeoJSON.Feature<GeoJSON.Polygon> }>(type: string) =>
+    (el: T): GeoJSON.Feature => {
+      const c = turf.centroid(el.polygon)
+      return { type: 'Feature', geometry: c.geometry, properties: { id: el.id, type }, id: el.id }
+    }
+
+  syncEl('junctions', 'junctions', junctions, polyFeature('junction'))
+  syncEl(
+    'crosswalks',
+    'crosswalks',
+    crosswalks,
+    polyFeature('crosswalk'),
+    'crosswalk-centers',
+    polyCentroid('crosswalk')
+  )
+  syncEl('signals', 'signals', signals, lineFeature('signal'))
+  syncEl('stop-signs', 'stopSigns', stopSigns, lineFeature('stop_sign'))
+  syncEl(
+    'clear-areas',
+    'clearAreas',
+    clearAreas,
+    polyFeature('clear_area'),
+    'clear-area-centers',
+    polyCentroid('clear_area')
+  )
+  syncEl('speed-bumps', 'speedBumps', speedBumps, (el) => ({
+    type: 'Feature',
+    geometry: el.line.geometry,
+    properties: { id: el.id, type: 'speed_bump' },
+    id: el.id,
+  }))
+  syncEl(
+    'parking-spaces',
+    'parkingSpaces',
+    parkingSpaces,
+    polyFeature('parking_space'),
+    'parking-centers',
+    polyCentroid('parking_space')
+  )
 
   reapplySelectionState()
 }
@@ -748,6 +634,7 @@ function updateIndex(): void {
     parkingSpaces,
   } = state
 
+  const lanesChanged = _prevLanes !== null && lanes !== _prevLanes
   let changeCount = 0
 
   // Detect changed road IDs (affects lane fill colors)
@@ -900,58 +787,16 @@ function updateIndex(): void {
         /* skip */
       }
     }
-    for (const j of Object.values(junctions)) {
-      const entry = makePolygonEntry(
-        j.id,
-        j.polygon.geometry.coordinates[0] as number[][],
-        'junction'
-      )
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const cw of Object.values(crosswalks)) {
-      const entry = makePolygonEntry(
-        cw.id,
-        cw.polygon.geometry.coordinates[0] as number[][],
-        'crosswalk'
-      )
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const sig of Object.values(signals)) {
-      const entry = makeLineEntry(sig.id, sig.stopLine.geometry.coordinates as number[][], 'signal')
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const ss of Object.values(stopSigns)) {
-      const entry = makeLineEntry(
-        ss.id,
-        ss.stopLine.geometry.coordinates as number[][],
-        'stop_sign'
-      )
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const ca of Object.values(clearAreas)) {
-      const entry = makePolygonEntry(
-        ca.id,
-        ca.polygon.geometry.coordinates[0] as number[][],
-        'clear_area'
-      )
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const sb of Object.values(speedBumps)) {
-      const entry = makeLineEntry(sb.id, sb.line.geometry.coordinates as number[][], 'speed_bump')
-      entries.push(entry)
-      _entryById.set(entry.id, entry)
-    }
-    for (const ps of Object.values(parkingSpaces)) {
-      const entry = makePolygonEntry(
-        ps.id,
-        ps.polygon.geometry.coordinates[0] as number[][],
-        'parking_space'
-      )
+    const elementEntries = buildElementEntries({
+      junctions,
+      crosswalks,
+      signals,
+      stopSigns,
+      clearAreas,
+      speedBumps,
+      parkingSpaces,
+    })
+    for (const entry of elementEntries) {
       entries.push(entry)
       _entryById.set(entry.id, entry)
     }
@@ -970,5 +815,7 @@ function updateIndex(): void {
   _prevSpeedBumps = speedBumps
   _prevParkingSpaces = parkingSpaces
 
-  pruneCache(new Set(Object.keys(lanes)))
+  if (lanesChanged) {
+    pruneCache(new Set(Object.keys(lanes)))
+  }
 }
