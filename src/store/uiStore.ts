@@ -1,8 +1,24 @@
 import { create } from 'zustand'
-import type { DrawMode } from '../types/editor'
+import type { DrawIntent, ToolState } from '../types/editor'
+import { ShapeType, ElementType, getDefaultElementForShape } from '../types/shapes'
+
+/** Map ToolState → MapboxDraw mode string */
+export function toolStateToDrawMode(ts: ToolState): string {
+  if (ts.kind === 'select') return 'simple_select'
+  if (ts.kind === 'connect_lanes') return 'simple_select'
+  const shapeToMode: Record<ShapeType, string> = {
+    [ShapeType.Point]: 'draw_point',
+    [ShapeType.Polyline]: 'draw_line_string',
+    [ShapeType.RotatableRect]: 'draw_rotatable_rect',
+    [ShapeType.Polygon]: 'draw_polygon',
+    [ShapeType.Curve]: 'draw_line_string', // phase 1 simplified
+  }
+  return shapeToMode[ts.intent.shape]
+}
 
 interface UIState {
-  drawMode: DrawMode
+  toolState: ToolState
+  lastElementPerShape: Partial<Record<ShapeType, ElementType>>
   selectedIds: string[]
   hoveredId: string | null
   showNewProjectDialog: boolean
@@ -11,14 +27,17 @@ interface UIState {
   showValidationDialog: boolean
   showElementListPanel: boolean
   showPropertiesPanel: boolean
-  connectFromId: string | null // first lane selected for connection
+  connectFromId: string | null
   layerVisibility: Record<string, boolean>
   statusMessage: string
   fitBoundsCounter: number
   flyToTarget: { lng: number; lat: number } | null
   flyToCounter: number
+  pendingImportFile: File | null
 
-  setDrawMode: (mode: DrawMode) => void
+  setToolState: (state: ToolState) => void
+  startDrawing: (intent: DrawIntent) => void
+  selectShape: (shape: ShapeType) => void
   setSelected: (ids: string[]) => void
   addSelected: (id: string) => void
   clearSelected: () => void
@@ -26,6 +45,7 @@ interface UIState {
   setShowNewProjectDialog: (show: boolean) => void
   setShowExportDialog: (show: boolean) => void
   setShowImportDialog: (show: boolean) => void
+  setPendingImportFile: (file: File | null) => void
   setShowValidationDialog: (show: boolean) => void
   setShowElementListPanel: (show: boolean) => void
   setShowPropertiesPanel: (show: boolean) => void
@@ -38,7 +58,13 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  drawMode: 'select',
+  toolState: { kind: 'select' },
+  lastElementPerShape: {
+    [ShapeType.Polyline]: ElementType.Lane,
+    [ShapeType.RotatableRect]: ElementType.Crosswalk,
+    [ShapeType.Polygon]: ElementType.Junction,
+    [ShapeType.Curve]: ElementType.Lane,
+  },
   selectedIds: [],
   hoveredId: null,
   showNewProjectDialog: true,
@@ -64,15 +90,38 @@ export const useUIStore = create<UIState>((set) => ({
   fitBoundsCounter: 0,
   flyToTarget: null,
   flyToCounter: 0,
+  pendingImportFile: null,
 
-  setDrawMode: (mode) => set({ drawMode: mode, connectFromId: null }),
+  setToolState: (state) => set({ toolState: state, connectFromId: null }),
+
+  startDrawing: (intent) =>
+    set((s) => ({
+      toolState: { kind: 'draw', intent },
+      connectFromId: null,
+      lastElementPerShape: {
+        ...s.lastElementPerShape,
+        [intent.shape]: intent.elementType,
+      },
+    })),
+
+  selectShape: (shape) =>
+    set((s) => {
+      const elementType = s.lastElementPerShape[shape] ?? getDefaultElementForShape(shape)
+      return {
+        toolState: { kind: 'draw', intent: { shape, elementType } },
+        connectFromId: null,
+      }
+    }),
+
   setSelected: (ids) => set({ selectedIds: ids }),
   addSelected: (id) => set((s) => ({ selectedIds: [...s.selectedIds, id] })),
   clearSelected: () => set({ selectedIds: [] }),
   setHovered: (id) => set({ hoveredId: id }),
   setShowNewProjectDialog: (show) => set({ showNewProjectDialog: show }),
   setShowExportDialog: (show) => set({ showExportDialog: show }),
-  setShowImportDialog: (show) => set({ showImportDialog: show }),
+  setShowImportDialog: (show) =>
+    set({ showImportDialog: show, ...(!show && { pendingImportFile: null }) }),
+  setPendingImportFile: (file) => set({ pendingImportFile: file }),
   setShowValidationDialog: (show) => set({ showValidationDialog: show }),
   setShowElementListPanel: (show) => set({ showElementListPanel: show }),
   setShowPropertiesPanel: (show) => set({ showPropertiesPanel: show }),

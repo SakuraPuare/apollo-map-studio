@@ -7,15 +7,21 @@ import {
   Waves,
   RotateCcw,
   RotateCw,
+  Spline,
+  RectangleHorizontal,
+  Pentagon,
+  PenTool,
 } from 'lucide-react'
 import { useUIStore } from '@/store/uiStore'
 import { useMapStore } from '@/store/mapStore'
 import { Toggle } from '@/components/ui/toggle'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import type { DrawMode } from '@/types/editor'
+import { ShapeType, getEntriesForShape } from '@/types/shapes'
+import type { ToolState } from '@/types/editor'
 
-// Domain-specific icons
+// --- Domain-specific icons (reused from original) ---
+
 const LaneIcon = () => (
   <svg
     width="16"
@@ -79,28 +85,63 @@ const ParkingIcon = () => (
   </svg>
 )
 
-interface Tool {
-  mode: DrawMode
-  label: string
-  icon: React.ReactNode
-  shortcut?: string
+// --- Icon mapping for element types ---
+
+const ELEMENT_ICONS: Record<string, React.ReactNode> = {
+  lane: <LaneIcon />,
+  signal: <SignalIcon />,
+  stop_sign: <Octagon size={16} />,
+  speed_bump: <Waves size={16} />,
+  crosswalk: <CrosswalkIcon />,
+  parking: <ParkingIcon />,
+  junction: <Hexagon size={16} />,
+  clear_area: <SquareX size={16} />,
+  lane_curve: <LaneIcon />,
 }
 
-const DRAW_TOOLS: Tool[] = [
-  { mode: 'select', label: 'Select', shortcut: 'S', icon: <MousePointer size={16} /> },
-  { mode: 'draw_lane', label: 'Lane', shortcut: 'L', icon: <LaneIcon /> },
-  { mode: 'connect_lanes', label: 'Connect', shortcut: 'C', icon: <Link2 size={16} /> },
-  { mode: 'draw_junction', label: 'Junction', shortcut: 'J', icon: <Hexagon size={16} /> },
-  { mode: 'draw_crosswalk', label: 'Crosswalk', shortcut: 'W', icon: <CrosswalkIcon /> },
-  { mode: 'draw_signal', label: 'Signal', shortcut: 'T', icon: <SignalIcon /> },
-  { mode: 'draw_stop_sign', label: 'Stop Sign', shortcut: 'P', icon: <Octagon size={16} /> },
-  { mode: 'draw_clear_area', label: 'Clear Area', shortcut: 'A', icon: <SquareX size={16} /> },
-  { mode: 'draw_speed_bump', label: 'Speed Bump', shortcut: 'B', icon: <Waves size={16} /> },
-  { mode: 'draw_parking_space', label: 'Parking', shortcut: 'K', icon: <ParkingIcon /> },
+// --- Shape definitions for the top row ---
+
+interface ShapeDef {
+  shape: ShapeType
+  label: string
+  icon: React.ReactNode
+  shortcut: string
+}
+
+const SHAPE_DEFS: ShapeDef[] = [
+  { shape: ShapeType.Polyline, label: 'Polyline', icon: <Spline size={16} />, shortcut: '1' },
+  {
+    shape: ShapeType.RotatableRect,
+    label: 'Rectangle',
+    icon: <RectangleHorizontal size={16} />,
+    shortcut: '2',
+  },
+  { shape: ShapeType.Polygon, label: 'Polygon', icon: <Pentagon size={16} />, shortcut: '3' },
+  { shape: ShapeType.Curve, label: 'Curve', icon: <PenTool size={16} />, shortcut: '4' },
 ]
 
+// --- Helpers ---
+
+function getActiveShape(ts: ToolState): ShapeType | null {
+  if (ts.kind === 'draw') return ts.intent.shape
+  return null
+}
+
+function getActiveElementType(ts: ToolState): string | null {
+  if (ts.kind === 'draw') return ts.intent.elementType
+  return null
+}
+
+// --- Component ---
+
 export default function ToolbarStrip() {
-  const { drawMode, setDrawMode } = useUIStore()
+  const { toolState, setToolState, startDrawing, selectShape } = useUIStore()
+
+  const activeShape = getActiveShape(toolState)
+  const activeElementType = getActiveElementType(toolState)
+
+  // Get element entries for the currently active shape
+  const elementEntries = activeShape ? getEntriesForShape(activeShape) : []
 
   const handleUndo = () => {
     const temporal = (
@@ -118,66 +159,135 @@ export default function ToolbarStrip() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-9 items-center bg-[#262626] border-b border-border px-2 gap-0.5 shrink-0 select-none overflow-x-auto">
-        {/* Draw tools */}
-        {DRAW_TOOLS.map((tool) => (
-          <Tooltip key={tool.mode}>
+      <div className="flex flex-col bg-[#262626] border-b border-border shrink-0 select-none">
+        {/* Top row: shape tools */}
+        <div className="flex h-9 items-center px-2 gap-0.5 overflow-x-auto">
+          {/* Select */}
+          <Tooltip>
             <TooltipTrigger asChild>
               <Toggle
                 size="sm"
-                pressed={drawMode === tool.mode}
-                onPressedChange={() => setDrawMode(tool.mode)}
+                pressed={toolState.kind === 'select'}
+                onPressedChange={() => setToolState({ kind: 'select' })}
                 className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
               >
-                {tool.icon}
-                <span className="hidden lg:inline">{tool.label}</span>
+                <MousePointer size={16} />
+                <span className="hidden lg:inline">Select</span>
               </Toggle>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {tool.label}
-              {tool.shortcut && (
-                <span className="ml-2 text-muted-foreground">({tool.shortcut})</span>
-              )}
+              Select <span className="text-muted-foreground">(S)</span>
             </TooltipContent>
           </Tooltip>
-        ))}
 
-        <Separator orientation="vertical" className="h-5 mx-1" />
+          <Separator orientation="vertical" className="h-5 mx-1" />
 
-        {/* Edit tools */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={false}
-              onPressedChange={handleUndo}
-              className="h-7 px-2 gap-1.5 text-xs shrink-0"
-            >
-              <RotateCcw size={14} />
-              <span className="hidden lg:inline">Undo</span>
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            Undo <span className="text-muted-foreground">(Ctrl+Z)</span>
-          </TooltipContent>
-        </Tooltip>
+          {/* Shape tools */}
+          {SHAPE_DEFS.map((def) => (
+            <Tooltip key={def.shape}>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  pressed={activeShape === def.shape}
+                  onPressedChange={() => selectShape(def.shape)}
+                  className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
+                >
+                  {def.icon}
+                  <span className="hidden lg:inline">{def.label}</span>
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {def.label} <span className="text-muted-foreground">({def.shortcut})</span>
+              </TooltipContent>
+            </Tooltip>
+          ))}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={false}
-              onPressedChange={handleRedo}
-              className="h-7 px-2 gap-1.5 text-xs shrink-0"
-            >
-              <RotateCw size={14} />
-              <span className="hidden lg:inline">Redo</span>
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            Redo <span className="text-muted-foreground">(Ctrl+Y)</span>
-          </TooltipContent>
-        </Tooltip>
+          <Separator orientation="vertical" className="h-5 mx-1" />
+
+          {/* Connect tool */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={toolState.kind === 'connect_lanes'}
+                onPressedChange={() => setToolState({ kind: 'connect_lanes' })}
+                className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
+              >
+                <Link2 size={16} />
+                <span className="hidden lg:inline">Connect</span>
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              Connect Lanes <span className="text-muted-foreground">(C)</span>
+            </TooltipContent>
+          </Tooltip>
+
+          <Separator orientation="vertical" className="h-5 mx-1" />
+
+          {/* Undo / Redo */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={false}
+                onPressedChange={handleUndo}
+                className="h-7 px-2 gap-1.5 text-xs shrink-0"
+              >
+                <RotateCcw size={14} />
+                <span className="hidden lg:inline">Undo</span>
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              Undo <span className="text-muted-foreground">(Ctrl+Z)</span>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Toggle
+                size="sm"
+                pressed={false}
+                onPressedChange={handleRedo}
+                className="h-7 px-2 gap-1.5 text-xs shrink-0"
+              >
+                <RotateCw size={14} />
+                <span className="hidden lg:inline">Redo</span>
+              </Toggle>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              Redo <span className="text-muted-foreground">(Ctrl+Y)</span>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Bottom row: element types for current shape */}
+        {elementEntries.length > 0 && (
+          <div className="flex h-9 items-center px-2 gap-0.5 border-t border-border/50 overflow-x-auto">
+            {elementEntries.map((entry) => (
+              <Tooltip key={`${entry.shape}-${entry.elementType}`}>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    pressed={activeElementType === entry.elementType}
+                    onPressedChange={() =>
+                      startDrawing({ shape: entry.shape, elementType: entry.elementType })
+                    }
+                    className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
+                  >
+                    {ELEMENT_ICONS[entry.icon] ?? null}
+                    <span>{entry.label}</span>
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {entry.label}
+                  {entry.shortcut && (
+                    <span className="ml-2 text-muted-foreground">({entry.shortcut})</span>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )

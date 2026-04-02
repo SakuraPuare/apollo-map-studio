@@ -4,17 +4,16 @@ import MapboxDraw from '@mapbox/mapbox-gl-draw'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature } from 'geojson'
 import { useMapStore } from '../../store/mapStore'
-import { useUIStore } from '../../store/uiStore'
+import { useUIStore, toolStateToDrawMode } from '../../store/uiStore'
 import type {
   LaneFeature,
-  MapElement,
   RoadDefinition,
   JunctionFeature,
   CrosswalkFeature,
   ClearAreaFeature,
   ParkingSpaceFeature,
 } from '../../types/editor'
-import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
+import { LaneDirection } from '../../types/apollo-map'
 import { getOrComputeBoundary, pruneCache } from '../../geo/boundaryCache'
 import {
   initSelectionManager,
@@ -26,12 +25,8 @@ import { getRoadColor } from '../../utils/roadColors'
 import * as turf from '@turf/turf'
 import MapContextMenu from './MapContextMenu'
 import type { ContextMenuState } from './MapContextMenu'
-
-// Counter for unique IDs
-let idCounter = 0
-function nextId(prefix: string): string {
-  return `${prefix}_${Date.now()}_${++idCounter}`
-}
+import { customDrawModes } from '../../draw'
+import { createElementFromDraw } from '../../draw/elementFactory'
 
 const BLANK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -56,7 +51,7 @@ export default function MapEditor() {
   })
 
   const project = useMapStore((s) => s.project)
-  const drawMode = useUIStore((s) => s.drawMode)
+  const toolState = useUIStore((s) => s.toolState)
   const fitBoundsCounter = useUIStore((s) => s.fitBoundsCounter)
   const flyToCounter = useUIStore((s) => s.flyToCounter)
 
@@ -149,6 +144,10 @@ export default function MapEditor() {
       controls: {},
       defaultMode: 'simple_select',
       styles: getDrawStyles(),
+      modes: {
+        ...MapboxDraw.modes,
+        ...customDrawModes,
+      },
     })
 
     ;(map as unknown as maplibregl.Map & { addControl: (ctrl: unknown) => void }).addControl(
@@ -162,110 +161,20 @@ export default function MapEditor() {
       const feature = e.features[0]
       if (!feature) return
 
-      const { drawMode } = useUIStore.getState()
+      const { toolState } = useUIStore.getState()
       const { addElement } = useMapStore.getState()
-      const { setSelected, setDrawMode, setStatus } = useUIStore.getState()
+      const { setSelected, setToolState, setStatus } = useUIStore.getState()
 
-      let element: MapElement | null = null
-      let statusMsg = ''
+      if (toolState.kind !== 'draw') return
 
-      switch (drawMode) {
-        case 'draw_lane': {
-          if (feature.geometry.type !== 'LineString') return
-          const lane: LaneFeature = {
-            id: nextId('lane'),
-            type: 'lane',
-            centerLine: feature as Feature<import('geojson').LineString>,
-            width: 3.75,
-            speedLimit: 13.89,
-            laneType: LaneType.CITY_DRIVING,
-            turn: LaneTurn.NO_TURN,
-            direction: LaneDirection.FORWARD,
-            leftBoundaryType: BoundaryType.DOTTED_WHITE,
-            rightBoundaryType: BoundaryType.DOTTED_WHITE,
-            predecessorIds: [],
-            successorIds: [],
-            leftNeighborIds: [],
-            rightNeighborIds: [],
-          }
-          element = lane
-          statusMsg = `Lane ${lane.id} created`
-          break
-        }
-        case 'draw_junction':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('junction'),
-            type: 'junction',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_crosswalk':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('crosswalk'),
-            type: 'crosswalk',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_clear_area':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('clear_area'),
-            type: 'clear_area',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_speed_bump':
-          if (feature.geometry.type !== 'LineString') return
-          element = {
-            id: nextId('speed_bump'),
-            type: 'speed_bump',
-            line: feature as Feature<import('geojson').LineString>,
-          }
-          break
-        case 'draw_parking_space':
-          if (feature.geometry.type !== 'Polygon') return
-          element = {
-            id: nextId('parking_space'),
-            type: 'parking_space',
-            polygon: feature as Feature<import('geojson').Polygon>,
-          }
-          break
-        case 'draw_signal': {
-          if (feature.geometry.type !== 'LineString') return
-          const coords = feature.geometry.coordinates
-          const midIdx = Math.floor(coords.length / 2)
-          element = {
-            id: nextId('signal'),
-            type: 'signal',
-            stopLine: feature as Feature<import('geojson').LineString>,
-            position: {
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: coords[midIdx] },
-              properties: null,
-            } as Feature<import('geojson').Point>,
-            signalType: 5,
-          }
-          break
-        }
-        case 'draw_stop_sign':
-          if (feature.geometry.type !== 'LineString') return
-          element = {
-            id: nextId('stop_sign'),
-            type: 'stop_sign',
-            stopLine: feature as Feature<import('geojson').LineString>,
-            stopSignType: 1,
-          }
-          break
-      }
+      const element = createElementFromDraw(toolState.intent, feature)
 
       if (element) {
         addElement(element)
         setSelected([element.id])
-        if (statusMsg) setStatus(statusMsg)
+        setStatus(`${element.type} ${element.id} created`)
         draw.delete([feature.id as string])
-        setDrawMode('select')
+        setToolState({ kind: 'select' })
         // 核心修复：在所有 draw 操作完成后显式刷新，
         // 防止 draw.delete/changeMode 触发的 repaint 与 source.setData 产生竞态
         updateBoundaryLayers(map)
@@ -275,12 +184,17 @@ export default function MapEditor() {
     })
 
     map.on('click', (e: maplibregl.MapMouseEvent) => {
-      const { drawMode, connectFromId, setSelected, setConnectFromId, setStatus } =
-        useUIStore.getState()
+      const {
+        toolState: ts,
+        connectFromId,
+        setSelected,
+        setConnectFromId,
+        setStatus,
+      } = useUIStore.getState()
       const { connectLanes } = useMapStore.getState()
 
       // Don't interfere while actively drawing
-      if (drawMode !== 'select' && drawMode !== 'connect_lanes') return
+      if (ts.kind !== 'select' && ts.kind !== 'connect_lanes') return
 
       const features = map.queryRenderedFeatures(e.point, {
         layers: [
@@ -302,7 +216,7 @@ export default function MapEditor() {
         const id = features[0].properties?.id as string | undefined
         if (!id) return
 
-        if (drawMode === 'connect_lanes') {
+        if (ts.kind === 'connect_lanes') {
           if (!connectFromId) {
             setConnectFromId(id)
             setStatus(`Source: ${id}. Now click the target lane.`)
@@ -452,25 +366,14 @@ export default function MapEditor() {
   useEffect(() => {
     const draw = drawRef.current
     if (!draw) return
-    const modeMap: Record<string, string> = {
-      select: 'simple_select',
-      draw_lane: 'draw_line_string',
-      draw_junction: 'draw_polygon',
-      draw_crosswalk: 'draw_polygon',
-      draw_clear_area: 'draw_polygon',
-      draw_speed_bump: 'draw_line_string',
-      draw_parking_space: 'draw_polygon',
-      draw_signal: 'draw_line_string',
-      draw_stop_sign: 'draw_line_string',
-      connect_lanes: 'simple_select',
-    }
+    const mbMode = toolStateToDrawMode(toolState)
     try {
       draw.deleteAll() // clear any in-progress drawing to prevent ghost features
-      draw.changeMode(modeMap[drawMode] ?? 'simple_select')
+      draw.changeMode(mbMode)
     } catch {
       // ignore if map not ready
     }
-  }, [drawMode])
+  }, [toolState])
 
   return (
     <div className="relative w-full h-full">

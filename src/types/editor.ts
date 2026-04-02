@@ -10,18 +10,19 @@ import {
   StopSignType,
 } from './apollo-map'
 import type { Feature, LineString, Point, Polygon } from 'geojson'
+import { type ElementType, type ShapeType } from './shapes'
 
-export type DrawMode =
-  | 'select'
-  | 'draw_lane'
-  | 'draw_junction'
-  | 'draw_crosswalk'
-  | 'draw_clear_area'
-  | 'draw_speed_bump'
-  | 'draw_parking_space'
-  | 'draw_signal'
-  | 'draw_stop_sign'
-  | 'connect_lanes'
+// --- Tool state (new structured approach) ---
+
+export interface DrawIntent {
+  shape: ShapeType
+  elementType: ElementType
+}
+
+export type ToolState =
+  | { kind: 'select' }
+  | { kind: 'connect_lanes' }
+  | { kind: 'draw'; intent: DrawIntent }
 
 export interface LaneFeature {
   id: string

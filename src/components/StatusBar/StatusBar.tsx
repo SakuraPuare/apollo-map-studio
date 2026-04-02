@@ -1,22 +1,34 @@
 import { useUIStore } from '@/store/uiStore'
 import { useMapStore } from '@/store/mapStore'
 import { Badge } from '@/components/ui/badge'
+import type { ToolState } from '@/types/editor'
 
-const MODE_LABELS: Record<string, string> = {
-  select: 'Select',
-  draw_lane: 'Draw Lane',
-  connect_lanes: 'Connect Lanes',
-  draw_junction: 'Draw Junction',
-  draw_crosswalk: 'Draw Crosswalk',
-  draw_clear_area: 'Draw Clear Area',
-  draw_speed_bump: 'Draw Speed Bump',
-  draw_parking_space: 'Draw Parking Space',
-  draw_signal: 'Draw Signal',
-  draw_stop_sign: 'Draw Stop Sign',
+function getToolLabel(ts: ToolState): string {
+  if (ts.kind === 'select') return 'Select'
+  if (ts.kind === 'connect_lanes') return 'Connect Lanes'
+  const { shape, elementType } = ts.intent
+  const elLabels: Record<string, string> = {
+    lane: 'Lane',
+    junction: 'Junction',
+    crosswalk: 'Crosswalk',
+    clear_area: 'Clear Area',
+    speed_bump: 'Speed Bump',
+    parking_space: 'Parking Space',
+    signal: 'Signal',
+    stop_sign: 'Stop Sign',
+  }
+  const shapeLabels: Record<string, string> = {
+    point: 'Point',
+    polyline: 'Polyline',
+    rotatable_rect: 'Rect',
+    polygon: 'Polygon',
+    curve: 'Curve',
+  }
+  return `Draw ${elLabels[elementType] ?? elementType} (${shapeLabels[shape] ?? shape})`
 }
 
 export default function StatusBar() {
-  const { statusMessage, drawMode, selectedIds } = useUIStore()
+  const { statusMessage, toolState, selectedIds } = useUIStore()
   const { lanes, project } = useMapStore()
 
   const laneCount = Object.keys(lanes).length
@@ -28,7 +40,7 @@ export default function StatusBar() {
         variant="secondary"
         className="h-4 px-1.5 text-[10px] font-medium bg-white/20 text-white hover:bg-white/25 border-none rounded-sm"
       >
-        {MODE_LABELS[drawMode] ?? drawMode}
+        {getToolLabel(toolState)}
       </Badge>
 
       {/* Element count */}
