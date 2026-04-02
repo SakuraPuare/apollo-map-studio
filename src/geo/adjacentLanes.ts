@@ -11,7 +11,7 @@ export interface NeighborPair {
  * Auto-compute left/right neighbor relationships for lanes within each road.
  * Only processes lanes that have a roadId assigned.
  */
-export function computeAdjacentLanes(lanes: LaneFeature[]): NeighborPair[] {
+export async function computeAdjacentLanes(lanes: LaneFeature[]): Promise<NeighborPair[]> {
   const pairs: NeighborPair[] = []
 
   // Group lanes by roadId
@@ -24,7 +24,7 @@ export function computeAdjacentLanes(lanes: LaneFeature[]): NeighborPair[] {
 
   for (const [, roadLanes] of roadGroups) {
     if (roadLanes.length < 2) continue
-    computeNeighborsInGroup(roadLanes, pairs)
+    await computeNeighborsInGroup(roadLanes, pairs)
   }
 
   return pairs
@@ -33,20 +33,28 @@ export function computeAdjacentLanes(lanes: LaneFeature[]): NeighborPair[] {
 /**
  * Compute neighbors for a specific set of lanes (e.g. lanes in one road).
  */
-export function computeNeighborsForRoad(allLanes: LaneFeature[], roadId: string): NeighborPair[] {
+export async function computeNeighborsForRoad(
+  allLanes: LaneFeature[],
+  roadId: string
+): Promise<NeighborPair[]> {
   const roadLanes = allLanes.filter((l) => l.roadId === roadId)
   if (roadLanes.length < 2) return []
   const pairs: NeighborPair[] = []
-  computeNeighborsInGroup(roadLanes, pairs)
+  await computeNeighborsInGroup(roadLanes, pairs)
   return pairs
 }
 
-function computeNeighborsInGroup(lanes: LaneFeature[], pairs: NeighborPair[]): void {
+async function computeNeighborsInGroup(lanes: LaneFeature[], pairs: NeighborPair[]): Promise<void> {
+  let count = 0
   for (let i = 0; i < lanes.length; i++) {
     for (let j = i + 1; j < lanes.length; j++) {
       const result = checkAdjacent(lanes[i], lanes[j])
       if (result) {
         pairs.push(result)
+      }
+      count++
+      if (count % 50 === 0) {
+        await new Promise((r) => setTimeout(r, 0))
       }
     }
   }
