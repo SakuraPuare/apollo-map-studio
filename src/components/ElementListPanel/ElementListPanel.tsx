@@ -1,6 +1,7 @@
 import { useState, useMemo, useDeferredValue, memo, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
 import { useMapStore } from '@/store/mapStore'
+import { useShallow } from 'zustand/react/shallow'
 import { useUIStore } from '@/store/uiStore'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -108,7 +109,7 @@ const ElementItem = memo(function ElementItem({
 })
 
 export default function ElementListPanel() {
-  const storeData = useMapStore(selectElementCounts)
+  const storeData = useMapStore(useShallow(selectElementCounts))
   const { lanes } = storeData
 
   const { selectedIds, setSelected, requestFlyTo } = useUIStore()
