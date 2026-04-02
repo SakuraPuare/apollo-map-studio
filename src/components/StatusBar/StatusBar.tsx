@@ -1,5 +1,19 @@
-import { useUIStore } from '../../store/uiStore'
-import { useMapStore } from '../../store/mapStore'
+import { useUIStore } from '@/store/uiStore'
+import { useMapStore } from '@/store/mapStore'
+import { Badge } from '@/components/ui/badge'
+
+const MODE_LABELS: Record<string, string> = {
+  select: 'Select',
+  draw_lane: 'Draw Lane',
+  connect_lanes: 'Connect Lanes',
+  draw_junction: 'Draw Junction',
+  draw_crosswalk: 'Draw Crosswalk',
+  draw_clear_area: 'Draw Clear Area',
+  draw_speed_bump: 'Draw Speed Bump',
+  draw_parking_space: 'Draw Parking Space',
+  draw_signal: 'Draw Signal',
+  draw_stop_sign: 'Draw Stop Sign',
+}
 
 export default function StatusBar() {
   const { statusMessage, drawMode, selectedIds } = useUIStore()
@@ -7,45 +21,37 @@ export default function StatusBar() {
 
   const laneCount = Object.keys(lanes).length
 
-  const modeLabel: Record<string, string> = {
-    select: 'Select',
-    draw_lane: 'Drawing Lane (click to add points, double-click to finish)',
-    connect_lanes: 'Connect Mode (click source lane, then target lane)',
-    draw_junction: 'Drawing Junction',
-    draw_crosswalk: 'Drawing Crosswalk',
-    draw_clear_area: 'Drawing Clear Area',
-    draw_speed_bump: 'Drawing Speed Bump',
-    draw_parking_space: 'Drawing Parking Space',
-    draw_signal: 'Drawing Signal Stop Line',
-    draw_stop_sign: 'Drawing Stop Sign Line',
-  }
-
   return (
-    <div
-      style={{
-        height: 22,
-        background: project ? '#007acc' : '#333333',
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 10px',
-        gap: 12,
-        fontSize: 12,
-        color: '#ffffff',
-        flexShrink: 0,
-      }}
-    >
-      <span style={{ color: '#ffffff' }}>{modeLabel[drawMode] ?? drawMode}</span>
-      <span>{laneCount} lanes</span>
+    <div className="flex h-6 items-center px-3 gap-3 text-[11px] bg-[#007acc] text-white shrink-0 select-none">
+      {/* Mode pill */}
+      <Badge
+        variant="secondary"
+        className="h-4 px-1.5 text-[10px] font-medium bg-white/20 text-white hover:bg-white/25 border-none rounded-sm"
+      >
+        {MODE_LABELS[drawMode] ?? drawMode}
+      </Badge>
+
+      {/* Element count */}
+      <span className="text-white/80">{laneCount} lanes</span>
+
+      {/* Selection */}
       {selectedIds.length > 0 && (
-        <span style={{ color: '#ffd700' }}>{selectedIds.length} selected</span>
+        <span className="text-yellow-200">{selectedIds.length} selected</span>
       )}
-      <span style={{ flex: 1 }} />
+
+      <span className="flex-1" />
+
+      {/* Project info */}
       {project && (
-        <span style={{ color: 'rgba(255,255,255,0.7)' }}>
-          {project.name} · Origin: {project.originLat.toFixed(6)}, {project.originLon.toFixed(6)}
+        <span className="text-white/70 text-[10px]">
+          {project.name} · {project.originLat.toFixed(6)}, {project.originLon.toFixed(6)}
         </span>
       )}
-      <span style={{ color: '#ffffff' }}>{statusMessage}</span>
+
+      {/* Status message */}
+      {statusMessage && statusMessage !== 'Ready' && (
+        <span className="text-white/90">{statusMessage}</span>
+      )}
     </div>
   )
 }
