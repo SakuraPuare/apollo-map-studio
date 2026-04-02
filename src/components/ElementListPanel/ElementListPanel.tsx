@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
@@ -16,6 +16,9 @@ const ELEMENT_GROUPS = [
   { storeKey: 'speedBumps', label: 'Speed Bumps', color: '#a1887f' },
   { storeKey: 'parkingSpaces', label: 'Parking', color: '#90a4ae' },
 ] as const
+
+// Max items to render per group before showing "show more"
+const MAX_VISIBLE = 200
 
 function getElementCenter(el: MapElement): [number, number] {
   if (el.type === 'signal') {
@@ -44,16 +47,49 @@ function getElementCenter(el: MapElement): [number, number] {
 }
 
 export default function ElementListPanel() {
-  const store = useMapStore()
+  // Use individual selectors to avoid re-rendering on unrelated state changes
+  const lanes = useMapStore((s) => s.lanes)
+  const roads = useMapStore((s) => s.roads)
+  const junctions = useMapStore((s) => s.junctions)
+  const signals = useMapStore((s) => s.signals)
+  const stopSigns = useMapStore((s) => s.stopSigns)
+  const crosswalks = useMapStore((s) => s.crosswalks)
+  const clearAreas = useMapStore((s) => s.clearAreas)
+  const speedBumps = useMapStore((s) => s.speedBumps)
+  const parkingSpaces = useMapStore((s) => s.parkingSpaces)
+
   const { selectedIds, setSelected, requestFlyTo } = useUIStore()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['lanes']))
+  const [showAll, setShowAll] = useState<Set<string>>(() => new Set())
+
+  const storeData: Record<string, Record<string, unknown>> = {
+    roads,
+    lanes,
+    junctions,
+    signals,
+    stopSigns,
+    crosswalks,
+    clearAreas,
+    speedBumps,
+    parkingSpaces,
+  }
 
   const groups = useMemo(() => {
     return ELEMENT_GROUPS.map((g) => ({
       ...g,
-      elements: Object.values(store[g.storeKey]) as (MapElement | { id: string })[],
+      elements: Object.values(storeData[g.storeKey]) as (MapElement | { id: string })[],
     }))
-  }, [store])
+  }, [
+    lanes,
+    roads,
+    junctions,
+    signals,
+    stopSigns,
+    crosswalks,
+    clearAreas,
+    speedBumps,
+    parkingSpaces,
+  ])
 
   const toggleGroup = (key: string) => {
     setExpanded((prev) => {
@@ -64,22 +100,25 @@ export default function ElementListPanel() {
     })
   }
 
-  const getRoadCenter = (roadId: string): [number, number] | null => {
-    const roadLanes = Object.values(store.lanes).filter((l) => l.roadId === roadId)
-    if (roadLanes.length === 0) return null
-    const allCoords = roadLanes.flatMap((l) => l.centerLine.geometry.coordinates)
-    let minLng = Infinity,
-      maxLng = -Infinity,
-      minLat = Infinity,
-      maxLat = -Infinity
-    for (const [lng, lat] of allCoords) {
-      if (lng < minLng) minLng = lng
-      if (lng > maxLng) maxLng = lng
-      if (lat < minLat) minLat = lat
-      if (lat > maxLat) maxLat = lat
-    }
-    return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
-  }
+  const getRoadCenter = useCallback(
+    (roadId: string): [number, number] | null => {
+      const roadLanes = Object.values(lanes).filter((l) => l.roadId === roadId)
+      if (roadLanes.length === 0) return null
+      const allCoords = roadLanes.flatMap((l) => l.centerLine.geometry.coordinates)
+      let minLng = Infinity,
+        maxLng = -Infinity,
+        minLat = Infinity,
+        maxLat = -Infinity
+      for (const [lng, lat] of allCoords) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+      return [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
+    },
+    [lanes]
+  )
 
   const handleClick = (el: MapElement | { id: string }, storeKey: string) => {
     setSelected([el.id])
@@ -92,6 +131,14 @@ export default function ElementListPanel() {
     }
   }
 
+  const handleShowAll = (storeKey: string) => {
+    setShowAll((prev) => {
+      const next = new Set(prev)
+      next.add(storeKey)
+      return next
+    })
+  }
+
   return (
     <div className="flex flex-col w-[220px] bg-card border-r border-border shrink-0 min-h-0 overflow-hidden">
       <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background">
@@ -102,6 +149,10 @@ export default function ElementListPanel() {
           const isExpanded = expanded.has(group.storeKey)
           const count = group.elements.length
           if (count === 0) return null
+
+          const isShowAll = showAll.has(group.storeKey)
+          const visibleLimit = isShowAll ? count : MAX_VISIBLE
+          const hiddenCount = count - visibleLimit
 
           return (
             <div key={group.storeKey}>
@@ -124,24 +175,35 @@ export default function ElementListPanel() {
                 <span className="text-[10px] text-muted-foreground ml-auto">{count}</span>
               </button>
 
-              {isExpanded &&
-                group.elements.map((el) => {
-                  const isSelected = selectedIds.includes(el.id)
-                  return (
-                    <div
-                      key={el.id}
-                      onClick={() => handleClick(el, group.storeKey)}
-                      className={cn(
-                        'px-7 py-1 text-[11px] font-mono cursor-pointer truncate',
-                        isSelected
-                          ? 'bg-[#37373d] text-white'
-                          : 'text-muted-foreground hover:bg-[#2a2d2e] hover:text-accent-foreground'
-                      )}
+              {isExpanded && (
+                <>
+                  {group.elements.slice(0, visibleLimit).map((el) => {
+                    const isSelected = selectedIds.includes(el.id)
+                    return (
+                      <div
+                        key={el.id}
+                        onClick={() => handleClick(el, group.storeKey)}
+                        className={cn(
+                          'px-7 py-1 text-[11px] font-mono cursor-pointer truncate',
+                          isSelected
+                            ? 'bg-[#37373d] text-white'
+                            : 'text-muted-foreground hover:bg-[#2a2d2e] hover:text-accent-foreground'
+                        )}
+                      >
+                        {el.id}
+                      </div>
+                    )
+                  })}
+                  {hiddenCount > 0 && (
+                    <button
+                      onClick={() => handleShowAll(group.storeKey)}
+                      className="px-7 py-1.5 text-[10px] text-primary hover:text-primary/80 cursor-pointer bg-transparent border-none text-left w-full"
                     >
-                      {el.id}
-                    </div>
-                  )
-                })}
+                      Show {hiddenCount} more...
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )
         })}

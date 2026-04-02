@@ -4,6 +4,7 @@ import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { parseBaseMap, parseBaseMapFromObject } from '../../import/parseBaseMap'
 import { decodeMapFromText } from '../../proto/codec'
+import { clearBoundaryCache, precomputeBoundariesAsync } from '../../geo/boundaryCache'
 import {
   Dialog,
   DialogContent,
@@ -21,13 +22,15 @@ export default function ImportDialog() {
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
+  const [progress, setProgress] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const handleFile = async (file: File) => {
     try {
       setStatus('loading')
+      setProgress(0)
       const isTxt = file.name.endsWith('.txt')
-      setMessage(isTxt ? 'Parsing base_map.txt...' : 'Parsing base_map.bin...')
+      setMessage(isTxt ? 'Decoding text format...' : 'Decoding binary format...')
 
       let parsed
       if (isTxt) {
@@ -39,13 +42,28 @@ export default function ImportDialog() {
           // Not JSON – try protobuf text format
           obj = await decodeMapFromText(text)
         }
-        parsed = await parseBaseMapFromObject(obj)
+        setMessage('Parsing map data...')
+        setProgress(0.05)
+        parsed = await parseBaseMapFromObject(obj, (p) => setProgress(0.05 + p * 0.45))
       } else {
         const buffer = await file.arrayBuffer()
-        parsed = await parseBaseMap(new Uint8Array(buffer))
+        setProgress(0.05)
+        setMessage('Parsing map data...')
+        parsed = await parseBaseMap(new Uint8Array(buffer), (p) => setProgress(0.05 + p * 0.45))
       }
 
-      // Update store
+      // Pre-warm boundary cache before loading into store.
+      // This prevents the initial render from freezing the UI,
+      // because updateBoundaryLayers will hit cache for all lanes.
+      if (parsed.lanes.length > 0) {
+        clearBoundaryCache()
+        setMessage(`Computing geometry (${parsed.lanes.length} lanes)...`)
+        await precomputeBoundariesAsync(parsed.lanes, (p) => setProgress(0.5 + p * 0.45))
+      }
+
+      // Update store — render triggered by subscription will hit warm cache
+      setMessage('Loading into editor...')
+      setProgress(0.97)
       setProject(parsed.project)
       loadState({
         lanes: Object.fromEntries(parsed.lanes.map((l) => [l.id, l])),
@@ -59,6 +77,7 @@ export default function ImportDialog() {
         roads: Object.fromEntries(parsed.roads.map((r) => [r.id, r])),
       })
 
+      setProgress(1)
       setMessage(
         `Loaded: ${parsed.lanes.length} lanes, ${parsed.junctions.length} junctions, ` +
           `${parsed.signals.length} signals, ${parsed.crosswalks.length} crosswalks`
@@ -122,16 +141,26 @@ export default function ImportDialog() {
         {status !== 'idle' && (
           <div
             className={cn(
-              'bg-background border border-border rounded-md p-2.5 text-xs flex items-center gap-1.5',
+              'bg-background border border-border rounded-md p-2.5 text-xs flex flex-col gap-1.5',
               status === 'error' && 'text-destructive',
               status === 'done' && 'text-chart-2',
               status === 'loading' && 'text-chart-5'
             )}
           >
-            {status === 'loading' && <Loader2 size={14} className="animate-spin" />}
-            {status === 'done' && <CheckCircle size={14} />}
-            {status === 'error' && <XCircle size={14} />}
-            {message}
+            <div className="flex items-center gap-1.5">
+              {status === 'loading' && <Loader2 size={14} className="animate-spin shrink-0" />}
+              {status === 'done' && <CheckCircle size={14} className="shrink-0" />}
+              {status === 'error' && <XCircle size={14} className="shrink-0" />}
+              {message}
+            </div>
+            {status === 'loading' && (
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div
+                  className="bg-primary h-1.5 rounded-full transition-all duration-150"
+                  style={{ width: `${Math.round(progress * 100)}%` }}
+                />
+              </div>
+            )}
           </div>
         )}
 

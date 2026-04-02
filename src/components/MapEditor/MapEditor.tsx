@@ -7,7 +7,7 @@ import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
 import type { LaneFeature, MapElement } from '../../types/editor'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
-import { computeBoundaries, buildLanePolygon, laneMidpointInfo } from '../../geo/laneGeometry'
+import { getOrComputeBoundary, pruneCache } from '../../geo/boundaryCache'
 import { getRoadColor } from '../../utils/roadColors'
 import * as turf from '@turf/turf'
 
@@ -72,10 +72,18 @@ export default function MapEditor() {
     })
 
     // Subscribe directly to store changes — bypasses React effect deps
+    // Uses rAF debounce to batch rapid state changes (e.g. during import)
+    let renderPending = false
     const renderMap = () => {
       if (!ready || !map.isStyleLoaded()) return
-      updateBoundaryLayers(map)
-      updateElementLayers(map)
+      if (renderPending) return
+      renderPending = true
+      requestAnimationFrame(() => {
+        renderPending = false
+        if (!map.isStyleLoaded()) return
+        updateBoundaryLayers(map)
+        updateElementLayers(map)
+      })
     }
     const unsubMap = useMapStore.subscribe(renderMap)
     const unsubUI = useUIStore.subscribe(renderMap)
@@ -991,6 +999,9 @@ function updateBoundaryLayers(map: MapLibreMap) {
   const { selectedIds } = useUIStore.getState()
   const laneList = Object.values(lanes)
 
+  // Prune cache entries for deleted lanes
+  pruneCache(new Set(Object.keys(lanes)))
+
   // Expand selection: if a road is selected, include its lanes
   const effectiveSelected = new Set(selectedIds)
   for (const selId of selectedIds) {
@@ -1016,19 +1027,19 @@ function updateBoundaryLayers(map: MapLibreMap) {
     const arrowColor = TURN_COLOR[lane.turn] ?? '#e2e8f0'
 
     try {
-      const { left, right } = computeBoundaries(lane.centerLine, lane.width)
+      // Use boundary cache — expensive turf.lineOffset() is only called on cache miss
+      const cached = getOrComputeBoundary(lane)
 
       // Lane fill polygon
-      const fillPoly = buildLanePolygon(left, right)
       const hasRoad = Boolean(lane.roadId && roads[lane.roadId])
       fillFeatures.push({
-        ...fillPoly,
+        ...cached.polygon,
         properties: { id: lane.id, fillColor, hasRoad, selected: isSelected },
       })
 
       // Boundaries (carry color so MapLibre can look it up)
       boundaryFeatures.push({
-        ...left,
+        ...cached.left,
         properties: {
           id: lane.id,
           side: 'left',
@@ -1037,7 +1048,7 @@ function updateBoundaryLayers(map: MapLibreMap) {
         },
       })
       boundaryFeatures.push({
-        ...right,
+        ...cached.right,
         properties: {
           id: lane.id,
           side: 'right',
@@ -1045,28 +1056,16 @@ function updateBoundaryLayers(map: MapLibreMap) {
           boundaryColor: BOUNDARY_COLOR[lane.rightBoundaryType] ?? '#cbd5e1',
         },
       })
-    } catch {
-      // skip malformed geometry
-    }
 
-    // Centerline
-    centerFeatures.push({
-      ...lane.centerLine,
-      properties: { id: lane.id, selected: isSelected },
-    })
-
-    // Direction arrow(s) at midpoint — adjusted for lane.direction
-    try {
-      const { point, bearing } = laneMidpointInfo(lane.centerLine)
+      // Direction arrow(s) at midpoint — uses cached midpoint
+      const { point, bearing } = cached.midpoint
 
       if (lane.direction === LaneDirection.BACKWARD) {
-        // Flip: arrow points opposite to geometry order
         arrowFeatures.push({
           ...point,
           properties: { id: lane.id, bearing: (bearing + 180) % 360, arrowColor },
         })
       } else if (lane.direction === LaneDirection.BIDIRECTION) {
-        // Two arrows: one each way, offset slightly along the lane
         arrowFeatures.push({
           ...point,
           properties: { id: lane.id, bearing, arrowColor },
@@ -1076,15 +1075,20 @@ function updateBoundaryLayers(map: MapLibreMap) {
           properties: { id: lane.id, bearing: (bearing + 180) % 360, arrowColor: '#94a3b8' },
         })
       } else {
-        // FORWARD (default)
         arrowFeatures.push({
           ...point,
           properties: { id: lane.id, bearing, arrowColor },
         })
       }
     } catch {
-      // skip
+      // skip malformed geometry
     }
+
+    // Centerline
+    centerFeatures.push({
+      ...lane.centerLine,
+      properties: { id: lane.id, selected: isSelected },
+    })
 
     // Successor connection lines
     const endCoord = lane.centerLine.geometry.coordinates.at(-1)

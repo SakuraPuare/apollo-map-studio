@@ -66,16 +66,23 @@ function enuPointsToCoords(
 /**
  * Parse a binary base_map.bin buffer and return editor state.
  */
-export async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState> {
+export async function parseBaseMap(
+  buffer: Uint8Array,
+  onProgress?: (fraction: number) => void
+): Promise<ParsedMapState> {
   const map = await decodeMap(buffer)
-  return parseBaseMapFromObject(map)
+  return parseBaseMapFromObject(map, onProgress)
 }
 
 /**
  * Parse an ApolloMap object (already decoded) and return editor state.
  * Used by TXT import which skips the binary decode step.
+ * Accepts an optional progress callback (0-1) for large maps.
  */
-export async function parseBaseMapFromObject(map: ApolloMap): Promise<ParsedMapState> {
+export async function parseBaseMapFromObject(
+  map: ApolloMap,
+  onProgress?: (fraction: number) => void
+): Promise<ParsedMapState> {
   // Extract projection from header
   const projStr = map.header?.projection?.proj ?? ''
   const originCoords = parseProjString(projStr)
@@ -92,51 +99,62 @@ export async function parseBaseMapFromObject(map: ApolloMap): Promise<ParsedMapS
     date: bytesToString(map.header?.date) || new Date().toISOString().slice(0, 10),
   }
 
-  // Parse lanes
-  const lanes: LaneFeature[] = map.lane.map((lane) => {
-    const coords = lane.centralCurve.segment.flatMap((seg) =>
-      seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
-    )
+  // Parse lanes in chunks to avoid freezing the UI
+  const lanes: LaneFeature[] = []
+  const CHUNK_SIZE = 500
+  for (let i = 0; i < map.lane.length; i += CHUNK_SIZE) {
+    const end = Math.min(i + CHUNK_SIZE, map.lane.length)
+    for (let j = i; j < end; j++) {
+      const lane = map.lane[j]
+      const coords = lane.centralCurve.segment.flatMap((seg) =>
+        seg.lineSegment?.point ? enuPointsToCoords(seg.lineSegment.point, proj.toLngLat) : []
+      )
 
-    const centerLine: Feature<LineString> = {
-      type: 'Feature',
-      id: lane.id.id,
-      properties: {},
-      geometry: { type: 'LineString', coordinates: coords },
+      const centerLine: Feature<LineString> = {
+        type: 'Feature',
+        id: lane.id.id,
+        properties: {},
+        geometry: { type: 'LineString', coordinates: coords },
+      }
+
+      const widthSamples = lane.leftSample.map((s, idx) => {
+        const rightS = lane.rightSample[idx]
+        return s.width + (rightS?.width ?? s.width)
+      })
+      const width =
+        widthSamples.length > 0
+          ? widthSamples.reduce((a, b) => a + b, 0) / widthSamples.length
+          : 3.75
+
+      const leftBoundaryType =
+        (lane.leftBoundary.boundaryType[0]?.types[0] as BoundaryType) ?? BoundaryType.SOLID_WHITE
+      const rightBoundaryType =
+        (lane.rightBoundary.boundaryType[0]?.types[0] as BoundaryType) ?? BoundaryType.SOLID_WHITE
+
+      lanes.push({
+        id: lane.id.id,
+        type: 'lane' as const,
+        centerLine,
+        width,
+        speedLimit: lane.speedLimit ?? 13.89,
+        laneType: (lane.type as LaneType) ?? LaneType.CITY_DRIVING,
+        turn: (lane.turn as LaneTurn) ?? LaneTurn.NO_TURN,
+        direction: (lane.direction as LaneDirection) ?? LaneDirection.FORWARD,
+        leftBoundaryType,
+        rightBoundaryType,
+        predecessorIds: lane.predecessorId.map((id) => id.id),
+        successorIds: lane.successorId.map((id) => id.id),
+        leftNeighborIds: lane.leftNeighborForwardLaneId.map((id) => id.id),
+        rightNeighborIds: lane.rightNeighborForwardLaneId.map((id) => id.id),
+        junctionId: lane.junctionId?.id,
+      })
     }
-
-    // Estimate width from left/right sample
-    const widthSamples = lane.leftSample.map((s, i) => {
-      const rightS = lane.rightSample[i]
-      return s.width + (rightS?.width ?? s.width)
-    })
-    const width =
-      widthSamples.length > 0 ? widthSamples.reduce((a, b) => a + b, 0) / widthSamples.length : 3.75
-
-    // Extract boundary types
-    const leftBoundaryType =
-      (lane.leftBoundary.boundaryType[0]?.types[0] as BoundaryType) ?? BoundaryType.SOLID_WHITE
-    const rightBoundaryType =
-      (lane.rightBoundary.boundaryType[0]?.types[0] as BoundaryType) ?? BoundaryType.SOLID_WHITE
-
-    return {
-      id: lane.id.id,
-      type: 'lane' as const,
-      centerLine,
-      width,
-      speedLimit: lane.speedLimit ?? 13.89,
-      laneType: (lane.type as LaneType) ?? LaneType.CITY_DRIVING,
-      turn: (lane.turn as LaneTurn) ?? LaneTurn.NO_TURN,
-      direction: (lane.direction as LaneDirection) ?? LaneDirection.FORWARD,
-      leftBoundaryType,
-      rightBoundaryType,
-      predecessorIds: lane.predecessorId.map((id) => id.id),
-      successorIds: lane.successorId.map((id) => id.id),
-      leftNeighborIds: lane.leftNeighborForwardLaneId.map((id) => id.id),
-      rightNeighborIds: lane.rightNeighborForwardLaneId.map((id) => id.id),
-      junctionId: lane.junctionId?.id,
+    onProgress?.(end / map.lane.length)
+    // Yield to UI thread between chunks
+    if (map.lane.length > CHUNK_SIZE) {
+      await new Promise((r) => setTimeout(r, 0))
     }
-  })
+  }
 
   // Parse junctions
   const junctions: JunctionFeature[] = map.junction.map((j) => {
