@@ -3,17 +3,90 @@ import type { Feature, LineString, Polygon, Point, Position } from 'geojson'
 import type { LaneSampleAssociation } from '../types/apollo-map'
 
 /**
+ * Remove near-duplicate consecutive points from a LineString.
+ * Points closer than `minDistMeters` are collapsed to avoid
+ * degenerate segments that cause miter spikes in lineOffset.
+ */
+function deduplicateVertices(line: Feature<LineString>, minDistMeters = 0.05): Feature<LineString> {
+  const coords = line.geometry.coordinates
+  if (coords.length < 2) return line
+
+  const cleaned: Position[] = [coords[0]]
+  for (let i = 1; i < coords.length; i++) {
+    const prev = cleaned[cleaned.length - 1]
+    const cur = coords[i]
+    const dist = turf.distance(turf.point(prev), turf.point(cur), { units: 'meters' })
+    if (dist >= minDistMeters) {
+      cleaned.push(cur)
+    }
+  }
+  // Always keep the last point
+  const last = coords[coords.length - 1]
+  const keptLast = cleaned[cleaned.length - 1]
+  if (keptLast[0] !== last[0] || keptLast[1] !== last[1]) {
+    cleaned.push(last)
+  }
+
+  if (cleaned.length < 2) return line
+
+  return {
+    ...line,
+    geometry: { ...line.geometry, coordinates: cleaned },
+  }
+}
+
+/**
+ * Remove outlier vertices from an offset line.
+ * Any vertex farther than `maxDistMeters` from the original centerline
+ * is replaced by the nearest point on the centerline offset by the
+ * expected distance — effectively clamping miter spikes.
+ */
+function clampOffsetOutliers(
+  offsetLine: Feature<LineString>,
+  centerLine: Feature<LineString>,
+  expectedDistMeters: number
+): Feature<LineString> {
+  const maxDist = expectedDistMeters * 3
+  const coords = offsetLine.geometry.coordinates
+  const clamped: Position[] = []
+
+  for (const coord of coords) {
+    const nearest = turf.nearestPointOnLine(centerLine, turf.point(coord), { units: 'meters' })
+    const dist = nearest.properties?.dist ?? 0
+    if (dist <= maxDist) {
+      clamped.push(coord)
+    } else {
+      // Replace with the nearest point on the centerline — not perfect,
+      // but prevents the polygon from flying off screen.
+      clamped.push(nearest.geometry.coordinates)
+    }
+  }
+
+  return {
+    ...offsetLine,
+    geometry: { ...offsetLine.geometry, coordinates: clamped },
+  }
+}
+
+/**
  * Compute left and right boundary lines by offsetting the center line.
  * Returns GeoJSON LineString features in WGS84.
+ *
+ * Pre-cleans near-duplicate vertices and post-clamps miter spikes
+ * to prevent outlier points from corrupting the fill polygon.
  */
 export function computeBoundaries(
   centerLine: Feature<LineString>,
   widthMeters: number
 ): { left: Feature<LineString>; right: Feature<LineString> } {
   const halfWidth = widthMeters / 2
+  const cleaned = deduplicateVertices(centerLine)
 
-  const left = turf.lineOffset(centerLine, halfWidth, { units: 'meters' })
-  const right = turf.lineOffset(centerLine, -halfWidth, { units: 'meters' })
+  let left = turf.lineOffset(cleaned, halfWidth, { units: 'meters' })
+  let right = turf.lineOffset(cleaned, -halfWidth, { units: 'meters' })
+
+  left = clampOffsetOutliers(left, cleaned, halfWidth)
+  right = clampOffsetOutliers(right, cleaned, halfWidth)
 
   return { left, right }
 }
