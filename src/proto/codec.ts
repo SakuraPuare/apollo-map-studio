@@ -2,6 +2,38 @@ import { getMapType, getGraphType } from './loader'
 import { parseTextProto } from './textProtoParser'
 import type { ApolloMap } from '../types/apollo-map'
 import type { TopoGraph } from '../types/apollo-routing'
+import type { Type } from 'protobufjs'
+
+/**
+ * Recursively normalise a plain object so that every `repeated` proto field
+ * is always an array.  The text-proto parser only creates arrays when a field
+ * name appears more than once; protobufjs `fromObject` requires arrays for
+ * every repeated field.
+ */
+function normalizeRepeatedFields(obj: Record<string, unknown>, type: Type): void {
+  for (const field of Object.values(type.fields)) {
+    const key = field.name // camelCase name
+    const val = obj[key]
+    if (val === undefined || val === null) continue
+
+    if (field.repeated && !Array.isArray(val)) {
+      obj[key] = [val]
+    }
+
+    // Recurse into message-typed fields
+    if (field.resolvedType && 'fields' in field.resolvedType) {
+      const childType = field.resolvedType as Type
+      const items = Array.isArray(obj[key])
+        ? (obj[key] as Record<string, unknown>[])
+        : [obj[key] as Record<string, unknown>]
+      for (const item of items) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          normalizeRepeatedFields(item, childType)
+        }
+      }
+    }
+  }
+}
 
 /**
  * Encode an Apollo Map object to binary protobuf.
@@ -62,6 +94,8 @@ export async function decodeMapFromText(text: string): Promise<ApolloMap> {
       }
     }
   }
+
+  normalizeRepeatedFields(raw as Record<string, unknown>, MapType)
 
   const message = MapType.fromObject(raw)
   return MapType.toObject(message, {
