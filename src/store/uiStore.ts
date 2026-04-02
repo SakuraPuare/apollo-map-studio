@@ -6,12 +6,13 @@ import { ShapeType, ElementType, getDefaultElementForShape } from '../types/shap
 export function toolStateToDrawMode(ts: ToolState): string {
   if (ts.kind === 'select') return 'simple_select'
   if (ts.kind === 'connect_lanes') return 'simple_select'
+  if (ts.kind === 'edit_bezier') return 'edit_bezier'
   const shapeToMode: Record<ShapeType, string> = {
     [ShapeType.Point]: 'draw_point',
     [ShapeType.Polyline]: 'draw_line_string',
     [ShapeType.RotatableRect]: 'draw_rotatable_rect',
     [ShapeType.Polygon]: 'draw_polygon',
-    [ShapeType.Curve]: 'draw_line_string', // phase 1 simplified
+    [ShapeType.Curve]: 'draw_bezier',
   }
   return shapeToMode[ts.intent.shape]
 }

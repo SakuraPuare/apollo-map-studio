@@ -8,6 +8,7 @@ import type { DrawIntent, MapElement, LaneFeature } from '../types/editor'
 import { ElementType, ShapeType } from '../types/shapes'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../types/apollo-map'
 import { smoothPolyline } from '../geo/smoothCurve'
+import type { BezierAnchor } from '../geo/bezier'
 
 let idCounter = 0
 export function nextId(prefix: string): string {
@@ -41,13 +42,21 @@ function createLane(feature: Feature, shape: ShapeType): LaneFeature | null {
   if (feature.geometry.type !== 'LineString') return null
 
   let centerLine = feature as Feature<import('geojson').LineString>
+  let bezierAnchors: BezierAnchor[] | undefined
 
-  // Curve shape: apply Chaikin smoothing to the polyline
   if (shape === ShapeType.Curve) {
-    const smoothed = smoothPolyline(centerLine.geometry.coordinates)
-    centerLine = {
-      ...centerLine,
-      geometry: { ...centerLine.geometry, coordinates: smoothed },
+    const rawAnchors = (feature.properties as Record<string, unknown> | null)?._bezierAnchors
+    if (typeof rawAnchors === 'string') {
+      // DrawBezierMode fired draw.create with _bezierAnchors — coordinates are already
+      // flattened from the bezier; use them as-is and store the anchor data.
+      bezierAnchors = JSON.parse(rawAnchors) as BezierAnchor[]
+    } else {
+      // Fallback: apply Chaikin smoothing for curves without bezier data.
+      const smoothed = smoothPolyline(centerLine.geometry.coordinates)
+      centerLine = {
+        ...centerLine,
+        geometry: { ...centerLine.geometry, coordinates: smoothed },
+      }
     }
   }
 
@@ -66,6 +75,7 @@ function createLane(feature: Feature, shape: ShapeType): LaneFeature | null {
     successorIds: [],
     leftNeighborIds: [],
     rightNeighborIds: [],
+    ...(bezierAnchors !== undefined && { bezierAnchors }),
   }
 }
 
