@@ -14,8 +14,10 @@
  * are automatically collected into arrays.
  */
 
+export interface TextProtoObject {
+  [key: string]: TextProtoValue
+}
 export type TextProtoValue = string | number | boolean | TextProtoObject | TextProtoValue[]
-export type TextProtoObject = Record<string, TextProtoValue>
 
 // ── Tokeniser ──────────────────────────────────────────────────────
 
