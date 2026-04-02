@@ -259,8 +259,8 @@ const EditBezierMode = {
     }
 
     if (e.key === 'Backspace' || e.key === 'Delete') {
-      // Delete last anchor (if ≥2 remain)
-      if (state.anchors.length >= 2) {
+      // Delete last anchor (keep at least 2)
+      if (state.anchors.length > 2) {
         state.anchors.pop()
       }
       return
@@ -374,7 +374,7 @@ function commitEdit(this: DrawContext, state: EditBezierState): void {
         coordinates: coords,
       },
     },
-    bezierAnchors: state.anchors,
+    bezierAnchors: structuredClone(state.anchors),
   }
 
   useMapStore.getState().updateElement(updatedLane)
