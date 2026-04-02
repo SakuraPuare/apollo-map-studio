@@ -9,6 +9,7 @@ import type {
   LaneFeature,
   MapElement,
   RoadDefinition,
+  JunctionFeature,
   CrosswalkFeature,
   ClearAreaFeature,
   ParkingSpaceFeature,
@@ -1255,7 +1256,7 @@ let _cachedClearAreaCentroids: GeoJSON.Feature[] = []
 let _cachedParkingCentroids: GeoJSON.Feature[] = []
 
 // ── Element data change tracking ────────────────────────────────────────
-let _prevJunctions: typeof _prevCrosswalks = null
+let _prevJunctions: Record<string, JunctionFeature> | null = null
 let _prevSignals: Record<string, unknown> | null = null
 let _prevStopSigns: Record<string, unknown> | null = null
 let _prevSpeedBumps: Record<string, unknown> | null = null
