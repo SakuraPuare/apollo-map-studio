@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
@@ -17,13 +17,24 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export default function ImportDialog() {
-  const { setShowImportDialog, requestFitBounds } = useUIStore()
+  const { setShowImportDialog, requestFitBounds, pendingImportFile, setPendingImportFile } =
+    useUIStore()
   const { setProject, loadState } = useMapStore()
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
   const [progress, setProgress] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Auto-import when a file was dropped on the page
+  useEffect(() => {
+    if (pendingImportFile) {
+      const file = pendingImportFile
+      setPendingImportFile(null)
+      handleFile(file)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleFile = async (file: File) => {
     try {
