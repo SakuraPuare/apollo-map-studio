@@ -65,8 +65,9 @@ function enuPointsToCoords(
 }
 
 /**
- * Merge consecutive lanes whose connection lateral error < 1cm.
- * Lateral error = bearing_diff_rad × successor_length.
+ * Merge consecutive lanes whose bearing difference < 10°.
+ * When the lateral error at the junction (bearing_diff_rad × successor_length)
+ * is < 5cm, the junction point is removed to simplify geometry.
  * Only merges 1:1 connections (one successor, one predecessor).
  */
 function mergeConsecutiveLanes(lanes: LaneFeature[]): LaneFeature[] {
@@ -104,17 +105,22 @@ function mergeConsecutiveLanes(lanes: LaneFeature[]): LaneFeature[] {
       const bearB = turf.bearing(turf.point(cb[0]), turf.point(cb[1]))
       let diffDeg = Math.abs(bearA - bearB)
       if (diffDeg > 180) diffDeg = 360 - diffDeg
-      const diffRad = (diffDeg * Math.PI) / 180
+      if (diffDeg >= 10) break
 
+      // Lateral error determines whether to keep or remove the junction point
+      const diffRad = (diffDeg * Math.PI) / 180
       const succLength = turf.length(succ.centerLine, { units: 'meters' })
-      if (diffRad * succLength >= 0.05) break
+      const lateralError = diffRad * succLength
+      // If lateral error < 5cm, drop the junction point for cleaner geometry
+      const mergedCoords =
+        lateralError < 0.05 ? [...ca.slice(0, -1), ...cb.slice(1)] : [...ca, ...cb.slice(1)]
 
       // Merge successor into current
       current.centerLine = {
         ...current.centerLine,
         geometry: {
           ...current.centerLine.geometry,
-          coordinates: [...ca, ...cb.slice(1)],
+          coordinates: mergedCoords,
         },
       }
       current.successorIds = succ.successorIds
