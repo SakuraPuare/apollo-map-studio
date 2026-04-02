@@ -1,9 +1,12 @@
 import { useState, useMemo, useCallback } from 'react'
-import { ChevronRight, ChevronDown } from 'lucide-react'
-import { useMapStore } from '../../store/mapStore'
-import { useUIStore } from '../../store/uiStore'
+import { ChevronRight, ChevronDown, Search } from 'lucide-react'
+import { useMapStore } from '@/store/mapStore'
+import { useUIStore } from '@/store/uiStore'
 import { cn } from '@/lib/utils'
-import type { MapElement } from '../../types/editor'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import type { MapElement } from '@/types/editor'
 
 const ELEMENT_GROUPS = [
   { storeKey: 'roads', label: 'Roads', color: '#81c784' },
@@ -17,7 +20,6 @@ const ELEMENT_GROUPS = [
   { storeKey: 'parkingSpaces', label: 'Parking', color: '#90a4ae' },
 ] as const
 
-// Max items to render per group before showing "show more"
 const MAX_VISIBLE = 200
 
 function getElementCenter(el: MapElement): [number, number] {
@@ -47,7 +49,6 @@ function getElementCenter(el: MapElement): [number, number] {
 }
 
 export default function ElementListPanel() {
-  // Use individual selectors to avoid re-rendering on unrelated state changes
   const lanes = useMapStore((s) => s.lanes)
   const roads = useMapStore((s) => s.roads)
   const junctions = useMapStore((s) => s.junctions)
@@ -61,6 +62,7 @@ export default function ElementListPanel() {
   const { selectedIds, setSelected, requestFlyTo } = useUIStore()
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(['lanes']))
   const [showAll, setShowAll] = useState<Set<string>>(() => new Set())
+  const [searchQuery, setSearchQuery] = useState('')
 
   const storeData: Record<string, Record<string, unknown>> = {
     roads,
@@ -75,10 +77,14 @@ export default function ElementListPanel() {
   }
 
   const groups = useMemo(() => {
-    return ELEMENT_GROUPS.map((g) => ({
-      ...g,
-      elements: Object.values(storeData[g.storeKey]) as (MapElement | { id: string })[],
-    }))
+    const query = searchQuery.toLowerCase()
+    return ELEMENT_GROUPS.map((g) => {
+      const elements = Object.values(storeData[g.storeKey]) as (MapElement | { id: string })[]
+      const filtered = query
+        ? elements.filter((el) => el.id.toLowerCase().includes(query))
+        : elements
+      return { ...g, elements: filtered, totalCount: elements.length }
+    })
   }, [
     lanes,
     roads,
@@ -89,16 +95,8 @@ export default function ElementListPanel() {
     clearAreas,
     speedBumps,
     parkingSpaces,
+    searchQuery,
   ])
-
-  const toggleGroup = (key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
 
   const getRoadCenter = useCallback(
     (roadId: string): [number, number] | null => {
@@ -140,71 +138,99 @@ export default function ElementListPanel() {
   }
 
   return (
-    <div className="flex flex-col w-[220px] bg-card border-r border-border shrink-0 min-h-0 overflow-hidden">
-      <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background">
-        Explorer
+    <div className="flex flex-col h-full bg-card border-r border-border min-h-0 overflow-hidden">
+      <div className="py-2 px-3 border-b border-border bg-background shrink-0">
+        <div className="relative">
+          <Search
+            size={13}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            placeholder="Search elements..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-7 text-xs pl-7"
+          />
+        </div>
       </div>
+
       <div className="flex-1 min-h-0 overflow-y-auto">
         {groups.map((group) => {
-          const isExpanded = expanded.has(group.storeKey)
           const count = group.elements.length
-          if (count === 0) return null
+          if (count === 0 && !searchQuery) return null
 
+          const isExpanded = expanded.has(group.storeKey)
           const isShowAll = showAll.has(group.storeKey)
           const visibleLimit = isShowAll ? count : MAX_VISIBLE
           const hiddenCount = count - visibleLimit
 
           return (
-            <div key={group.storeKey}>
-              <button
-                onClick={() => toggleGroup(group.storeKey)}
-                className="flex w-full items-center gap-1.5 px-2 py-1.5 border-none bg-transparent cursor-pointer text-left hover:bg-[#2a2d2e]"
-              >
+            <Collapsible
+              key={group.storeKey}
+              open={isExpanded}
+              onOpenChange={(open) => {
+                setExpanded((prev) => {
+                  const next = new Set(prev)
+                  if (open) next.add(group.storeKey)
+                  else next.delete(group.storeKey)
+                  return next
+                })
+              }}
+            >
+              <CollapsibleTrigger className="flex w-full items-center gap-1.5 px-3 py-1.5 bg-transparent cursor-pointer text-left hover:bg-accent/50 transition-colors">
                 {isExpanded ? (
-                  <ChevronDown size={14} className="text-muted-foreground shrink-0" />
+                  <ChevronDown size={13} className="text-muted-foreground shrink-0" />
                 ) : (
-                  <ChevronRight size={14} className="text-muted-foreground shrink-0" />
+                  <ChevronRight size={13} className="text-muted-foreground shrink-0" />
                 )}
                 <span
                   className="w-2 h-2 rounded-full shrink-0"
                   style={{ background: group.color }}
                 />
-                <span className="text-[11px] font-semibold text-accent-foreground">
+                <span className="text-[11px] font-semibold text-accent-foreground flex-1">
                   {group.label}
                 </span>
-                <span className="text-[10px] text-muted-foreground ml-auto">{count}</span>
-              </button>
+                <Badge variant="secondary" className="h-4 px-1.5 text-[10px] font-normal">
+                  {count}
+                </Badge>
+              </CollapsibleTrigger>
 
-              {isExpanded && (
-                <>
-                  {group.elements.slice(0, visibleLimit).map((el) => {
-                    const isSelected = selectedIds.includes(el.id)
-                    return (
-                      <div
-                        key={el.id}
-                        onClick={() => handleClick(el, group.storeKey)}
-                        className={cn(
-                          'px-7 py-1 text-[11px] font-mono cursor-pointer truncate',
-                          isSelected
-                            ? 'bg-[#37373d] text-white'
-                            : 'text-muted-foreground hover:bg-[#2a2d2e] hover:text-accent-foreground'
-                        )}
+              <CollapsibleContent>
+                {count === 0 ? (
+                  <div className="px-7 py-2 text-[10px] text-muted-foreground italic">
+                    No matches
+                  </div>
+                ) : (
+                  <>
+                    {group.elements.slice(0, visibleLimit).map((el) => {
+                      const isSelected = selectedIds.includes(el.id)
+                      return (
+                        <div
+                          key={el.id}
+                          onClick={() => handleClick(el, group.storeKey)}
+                          className={cn(
+                            'px-7 py-1 text-[11px] font-mono cursor-pointer truncate transition-colors',
+                            isSelected
+                              ? 'bg-primary/15 text-primary'
+                              : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground'
+                          )}
+                        >
+                          {el.id}
+                        </div>
+                      )
+                    })}
+                    {hiddenCount > 0 && (
+                      <button
+                        onClick={() => handleShowAll(group.storeKey)}
+                        className="px-7 py-1.5 text-[10px] text-primary hover:text-primary/80 cursor-pointer bg-transparent border-none text-left w-full"
                       >
-                        {el.id}
-                      </div>
-                    )
-                  })}
-                  {hiddenCount > 0 && (
-                    <button
-                      onClick={() => handleShowAll(group.storeKey)}
-                      className="px-7 py-1.5 text-[10px] text-primary hover:text-primary/80 cursor-pointer bg-transparent border-none text-left w-full"
-                    >
-                      Show {hiddenCount} more...
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+                        Show {hiddenCount} more...
+                      </button>
+                    )}
+                  </>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           )
         })}
       </div>
