@@ -50,6 +50,13 @@ function createLane(feature: Feature, shape: ShapeType): LaneFeature | null {
       // DrawBezierMode fired draw.create with _bezierAnchors — coordinates are already
       // flattened from the bezier; use them as-is and store the anchor data.
       bezierAnchors = JSON.parse(rawAnchors) as BezierAnchor[]
+      // Strip the transport property from the stored feature
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { _bezierAnchors: _, ...cleanProps } = (centerLine.properties ?? {}) as Record<
+        string,
+        unknown
+      >
+      centerLine = { ...centerLine, properties: cleanProps }
     } else {
       // Fallback: apply Chaikin smoothing for curves without bezier data.
       const smoothed = smoothPolyline(centerLine.geometry.coordinates)
