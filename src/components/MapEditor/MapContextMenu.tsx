@@ -61,6 +61,17 @@ export default function MapContextMenu({ menu, onClose }: Props) {
     onClose()
   }
 
+  const handleEditCurve = () => {
+    useUIStore.getState().setToolState({
+      kind: 'edit_bezier',
+      laneId: menu.elementId,
+    })
+    onClose()
+  }
+
+  const lane = menu.elementType === 'lane' ? useMapStore.getState().lanes[menu.elementId] : null
+  const hasBezier = !!lane?.bezierAnchors
+
   return (
     <div
       ref={menuRef}
@@ -73,6 +84,7 @@ export default function MapContextMenu({ menu, onClose }: Props) {
       <div className="h-px bg-border my-0.5" />
       <MenuItem onClick={handleSelect}>Select</MenuItem>
       <MenuItem onClick={handleZoomTo}>Zoom to Element</MenuItem>
+      {hasBezier && <MenuItem onClick={handleEditCurve}>Edit Curve</MenuItem>}
       <MenuItem onClick={handleCopyId}>Copy ID</MenuItem>
       <div className="h-px bg-border my-0.5" />
       <MenuItem onClick={handleDelete} destructive>
