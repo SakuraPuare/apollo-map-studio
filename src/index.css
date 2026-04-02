@@ -12,9 +12,10 @@
 body {
   margin: 0;
   font-family:
-    'Segoe UI',
+    'Inter',
     -apple-system,
     BlinkMacSystemFont,
+    'Segoe UI',
     system-ui,
     sans-serif;
   font-size: 13px;
@@ -119,39 +120,39 @@ body {
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* VS Code dark theme -- always dark, no light mode */
+/* Professional dark theme */
 :root {
-  --radius: 0.25rem;
-  --background: #1e1e1e;
-  --foreground: #cccccc;
-  --card: #252526;
-  --card-foreground: #cccccc;
+  --radius: 0.375rem;
+  --background: #1a1a1a;
+  --foreground: #d4d4d4;
+  --card: #222222;
+  --card-foreground: #d4d4d4;
   --popover: #252526;
-  --popover-foreground: #cccccc;
+  --popover-foreground: #d4d4d4;
   --primary: #007acc;
   --primary-foreground: #ffffff;
-  --secondary: #333333;
-  --secondary-foreground: #cccccc;
-  --muted: #252526;
-  --muted-foreground: #858585;
-  --accent: #37373d;
-  --accent-foreground: #e0e0e0;
+  --secondary: #2d2d2d;
+  --secondary-foreground: #d4d4d4;
+  --muted: #262626;
+  --muted-foreground: #888888;
+  --accent: #333336;
+  --accent-foreground: #e5e5e5;
   --destructive: #f14c4c;
-  --border: #3c3c3c;
-  --input: #3c3c3c;
+  --border: #2e2e2e;
+  --input: #333333;
   --ring: #007acc;
   --chart-1: #007acc;
   --chart-2: #89d185;
   --chart-3: #cca700;
   --chart-4: #f14c4c;
   --chart-5: #3794ff;
-  --sidebar: #252526;
-  --sidebar-foreground: #cccccc;
+  --sidebar: #222222;
+  --sidebar-foreground: #d4d4d4;
   --sidebar-primary: #007acc;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #37373d;
-  --sidebar-accent-foreground: #e0e0e0;
-  --sidebar-border: #3c3c3c;
+  --sidebar-accent: #333336;
+  --sidebar-accent-foreground: #e5e5e5;
+  --sidebar-border: #2e2e2e;
   --sidebar-ring: #007acc;
 }
 
@@ -164,45 +165,15 @@ body {
   }
 }
 
-/* Panel form elements (compact native inputs for properties panel) */
-.panel-input {
-  background: var(--input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
-  padding: 4px 8px;
-  font-size: 12px;
-  font-family: inherit;
-  height: 28px;
-  width: 100%;
-  transition: border-color 0.1s ease;
-  outline: none;
+/* Resizable panel handle styling */
+[data-panel-group-direction='horizontal'] > [data-resize-handle] {
+  width: 1px !important;
+  background: var(--border);
+  transition: background 0.15s ease;
 }
 
-.panel-input:focus {
-  border-color: var(--ring);
-}
-
-.panel-select {
-  background: var(--input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
-  padding: 4px 8px;
-  font-size: 12px;
-  font-family: inherit;
-  height: 28px;
-  width: 100%;
-  transition: border-color 0.1s ease;
-  outline: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23858585' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  padding-right: 24px;
-  cursor: pointer;
-}
-
-.panel-select:focus {
-  border-color: var(--ring);
+[data-panel-group-direction='horizontal'] > [data-resize-handle]:hover,
+[data-panel-group-direction='horizontal'] > [data-resize-handle][data-resize-handle-active] {
+  background: var(--primary);
+  width: 2px !important;
 }
