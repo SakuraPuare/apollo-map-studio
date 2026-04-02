@@ -1,4 +1,5 @@
 import { getMapType, getGraphType } from './loader'
+import { parseTextProto } from './textProtoParser'
 import type { ApolloMap } from '../types/apollo-map'
 import type { TopoGraph } from '../types/apollo-routing'
 
@@ -31,6 +32,46 @@ export async function encodeGraph(graph: TopoGraph): Promise<Uint8Array> {
 
   const message = GraphType.create(graph)
   return GraphType.encode(message).finish()
+}
+
+/**
+ * Decode a protobuf text-format string to an Apollo Map object.
+ * This handles the native Apollo text proto format (field { ... } style).
+ */
+export async function decodeMapFromText(text: string): Promise<ApolloMap> {
+  const MapType = await getMapType()
+  const raw = parseTextProto(text)
+
+  // Header bytes fields (version, date, district, etc.) appear as plain strings
+  // in text proto but protobufjs fromObject expects Uint8Array or base64 for
+  // bytes fields. Encode them as UTF-8 bytes so they round-trip correctly.
+  const header = raw.header as Record<string, unknown> | undefined
+  if (header) {
+    const encoder = new TextEncoder()
+    for (const key of [
+      'version',
+      'date',
+      'district',
+      'generation',
+      'revMajor',
+      'revMinor',
+      'vendor',
+    ]) {
+      if (typeof header[key] === 'string') {
+        header[key] = encoder.encode(header[key] as string)
+      }
+    }
+  }
+
+  const message = MapType.fromObject(raw)
+  return MapType.toObject(message, {
+    longs: Number,
+    enums: Number,
+    bytes: String,
+    defaults: true,
+    arrays: true,
+    objects: true,
+  }) as unknown as ApolloMap
 }
 
 /**

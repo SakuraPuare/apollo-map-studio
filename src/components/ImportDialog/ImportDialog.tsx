@@ -3,7 +3,7 @@ import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { parseBaseMap, parseBaseMapFromObject } from '../../import/parseBaseMap'
-import type { ApolloMap } from '../../types/apollo-map'
+import { decodeMapFromText } from '../../proto/codec'
 import {
   Dialog,
   DialogContent,
@@ -32,7 +32,13 @@ export default function ImportDialog() {
       let parsed
       if (isTxt) {
         const text = await file.text()
-        const obj = JSON.parse(text) as ApolloMap
+        let obj
+        try {
+          obj = JSON.parse(text)
+        } catch {
+          // Not JSON – try protobuf text format
+          obj = await decodeMapFromText(text)
+        }
         parsed = await parseBaseMapFromObject(obj)
       } else {
         const buffer = await file.arrayBuffer()
@@ -83,7 +89,8 @@ export default function ImportDialog() {
         <DialogHeader>
           <DialogTitle>Import Map File</DialogTitle>
           <DialogDescription>
-            Load a base_map.bin (binary protobuf) or base_map.txt (JSON) file to edit it.
+            Load a base_map.bin (binary protobuf) or base_map.txt (text proto / JSON) file to edit
+            it.
           </DialogDescription>
         </DialogHeader>
 
