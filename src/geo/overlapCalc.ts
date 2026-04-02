@@ -1,5 +1,6 @@
 import * as turf from '@turf/turf'
 import type { Feature, LineString, Polygon } from 'geojson'
+import RBush from 'rbush'
 import type {
   LaneFeature,
   CrosswalkFeature,
@@ -14,6 +15,35 @@ import type { ApolloOverlap } from '../types/apollo-map'
 let overlapCounter = 0
 function nextOverlapId(): string {
   return `overlap_${++overlapCounter}`
+}
+
+/** Spatial index item wrapping a map element with its bounding box. */
+interface SpatialItem<T> {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+  item: T
+}
+
+/** Compute the axis-aligned bounding box for an array of [x, y] coordinates. */
+function buildBBox(coords: number[][]): {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+} {
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity
+  for (const [x, y] of coords) {
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+  }
+  return { minX, minY, maxX, maxY }
 }
 
 /**
@@ -83,6 +113,10 @@ export interface ComputedOverlap {
 
 /**
  * Compute all overlaps between lanes and other map elements.
+ *
+ * Uses R-tree spatial indices to avoid O(n^2) brute-force comparisons.
+ * For each lane, only elements whose bounding boxes intersect the lane's
+ * padded bounding box are tested with the expensive turf geometry checks.
  */
 export function computeAllOverlaps(params: {
   lanes: LaneFeature[]
@@ -102,9 +136,79 @@ export function computeAllOverlaps(params: {
     laneOverlapIds[laneId].push(oid)
   }
 
-  // Lane vs Crosswalk
+  // --- Build R-tree spatial indices for each element type ---
+
+  // Crosswalks (polygon features)
+  const crosswalkTree = new RBush<SpatialItem<CrosswalkFeature>>()
+  crosswalkTree.load(
+    params.crosswalks.map((cw) => {
+      const bbox = buildBBox(cw.polygon.geometry.coordinates[0])
+      return { ...bbox, item: cw }
+    })
+  )
+
+  // Signals (line features — stop lines)
+  const signalTree = new RBush<SpatialItem<SignalFeature>>()
+  signalTree.load(
+    params.signals.map((signal) => {
+      const bbox = buildBBox(signal.stopLine.geometry.coordinates)
+      return { ...bbox, item: signal }
+    })
+  )
+
+  // Stop signs (line features — stop lines)
+  const stopSignTree = new RBush<SpatialItem<StopSignFeature>>()
+  stopSignTree.load(
+    params.stopSigns.map((stopSign) => {
+      const bbox = buildBBox(stopSign.stopLine.geometry.coordinates)
+      return { ...bbox, item: stopSign }
+    })
+  )
+
+  // Junctions (polygon features)
+  const junctionTree = new RBush<SpatialItem<JunctionFeature>>()
+  junctionTree.load(
+    params.junctions.map((junction) => {
+      const bbox = buildBBox(junction.polygon.geometry.coordinates[0])
+      return { ...bbox, item: junction }
+    })
+  )
+
+  // Clear areas (polygon features)
+  const clearAreaTree = new RBush<SpatialItem<ClearAreaFeature>>()
+  clearAreaTree.load(
+    params.clearAreas.map((area) => {
+      const bbox = buildBBox(area.polygon.geometry.coordinates[0])
+      return { ...bbox, item: area }
+    })
+  )
+
+  // Speed bumps (line features)
+  const speedBumpTree = new RBush<SpatialItem<SpeedBumpFeature>>()
+  speedBumpTree.load(
+    params.speedBumps.map((bump) => {
+      const bbox = buildBBox(bump.line.geometry.coordinates)
+      return { ...bbox, item: bump }
+    })
+  )
+
+  // Padding in degrees (~11 meters) to expand lane bboxes so we don't miss
+  // overlaps near edges due to lane width or geometric imprecision.
+  const PAD = 0.0001
+
+  // --- For each lane, query spatial indices and check only nearby elements ---
+
   for (const lane of params.lanes) {
-    for (const crosswalk of params.crosswalks) {
+    const laneBbox = buildBBox(lane.centerLine.geometry.coordinates)
+    const searchBbox = {
+      minX: laneBbox.minX - PAD,
+      minY: laneBbox.minY - PAD,
+      maxX: laneBbox.maxX + PAD,
+      maxY: laneBbox.maxY + PAD,
+    }
+
+    // Lane vs Crosswalk
+    for (const { item: crosswalk } of crosswalkTree.search(searchBbox)) {
       const result = lanePolygonOverlap(lane, crosswalk.polygon)
       if (result) {
         const oid = nextOverlapId()
@@ -131,11 +235,9 @@ export function computeAllOverlaps(params: {
         addLaneOverlapId(lane.id, oid)
       }
     }
-  }
 
-  // Lane vs Signal stop line
-  for (const lane of params.lanes) {
-    for (const signal of params.signals) {
+    // Lane vs Signal stop line
+    for (const { item: signal } of signalTree.search(searchBbox)) {
       const result = laneLineOverlap(lane, signal.stopLine)
       if (result) {
         const oid = nextOverlapId()
@@ -162,11 +264,9 @@ export function computeAllOverlaps(params: {
         addLaneOverlapId(lane.id, oid)
       }
     }
-  }
 
-  // Lane vs StopSign
-  for (const lane of params.lanes) {
-    for (const stopSign of params.stopSigns) {
+    // Lane vs StopSign
+    for (const { item: stopSign } of stopSignTree.search(searchBbox)) {
       for (const stopLine of [stopSign.stopLine]) {
         const result = laneLineOverlap(lane, stopLine)
         if (result) {
@@ -195,11 +295,9 @@ export function computeAllOverlaps(params: {
         }
       }
     }
-  }
 
-  // Lane vs Junction
-  for (const lane of params.lanes) {
-    for (const junction of params.junctions) {
+    // Lane vs Junction
+    for (const { item: junction } of junctionTree.search(searchBbox)) {
       if (laneInJunction(lane, junction)) {
         const oid = nextOverlapId()
         const laneLen = turf.length(lane.centerLine, { units: 'meters' })
@@ -226,11 +324,9 @@ export function computeAllOverlaps(params: {
         addLaneOverlapId(lane.id, oid)
       }
     }
-  }
 
-  // Lane vs ClearArea
-  for (const lane of params.lanes) {
-    for (const area of params.clearAreas) {
+    // Lane vs ClearArea
+    for (const { item: area } of clearAreaTree.search(searchBbox)) {
       const result = lanePolygonOverlap(lane, area.polygon)
       if (result) {
         const oid = nextOverlapId()
@@ -257,11 +353,9 @@ export function computeAllOverlaps(params: {
         addLaneOverlapId(lane.id, oid)
       }
     }
-  }
 
-  // Lane vs SpeedBump
-  for (const lane of params.lanes) {
-    for (const bump of params.speedBumps) {
+    // Lane vs SpeedBump
+    for (const { item: bump } of speedBumpTree.search(searchBbox)) {
       const result = laneLineOverlap(lane, bump.line)
       if (result) {
         const oid = nextOverlapId()
