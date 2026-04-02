@@ -6,6 +6,7 @@ import type { ToolState } from '@/types/editor'
 function getToolLabel(ts: ToolState): string {
   if (ts.kind === 'select') return 'Select'
   if (ts.kind === 'connect_lanes') return 'Connect Lanes'
+  if (ts.kind === 'edit_bezier') return 'Edit Curve'
   const { shape, elementType } = ts.intent
   const elLabels: Record<string, string> = {
     lane: 'Lane',

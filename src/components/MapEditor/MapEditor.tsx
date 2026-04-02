@@ -194,7 +194,7 @@ export default function MapEditor() {
       styles: getDrawStyles(),
       modes: {
         ...MapboxDraw.modes,
-        ...customDrawModes,
+        ...(customDrawModes as Record<string, object>),
       },
     })
 

@@ -94,17 +94,13 @@ const DrawRotatableRect = {
         },
       }
 
-      // @ts-expect-error — MapboxDraw context provides this
       ;(this as unknown as { newFeature: (f: unknown) => void }).newFeature?.(feature)
 
       // Fire draw.create event via the draw instance
-      // @ts-expect-error — MapboxDraw internal API
       ;(this as unknown as { map: { fire: (event: string, data: unknown) => void } }).map?.fire(
         'draw.create',
         { features: [feature] }
       )
-
-      // @ts-expect-error — MapboxDraw changeMode
       ;(this as unknown as { changeMode: (mode: string) => void }).changeMode('simple_select')
     }
   },
@@ -115,7 +111,6 @@ const DrawRotatableRect = {
 
   onKeyUp(state: RectState, e: { key: string }) {
     if (e.key === 'Escape') {
-      // @ts-expect-error — MapboxDraw changeMode
       ;(this as unknown as { changeMode: (mode: string) => void }).changeMode('simple_select')
     }
   },
@@ -176,7 +171,6 @@ const DrawRotatableRect = {
   },
 
   onTrash() {
-    // @ts-expect-error — MapboxDraw changeMode
     ;(this as unknown as { changeMode: (mode: string) => void }).changeMode('simple_select')
   },
 }
