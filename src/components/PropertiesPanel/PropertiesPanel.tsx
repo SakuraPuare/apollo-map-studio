@@ -169,8 +169,8 @@ function RoadProperties({ roadId }: { roadId: string }) {
 
   if (!road) return null
 
-  const handleAutoNeighbors = () => {
-    const count = autoComputeNeighbors(roadId)
+  const handleAutoNeighbors = async () => {
+    const count = await autoComputeNeighbors(roadId)
     setStatus(`Auto-computed ${count} neighbor pair(s) for road "${road.name}"`)
   }
 

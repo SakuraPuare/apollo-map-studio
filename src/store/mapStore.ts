@@ -42,7 +42,7 @@ interface MapState {
   removeRoad: (roadId: string) => void
   assignLaneToRoad: (laneId: string, roadId: string) => void
   unassignLaneFromRoad: (laneId: string) => void
-  autoComputeNeighbors: (roadId?: string) => number
+  autoComputeNeighbors: (roadId?: string) => Promise<number>
   clear: () => void
   loadState: (state: Partial<MapState>) => void
 }
@@ -236,14 +236,18 @@ export const useMapStore = create<MapState>()(
           }
         }),
 
-      autoComputeNeighbors: (roadId) => {
+      autoComputeNeighbors: async (roadId) => {
+        // 1. Read current lane data (outside set)
+        const allLanes = Object.values(useMapStore.getState().lanes)
+
+        // 2. Compute asynchronously (yields to UI)
+        const pairs = roadId
+          ? await computeNeighborsForRoad(allLanes, roadId)
+          : await computeAdjacentLanes(allLanes)
+
+        // 3. Apply results synchronously
         let pairCount = 0
         set((state) => {
-          const allLanes = Object.values(state.lanes)
-          const pairs = roadId
-            ? computeNeighborsForRoad(allLanes, roadId)
-            : computeAdjacentLanes(allLanes)
-
           // Clear existing neighbor relationships for affected lanes
           const affectedLaneIds = new Set<string>()
           for (const pair of pairs) {
@@ -252,11 +256,11 @@ export const useMapStore = create<MapState>()(
           }
           // Also clear lanes in the target road(s) that might have stale neighbors
           if (roadId) {
-            for (const lane of allLanes) {
+            for (const lane of Object.values(state.lanes)) {
               if (lane.roadId === roadId) affectedLaneIds.add(lane.id)
             }
           } else {
-            for (const lane of allLanes) {
+            for (const lane of Object.values(state.lanes)) {
               if (lane.roadId) affectedLaneIds.add(lane.id)
             }
           }
