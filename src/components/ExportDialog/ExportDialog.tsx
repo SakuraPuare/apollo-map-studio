@@ -1,11 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
-import { buildBaseMap } from '../../export/buildBaseMap'
-import { buildSimMap } from '../../export/buildSimMap'
-import { buildRoutingMap } from '../../export/buildRoutingMap'
-import { encodeMap, encodeGraph, downloadBinary, downloadText } from '../../proto/codec'
-import { setGlobalProjection } from '../../geo/projection'
+import { downloadBinary, downloadText } from '../../proto/codec'
+import type { WorkerOutMessage, ExportPayload } from '../../workers/exportWorker'
 import {
   Dialog,
   DialogContent,
@@ -45,98 +42,94 @@ export default function ExportDialog() {
   const [exportRouting, setExportRouting] = useState(true)
   const [exportTxt, setExportTxt] = useState(false)
 
-  const handleExport = async () => {
-    try {
-      if (!store.project) {
-        setError('No project configured. Please create a new project first.')
-        return
-      }
+  const workerRef = useRef<Worker | null>(null)
 
-      // Initialize projection
-      setGlobalProjection(store.project.originLat, store.project.originLon)
-
-      const lanes = Object.values(store.lanes)
-      const junctions = Object.values(store.junctions)
-      const signals = Object.values(store.signals)
-      const stopSigns = Object.values(store.stopSigns)
-      const crosswalks = Object.values(store.crosswalks)
-      const clearAreas = Object.values(store.clearAreas)
-      const speedBumps = Object.values(store.speedBumps)
-      const parkingSpaces = Object.values(store.parkingSpaces)
-
-      // Validate
-      if (lanes.length === 0) {
-        setError('No lanes found. Draw at least one lane before exporting.')
-        return
-      }
-
-      setStep('building_base')
-      setError('')
-
-      // Build base map
-      const baseMap = await buildBaseMap({
-        project: store.project,
-        lanes,
-        junctions,
-        signals,
-        stopSigns,
-        crosswalks,
-        clearAreas,
-        speedBumps,
-        parkingSpaces,
-        roads: Object.values(store.roads),
+  // Create the worker lazily (on first export) and terminate on unmount
+  const getWorker = useCallback(() => {
+    if (!workerRef.current) {
+      workerRef.current = new Worker(new URL('../../workers/exportWorker.ts', import.meta.url), {
+        type: 'module',
       })
-
-      setStats({
-        lanes: baseMap.lane.length,
-        roads: baseMap.road.length,
-        nodes: 0,
-        edges: 0,
-      })
-
-      setStep('encoding')
-
-      // Export base_map.bin
-      if (exportBase) {
-        const baseData = await encodeMap(baseMap)
-        downloadBinary(baseData, 'base_map.bin')
-      }
-
-      // Export sim_map.bin
-      if (exportSim) {
-        setStep('building_sim')
-        const simMap = buildSimMap(baseMap)
-        const simData = await encodeMap(simMap)
-        downloadBinary(simData, 'sim_map.bin')
-      }
-
-      // Export routing_map.bin
-      if (exportRouting) {
-        setStep('building_routing')
-        const routingGraph = buildRoutingMap(baseMap)
-        setStats((s) =>
-          s ? { ...s, nodes: routingGraph.node.length, edges: routingGraph.edge.length } : null
-        )
-        const routingData = await encodeGraph(routingGraph)
-        downloadBinary(routingData, 'routing_map.bin')
-      }
-
-      // Export TXT files
-      if (exportTxt) {
-        setStep('encoding')
-        downloadText(JSON.stringify(baseMap, null, 2), 'base_map.txt')
-        const simMapForTxt = buildSimMap(baseMap)
-        downloadText(JSON.stringify(simMapForTxt, null, 2), 'sim_map.txt')
-        const routingGraphForTxt = buildRoutingMap(baseMap)
-        downloadText(JSON.stringify(routingGraphForTxt, null, 2), 'routing_map.txt')
-      }
-
-      setStep('done')
-    } catch (err) {
-      setError(String(err))
-      setStep('error')
-      console.error('Export failed:', err)
     }
+    return workerRef.current
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate()
+      workerRef.current = null
+    }
+  }, [])
+
+  const handleExport = () => {
+    if (!store.project) {
+      setError('No project configured. Please create a new project first.')
+      return
+    }
+
+    const lanes = Object.values(store.lanes)
+    if (lanes.length === 0) {
+      setError('No lanes found. Draw at least one lane before exporting.')
+      return
+    }
+
+    setStep('building_base')
+    setError('')
+    setStats(null)
+
+    const payload: ExportPayload = {
+      project: store.project,
+      lanes,
+      junctions: Object.values(store.junctions),
+      signals: Object.values(store.signals),
+      stopSigns: Object.values(store.stopSigns),
+      crosswalks: Object.values(store.crosswalks),
+      clearAreas: Object.values(store.clearAreas),
+      speedBumps: Object.values(store.speedBumps),
+      parkingSpaces: Object.values(store.parkingSpaces),
+      roads: Object.values(store.roads),
+      options: { exportBase, exportSim, exportRouting, exportTxt },
+    }
+
+    const worker = getWorker()
+
+    worker.onmessage = (e: MessageEvent<WorkerOutMessage>) => {
+      const msg = e.data
+
+      switch (msg.type) {
+        case 'progress':
+          if (msg.step === 'done') {
+            setStep('done')
+          } else {
+            setStep(msg.step)
+          }
+          if (msg.stats) {
+            setStats(msg.stats)
+          }
+          break
+
+        case 'result':
+          if (msg.data instanceof Uint8Array) {
+            downloadBinary(msg.data, msg.file)
+          } else {
+            downloadText(msg.data, msg.file)
+          }
+          break
+
+        case 'error':
+          setError(msg.message)
+          setStep('error')
+          break
+      }
+    }
+
+    worker.onerror = (e) => {
+      setError(e.message || 'Worker error')
+      setStep('error')
+      console.error('Export worker error:', e)
+    }
+
+    worker.postMessage({ type: 'export', payload })
   }
 
   const stepLabels: Record<ExportStep, string> = {
