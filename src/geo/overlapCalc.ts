@@ -11,6 +11,7 @@ import type {
   SpeedBumpFeature,
 } from '../types/editor'
 import type { ApolloOverlap } from '../types/apollo-map'
+import { buildBBox } from './bbox'
 
 let overlapCounter = 0
 function nextOverlapId(): string {
@@ -24,26 +25,6 @@ interface SpatialItem<T> {
   maxX: number
   maxY: number
   item: T
-}
-
-/** Compute the axis-aligned bounding box for an array of [x, y] coordinates. */
-function buildBBox(coords: number[][]): {
-  minX: number
-  minY: number
-  maxX: number
-  maxY: number
-} {
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity
-  for (const [x, y] of coords) {
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-  }
-  return { minX, minY, maxX, maxY }
 }
 
 /**
