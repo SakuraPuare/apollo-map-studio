@@ -11,6 +11,8 @@ import {
 } from './apollo-map'
 import type { Feature, LineString, Point, Polygon } from 'geojson'
 import { type ElementType, type ShapeType } from './shapes'
+import type { BezierAnchor } from '../geo/bezier'
+export type { BezierAnchor }
 
 // --- Tool state (new structured approach) ---
 
@@ -23,6 +25,7 @@ export type ToolState =
   | { kind: 'select' }
   | { kind: 'connect_lanes' }
   | { kind: 'draw'; intent: DrawIntent }
+  | { kind: 'edit_bezier'; laneId: string }
 
 export interface LaneFeature {
   id: string
@@ -41,6 +44,7 @@ export interface LaneFeature {
   rightNeighborIds: string[]
   junctionId?: string
   roadId?: string
+  bezierAnchors?: BezierAnchor[]
 }
 
 export interface JunctionFeature {
