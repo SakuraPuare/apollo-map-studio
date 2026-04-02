@@ -5,28 +5,20 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature } from 'geojson'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore, toolStateToDrawMode } from '../../store/uiStore'
-import type {
-  LaneFeature,
-  RoadDefinition,
-  JunctionFeature,
-  SignalFeature,
-  StopSignFeature,
-  CrosswalkFeature,
-  ClearAreaFeature,
-  SpeedBumpFeature,
-  ParkingSpaceFeature,
-} from '../../types/editor'
-import { LaneDirection } from '../../types/apollo-map'
-import { getOrComputeBoundary, pruneCache } from '../../geo/boundaryCache'
+
 import {
   initSelectionManager,
   applySelectionState,
-  reapplySelectionState,
   clearSelectionState,
 } from '../../map/selectionStateManager'
-import { diffAndApply } from '../../map/sourceDiffEngine'
-import { getRoadColor } from '../../utils/roadColors'
-import * as turf from '@turf/turf'
+import {
+  syncViewport,
+  onStoreChange,
+  initFromImport,
+  resetCuller,
+  isInitialized,
+} from '../../map/viewportCuller'
+
 import MapContextMenu from './MapContextMenu'
 import type { ContextMenuState } from './MapContextMenu'
 import { customDrawModes } from '../../draw'
@@ -85,21 +77,23 @@ export default function MapEditor() {
       initSelectionManager(map)
       updateGridFromViewport(map)
       ready = true
-      // Render any data already in the store
-      updateBoundaryLayers(map)
-      updateElementLayers(map)
-      reapplySelectionState()
+      // If data already in store (e.g. HMR), initialize culler
+      const { lanes } = useMapStore.getState()
+      if (Object.keys(lanes).length > 0 && !isInitialized()) {
+        initFromImport(map)
+      }
     })
 
     map.on('moveend', () => {
       updateGridFromViewport(map)
+      if (ready) syncViewport(map)
     })
 
     // ── Store subscriptions ──────────────────────────────────────────────
-    // Data changes → rebuild GeoJSON sources + re-apply feature state
     let dataPending = false
     let asyncRenderInProgress = false
     let reRenderAfterAsync = false
+
     const renderData = () => {
       if (!ready) return
       if (asyncRenderInProgress) {
@@ -110,41 +104,32 @@ export default function MapEditor() {
       dataPending = true
       requestAnimationFrame(function tryRender() {
         if (!map.isStyleLoaded()) {
-          // Style temporarily unavailable (e.g. during jumpTo after import)
-          // — retry on next frame instead of silently dropping the render.
           requestAnimationFrame(tryRender)
           return
         }
         dataPending = false
 
-        // Use progressive async rendering for large batch loads (initial import,
-        // or re-import after clear). Detects: first render OR per-lane tracking
-        // is empty but new data is large (i.e., clear → re-import).
         const { lanes: currentLanes } = useMapStore.getState()
-        const isLargeLoad =
-          _prevLanesRef === null ||
-          (_prevLaneMap.size === 0 && Object.keys(currentLanes).length > 200)
-        if (isLargeLoad) {
+        const needsInit = !isInitialized() && Object.keys(currentLanes).length > 0
+
+        if (needsInit) {
           asyncRenderInProgress = true
-          updateBoundaryLayersProgressive(map).then(() => {
-            updateElementLayers(map)
-            reapplySelectionState()
+          initFromImport(map).then(() => {
             asyncRenderInProgress = false
             if (reRenderAfterAsync) {
               reRenderAfterAsync = false
               renderData()
             }
           })
+        } else if (Object.keys(currentLanes).length === 0 && isInitialized()) {
+          resetCuller()
         } else {
-          updateBoundaryLayers(map)
-          updateElementLayers(map)
-          // setData() clears MapLibre feature state — re-apply after data rebuild
-          reapplySelectionState()
+          onStoreChange(map)
         }
       })
     }
 
-    // Selection changes → O(1) feature-state update, zero data rebuild
+    // Selection changes → feature-state update + ensure selected elements in sources
     let selectionPending = false
     const renderSelection = () => {
       if (!ready || selectionPending) return
@@ -158,12 +143,11 @@ export default function MapEditor() {
         const { selectedIds } = useUIStore.getState()
         const { lanes, roads } = useMapStore.getState()
         applySelectionState(selectedIds, lanes, roads)
+        if (isInitialized()) syncViewport(map)
       })
     }
 
     const unsubMap = useMapStore.subscribe((state, prevState) => {
-      // Only trigger render when renderable data slices change —
-      // ignore project config and action function reference changes.
       if (
         state.lanes !== prevState.lanes ||
         state.roads !== prevState.roads ||
@@ -183,7 +167,7 @@ export default function MapEditor() {
         renderSelection()
       }
       if (state.layerVisibility !== prevState.layerVisibility) {
-        renderData()
+        if (ready && isInitialized()) syncViewport(map)
       }
     })
 
@@ -223,11 +207,8 @@ export default function MapEditor() {
         setStatus(`${element.type} ${element.id} created`)
         draw.delete([feature.id as string])
         setToolState({ kind: 'select' })
-        // 核心修复：在所有 draw 操作完成后显式刷新，
-        // 防止 draw.delete/changeMode 触发的 repaint 与 source.setData 产生竞态
-        updateBoundaryLayers(map)
-        updateElementLayers(map)
-        reapplySelectionState()
+        // Sync sources after draw creates a new element
+        if (isInitialized()) onStoreChange(map)
       }
     })
 
@@ -733,35 +714,6 @@ function addIconImages(map: MapLibreMap) {
   )
 }
 
-// Lane type → fill color (RGBA with opacity via paint)
-const LANE_TYPE_COLOR: Record<number, string> = {
-  1: '#475569', // NONE
-  2: '#1d4ed8', // CITY_DRIVING  – blue
-  3: '#15803d', // BIKING        – green
-  4: '#7c3aed', // SIDEWALK      – purple
-  5: '#b45309', // PARKING       – amber
-  6: '#374151', // SHOULDER      – gray
-  7: '#0e7490', // SHARED        – cyan
-}
-
-// Turn type → arrow color
-const TURN_COLOR: Record<number, string> = {
-  1: '#e2e8f0', // NO_TURN   – white
-  2: '#f59e0b', // LEFT_TURN – amber
-  3: '#f59e0b', // RIGHT_TURN – amber
-  4: '#ef4444', // U_TURN    – red
-}
-
-// Boundary type → line color
-const BOUNDARY_COLOR: Record<number, string> = {
-  1: '#eab308', // DOTTED_YELLOW
-  2: '#cbd5e1', // DOTTED_WHITE
-  3: '#eab308', // SOLID_YELLOW
-  4: '#cbd5e1', // SOLID_WHITE
-  5: '#ca8a04', // DOUBLE_YELLOW
-  6: '#64748b', // CURB
-}
-
 function addMapElementLayers(map: MapLibreMap) {
   // Register all canvas-generated patterns + icons before any layers use them
   addPatternImages(map)
@@ -1109,456 +1061,6 @@ function addMapElementLayers(map: MapLibreMap) {
       'icon-ignore-placement': true,
     },
   })
-}
-
-// ── Data change tracking — skip setData when nothing changed ────────────
-let _prevLanesRef: Record<string, LaneFeature> | null = null
-let _prevRoadsRef: Record<string, RoadDefinition> | null = null
-
-// Per-lane reference tracking for incremental diffs (populated after first render)
-const _prevLaneMap = new Map<string, LaneFeature>()
-
-interface LaneFeatureArrays {
-  fill: GeoJSON.Feature[]
-  center: GeoJSON.Feature[]
-  boundary: GeoJSON.Feature[]
-  arrow: GeoJSON.Feature[]
-  conn: GeoJSON.Feature[]
-}
-
-/** Build GeoJSON features for a single lane into the output arrays. */
-function buildLaneFeaturesInto(
-  lane: LaneFeature,
-  lanes: Record<string, LaneFeature>,
-  roads: Record<string, RoadDefinition>,
-  out: LaneFeatureArrays
-) {
-  const fillColor =
-    lane.roadId && roads[lane.roadId]
-      ? getRoadColor(lane.roadId, roads)
-      : (LANE_TYPE_COLOR[lane.laneType] ?? '#1d4ed8')
-  const arrowColor = TURN_COLOR[lane.turn] ?? '#e2e8f0'
-
-  try {
-    const cached = getOrComputeBoundary(lane)
-
-    const hasRoad = Boolean(lane.roadId && roads[lane.roadId])
-    out.fill.push({
-      ...cached.polygon,
-      properties: { id: lane.id, fillColor, hasRoad },
-    })
-
-    out.boundary.push({
-      ...cached.left,
-      properties: {
-        id: `${lane.id}__left`,
-        side: 'left',
-        boundaryType: lane.leftBoundaryType,
-        boundaryColor: BOUNDARY_COLOR[lane.leftBoundaryType] ?? '#cbd5e1',
-      },
-    })
-    out.boundary.push({
-      ...cached.right,
-      properties: {
-        id: `${lane.id}__right`,
-        side: 'right',
-        boundaryType: lane.rightBoundaryType,
-        boundaryColor: BOUNDARY_COLOR[lane.rightBoundaryType] ?? '#cbd5e1',
-      },
-    })
-
-    const { point, bearing } = cached.midpoint
-    if (lane.direction === LaneDirection.BACKWARD) {
-      out.arrow.push({
-        ...point,
-        properties: { id: `${lane.id}__fwd`, bearing: (bearing + 180) % 360, arrowColor },
-      })
-    } else if (lane.direction === LaneDirection.BIDIRECTION) {
-      out.arrow.push({
-        ...point,
-        properties: { id: `${lane.id}__fwd`, bearing, arrowColor },
-      })
-      out.arrow.push({
-        ...point,
-        properties: {
-          id: `${lane.id}__bwd`,
-          bearing: (bearing + 180) % 360,
-          arrowColor: '#94a3b8',
-        },
-      })
-    } else {
-      out.arrow.push({
-        ...point,
-        properties: { id: `${lane.id}__fwd`, bearing, arrowColor },
-      })
-    }
-  } catch {
-    // skip malformed geometry
-  }
-
-  out.center.push({
-    ...lane.centerLine,
-    properties: { id: lane.id },
-  })
-
-  const endCoord = lane.centerLine.geometry.coordinates.at(-1)
-  if (endCoord) {
-    for (const succId of lane.successorIds) {
-      const succ = lanes[succId]
-      if (!succ) continue
-      const startCoord = succ.centerLine.geometry.coordinates[0]
-      if (!startCoord) continue
-      out.conn.push({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [endCoord, startCoord] },
-        properties: { id: `${lane.id}__${succId}`, fromId: lane.id, toId: succId },
-      })
-    }
-  }
-}
-
-function setLaneSources(map: MapLibreMap, out: LaneFeatureArrays) {
-  const setSource = (id: string, features: GeoJSON.Feature[]) =>
-    (map.getSource(id) as maplibregl.GeoJSONSource)?.setData({
-      type: 'FeatureCollection',
-      features,
-    })
-
-  setSource('lane-fills', out.fill)
-  setSource('lane-centers', out.center)
-  setSource('lane-boundaries', out.boundary)
-  setSource('lane-arrows', out.arrow)
-  setSource('lane-connections', out.conn)
-}
-
-/** Full rebuild of all lane sources + populate per-lane tracking. */
-function fullRebuildLaneSources(
-  map: MapLibreMap,
-  lanes: Record<string, LaneFeature>,
-  roads: Record<string, RoadDefinition>
-) {
-  const laneList = Object.values(lanes)
-  const out: LaneFeatureArrays = { fill: [], center: [], boundary: [], arrow: [], conn: [] }
-
-  for (const lane of laneList) {
-    buildLaneFeaturesInto(lane, lanes, roads, out)
-  }
-
-  setLaneSources(map, out)
-
-  // Populate per-lane tracking for subsequent incremental diffs
-  _prevLaneMap.clear()
-  for (const [id, lane] of Object.entries(lanes)) {
-    _prevLaneMap.set(id, lane)
-  }
-}
-
-/**
- * Incremental update of lane sources using MapLibre's updateData() API.
- * Only rebuilds features for lanes that actually changed (Immer reference check).
- * Returns true if incremental update was used, false if fell back to full rebuild.
- */
-function updateBoundaryLayersIncremental(
-  map: MapLibreMap,
-  lanes: Record<string, LaneFeature>,
-  roads: Record<string, RoadDefinition>
-): boolean {
-  // Find changed roads to detect fill color changes
-  const changedRoadIds = new Set<string>()
-  if (roads !== _prevRoadsRef && _prevRoadsRef) {
-    for (const [id, road] of Object.entries(roads)) {
-      if (_prevRoadsRef[id] !== road) changedRoadIds.add(id)
-    }
-    for (const id of Object.keys(_prevRoadsRef)) {
-      if (!(id in roads)) changedRoadIds.add(id)
-    }
-  }
-
-  // Diff lanes: find added, changed, removed
-  const addedIds: string[] = []
-  const changedIds: string[] = []
-  const removedIds: string[] = []
-
-  for (const [id, lane] of Object.entries(lanes)) {
-    const prev = _prevLaneMap.get(id)
-    if (!prev) {
-      addedIds.push(id)
-    } else if (prev !== lane || (lane.roadId && changedRoadIds.has(lane.roadId))) {
-      changedIds.push(id)
-    }
-  }
-  for (const id of _prevLaneMap.keys()) {
-    if (!(id in lanes)) removedIds.push(id)
-  }
-
-  const totalChanged = addedIds.length + changedIds.length + removedIds.length
-  if (totalChanged === 0) return true
-
-  // Fall back to full rebuild for large diffs (undo/redo, bulk ops)
-  const totalSize = Math.max(_prevLaneMap.size, Object.keys(lanes).length)
-  if (totalChanged > 100 || totalChanged > totalSize * 0.3) {
-    fullRebuildLaneSources(map, lanes, roads)
-    return false
-  }
-
-  // Build features only for changed lanes
-  const addFeatures: LaneFeatureArrays = { fill: [], center: [], boundary: [], arrow: [], conn: [] }
-  for (const id of [...addedIds, ...changedIds]) {
-    buildLaneFeaturesInto(lanes[id], lanes, roads, addFeatures)
-  }
-
-  // Build remove lists (for removed lanes, remove all derived feature IDs)
-  const fillRemove: string[] = [...removedIds]
-  const centerRemove: string[] = [...removedIds]
-  const boundaryRemove: string[] = []
-  const arrowRemove: string[] = []
-  for (const id of removedIds) {
-    boundaryRemove.push(`${id}__left`, `${id}__right`)
-    arrowRemove.push(`${id}__fwd`, `${id}__bwd`) // bwd may not exist, remove is a no-op
-  }
-  // For changed lanes, also remove old arrows (direction may have changed from bidir to unidir)
-  for (const id of changedIds) {
-    arrowRemove.push(`${id}__fwd`, `${id}__bwd`)
-    boundaryRemove.push(`${id}__left`, `${id}__right`)
-  }
-
-  // Apply incremental updates to each source
-  // updateData add with existing ID replaces the feature (upsert)
-  const applyDiff = (sourceId: string, add: GeoJSON.Feature[], remove: string[]) => {
-    const source = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined
-    if (!source) return
-    const diff: maplibregl.GeoJSONSourceDiff = {}
-    if (remove.length > 0) diff.remove = remove
-    if (add.length > 0) diff.add = add
-    source.updateData(diff)
-  }
-
-  applyDiff('lane-fills', addFeatures.fill, fillRemove)
-  applyDiff('lane-centers', addFeatures.center, centerRemove)
-  applyDiff('lane-boundaries', addFeatures.boundary, boundaryRemove)
-  applyDiff('lane-arrows', addFeatures.arrow, arrowRemove)
-
-  // Connections: full rebuild (they're lightweight and depend on cross-lane relationships)
-  const connOut: GeoJSON.Feature[] = []
-  for (const lane of Object.values(lanes)) {
-    const endCoord = lane.centerLine.geometry.coordinates.at(-1)
-    if (!endCoord) continue
-    for (const succId of lane.successorIds) {
-      const succ = lanes[succId]
-      if (!succ) continue
-      const startCoord = succ.centerLine.geometry.coordinates[0]
-      if (!startCoord) continue
-      connOut.push({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [endCoord, startCoord] },
-        properties: { id: `${lane.id}__${succId}`, fromId: lane.id, toId: succId },
-      })
-    }
-  }
-  ;(map.getSource('lane-connections') as maplibregl.GeoJSONSource)?.setData({
-    type: 'FeatureCollection',
-    features: connOut,
-  })
-
-  // Update per-lane tracking
-  for (const id of removedIds) _prevLaneMap.delete(id)
-  for (const id of [...addedIds, ...changedIds]) _prevLaneMap.set(id, lanes[id])
-
-  return true
-}
-
-function updateBoundaryLayers(map: MapLibreMap) {
-  const { lanes, roads } = useMapStore.getState()
-
-  // Skip entirely if data hasn't changed — selection is handled by feature-state
-  if (lanes === _prevLanesRef && roads === _prevRoadsRef) return
-
-  _prevLanesRef = lanes
-  _prevRoadsRef = roads
-  pruneCache(new Set(Object.keys(lanes)))
-
-  // Use incremental diff if per-lane tracking is populated (i.e., after first render)
-  if (_prevLaneMap.size > 0 || Object.keys(lanes).length === 0) {
-    updateBoundaryLayersIncremental(map, lanes, roads)
-  } else {
-    // First render or no tracking — full rebuild
-    fullRebuildLaneSources(map, lanes, roads)
-  }
-}
-
-/**
- * Progressive version of updateBoundaryLayers for initial import.
- * Builds features in async chunks to keep the UI responsive, then spreads
- * setData calls across frames so MapLibre can tile incrementally.
- * Populates per-lane tracking for subsequent incremental diffs.
- */
-async function updateBoundaryLayersProgressive(map: MapLibreMap): Promise<void> {
-  const { lanes, roads } = useMapStore.getState()
-
-  if (lanes === _prevLanesRef && roads === _prevRoadsRef) return
-
-  _prevLanesRef = lanes
-  _prevRoadsRef = roads
-  pruneCache(new Set(Object.keys(lanes)))
-
-  const laneList = Object.values(lanes)
-  const out: LaneFeatureArrays = { fill: [], center: [], boundary: [], arrow: [], conn: [] }
-
-  // Build features in chunks, yielding to the UI between chunks
-  const CHUNK = 500
-  for (let i = 0; i < laneList.length; i += CHUNK) {
-    const end = Math.min(i + CHUNK, laneList.length)
-    for (let j = i; j < end; j++) {
-      buildLaneFeaturesInto(laneList[j], lanes, roads, out)
-    }
-    if (end < laneList.length) {
-      await new Promise<void>((r) => setTimeout(r, 0))
-    }
-  }
-
-  // Spread setData calls across frames so MapLibre can tile incrementally
-  const setSource = (id: string, features: GeoJSON.Feature[]) =>
-    (map.getSource(id) as maplibregl.GeoJSONSource)?.setData({
-      type: 'FeatureCollection',
-      features,
-    })
-
-  const yield_ = () => new Promise<void>((r) => setTimeout(r, 0))
-
-  setSource('lane-fills', out.fill)
-  await yield_()
-  setSource('lane-centers', out.center)
-  await yield_()
-  setSource('lane-boundaries', out.boundary)
-  await yield_()
-  setSource('lane-arrows', out.arrow)
-  await yield_()
-  setSource('lane-connections', out.conn)
-
-  // Populate per-lane tracking for subsequent incremental diffs
-  _prevLaneMap.clear()
-  for (const [id, lane] of Object.entries(lanes)) {
-    _prevLaneMap.set(id, lane)
-  }
-}
-
-// ── Element data change tracking ────────────────────────────────────────
-// Previous Record references for fast skip checks (Immer reference equality)
-let _prevJunctionsRef: Record<string, JunctionFeature> | null = null
-let _prevSignalsRef: Record<string, SignalFeature> | null = null
-let _prevStopSignsRef: Record<string, StopSignFeature> | null = null
-let _prevCrosswalksRef: Record<string, CrosswalkFeature> | null = null
-let _prevClearAreasRef: Record<string, ClearAreaFeature> | null = null
-let _prevSpeedBumpsRef: Record<string, SpeedBumpFeature> | null = null
-let _prevParkingSpacesRef: Record<string, ParkingSpaceFeature> | null = null
-
-function updateElementLayers(map: MapLibreMap) {
-  const { junctions, signals, stopSigns, crosswalks, clearAreas, speedBumps, parkingSpaces } =
-    useMapStore.getState()
-  const { layerVisibility } = useUIStore.getState()
-
-  // Each element type uses diffAndApply for incremental updates.
-  // diffAndApply tracks per-element references internally and uses
-  // updateData() for small diffs, setData() for large diffs.
-
-  if (junctions !== _prevJunctionsRef) {
-    _prevJunctionsRef = junctions
-    diffAndApply(map, 'junctions', junctions, (j) => ({
-      ...j.polygon,
-      properties: { id: j.id },
-    }))
-  }
-
-  if (crosswalks !== _prevCrosswalksRef) {
-    _prevCrosswalksRef = crosswalks
-    diffAndApply(map, 'crosswalks', crosswalks, (cw) => ({
-      ...cw.polygon,
-      properties: { id: cw.id },
-    }))
-    // Centroid source for icons — also uses diffAndApply
-    diffAndApply(map, 'crosswalk-centers', crosswalks, (cw) => {
-      const c = turf.centroid(cw.polygon)
-      return { ...c, properties: { id: cw.id } }
-    })
-  }
-
-  if (signals !== _prevSignalsRef) {
-    _prevSignalsRef = signals
-    diffAndApply(map, 'signals', signals, (s) => ({
-      ...s.stopLine,
-      properties: { id: s.id },
-    }))
-  }
-
-  if (stopSigns !== _prevStopSignsRef) {
-    _prevStopSignsRef = stopSigns
-    diffAndApply(map, 'stop-signs', stopSigns, (ss) => ({
-      ...ss.stopLine,
-      properties: { id: ss.id },
-    }))
-  }
-
-  if (clearAreas !== _prevClearAreasRef) {
-    _prevClearAreasRef = clearAreas
-    diffAndApply(map, 'clear-areas', clearAreas, (ca) => ({
-      ...ca.polygon,
-      properties: { id: ca.id },
-    }))
-    diffAndApply(map, 'clear-area-centers', clearAreas, (ca) => {
-      const c = turf.centroid(ca.polygon)
-      return { ...c, properties: { id: ca.id } }
-    })
-  }
-
-  if (speedBumps !== _prevSpeedBumpsRef) {
-    _prevSpeedBumpsRef = speedBumps
-    diffAndApply(map, 'speed-bumps', speedBumps, (sb) => ({
-      ...sb.line,
-      properties: { id: sb.id },
-    }))
-  }
-
-  if (parkingSpaces !== _prevParkingSpacesRef) {
-    _prevParkingSpacesRef = parkingSpaces
-    diffAndApply(map, 'parking-spaces', parkingSpaces, (ps) => ({
-      ...ps.polygon,
-      properties: { id: ps.id },
-    }))
-    diffAndApply(map, 'parking-centers', parkingSpaces, (ps) => {
-      const c = turf.centroid(ps.polygon)
-      return { ...c, properties: { id: ps.id } }
-    })
-  }
-
-  // Layer visibility
-  const groups: Record<string, string[]> = {
-    lanes: [
-      'lane-fill',
-      'lane-centerlines',
-      'lane-boundaries-dotted',
-      'lane-boundaries-solid',
-      'lane-arrows',
-      'lane-connections',
-    ],
-    junctions: ['junction-fills', 'junction-outlines'],
-    crosswalks: ['crosswalk-fills', 'crosswalk-pattern', 'crosswalk-outlines', 'crosswalk-icons'],
-    signals: ['signal-lines'],
-    stopSigns: ['stop-sign-lines'],
-    clearAreas: [
-      'clear-area-fills',
-      'clear-area-pattern',
-      'clear-area-outlines',
-      'clear-area-icons',
-    ],
-    speedBumps: ['speed-bump-casing', 'speed-bump-lines', 'speed-bump-icons'],
-    parkingSpaces: ['parking-fills', 'parking-pattern', 'parking-outlines', 'parking-icons'],
-  }
-  for (const [group, ids] of Object.entries(groups)) {
-    const vis = layerVisibility[group] !== false ? 'visible' : 'none'
-    for (const id of ids) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
-    }
-  }
 }
 
 function emptyFC(): GeoJSON.FeatureCollection {
