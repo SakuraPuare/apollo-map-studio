@@ -1,132 +1,132 @@
-import { useUIStore } from '../../store/uiStore'
-import { useMapStore } from '../../store/mapStore'
-import LaneProperties from './LaneProperties'
+import { useMemo } from 'react'
+import { Layers, SlidersHorizontal, MousePointerClick } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useUIStore } from '@/store/uiStore'
+import { useMapStore } from '@/store/mapStore'
 import { Button } from '@/components/ui/button'
-import type { MapElement } from '../../types/editor'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import LaneProperties from './LaneProperties'
+import LayersTab from './LayersTab'
+import type { MapElement } from '@/types/editor'
 
 export default function PropertiesPanel() {
   const { selectedIds } = useUIStore()
-  const {
-    lanes,
-    junctions,
-    signals,
-    stopSigns,
-    crosswalks,
-    clearAreas,
-    speedBumps,
-    parkingSpaces,
-    roads,
-  } = useMapStore()
 
+  const id = selectedIds[0] ?? ''
+  const roads = useMapStore((s) => s.roads)
+  const element = useMapStore((s) => {
+    if (!id) return undefined
+    return (
+      s.lanes[id] ??
+      s.junctions[id] ??
+      s.signals[id] ??
+      s.stopSigns[id] ??
+      s.crosswalks[id] ??
+      s.clearAreas[id] ??
+      s.speedBumps[id] ??
+      s.parkingSpaces[id]
+    )
+  })
+
+  return (
+    <div className="h-full bg-card border-l border-border flex flex-col overflow-hidden">
+      <Tabs defaultValue="properties" className="flex flex-col h-full">
+        <TabsList className="w-full rounded-none border-b border-border bg-background h-8 p-0 shrink-0">
+          <TabsTrigger
+            value="properties"
+            className="flex-1 rounded-none h-8 text-xs gap-1.5 data-[state=active]:bg-card data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary"
+          >
+            <SlidersHorizontal size={13} />
+            Properties
+          </TabsTrigger>
+          <TabsTrigger
+            value="layers"
+            className="flex-1 rounded-none h-8 text-xs gap-1.5 data-[state=active]:bg-card data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary"
+          >
+            <Layers size={13} />
+            Layers
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="properties" className="flex-1 overflow-y-auto mt-0">
+          <PropertiesContent selectedIds={selectedIds} id={id} roads={roads} element={element} />
+        </TabsContent>
+
+        <TabsContent value="layers" className="flex-1 overflow-y-auto mt-0">
+          <LayersTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
+function PropertiesContent({
+  selectedIds,
+  id,
+  roads,
+  element,
+}: {
+  selectedIds: string[]
+  id: string
+  roads: ReturnType<typeof useMapStore.getState>['roads']
+  element: MapElement | undefined
+}) {
   if (selectedIds.length === 0) {
     return (
-      <div className="w-[300px] bg-card border-l border-border overflow-y-auto p-4 text-[11px] text-muted-foreground">
-        Select an element to view properties.
+      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+        <MousePointerClick size={32} className="text-muted-foreground/40 mb-3" />
+        <p className="text-xs text-muted-foreground">
+          Select an element on the map to view and edit its properties.
+        </p>
       </div>
     )
   }
 
-  // Find the selected element
-  const id = selectedIds[0]
-
-  // Check if it's a road
-  const road = roads[id]
-  if (road) {
-    return (
-      <div className="w-[300px] bg-card border-l border-border overflow-y-auto flex flex-col">
-        <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background shrink-0">
-          Properties
-        </div>
-        <RoadProperties roadId={id} />
-      </div>
-    )
+  if (roads[id]) {
+    return <RoadProperties roadId={id} />
   }
-
-  const element: MapElement | undefined =
-    lanes[id] ??
-    junctions[id] ??
-    signals[id] ??
-    stopSigns[id] ??
-    crosswalks[id] ??
-    clearAreas[id] ??
-    speedBumps[id] ??
-    parkingSpaces[id]
 
   if (!element) {
     return (
-      <div className="w-[300px] bg-card border-l border-border p-3 text-[11px] text-[#5a5a5a]">
-        Element not found: {id}
+      <div className="p-4 text-xs text-muted-foreground">
+        Element not found: <span className="font-mono">{id}</span>
       </div>
     )
   }
 
-  function renderContent(el: MapElement) {
-    switch (el.type) {
-      case 'lane':
-        return <LaneProperties lane={el} />
-      case 'junction':
-        return (
-          <GenericProperties
-            type="Junction"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'junction')}
-          />
-        )
-      case 'signal':
-        return <SignalPropertiesSimple id={el.id} />
-      case 'stop_sign':
-        return (
-          <GenericProperties
-            type="Stop Sign"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'stop_sign')}
-          />
-        )
-      case 'crosswalk':
-        return (
-          <GenericProperties
-            type="Crosswalk"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'crosswalk')}
-          />
-        )
-      case 'clear_area':
-        return (
-          <GenericProperties
-            type="Clear Area"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'clear_area')}
-          />
-        )
-      case 'speed_bump':
-        return (
-          <GenericProperties
-            type="Speed Bump"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'speed_bump')}
-          />
-        )
-      case 'parking_space':
-        return (
-          <GenericProperties
-            type="Parking Space"
-            id={el.id}
-            onDelete={() => useMapStore.getState().removeElement(id, 'parking_space')}
-          />
-        )
-      default:
-        return null
-    }
+  switch (element.type) {
+    case 'lane':
+      return <LaneProperties lane={element} />
+    case 'signal':
+      return (
+        <GenericProperties
+          type="Traffic Signal"
+          id={element.id}
+          onDelete={() => {
+            useMapStore.getState().removeElement(element.id, 'signal')
+            useUIStore.getState().setSelected([])
+          }}
+        />
+      )
+    default:
+      return (
+        <GenericProperties
+          type={element.type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+          id={element.id}
+          onDelete={() => {
+            useMapStore.getState().removeElement(id, element.type)
+            useUIStore.getState().setSelected([])
+          }}
+        />
+      )
   }
-
-  return (
-    <div className="w-[300px] bg-card border-l border-border overflow-y-auto flex flex-col">
-      <div className="py-2.5 px-4 border-b border-border text-[11px] font-semibold text-muted-foreground uppercase tracking-wide bg-background shrink-0">
-        Properties
-      </div>
-      {renderContent(element)}
-    </div>
-  )
 }
 
 function GenericProperties({
@@ -138,48 +138,36 @@ function GenericProperties({
   id: string
   onDelete: () => void
 }) {
-  const { setSelected } = useUIStore()
   return (
     <div className="p-4 text-xs">
-      <div className="mb-1 text-muted-foreground text-[11px]">{type.toUpperCase()}</div>
-      <div className="text-xs text-accent-foreground font-mono break-all mb-3">{id}</div>
-      <Button
-        variant="destructive"
-        size="sm"
-        className="w-full"
-        onClick={() => {
-          onDelete()
-          setSelected([])
-        }}
-      >
+      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+        {type}
+      </div>
+      <div className="text-xs text-accent-foreground font-mono break-all mb-4 bg-muted/50 px-2 py-1.5 rounded">
+        {id}
+      </div>
+      <Button variant="destructive" size="sm" className="w-full" onClick={onDelete}>
         Delete
       </Button>
     </div>
   )
 }
 
-function SignalPropertiesSimple({ id }: { id: string }) {
-  const { removeElement } = useMapStore()
-  const { setSelected } = useUIStore()
-  return (
-    <GenericProperties
-      type="Traffic Signal"
-      id={id}
-      onDelete={() => {
-        removeElement(id, 'signal')
-        setSelected([])
-      }}
-    />
-  )
-}
-
 function RoadProperties({ roadId }: { roadId: string }) {
-  const { roads, lanes, updateRoad, removeRoad, autoComputeNeighbors } = useMapStore()
+  const roads = useMapStore((s) => s.roads)
+  const lanes = useMapStore((s) => s.lanes)
+  const updateRoad = useMapStore((s) => s.updateRoad)
+  const removeRoad = useMapStore((s) => s.removeRoad)
+  const autoComputeNeighbors = useMapStore((s) => s.autoComputeNeighbors)
   const { setSelected, setStatus } = useUIStore()
   const road = roads[roadId]
-  if (!road) return null
 
-  const laneCount = Object.values(lanes).filter((l) => l.roadId === roadId).length
+  const laneCount = useMemo(
+    () => Object.values(lanes).filter((l) => l.roadId === roadId).length,
+    [lanes, roadId]
+  )
+
+  if (!road) return null
 
   const handleAutoNeighbors = () => {
     const count = autoComputeNeighbors(roadId)
@@ -187,36 +175,52 @@ function RoadProperties({ roadId }: { roadId: string }) {
   }
 
   return (
-    <div className="p-4 text-xs flex flex-col gap-2">
-      <div className="mb-1 text-muted-foreground text-[11px]">ROAD</div>
-      <div className="text-xs text-accent-foreground font-mono break-all">{road.id}</div>
-      <label className="text-muted-foreground text-[11px]">Name</label>
-      <input
-        defaultValue={road.name}
-        key={`${road.id}-name`}
-        onBlur={(e) => {
-          const v = e.target.value.trim()
-          if (v) updateRoad({ ...road, name: v })
-        }}
-        className="panel-input"
-        placeholder="Road name"
-      />
-      <label className="text-muted-foreground text-[11px]">Type</label>
-      <select
-        value={road.type}
-        onChange={(e) => updateRoad({ ...road, type: Number(e.target.value) })}
-        className="panel-select"
-      >
-        <option value={0}>UNKNOWN</option>
-        <option value={1}>HIGHWAY</option>
-        <option value={2}>CITY_ROAD</option>
-        <option value={3}>PARK</option>
-      </select>
-      <div className="text-muted-foreground text-[11px]">Lanes: {laneCount}</div>
+    <div className="p-4 text-xs flex flex-col gap-3">
+      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        Road
+      </div>
+      <div className="text-xs text-accent-foreground font-mono break-all bg-muted/50 px-2 py-1.5 rounded">
+        {road.id}
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-muted-foreground font-medium">Name</label>
+        <Input
+          defaultValue={road.name}
+          key={`${road.id}-name`}
+          onBlur={(e) => {
+            const v = e.target.value.trim()
+            if (v) updateRoad({ ...road, name: v })
+          }}
+          placeholder="Road name"
+          className="h-7 text-xs"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-muted-foreground font-medium">Type</label>
+        <Select
+          value={String(road.type)}
+          onValueChange={(v) => updateRoad({ ...road, type: Number(v) })}
+        >
+          <SelectTrigger className="h-7 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="0">UNKNOWN</SelectItem>
+            <SelectItem value="1">HIGHWAY</SelectItem>
+            <SelectItem value="2">CITY_ROAD</SelectItem>
+            <SelectItem value="3">PARK</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="text-xs text-muted-foreground">Lanes: {laneCount}</div>
+
       <Button
         variant="outline"
         size="sm"
-        className="w-full mt-1"
+        className="w-full"
         onClick={handleAutoNeighbors}
         disabled={laneCount < 2}
       >
@@ -225,7 +229,7 @@ function RoadProperties({ roadId }: { roadId: string }) {
       <Button
         variant="destructive"
         size="sm"
-        className="w-full mt-1"
+        className="w-full"
         onClick={() => {
           removeRoad(roadId)
           setSelected([])
