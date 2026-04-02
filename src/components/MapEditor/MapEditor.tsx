@@ -1,15 +1,30 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import MapboxDraw from '@mapbox/mapbox-gl-draw'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature } from 'geojson'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
-import type { LaneFeature, MapElement } from '../../types/editor'
+import type {
+  LaneFeature,
+  MapElement,
+  RoadDefinition,
+  CrosswalkFeature,
+  ClearAreaFeature,
+  ParkingSpaceFeature,
+} from '../../types/editor'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '../../types/apollo-map'
 import { getOrComputeBoundary, pruneCache } from '../../geo/boundaryCache'
+import {
+  initSelectionManager,
+  applySelectionState,
+  reapplySelectionState,
+  clearSelectionState,
+} from '../../map/selectionStateManager'
 import { getRoadColor } from '../../utils/roadColors'
 import * as turf from '@turf/turf'
+import MapContextMenu from './MapContextMenu'
+import type { ContextMenuState } from './MapContextMenu'
 
 // Counter for unique IDs
 let idCounter = 0
@@ -24,7 +39,7 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
     {
       id: 'background',
       type: 'background',
-      paint: { 'background-color': '#1e1e1e' },
+      paint: { 'background-color': '#1a1a1a' },
     },
   ],
 }
@@ -33,11 +48,18 @@ export default function MapEditor() {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const drawRef = useRef<MapboxDraw | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const setContextMenuRef = useRef(setContextMenu)
+  useEffect(() => {
+    setContextMenuRef.current = setContextMenu
+  })
 
   const project = useMapStore((s) => s.project)
   const drawMode = useUIStore((s) => s.drawMode)
   const fitBoundsCounter = useUIStore((s) => s.fitBoundsCounter)
   const flyToCounter = useUIStore((s) => s.flyToCounter)
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
 
   // Initialize MapLibre + Draw once
   useEffect(() => {
@@ -60,33 +82,58 @@ export default function MapEditor() {
     map.on('load', () => {
       addGridLayer(map)
       addMapElementLayers(map)
+      initSelectionManager(map)
       updateGridFromViewport(map)
       ready = true
       // Render any data already in the store
       updateBoundaryLayers(map)
       updateElementLayers(map)
+      reapplySelectionState()
     })
 
     map.on('moveend', () => {
       updateGridFromViewport(map)
     })
 
-    // Subscribe directly to store changes — bypasses React effect deps
-    // Uses rAF debounce to batch rapid state changes (e.g. during import)
-    let renderPending = false
-    const renderMap = () => {
-      if (!ready || !map.isStyleLoaded()) return
-      if (renderPending) return
-      renderPending = true
+    // ── Store subscriptions ──────────────────────────────────────────────
+    // Data changes → rebuild GeoJSON sources + re-apply feature state
+    let dataPending = false
+    const renderData = () => {
+      if (!ready || !map.isStyleLoaded() || dataPending) return
+      dataPending = true
       requestAnimationFrame(() => {
-        renderPending = false
+        dataPending = false
         if (!map.isStyleLoaded()) return
         updateBoundaryLayers(map)
         updateElementLayers(map)
+        // setData() clears MapLibre feature state — re-apply after data rebuild
+        reapplySelectionState()
       })
     }
-    const unsubMap = useMapStore.subscribe(renderMap)
-    const unsubUI = useUIStore.subscribe(renderMap)
+
+    // Selection changes → O(1) feature-state update, zero data rebuild
+    let selectionPending = false
+    const renderSelection = () => {
+      if (!ready || !map.isStyleLoaded() || selectionPending) return
+      selectionPending = true
+      requestAnimationFrame(() => {
+        selectionPending = false
+        if (!map.isStyleLoaded()) return
+        const { selectedIds } = useUIStore.getState()
+        const { lanes, roads } = useMapStore.getState()
+        applySelectionState(selectedIds, lanes, roads)
+      })
+    }
+
+    const unsubMap = useMapStore.subscribe(renderData)
+    const unsubUI = useUIStore.subscribe((state, prevState) => {
+      if (state.selectedIds !== prevState.selectedIds) {
+        renderSelection()
+      }
+      if (state.layerVisibility !== prevState.layerVisibility) {
+        renderData()
+      }
+    })
 
     const draw = new MapboxDraw({
       displayControlsDefault: false,
@@ -214,6 +261,7 @@ export default function MapEditor() {
         // 防止 draw.delete/changeMode 触发的 repaint 与 source.setData 产生竞态
         updateBoundaryLayers(map)
         updateElementLayers(map)
+        reapplySelectionState()
       }
     })
 
@@ -275,9 +323,41 @@ export default function MapEditor() {
       }
     })
 
+    // Right-click context menu
+    map.on('contextmenu', (e: maplibregl.MapMouseEvent) => {
+      e.preventDefault()
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: [
+          'lane-fill',
+          'lane-centerlines',
+          'junction-fills',
+          'crosswalk-fills',
+          'signal-lines',
+          'stop-sign-lines',
+          'clear-area-fills',
+          'speed-bump-lines',
+          'parking-fills',
+        ],
+      })
+
+      if (features.length > 0) {
+        const id = features[0].properties?.id as string | undefined
+        const type = features[0].properties?.type as string | undefined
+        if (id && type) {
+          setContextMenuRef.current({
+            x: e.originalEvent.clientX,
+            y: e.originalEvent.clientY,
+            elementId: id,
+            elementType: type,
+          })
+        }
+      }
+    })
+
     return () => {
       unsubMap()
       unsubUI()
+      clearSelectionState()
       map.remove()
       mapRef.current = null
     }
@@ -386,6 +466,7 @@ export default function MapEditor() {
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainerRef} className="w-full h-full" />
+      <MapContextMenu menu={contextMenu} onClose={closeContextMenu} />
     </div>
   )
 }
@@ -698,10 +779,12 @@ function addMapElementLayers(map: MapLibreMap) {
   addPatternImages(map)
   addIconImages(map)
 
-  const addGeoJSONSource = (id: string) => map.addSource(id, { type: 'geojson', data: emptyFC() })
+  const addGeoJSONSource = (id: string, opts?: Partial<maplibregl.GeoJSONSourceSpecification>) =>
+    map.addSource(id, { type: 'geojson', data: emptyFC(), ...opts })
 
   // ── Lane fills (polygon per lane, colored by type) ──────────────────
-  addGeoJSONSource('lane-fills')
+  // Selection highlighting uses feature-state instead of data properties
+  addGeoJSONSource('lane-fills', { promoteId: 'id' })
   map.addLayer({
     id: 'lane-fill',
     type: 'fill',
@@ -709,13 +792,13 @@ function addMapElementLayers(map: MapLibreMap) {
     paint: {
       'fill-color': [
         'case',
-        ['boolean', ['get', 'selected'], false],
+        ['boolean', ['feature-state', 'selected'], false],
         '#fbbf24',
         ['coalesce', ['get', 'fillColor'], '#1d4ed8'],
       ],
       'fill-opacity': [
         'case',
-        ['boolean', ['get', 'selected'], false],
+        ['boolean', ['feature-state', 'selected'], false],
         0.45,
         ['case', ['boolean', ['get', 'hasRoad'], false], 0.25, 0.12],
       ],
@@ -723,13 +806,18 @@ function addMapElementLayers(map: MapLibreMap) {
   })
 
   // ── Lane centerlines (dashed, selected = highlight) ──────────────────
-  addGeoJSONSource('lane-centers')
+  addGeoJSONSource('lane-centers', { promoteId: 'id' })
   map.addLayer({
     id: 'lane-centerlines',
     type: 'line',
     source: 'lane-centers',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#475569'],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#475569',
+      ],
       'line-width': 1,
       'line-dasharray': [5, 5],
     },
@@ -792,14 +880,19 @@ function addMapElementLayers(map: MapLibreMap) {
   })
 
   // Junctions
-  addGeoJSONSource('junctions')
+  addGeoJSONSource('junctions', { promoteId: 'id' })
   map.addLayer({
     id: 'junction-fills',
     type: 'fill',
     source: 'junctions',
     paint: {
-      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#818cf8'],
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.45, 0.2],
+      'fill-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#818cf8',
+      ],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.45, 0.2],
     },
   })
   map.addLayer({
@@ -807,22 +900,31 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'line',
     source: 'junctions',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#818cf8'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 1.5],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#818cf8',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 1.5],
     },
   })
 
   // ── Crosswalks ────────────────────────────────────────────────────────────
-  // Base fill (pink tint) + zebra-stripe pattern + thick white outlines + pedestrian icon
-  addGeoJSONSource('crosswalks')
-  addGeoJSONSource('crosswalk-centers') // centroid points for icon placement
+  addGeoJSONSource('crosswalks', { promoteId: 'id' })
+  addGeoJSONSource('crosswalk-centers')
   map.addLayer({
     id: 'crosswalk-fills',
     type: 'fill',
     source: 'crosswalks',
     paint: {
-      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#f0abfc'],
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.45, 0.25],
+      'fill-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#f0abfc',
+      ],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.45, 0.25],
     },
   })
   map.addLayer({
@@ -836,38 +938,52 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'line',
     source: 'crosswalks',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#e9d5ff'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#e9d5ff',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 2],
     },
   })
 
   // ── Signals ───────────────────────────────────────────────────────────────
-  addGeoJSONSource('signals')
+  addGeoJSONSource('signals', { promoteId: 'id' })
   map.addLayer({
     id: 'signal-lines',
     type: 'line',
     source: 'signals',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#4ade80'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 5, 3],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#4ade80',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 5, 3],
     },
   })
 
   // ── Stop signs ────────────────────────────────────────────────────────────
-  addGeoJSONSource('stop-signs')
+  addGeoJSONSource('stop-signs', { promoteId: 'id' })
   map.addLayer({
     id: 'stop-sign-lines',
     type: 'line',
     source: 'stop-signs',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#f87171'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 5, 3],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#f87171',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 5, 3],
     },
   })
 
   // ── Clear areas ───────────────────────────────────────────────────────────
-  // Very light amber tint + yellow X cross-hatch pattern + amber dashed border + × icon
-  addGeoJSONSource('clear-areas')
+  addGeoJSONSource('clear-areas', { promoteId: 'id' })
   addGeoJSONSource('clear-area-centers')
   map.addLayer({
     id: 'clear-area-fills',
@@ -875,7 +991,7 @@ function addMapElementLayers(map: MapLibreMap) {
     source: 'clear-areas',
     paint: {
       'fill-color': '#fbbf24',
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.3, 0.08],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.3, 0.08],
     },
   })
   map.addLayer({
@@ -890,22 +1006,26 @@ function addMapElementLayers(map: MapLibreMap) {
     source: 'clear-areas',
     paint: {
       'line-color': '#fbbf24',
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3.5, 2],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3.5, 2],
       'line-dasharray': [5, 3],
     },
   })
 
   // ── Speed bumps ───────────────────────────────────────────────────────────
-  // Dark casing → alternating orange/black bar pattern → directional chevron icon
-  addGeoJSONSource('speed-bumps')
+  addGeoJSONSource('speed-bumps', { promoteId: 'id' })
   map.addLayer({
     id: 'speed-bump-casing',
     type: 'line',
     source: 'speed-bumps',
     layout: { 'line-cap': 'butt', 'line-join': 'miter' },
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#1c1917'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 18, 14],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#1c1917',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 18, 14],
     },
   })
   map.addLayer({
@@ -917,16 +1037,20 @@ function addMapElementLayers(map: MapLibreMap) {
   })
 
   // ── Parking spaces ────────────────────────────────────────────────────────
-  // Light blue tint + fine grid pattern + solid border + blue "P" icon
-  addGeoJSONSource('parking-spaces')
+  addGeoJSONSource('parking-spaces', { promoteId: 'id' })
   addGeoJSONSource('parking-centers')
   map.addLayer({
     id: 'parking-fills',
     type: 'fill',
     source: 'parking-spaces',
     paint: {
-      'fill-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#7dd3fc'],
-      'fill-opacity': ['case', ['boolean', ['get', 'selected'], false], 0.4, 0.15],
+      'fill-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#7dd3fc',
+      ],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'selected'], false], 0.4, 0.15],
     },
   })
   map.addLayer({
@@ -940,8 +1064,13 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'line',
     source: 'parking-spaces',
     paint: {
-      'line-color': ['case', ['boolean', ['get', 'selected'], false], '#fbbf24', '#38bdf8'],
-      'line-width': ['case', ['boolean', ['get', 'selected'], false], 3, 2],
+      'line-color': [
+        'case',
+        ['boolean', ['feature-state', 'selected'], false],
+        '#fbbf24',
+        '#38bdf8',
+      ],
+      'line-width': ['case', ['boolean', ['feature-state', 'selected'], false], 3, 2],
     },
   })
 
@@ -994,24 +1123,21 @@ function addMapElementLayers(map: MapLibreMap) {
   })
 }
 
+// ── Data change tracking — skip setData when nothing changed ────────────
+let _prevLanesRef: Record<string, LaneFeature> | null = null
+let _prevRoadsRef: Record<string, RoadDefinition> | null = null
+
 function updateBoundaryLayers(map: MapLibreMap) {
   const { lanes, roads } = useMapStore.getState()
-  const { selectedIds } = useUIStore.getState()
-  const laneList = Object.values(lanes)
 
-  // Prune cache entries for deleted lanes
+  // Skip entirely if data hasn't changed — selection is handled by feature-state
+  if (lanes === _prevLanesRef && roads === _prevRoadsRef) return
+
+  _prevLanesRef = lanes
+  _prevRoadsRef = roads
   pruneCache(new Set(Object.keys(lanes)))
 
-  // Expand selection: if a road is selected, include its lanes
-  const effectiveSelected = new Set(selectedIds)
-  for (const selId of selectedIds) {
-    if (roads[selId]) {
-      for (const lane of laneList) {
-        if (lane.roadId === selId) effectiveSelected.add(lane.id)
-      }
-    }
-  }
-
+  const laneList = Object.values(lanes)
   const fillFeatures: GeoJSON.Feature[] = []
   const centerFeatures: GeoJSON.Feature[] = []
   const boundaryFeatures: GeoJSON.Feature[] = []
@@ -1019,7 +1145,6 @@ function updateBoundaryLayers(map: MapLibreMap) {
   const connFeatures: GeoJSON.Feature[] = []
 
   for (const lane of laneList) {
-    const isSelected = effectiveSelected.has(lane.id)
     const fillColor =
       lane.roadId && roads[lane.roadId]
         ? getRoadColor(lane.roadId, roads)
@@ -1027,17 +1152,14 @@ function updateBoundaryLayers(map: MapLibreMap) {
     const arrowColor = TURN_COLOR[lane.turn] ?? '#e2e8f0'
 
     try {
-      // Use boundary cache — expensive turf.lineOffset() is only called on cache miss
       const cached = getOrComputeBoundary(lane)
 
-      // Lane fill polygon
       const hasRoad = Boolean(lane.roadId && roads[lane.roadId])
       fillFeatures.push({
         ...cached.polygon,
-        properties: { id: lane.id, fillColor, hasRoad, selected: isSelected },
+        properties: { id: lane.id, fillColor, hasRoad },
       })
 
-      // Boundaries (carry color so MapLibre can look it up)
       boundaryFeatures.push({
         ...cached.left,
         properties: {
@@ -1057,9 +1179,7 @@ function updateBoundaryLayers(map: MapLibreMap) {
         },
       })
 
-      // Direction arrow(s) at midpoint — uses cached midpoint
       const { point, bearing } = cached.midpoint
-
       if (lane.direction === LaneDirection.BACKWARD) {
         arrowFeatures.push({
           ...point,
@@ -1084,13 +1204,11 @@ function updateBoundaryLayers(map: MapLibreMap) {
       // skip malformed geometry
     }
 
-    // Centerline
     centerFeatures.push({
       ...lane.centerLine,
-      properties: { id: lane.id, selected: isSelected },
+      properties: { id: lane.id },
     })
 
-    // Successor connection lines
     const endCoord = lane.centerLine.geometry.coordinates.at(-1)
     if (endCoord) {
       for (const succId of lane.successorIds) {
@@ -1120,11 +1238,24 @@ function updateBoundaryLayers(map: MapLibreMap) {
   setSource('lane-connections', connFeatures)
 }
 
+// ── Centroid cache — turf.centroid() is expensive, skip when polygons unchanged ──
+let _prevCrosswalks: Record<string, CrosswalkFeature> | null = null
+let _prevClearAreas: Record<string, ClearAreaFeature> | null = null
+let _prevParkingSpaces: Record<string, ParkingSpaceFeature> | null = null
+let _cachedCrosswalkCentroids: GeoJSON.Feature[] = []
+let _cachedClearAreaCentroids: GeoJSON.Feature[] = []
+let _cachedParkingCentroids: GeoJSON.Feature[] = []
+
+// ── Element data change tracking ────────────────────────────────────────
+let _prevJunctions: typeof _prevCrosswalks = null
+let _prevSignals: Record<string, unknown> | null = null
+let _prevStopSigns: Record<string, unknown> | null = null
+let _prevSpeedBumps: Record<string, unknown> | null = null
+
 function updateElementLayers(map: MapLibreMap) {
   const { junctions, signals, stopSigns, crosswalks, clearAreas, speedBumps, parkingSpaces } =
     useMapStore.getState()
-  const { layerVisibility, selectedIds } = useUIStore.getState()
-  const selSet = new Set(selectedIds)
+  const { layerVisibility } = useUIStore.getState()
 
   const set = (sourceId: string, features: GeoJSON.Feature[]) =>
     (map.getSource(sourceId) as maplibregl.GeoJSONSource)?.setData({
@@ -1132,78 +1263,93 @@ function updateElementLayers(map: MapLibreMap) {
       features,
     })
 
-  set(
-    'junctions',
-    Object.values(junctions).map((j) => ({
-      ...j.polygon,
-      properties: { id: j.id, selected: selSet.has(j.id) },
-    }))
-  )
-  set(
-    'crosswalks',
-    Object.values(crosswalks).map((cw) => ({
-      ...cw.polygon,
-      properties: { id: cw.id, selected: selSet.has(cw.id) },
-    }))
-  )
-  set(
-    'signals',
-    Object.values(signals).map((s) => ({
-      ...s.stopLine,
-      properties: { id: s.id, selected: selSet.has(s.id) },
-    }))
-  )
-  set(
-    'stop-signs',
-    Object.values(stopSigns).map((ss) => ({
-      ...ss.stopLine,
-      properties: { id: ss.id, selected: selSet.has(ss.id) },
-    }))
-  )
-  set(
-    'clear-areas',
-    Object.values(clearAreas).map((ca) => ({
-      ...ca.polygon,
-      properties: { id: ca.id, selected: selSet.has(ca.id) },
-    }))
-  )
-  set(
-    'speed-bumps',
-    Object.values(speedBumps).map((sb) => ({
-      ...sb.line,
-      properties: { id: sb.id, selected: selSet.has(sb.id) },
-    }))
-  )
-  set(
-    'parking-spaces',
-    Object.values(parkingSpaces).map((ps) => ({
-      ...ps.polygon,
-      properties: { id: ps.id, selected: selSet.has(ps.id) },
-    }))
-  )
-
-  // Centroid point sources for icon label placement
-  set(
-    'crosswalk-centers',
-    Object.values(crosswalks).map((cw) => {
+  // Only call setData when element data actually changed (Immer reference check).
+  // Selection highlighting is handled by feature-state, not data properties.
+  if (junctions !== _prevJunctions) {
+    _prevJunctions = junctions
+    set(
+      'junctions',
+      Object.values(junctions).map((j) => ({
+        ...j.polygon,
+        properties: { id: j.id },
+      }))
+    )
+  }
+  if (crosswalks !== _prevCrosswalks) {
+    _prevCrosswalks = crosswalks
+    set(
+      'crosswalks',
+      Object.values(crosswalks).map((cw) => ({
+        ...cw.polygon,
+        properties: { id: cw.id },
+      }))
+    )
+    _cachedCrosswalkCentroids = Object.values(crosswalks).map((cw) => {
       const c = turf.centroid(cw.polygon)
       return { ...c, properties: { id: cw.id } }
     })
-  )
-  set(
-    'clear-area-centers',
-    Object.values(clearAreas).map((ca) => {
+    set('crosswalk-centers', _cachedCrosswalkCentroids)
+  }
+  if (signals !== _prevSignals) {
+    _prevSignals = signals
+    set(
+      'signals',
+      Object.values(signals).map((s) => ({
+        ...s.stopLine,
+        properties: { id: s.id },
+      }))
+    )
+  }
+  if (stopSigns !== _prevStopSigns) {
+    _prevStopSigns = stopSigns
+    set(
+      'stop-signs',
+      Object.values(stopSigns).map((ss) => ({
+        ...ss.stopLine,
+        properties: { id: ss.id },
+      }))
+    )
+  }
+  if (clearAreas !== _prevClearAreas) {
+    _prevClearAreas = clearAreas
+    set(
+      'clear-areas',
+      Object.values(clearAreas).map((ca) => ({
+        ...ca.polygon,
+        properties: { id: ca.id },
+      }))
+    )
+    _cachedClearAreaCentroids = Object.values(clearAreas).map((ca) => {
       const c = turf.centroid(ca.polygon)
       return { ...c, properties: { id: ca.id } }
     })
-  )
-  set(
-    'parking-centers',
-    Object.values(parkingSpaces).map((ps) => {
+    set('clear-area-centers', _cachedClearAreaCentroids)
+  }
+  if (speedBumps !== _prevSpeedBumps) {
+    _prevSpeedBumps = speedBumps
+    set(
+      'speed-bumps',
+      Object.values(speedBumps).map((sb) => ({
+        ...sb.line,
+        properties: { id: sb.id },
+      }))
+    )
+  }
+  if (parkingSpaces !== _prevParkingSpaces) {
+    _prevParkingSpaces = parkingSpaces
+    set(
+      'parking-spaces',
+      Object.values(parkingSpaces).map((ps) => ({
+        ...ps.polygon,
+        properties: { id: ps.id },
+      }))
+    )
+    _cachedParkingCentroids = Object.values(parkingSpaces).map((ps) => {
       const c = turf.centroid(ps.polygon)
       return { ...c, properties: { id: ps.id } }
     })
-  )
+    set('parking-centers', _cachedParkingCentroids)
+  }
 
   // Layer visibility
   const groups: Record<string, string[]> = {
