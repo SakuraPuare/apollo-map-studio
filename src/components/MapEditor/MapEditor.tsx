@@ -811,7 +811,7 @@ function addMapElementLayers(map: MapLibreMap) {
     type: 'symbol',
     source: 'lane-arrows',
     layout: {
-      'text-field': '▲',
+      'text-field': '⬆',
       'text-size': 14,
       'text-rotate': ['get', 'bearing'],
       'text-rotation-alignment': 'map',
@@ -821,7 +821,7 @@ function addMapElementLayers(map: MapLibreMap) {
     paint: {
       'text-color': ['coalesce', ['get', 'arrowColor'], '#e2e8f0'],
       'text-halo-color': '#1e1e1e',
-      'text-halo-width': 1,
+      'text-halo-width': 1.5,
     },
   })
 
