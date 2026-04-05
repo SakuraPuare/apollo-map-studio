@@ -63,7 +63,7 @@ type DrawContext = {
     project: (lngLat: { lng: number; lat: number }) => { x: number; y: number }
   }
   changeMode: (mode: string) => void
-  updateUIClasses: (opts?: { mouse?: string }) => void
+  updateUIClasses?: (opts?: { mouse?: string }) => void
 }
 
 function screenDist(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -88,7 +88,7 @@ function buildPreviewSegment(lastAnchor: BezierAnchor, cursorPos: Position): Pos
 
 const DrawBezierMode = {
   onSetup(this: DrawContext): BezierState {
-    this.updateUIClasses({ mouse: 'add' })
+    this.updateUIClasses?.({ mouse: 'add' })
     return {
       anchors: [],
       currentPos: null,

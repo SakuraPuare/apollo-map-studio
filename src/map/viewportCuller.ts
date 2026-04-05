@@ -58,6 +58,9 @@ let _prevSpeedBumps: Record<string, SpeedBumpFeature> | null = null
 let _prevParkingSpaces: Record<string, ParkingSpaceFeature> | null = null
 let _prevLaneMap = new Map<string, LaneFeature>()
 
+// Lanes whose road color changed but whose own reference didn't — force re-render.
+let _forcedChangedLaneIds = new Set<string>()
+
 let _initialized = false
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -110,6 +113,7 @@ export function resetCuller(): void {
   _prevSpeedBumps = null
   _prevParkingSpaces = null
   _prevLaneMap = new Map()
+  _forcedChangedLaneIds = new Set()
   _initialized = false
 }
 
@@ -327,7 +331,7 @@ export function syncViewport(map: MapLibreMap): void {
     for (const id of queryLaneIds) {
       if (!_visibleLaneIds.has(id)) {
         entering.add(id)
-      } else if (_prevLaneMap.get(id) !== lanes[id]) {
+      } else if (_prevLaneMap.get(id) !== lanes[id] || _forcedChangedLaneIds.has(id)) {
         changed.add(id)
       }
     }
@@ -395,10 +399,11 @@ export function syncViewport(map: MapLibreMap): void {
 
     _visibleLaneIds = queryLaneIds
 
-    // Update lane ref map for change detection
+    // Update lane ref map for change detection (must happen AFTER diff is applied)
     for (const id of queryLaneIds) {
       _prevLaneMap.set(id, lanes[id])
     }
+    _forcedChangedLaneIds.clear()
   } else {
     // Lanes hidden — remove all
     if (_visibleLaneIds.size > 0) {
@@ -618,6 +623,132 @@ export function onStoreChange(map: MapLibreMap): void {
   syncViewport(map)
 }
 
+/**
+ * Async version of syncViewport. Yields to the UI thread between chunks so
+ * the browser stays responsive during large layer toggles or bulk re-renders.
+ * Reports progress via onProgress (0 → 1).
+ *
+ * Strategy: handle lane feature building in chunks asynchronously, then
+ * call syncViewport() for connections + other elements. After the async lane
+ * pass, _visibleLaneIds and _prevLaneMap are up-to-date, so syncViewport's
+ * lane section becomes a no-op (all entering/leaving/changed are empty).
+ */
+export async function syncViewportAsync(
+  map: MapLibreMap,
+  onProgress?: (fraction: number) => void
+): Promise<void> {
+  if (!_initialized) return
+
+  updateIndex()
+
+  const { lanes, roads } = useMapStore.getState()
+  const { selectedIds, layerVisibility } = useUIStore.getState()
+
+  // Compute padded viewport bounds
+  const bounds = map.getBounds()
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+  const padLng = (ne.lng - sw.lng) * 0.5
+  const padLat = (ne.lat - sw.lat) * 0.5
+
+  const queryBBox = {
+    minX: sw.lng - padLng,
+    minY: sw.lat - padLat,
+    maxX: ne.lng + padLng,
+    maxY: ne.lat + padLat,
+  }
+
+  const queryLaneIds = new Set<string>()
+  for (const entry of _tree.search(queryBBox)) {
+    if (entry.elementType === 'lane') queryLaneIds.add(entry.id)
+  }
+  // Force-include selected lanes
+  for (const selId of selectedIds) {
+    if (lanes[selId]) queryLaneIds.add(selId)
+  }
+
+  onProgress?.(0.05)
+
+  // ── Lanes (chunked async) ────────────────────────────────────────────────
+
+  if (layerVisibility['lanes'] !== false) {
+    const entering = new Set<string>()
+    const leaving = new Set<string>()
+    const changed = new Set<string>()
+
+    for (const id of queryLaneIds) {
+      if (!_visibleLaneIds.has(id)) {
+        entering.add(id)
+      } else if (_prevLaneMap.get(id) !== lanes[id] || _forcedChangedLaneIds.has(id)) {
+        changed.add(id)
+      }
+    }
+    for (const id of _visibleLaneIds) {
+      if (!queryLaneIds.has(id)) leaving.add(id)
+    }
+
+    // Remove leaving + changed synchronously (fast)
+    if (leaving.size > 0 || changed.size > 0) {
+      const toRemove = [...leaving, ...changed]
+      src(map, 'lane-fills')?.updateData({ remove: toRemove })
+      src(map, 'lane-centers')?.updateData({ remove: toRemove })
+      src(map, 'lane-boundaries')?.updateData({
+        remove: toRemove.flatMap((id) => [`${id}__left`, `${id}__right`]),
+      })
+      src(map, 'lane-arrows')?.updateData({
+        remove: toRemove.flatMap((id) => [`${id}__fwd`, `${id}__bwd`]),
+      })
+    }
+
+    // Add entering + changed in chunks, yielding between each
+    const toAdd = [...entering, ...changed]
+    const CHUNK = 200
+    for (let i = 0; i < toAdd.length; i += CHUNK) {
+      const chunk = toAdd.slice(i, i + CHUNK)
+      const out: LaneFeatureArrays = { fill: [], center: [], boundary: [], arrow: [], conn: [] }
+      for (const id of chunk) {
+        const lane = lanes[id]
+        if (lane) {
+          try {
+            buildLaneFeaturesInto(lane, lanes, roads, out)
+          } catch {
+            // skip malformed
+          }
+        }
+      }
+      if (out.fill.length > 0) src(map, 'lane-fills')?.updateData({ add: out.fill })
+      if (out.center.length > 0) src(map, 'lane-centers')?.updateData({ add: out.center })
+      if (out.boundary.length > 0) src(map, 'lane-boundaries')?.updateData({ add: out.boundary })
+      if (out.arrow.length > 0) src(map, 'lane-arrows')?.updateData({ add: out.arrow })
+
+      onProgress?.(0.05 + (Math.min(i + CHUNK, toAdd.length) / Math.max(toAdd.length, 1)) * 0.7)
+      await new Promise<void>((r) => setTimeout(r, 0))
+    }
+
+    // Update tracking state so syncViewport()'s lane section is a no-op
+    _visibleLaneIds = queryLaneIds
+    for (const id of queryLaneIds) _prevLaneMap.set(id, lanes[id])
+    _forcedChangedLaneIds.clear()
+  } else {
+    if (_visibleLaneIds.size > 0) {
+      src(map, 'lane-fills')?.updateData({ removeAll: true })
+      src(map, 'lane-centers')?.updateData({ removeAll: true })
+      src(map, 'lane-boundaries')?.updateData({ removeAll: true })
+      src(map, 'lane-arrows')?.updateData({ removeAll: true })
+      _visibleLaneIds = new Set()
+    }
+  }
+
+  onProgress?.(0.8)
+
+  // ── Connections + other elements: delegate to syncViewport ───────────────
+  // At this point _visibleLaneIds / _prevLaneMap are current, so syncViewport's
+  // lane section is a no-op. It handles connections + all other element types.
+  syncViewport(map)
+
+  onProgress?.(1)
+}
+
 // ── Index maintenance ──────────────────────────────────────────────────────
 
 function updateIndex(): void {
@@ -682,7 +813,15 @@ function updateIndex(): void {
         } catch {
           // skip malformed
         }
-        _prevLaneMap.set(id, curr)
+        // NOTE: do NOT update _prevLaneMap here — syncViewport() uses it to
+        // detect per-lane changes, and updating it before syncViewport() runs
+        // would make the change invisible. _prevLaneMap is updated only in
+        // syncViewport() after the diff has been applied.
+        // For lanes whose road color changed but whose own reference didn't,
+        // record them so syncViewport() can force a re-render.
+        if (roadChanged && curr === prev) {
+          _forcedChangedLaneIds.add(id)
+        }
         changeCount++
       }
     }

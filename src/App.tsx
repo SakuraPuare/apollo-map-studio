@@ -92,6 +92,7 @@ export default function App() {
     showValidationDialog,
     showElementListPanel,
     showPropertiesPanel,
+    renderProgress,
   } = useUIStore()
 
   useKeyboardShortcuts()
@@ -121,6 +122,15 @@ export default function App() {
         <ResizablePanel id="map">
           <div className="h-full w-full relative overflow-hidden">
             <MapEditor />
+            {/* Render progress bar — shown during async layer rendering */}
+            {renderProgress !== null && (
+              <div className="absolute top-0 left-0 right-0 h-[3px] z-10 bg-muted pointer-events-none">
+                <div
+                  className="h-full bg-primary transition-[width] duration-100"
+                  style={{ width: `${Math.round(renderProgress * 100)}%` }}
+                />
+              </div>
+            )}
           </div>
         </ResizablePanel>
 

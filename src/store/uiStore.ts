@@ -35,6 +35,8 @@ interface UIState {
   flyToTarget: { lng: number; lat: number } | null
   flyToCounter: number
   pendingImportFile: File | null
+  /** 0-1 while async render is in progress; null when idle. */
+  renderProgress: number | null
 
   setToolState: (state: ToolState) => void
   startDrawing: (intent: DrawIntent) => void
@@ -56,6 +58,7 @@ interface UIState {
   setStatus: (msg: string) => void
   requestFitBounds: () => void
   requestFlyTo: (lng: number, lat: number) => void
+  setRenderProgress: (progress: number | null) => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -92,6 +95,7 @@ export const useUIStore = create<UIState>((set) => ({
   flyToTarget: null,
   flyToCounter: 0,
   pendingImportFile: null,
+  renderProgress: null,
 
   setToolState: (state) => set({ toolState: state, connectFromId: null }),
 
@@ -142,4 +146,5 @@ export const useUIStore = create<UIState>((set) => ({
   requestFitBounds: () => set((s) => ({ fitBoundsCounter: s.fitBoundsCounter + 1 })),
   requestFlyTo: (lng, lat) =>
     set((s) => ({ flyToTarget: { lng, lat }, flyToCounter: s.flyToCounter + 1 })),
+  setRenderProgress: (progress) => set({ renderProgress: progress }),
 }))

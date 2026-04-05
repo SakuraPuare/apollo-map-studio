@@ -101,7 +101,7 @@ const DrawRotatableRect = {
         'draw.create',
         { features: [feature] }
       )
-      ;(this as unknown as { changeMode: (mode: string) => void }).changeMode('simple_select')
+      ;(this as unknown as { changeMode?: (mode: string) => void }).changeMode?.('simple_select')
     }
   },
 
@@ -111,7 +111,7 @@ const DrawRotatableRect = {
 
   onKeyUp(state: RectState, e: { key: string }) {
     if (e.key === 'Escape') {
-      ;(this as unknown as { changeMode: (mode: string) => void }).changeMode('simple_select')
+      ;(this as unknown as { changeMode?: (mode: string) => void }).changeMode?.('simple_select')
     }
   },
 

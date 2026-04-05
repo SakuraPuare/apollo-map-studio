@@ -13,6 +13,7 @@ import {
 } from '../../map/selectionStateManager'
 import {
   syncViewport,
+  syncViewportAsync,
   onStoreChange,
   initFromImport,
   resetCuller,
@@ -167,7 +168,13 @@ export default function MapEditor() {
         renderSelection()
       }
       if (state.layerVisibility !== prevState.layerVisibility) {
-        if (ready && isInitialized()) syncViewport(map)
+        if (ready && isInitialized()) {
+          const { setRenderProgress } = useUIStore.getState()
+          setRenderProgress(0)
+          syncViewportAsync(map, (p) => useUIStore.getState().setRenderProgress(p)).then(() => {
+            useUIStore.getState().setRenderProgress(null)
+          })
+        }
       }
     })
 
@@ -195,7 +202,7 @@ export default function MapEditor() {
 
       const { toolState } = useUIStore.getState()
       const { addElement } = useMapStore.getState()
-      const { setSelected, setToolState, setStatus } = useUIStore.getState()
+      const { setSelected, setStatus } = useUIStore.getState()
 
       if (toolState.kind !== 'draw') return
 
@@ -206,7 +213,15 @@ export default function MapEditor() {
         setSelected([element.id])
         setStatus(`${element.type} ${element.id} created`)
         draw.delete([feature.id as string])
-        setToolState({ kind: 'select' })
+        // Stay in the current drawing mode so the user can draw again immediately.
+        // Re-enter the mode in MapboxDraw (custom modes call changeMode('simple_select')
+        // internally, so we need to re-activate the draw mode here).
+        const currentDrawMode = toolStateToDrawMode(toolState)
+        try {
+          draw.changeMode(currentDrawMode)
+        } catch {
+          // ignore if mode is not ready
+        }
         // Sync sources after draw creates a new element
         if (isInitialized()) onStoreChange(map)
       }
@@ -427,8 +442,8 @@ export default function MapEditor() {
       } else {
         draw.changeMode(mbMode)
       }
-    } catch {
-      // ignore if map not ready
+    } catch (err) {
+      console.error('[draw] changeMode failed:', mbMode, err)
     }
   }, [toolState])
 
