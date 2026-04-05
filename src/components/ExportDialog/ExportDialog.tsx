@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { downloadBinary, downloadText } from '../../proto/codec'
@@ -25,6 +26,7 @@ type ExportStep =
   | 'error'
 
 export default function ExportDialog() {
+  const { t } = useTranslation()
   const { setShowExportDialog } = useUIStore()
   const store = useMapStore()
 
@@ -44,7 +46,6 @@ export default function ExportDialog() {
 
   const workerRef = useRef<Worker | null>(null)
 
-  // Create the worker lazily (on first export) and terminate on unmount
   const getWorker = useCallback(() => {
     if (!workerRef.current) {
       workerRef.current = new Worker(new URL('../../workers/exportWorker.ts', import.meta.url), {
@@ -63,13 +64,13 @@ export default function ExportDialog() {
 
   const handleExport = () => {
     if (!store.project) {
-      setError('No project configured. Please create a new project first.')
+      setError(t('dialogs.export.noProject'))
       return
     }
 
     const lanes = Object.values(store.lanes)
     if (lanes.length === 0) {
-      setError('No lanes found. Draw at least one lane before exporting.')
+      setError(t('dialogs.export.noLanes'))
       return
     }
 
@@ -133,13 +134,13 @@ export default function ExportDialog() {
   }
 
   const stepLabels: Record<ExportStep, string> = {
-    idle: 'Ready to export',
-    building_base: 'Building base_map...',
-    building_sim: 'Building sim_map...',
-    building_routing: 'Building routing_map...',
-    encoding: 'Encoding protobuf...',
-    done: 'Export complete!',
-    error: 'Export failed',
+    idle: t('dialogs.export.step.idle'),
+    building_base: t('dialogs.export.step.building_base'),
+    building_sim: t('dialogs.export.step.building_sim'),
+    building_routing: t('dialogs.export.step.building_routing'),
+    encoding: t('dialogs.export.step.encoding'),
+    done: t('dialogs.export.step.done'),
+    error: t('dialogs.export.step.error'),
   }
 
   const isExporting = step !== 'idle' && step !== 'done' && step !== 'error'
@@ -148,10 +149,8 @@ export default function ExportDialog() {
     <Dialog open onOpenChange={() => setShowExportDialog(false)}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Export Map Files</DialogTitle>
-          <DialogDescription>
-            Export Apollo HD Map files (.bin binary or .txt JSON) to your downloads folder.
-          </DialogDescription>
+          <DialogTitle>{t('dialogs.export.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.export.description')}</DialogDescription>
         </DialogHeader>
 
         {/* File selection */}
@@ -159,26 +158,26 @@ export default function ExportDialog() {
           <CheckItem
             checked={exportBase}
             onChange={setExportBase}
-            label="base_map.bin"
-            desc="Complete HD map with all elements"
+            label={t('dialogs.export.base.label')}
+            desc={t('dialogs.export.base.desc')}
           />
           <CheckItem
             checked={exportSim}
             onChange={setExportSim}
-            label="sim_map.bin"
-            desc="Downsampled visualization map"
+            label={t('dialogs.export.sim.label')}
+            desc={t('dialogs.export.sim.desc')}
           />
           <CheckItem
             checked={exportRouting}
             onChange={setExportRouting}
-            label="routing_map.bin"
-            desc="Routing topology graph"
+            label={t('dialogs.export.routing.label')}
+            desc={t('dialogs.export.routing.desc')}
           />
           <CheckItem
             checked={exportTxt}
             onChange={setExportTxt}
-            label="Also export as TXT (JSON)"
-            desc="Downloads base_map.txt, sim_map.txt, routing_map.txt as human-readable JSON"
+            label={t('dialogs.export.txt.label')}
+            desc={t('dialogs.export.txt.desc')}
           />
         </div>
 
@@ -197,8 +196,14 @@ export default function ExportDialog() {
             </div>
             {stats && (
               <div className="text-muted-foreground text-[11px]">
-                {stats.lanes} lanes · {stats.roads} roads
-                {stats.nodes > 0 && ` · ${stats.nodes} nodes · ${stats.edges} edges`}
+                {stats.nodes > 0
+                  ? t('dialogs.export.statsWithGraph', {
+                      lanes: stats.lanes,
+                      roads: stats.roads,
+                      nodes: stats.nodes,
+                      edges: stats.edges,
+                    })
+                  : t('dialogs.export.stats', { lanes: stats.lanes, roads: stats.roads })}
               </div>
             )}
             {error && <div className="text-destructive text-[11px] mt-1 break-all">{error}</div>}
@@ -207,10 +212,10 @@ export default function ExportDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setShowExportDialog(false)}>
-            Close
+            {t('common.close')}
           </Button>
           <Button onClick={handleExport} disabled={isExporting}>
-            {step === 'done' ? 'Export Again' : 'Export'}
+            {step === 'done' ? t('dialogs.export.exportAgain') : t('common.export')}
           </Button>
         </DialogFooter>
       </DialogContent>

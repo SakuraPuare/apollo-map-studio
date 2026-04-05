@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '../../store/uiStore'
 import { useMapStore } from '../../store/mapStore'
 import { parseBaseMap, parseBaseMapFromObject } from '../../import/parseBaseMap'
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export default function ImportDialog() {
+  const { t } = useTranslation()
   const { setShowImportDialog, requestFitBounds, pendingImportFile, setPendingImportFile } =
     useUIStore()
   const { setProject, loadState } = useMapStore()
@@ -41,7 +43,9 @@ export default function ImportDialog() {
       setStatus('loading')
       setProgress(0)
       const isTxt = file.name.endsWith('.txt')
-      setMessage(isTxt ? 'Decoding text format...' : 'Decoding binary format...')
+      setMessage(
+        isTxt ? t('dialogs.import.status.decodingText') : t('dialogs.import.status.decodingBinary')
+      )
 
       let parsed
       if (isTxt) {
@@ -53,27 +57,23 @@ export default function ImportDialog() {
           // Not JSON – try protobuf text format
           obj = await decodeMapFromText(text)
         }
-        setMessage('Parsing map data...')
+        setMessage(t('dialogs.import.status.parsing'))
         setProgress(0.05)
         parsed = await parseBaseMapFromObject(obj, (p) => setProgress(0.05 + p * 0.45))
       } else {
         const buffer = await file.arrayBuffer()
         setProgress(0.05)
-        setMessage('Parsing map data...')
+        setMessage(t('dialogs.import.status.parsing'))
         parsed = await parseBaseMap(new Uint8Array(buffer), (p) => setProgress(0.05 + p * 0.45))
       }
 
-      // Pre-warm boundary cache before loading into store.
-      // This prevents the initial render from freezing the UI,
-      // because updateBoundaryLayers will hit cache for all lanes.
       if (parsed.lanes.length > 0) {
         clearBoundaryCache()
-        setMessage(`Computing geometry (${parsed.lanes.length} lanes)...`)
+        setMessage(t('dialogs.import.status.computingGeometry', { count: parsed.lanes.length }))
         await precomputeBoundariesAsync(parsed.lanes, (p) => setProgress(0.5 + p * 0.45))
       }
 
-      // Update store — render triggered by subscription will hit warm cache
-      setMessage('Loading into editor...')
+      setMessage(t('dialogs.import.status.loading'))
       setProgress(0.97)
       setProject(parsed.project)
       loadState({
@@ -90,8 +90,12 @@ export default function ImportDialog() {
 
       setProgress(1)
       setMessage(
-        `Loaded: ${parsed.lanes.length} lanes, ${parsed.junctions.length} junctions, ` +
-          `${parsed.signals.length} signals, ${parsed.crosswalks.length} crosswalks`
+        t('dialogs.import.status.loaded', {
+          lanes: parsed.lanes.length,
+          junctions: parsed.junctions.length,
+          signals: parsed.signals.length,
+          crosswalks: parsed.crosswalks.length,
+        })
       )
       setStatus('done')
       requestFitBounds()
@@ -117,11 +121,8 @@ export default function ImportDialog() {
     <Dialog open onOpenChange={() => setShowImportDialog(false)}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Import Map File</DialogTitle>
-          <DialogDescription>
-            Load a base_map.bin (binary protobuf) or base_map.txt (text proto / JSON) file to edit
-            it.
-          </DialogDescription>
+          <DialogTitle>{t('dialogs.import.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.import.description')}</DialogDescription>
         </DialogHeader>
 
         {/* Drop zone */}
@@ -134,10 +135,10 @@ export default function ImportDialog() {
           <div className="mb-2 flex justify-center">
             <Upload size={32} className="text-muted-foreground" />
           </div>
-          <div className="text-sm text-accent-foreground">
-            Drop base_map.bin or base_map.txt here
+          <div className="text-sm text-accent-foreground">{t('dialogs.import.dropZone.main')}</div>
+          <div className="text-[11px] text-muted-foreground mt-1">
+            {t('dialogs.import.dropZone.sub')}
           </div>
-          <div className="text-[11px] text-muted-foreground mt-1">or click to browse</div>
         </div>
 
         <input
@@ -177,7 +178,7 @@ export default function ImportDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setShowImportDialog(false)}>
-            {status === 'done' ? 'Close' : 'Cancel'}
+            {status === 'done' ? t('common.close') : t('common.cancel')}
           </Button>
         </DialogFooter>
       </DialogContent>

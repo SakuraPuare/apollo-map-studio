@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore } from '../../store/uiStore'
 import { validateMap } from '../../validation/mapValidator'
@@ -19,13 +20,8 @@ const severityBgColors: Record<string, string> = {
   info: 'bg-muted text-muted-foreground',
 }
 
-const severityLabels: Record<string, string> = {
-  error: 'Error',
-  warning: 'Warning',
-  info: 'Info',
-}
-
 export default function ValidationDialog() {
+  const { t } = useTranslation()
   const { setShowValidationDialog } = useUIStore()
   const { setSelected } = useUIStore()
   const store = useMapStore()
@@ -54,48 +50,46 @@ export default function ValidationDialog() {
     <Dialog open onOpenChange={() => setShowValidationDialog(false)}>
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Map Validation Report</DialogTitle>
-          <DialogDescription>
-            Validate map elements for errors, warnings, and connectivity issues.
-          </DialogDescription>
+          <DialogTitle>{t('dialogs.validation.title')}</DialogTitle>
+          <DialogDescription>{t('dialogs.validation.description')}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
           {/* Validate button */}
           <Button onClick={handleValidate} className="w-full">
-            {report ? 'Re-validate' : 'Run Validation'}
+            {report ? t('dialogs.validation.revalidate') : t('dialogs.validation.runValidation')}
           </Button>
 
           {/* Stats summary */}
           {report && (
             <div className="grid grid-cols-3 gap-2">
               <StatCard
-                label="Lanes"
+                label={t('dialogs.validation.stats.lanes')}
                 value={report.stats.totalLanes}
                 className="text-accent-foreground"
               />
               <StatCard
-                label="Connections"
+                label={t('dialogs.validation.stats.connections')}
                 value={report.stats.totalConnections}
                 className="text-accent-foreground"
               />
               <StatCard
-                label="Isolated"
+                label={t('dialogs.validation.stats.isolated')}
                 value={report.stats.isolatedLanes}
                 className="text-[#cca700]"
               />
               <StatCard
-                label="Errors"
+                label={t('dialogs.validation.stats.errors')}
                 value={report.stats.errorCount}
                 className="text-destructive"
               />
               <StatCard
-                label="Warnings"
+                label={t('dialogs.validation.stats.warnings')}
                 value={report.stats.warningCount}
                 className="text-[#cca700]"
               />
               <StatCard
-                label="Info"
+                label={t('dialogs.validation.stats.info')}
                 value={report.stats.infoCount}
                 className="text-muted-foreground"
               />
@@ -105,7 +99,7 @@ export default function ValidationDialog() {
           {/* Result message */}
           {report && report.issues.length === 0 && (
             <div className="bg-background border border-border rounded-md p-4 text-center text-chart-2 text-[13px]">
-              No issues found. Map is valid.
+              {t('dialogs.validation.noIssues')}
             </div>
           )}
 
@@ -145,6 +139,14 @@ function StatCard({
 }
 
 function IssueRow({ issue, onClick }: { issue: ValidationIssue; onClick: () => void }) {
+  const { t } = useTranslation()
+  const severityLabels: Record<string, string> = {
+    error: t('dialogs.validation.severity.error'),
+    warning: t('dialogs.validation.severity.warning'),
+    info: t('dialogs.validation.severity.info'),
+  }
+  const displayMessage = issue.messageKey ? t(issue.messageKey, issue.messageParams) : issue.message
+
   return (
     <div className="bg-background border border-border rounded p-1.5 px-2.5 flex items-start gap-2 text-xs">
       {/* Severity badge */}
@@ -159,11 +161,11 @@ function IssueRow({ issue, onClick }: { issue: ValidationIssue; onClick: () => v
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="text-accent-foreground mb-0.5">{issue.message}</div>
+        <div className="text-accent-foreground mb-0.5">{displayMessage}</div>
         <button
           onClick={onClick}
           className="bg-transparent border-none text-primary text-[10px] p-0 cursor-pointer break-all text-left hover:underline"
-          title="Click to select this element"
+          title={t('contextmenu.select')}
         >
           {issue.elementId}
         </button>
