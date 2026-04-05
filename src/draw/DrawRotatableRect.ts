@@ -15,12 +15,27 @@
 import * as turf from '@turf/turf'
 import type { Position } from 'geojson'
 
+interface PlaceholderFeature {
+  id: string
+  changed: () => void
+}
+
+type DrawContext = {
+  newFeature: (geojson: object) => PlaceholderFeature
+  addFeature: (feature: PlaceholderFeature) => void
+  deleteFeature: (ids: string[]) => void
+  changeMode?: (mode: string) => void
+  map?: { fire: (event: string, data: unknown) => void }
+}
+
 interface RectState {
   /** Phase 0: waiting for first click, 1: first edge set, 2: both edges set (setting width) */
   phase: number
   edgeMid1: Position | null
   edgeMid2: Position | null
   currentPos: Position | null
+  /** Placeholder feature kept in draw store so toDisplayFeatures is called on every render. */
+  placeholder: PlaceholderFeature | null
 }
 
 function computeRectCoords(edgeMid1: Position, edgeMid2: Position, halfWidth: number): Position[] {
@@ -53,8 +68,14 @@ function perpendicularDistance(edgeMid1: Position, edgeMid2: Position, cursor: P
 }
 
 const DrawRotatableRect = {
-  onSetup(): RectState {
-    return { phase: 0, edgeMid1: null, edgeMid2: null, currentPos: null }
+  onSetup(this: DrawContext): RectState {
+    const placeholder = this.newFeature({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [] },
+    })
+    this.addFeature(placeholder)
+    return { phase: 0, edgeMid1: null, edgeMid2: null, currentPos: null, placeholder }
   },
 
   onClick(state: RectState, e: { lngLat: { lng: number; lat: number } }) {
@@ -107,6 +128,7 @@ const DrawRotatableRect = {
 
   onMouseMove(state: RectState, e: { lngLat: { lng: number; lat: number } }) {
     state.currentPos = [e.lngLat.lng, e.lngLat.lat]
+    state.placeholder?.changed()
   },
 
   onKeyUp(state: RectState, e: { key: string }) {
@@ -115,7 +137,17 @@ const DrawRotatableRect = {
     }
   },
 
-  toDisplayFeatures(state: RectState, geojson: unknown, display: (feature: unknown) => void) {
+  toDisplayFeatures(
+    state: RectState,
+    geojson: { properties?: { id?: string } },
+    display: (feature: unknown) => void
+  ) {
+    // Only handle our placeholder feature; pass everything else through unchanged.
+    if (!state.placeholder || geojson.properties?.id !== state.placeholder.id) {
+      display(geojson)
+      return
+    }
+
     // Phase 1: show first point
     if (state.phase >= 1 && state.edgeMid1) {
       display({
@@ -166,8 +198,11 @@ const DrawRotatableRect = {
     }
   },
 
-  onStop() {
-    // cleanup
+  onStop(this: DrawContext, state: RectState) {
+    if (state.placeholder) {
+      this.deleteFeature([state.placeholder.id])
+      state.placeholder = null
+    }
   },
 
   onTrash() {
