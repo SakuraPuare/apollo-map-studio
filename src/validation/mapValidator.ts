@@ -17,6 +17,8 @@ export interface ValidationIssue {
   category: string
   elementId: string
   message: string
+  messageKey?: string
+  messageParams?: Record<string, string>
 }
 
 export interface ValidationReport {
@@ -64,6 +66,7 @@ export function validateMap(params: {
         category: 'Topology',
         elementId: lane.id,
         message: 'Lane has no connections (isolated)',
+        messageKey: 'validation.laneIsolated',
       })
       isolatedLanes++
     }
@@ -75,6 +78,7 @@ export function validateMap(params: {
         category: 'Topology',
         elementId: lane.id,
         message: 'Lane is connected to itself',
+        messageKey: 'validation.laneSelfConnected',
       })
     }
 
@@ -86,6 +90,8 @@ export function validateMap(params: {
           category: 'Reference',
           elementId: lane.id,
           message: `Successor "${succId}" does not exist`,
+          messageKey: 'validation.successorNotFound',
+          messageParams: { id: succId },
         })
       }
     }
@@ -98,6 +104,8 @@ export function validateMap(params: {
           category: 'Reference',
           elementId: lane.id,
           message: `Predecessor "${predId}" does not exist`,
+          messageKey: 'validation.predecessorNotFound',
+          messageParams: { id: predId },
         })
       }
     }
@@ -111,6 +119,8 @@ export function validateMap(params: {
           category: 'Topology',
           elementId: lane.id,
           message: `Asymmetric connection: successor "${succId}" does not list this lane as predecessor`,
+          messageKey: 'validation.asymmetricConnection',
+          messageParams: { id: succId },
         })
       }
     }
@@ -122,6 +132,7 @@ export function validateMap(params: {
         category: 'Organization',
         elementId: lane.id,
         message: 'Lane is not assigned to any road',
+        messageKey: 'validation.laneNoRoad',
       })
     }
 
@@ -132,6 +143,8 @@ export function validateMap(params: {
         category: 'Reference',
         elementId: lane.id,
         message: `Assigned road "${lane.roadId}" does not exist`,
+        messageKey: 'validation.roadNotFound',
+        messageParams: { id: lane.roadId },
       })
     }
   }
@@ -146,6 +159,8 @@ export function validateMap(params: {
         category: 'IDs',
         elementId: id,
         message: `Duplicate ID found: used by both ${existing} and ${type}`,
+        messageKey: 'validation.duplicateId',
+        messageParams: { type1: existing, type2: type },
       })
     }
     allIds.set(id, type)
