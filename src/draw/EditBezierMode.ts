@@ -16,6 +16,7 @@ import type { BezierAnchor } from '../geo/bezier'
 import { flattenBezier, mirrorHandle } from '../geo/bezier'
 import { useMapStore } from '../store/mapStore'
 import { useUIStore } from '../store/uiStore'
+import { t } from '../i18n/t'
 
 /** Hit-test radius in screen pixels. */
 const HIT_RADIUS_PX = 10
@@ -110,7 +111,7 @@ const EditBezierMode = {
     const lane = useMapStore.getState().lanes[opts.laneId]
     if (!lane || !lane.bezierAnchors) {
       // No bezier data — cannot edit, bail to simple_select
-      useUIStore.getState().setStatus('No bezier data on this lane')
+      useUIStore.getState().setStatus(t('status.noBezierData'))
       this.changeMode('simple_select')
       return {
         laneId: opts.laneId,
@@ -124,9 +125,7 @@ const EditBezierMode = {
     // Deep clone the anchors so edits don't mutate the store until commit
     const anchors: BezierAnchor[] = JSON.parse(JSON.stringify(lane.bezierAnchors))
 
-    useUIStore
-      .getState()
-      .setStatus('Editing bezier — drag anchors/handles, Enter to commit, Esc to cancel')
+    useUIStore.getState().setStatus(t('status.editingBezier'))
 
     return {
       laneId: opts.laneId,
@@ -352,7 +351,7 @@ const EditBezierMode = {
  */
 function commitEdit(this: DrawContext, state: EditBezierState): void {
   if (state.anchors.length < 2) {
-    useUIStore.getState().setStatus('Need at least 2 anchors to commit')
+    useUIStore.getState().setStatus(t('status.needAnchors'))
     return
   }
 
@@ -360,7 +359,7 @@ function commitEdit(this: DrawContext, state: EditBezierState): void {
   const lane = useMapStore.getState().lanes[state.laneId]
 
   if (!lane) {
-    useUIStore.getState().setStatus('Lane not found')
+    useUIStore.getState().setStatus(t('status.laneNotFound'))
     this.changeMode('simple_select')
     return
   }
