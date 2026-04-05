@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useMapStore } from '@/store/mapStore'
 import { useUIStore } from '@/store/uiStore'
 import { BoundaryType, LaneDirection, LaneTurn, LaneType } from '@/types/apollo-map'
@@ -20,6 +21,7 @@ interface Props {
 }
 
 export default function LaneProperties({ lane }: Props) {
+  const { t } = useTranslation()
   const updateElement = useMapStore((s) => s.updateElement)
   const removeElement = useMapStore((s) => s.removeElement)
   const roads = useMapStore((s) => s.roads)
@@ -39,15 +41,15 @@ export default function LaneProperties({ lane }: Props) {
   return (
     <div className="p-3 text-xs flex flex-col gap-1">
       <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-0.5">
-        Lane
+        {t('properties.type.lane')}
       </div>
       <div className="text-xs text-accent-foreground font-mono break-all bg-muted/50 px-2 py-1.5 rounded mb-2">
         {lane.id}
       </div>
 
       {/* General Section */}
-      <CollapsibleSection title="General" defaultOpen>
-        <Field label="Speed Limit (km/h)">
+      <CollapsibleSection title={t('properties.lane.section.general')} defaultOpen>
+        <Field label={t('properties.lane.speedLimit')}>
           <Input
             type="number"
             min={0}
@@ -63,7 +65,7 @@ export default function LaneProperties({ lane }: Props) {
           />
         </Field>
 
-        <Field label="Lane Width (m)">
+        <Field label={t('properties.lane.width')}>
           <Input
             type="number"
             min={0.5}
@@ -79,7 +81,7 @@ export default function LaneProperties({ lane }: Props) {
           />
         </Field>
 
-        <Field label="Type">
+        <Field label={t('properties.lane.type')}>
           <Select
             value={String(lane.laneType)}
             onValueChange={(v) => update({ laneType: Number(v) as LaneType })}
@@ -88,18 +90,32 @@ export default function LaneProperties({ lane }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(LaneType.CITY_DRIVING)}>City Driving</SelectItem>
-              <SelectItem value={String(LaneType.BIKING)}>Biking</SelectItem>
-              <SelectItem value={String(LaneType.SIDEWALK)}>Sidewalk</SelectItem>
-              <SelectItem value={String(LaneType.PARKING)}>Parking</SelectItem>
-              <SelectItem value={String(LaneType.SHOULDER)}>Shoulder</SelectItem>
-              <SelectItem value={String(LaneType.SHARED)}>Shared</SelectItem>
-              <SelectItem value={String(LaneType.NONE)}>None</SelectItem>
+              <SelectItem value={String(LaneType.CITY_DRIVING)}>
+                {t('properties.lane.type.cityDriving')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.BIKING)}>
+                {t('properties.lane.type.biking')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.SIDEWALK)}>
+                {t('properties.lane.type.sidewalk')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.PARKING)}>
+                {t('properties.lane.type.parking')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.SHOULDER)}>
+                {t('properties.lane.type.shoulder')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.SHARED)}>
+                {t('properties.lane.type.shared')}
+              </SelectItem>
+              <SelectItem value={String(LaneType.NONE)}>
+                {t('properties.lane.type.none')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>
 
-        <Field label="Turn">
+        <Field label={t('properties.lane.turn')}>
           <Select
             value={String(lane.turn)}
             onValueChange={(v) => update({ turn: Number(v) as LaneTurn })}
@@ -108,15 +124,23 @@ export default function LaneProperties({ lane }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(LaneTurn.NO_TURN)}>No Turn</SelectItem>
-              <SelectItem value={String(LaneTurn.LEFT_TURN)}>Left Turn</SelectItem>
-              <SelectItem value={String(LaneTurn.RIGHT_TURN)}>Right Turn</SelectItem>
-              <SelectItem value={String(LaneTurn.U_TURN)}>U-Turn</SelectItem>
+              <SelectItem value={String(LaneTurn.NO_TURN)}>
+                {t('properties.lane.turn.noTurn')}
+              </SelectItem>
+              <SelectItem value={String(LaneTurn.LEFT_TURN)}>
+                {t('properties.lane.turn.leftTurn')}
+              </SelectItem>
+              <SelectItem value={String(LaneTurn.RIGHT_TURN)}>
+                {t('properties.lane.turn.rightTurn')}
+              </SelectItem>
+              <SelectItem value={String(LaneTurn.U_TURN)}>
+                {t('properties.lane.turn.uTurn')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>
 
-        <Field label="Direction">
+        <Field label={t('properties.lane.direction')}>
           <Select
             value={String(lane.direction)}
             onValueChange={(v) => update({ direction: Number(v) as LaneDirection })}
@@ -125,17 +149,23 @@ export default function LaneProperties({ lane }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(LaneDirection.FORWARD)}>Forward</SelectItem>
-              <SelectItem value={String(LaneDirection.BACKWARD)}>Backward</SelectItem>
-              <SelectItem value={String(LaneDirection.BIDIRECTION)}>Bidirectional</SelectItem>
+              <SelectItem value={String(LaneDirection.FORWARD)}>
+                {t('properties.lane.direction.forward')}
+              </SelectItem>
+              <SelectItem value={String(LaneDirection.BACKWARD)}>
+                {t('properties.lane.direction.backward')}
+              </SelectItem>
+              <SelectItem value={String(LaneDirection.BIDIRECTION)}>
+                {t('properties.lane.direction.bidirectional')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>
       </CollapsibleSection>
 
       {/* Boundaries Section */}
-      <CollapsibleSection title="Boundaries" defaultOpen>
-        <Field label="Left Boundary">
+      <CollapsibleSection title={t('properties.lane.section.boundaries')} defaultOpen>
+        <Field label={t('properties.lane.leftBoundary')}>
           <Select
             value={String(lane.leftBoundaryType)}
             onValueChange={(v) => update({ leftBoundaryType: Number(v) as BoundaryType })}
@@ -144,18 +174,32 @@ export default function LaneProperties({ lane }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>Dotted White</SelectItem>
-              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>Dotted Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>Solid White</SelectItem>
-              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>Solid Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>Double Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.CURB)}>Curb</SelectItem>
-              <SelectItem value={String(BoundaryType.UNKNOWN)}>Unknown</SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>
+                {t('properties.boundary.dottedWhite')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>
+                {t('properties.boundary.dottedYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>
+                {t('properties.boundary.solidWhite')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>
+                {t('properties.boundary.solidYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>
+                {t('properties.boundary.doubleYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.CURB)}>
+                {t('properties.boundary.curb')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.UNKNOWN)}>
+                {t('properties.boundary.unknown')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>
 
-        <Field label="Right Boundary">
+        <Field label={t('properties.lane.rightBoundary')}>
           <Select
             value={String(lane.rightBoundaryType)}
             onValueChange={(v) => update({ rightBoundaryType: Number(v) as BoundaryType })}
@@ -164,21 +208,35 @@ export default function LaneProperties({ lane }: Props) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>Dotted White</SelectItem>
-              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>Dotted Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>Solid White</SelectItem>
-              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>Solid Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>Double Yellow</SelectItem>
-              <SelectItem value={String(BoundaryType.CURB)}>Curb</SelectItem>
-              <SelectItem value={String(BoundaryType.UNKNOWN)}>Unknown</SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_WHITE)}>
+                {t('properties.boundary.dottedWhite')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.DOTTED_YELLOW)}>
+                {t('properties.boundary.dottedYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_WHITE)}>
+                {t('properties.boundary.solidWhite')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.SOLID_YELLOW)}>
+                {t('properties.boundary.solidYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.DOUBLE_YELLOW)}>
+                {t('properties.boundary.doubleYellow')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.CURB)}>
+                {t('properties.boundary.curb')}
+              </SelectItem>
+              <SelectItem value={String(BoundaryType.UNKNOWN)}>
+                {t('properties.boundary.unknown')}
+              </SelectItem>
             </SelectContent>
           </Select>
         </Field>
       </CollapsibleSection>
 
       {/* Road Assignment */}
-      <CollapsibleSection title="Road" defaultOpen>
-        <Field label="Assigned Road">
+      <CollapsibleSection title={t('properties.lane.section.road')} defaultOpen>
+        <Field label={t('properties.lane.assignedRoad')}>
           <Select
             value={lane.roadId ?? '__none__'}
             onValueChange={(v) => {
@@ -190,10 +248,10 @@ export default function LaneProperties({ lane }: Props) {
             }}
           >
             <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder="-- None --" />
+              <SelectValue placeholder={t('properties.lane.noneRoad')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">-- None --</SelectItem>
+              <SelectItem value="__none__">{t('properties.lane.noneRoad')}</SelectItem>
               {Object.values(roads).map((road) => (
                 <SelectItem key={road.id} value={road.id}>
                   {road.name}
@@ -209,22 +267,24 @@ export default function LaneProperties({ lane }: Props) {
         lane.successorIds.length > 0 ||
         lane.leftNeighborIds.length > 0 ||
         lane.rightNeighborIds.length > 0) && (
-        <CollapsibleSection title="Connections" defaultOpen>
+        <CollapsibleSection title={t('properties.lane.section.connections')} defaultOpen>
           {lane.predecessorIds.length > 0 && (
-            <IdList label="Predecessors" ids={lane.predecessorIds} />
+            <IdList label={t('properties.lane.predecessors')} ids={lane.predecessorIds} />
           )}
-          {lane.successorIds.length > 0 && <IdList label="Successors" ids={lane.successorIds} />}
+          {lane.successorIds.length > 0 && (
+            <IdList label={t('properties.lane.successors')} ids={lane.successorIds} />
+          )}
           {lane.leftNeighborIds.length > 0 && (
-            <IdList label="Left Neighbors" ids={lane.leftNeighborIds} />
+            <IdList label={t('properties.lane.leftNeighbors')} ids={lane.leftNeighborIds} />
           )}
           {lane.rightNeighborIds.length > 0 && (
-            <IdList label="Right Neighbors" ids={lane.rightNeighborIds} />
+            <IdList label={t('properties.lane.rightNeighbors')} ids={lane.rightNeighborIds} />
           )}
         </CollapsibleSection>
       )}
 
       <Button variant="destructive" className="w-full mt-2" size="sm" onClick={handleDelete}>
-        Delete Lane
+        {t('properties.lane.deleteLane')}
       </Button>
     </div>
   )

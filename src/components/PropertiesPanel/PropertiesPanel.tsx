@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { Layers, SlidersHorizontal, MousePointerClick } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useUIStore } from '@/store/uiStore'
 import { useMapStore } from '@/store/mapStore'
@@ -17,6 +18,7 @@ import LayersTab from './LayersTab'
 import type { MapElement } from '@/types/editor'
 
 export default function PropertiesPanel() {
+  const { t } = useTranslation()
   const { selectedIds } = useUIStore()
 
   const id = selectedIds[0] ?? ''
@@ -44,14 +46,14 @@ export default function PropertiesPanel() {
             className="flex-1 rounded-none h-8 text-xs gap-1.5 data-[state=active]:bg-card data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary"
           >
             <SlidersHorizontal size={13} />
-            Properties
+            {t('properties.tab.properties')}
           </TabsTrigger>
           <TabsTrigger
             value="layers"
             className="flex-1 rounded-none h-8 text-xs gap-1.5 data-[state=active]:bg-card data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary"
           >
             <Layers size={13} />
-            Layers
+            {t('properties.tab.layers')}
           </TabsTrigger>
         </TabsList>
 
@@ -78,13 +80,13 @@ function PropertiesContent({
   roads: ReturnType<typeof useMapStore.getState>['roads']
   element: MapElement | undefined
 }) {
+  const { t } = useTranslation()
+
   if (selectedIds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-6 text-center">
         <MousePointerClick size={32} className="text-muted-foreground/40 mb-3" />
-        <p className="text-xs text-muted-foreground">
-          Select an element on the map to view and edit its properties.
-        </p>
+        <p className="text-xs text-muted-foreground">{t('properties.emptyState')}</p>
       </div>
     )
   }
@@ -96,7 +98,7 @@ function PropertiesContent({
   if (!element) {
     return (
       <div className="p-4 text-xs text-muted-foreground">
-        Element not found: <span className="font-mono">{id}</span>
+        {t('properties.elementNotFound')} <span className="font-mono">{id}</span>
       </div>
     )
   }
@@ -107,7 +109,7 @@ function PropertiesContent({
     case 'signal':
       return (
         <GenericProperties
-          type="Traffic Signal"
+          type={t('properties.type.trafficSignal')}
           id={element.id}
           onDelete={() => {
             useMapStore.getState().removeElement(element.id, 'signal')
@@ -138,6 +140,7 @@ function GenericProperties({
   id: string
   onDelete: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="p-4 text-xs">
       <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
@@ -147,13 +150,14 @@ function GenericProperties({
         {id}
       </div>
       <Button variant="destructive" size="sm" className="w-full" onClick={onDelete}>
-        Delete
+        {t('properties.generic.delete')}
       </Button>
     </div>
   )
 }
 
 function RoadProperties({ roadId }: { roadId: string }) {
+  const { t } = useTranslation()
   const roads = useMapStore((s) => s.roads)
   const lanes = useMapStore((s) => s.lanes)
   const updateRoad = useMapStore((s) => s.updateRoad)
@@ -171,20 +175,22 @@ function RoadProperties({ roadId }: { roadId: string }) {
 
   const handleAutoNeighbors = async () => {
     const count = await autoComputeNeighbors(roadId)
-    setStatus(`Auto-computed ${count} neighbor pair(s) for road "${road.name}"`)
+    setStatus(t('status.autoNeighbors', { count, name: road.name }))
   }
 
   return (
     <div className="p-4 text-xs flex flex-col gap-3">
       <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-        Road
+        {t('properties.type.road')}
       </div>
       <div className="text-xs text-accent-foreground font-mono break-all bg-muted/50 px-2 py-1.5 rounded">
         {road.id}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">Name</label>
+        <label className="text-xs text-muted-foreground font-medium">
+          {t('properties.road.name')}
+        </label>
         <Input
           defaultValue={road.name}
           key={`${road.id}-name`}
@@ -192,13 +198,15 @@ function RoadProperties({ roadId }: { roadId: string }) {
             const v = e.target.value.trim()
             if (v) updateRoad({ ...road, name: v })
           }}
-          placeholder="Road name"
+          placeholder={t('properties.road.namePlaceholder')}
           className="h-7 text-xs"
         />
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-xs text-muted-foreground font-medium">Type</label>
+        <label className="text-xs text-muted-foreground font-medium">
+          {t('properties.road.type')}
+        </label>
         <Select
           value={String(road.type)}
           onValueChange={(v) => updateRoad({ ...road, type: Number(v) })}
@@ -207,15 +215,17 @@ function RoadProperties({ roadId }: { roadId: string }) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="0">UNKNOWN</SelectItem>
-            <SelectItem value="1">HIGHWAY</SelectItem>
-            <SelectItem value="2">CITY_ROAD</SelectItem>
-            <SelectItem value="3">PARK</SelectItem>
+            <SelectItem value="0">{t('properties.road.type.unknown')}</SelectItem>
+            <SelectItem value="1">{t('properties.road.type.highway')}</SelectItem>
+            <SelectItem value="2">{t('properties.road.type.cityRoad')}</SelectItem>
+            <SelectItem value="3">{t('properties.road.type.park')}</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <div className="text-xs text-muted-foreground">Lanes: {laneCount}</div>
+      <div className="text-xs text-muted-foreground">
+        {t('properties.road.lanes', { count: laneCount })}
+      </div>
 
       <Button
         variant="outline"
@@ -224,7 +234,7 @@ function RoadProperties({ roadId }: { roadId: string }) {
         onClick={handleAutoNeighbors}
         disabled={laneCount < 2}
       >
-        Auto-Compute Neighbors
+        {t('properties.road.autoNeighbors')}
       </Button>
       <Button
         variant="destructive"
@@ -235,7 +245,7 @@ function RoadProperties({ roadId }: { roadId: string }) {
           setSelected([])
         }}
       >
-        Delete Road
+        {t('properties.road.deleteRoad')}
       </Button>
     </div>
   )
