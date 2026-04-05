@@ -90,7 +90,7 @@ export const useUIStore = create<UIState>((set) => ({
     parkingSpaces: true,
     connections: true,
   },
-  statusMessage: 'Ready',
+  statusMessage: '',
   fitBoundsCounter: 0,
   flyToTarget: null,
   flyToCounter: 0,
