@@ -5,6 +5,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { Feature } from 'geojson'
 import { useMapStore } from '../../store/mapStore'
 import { useUIStore, toolStateToDrawMode } from '../../store/uiStore'
+import { t } from '../../i18n/t'
 
 import {
   initSelectionManager,
@@ -211,7 +212,7 @@ export default function MapEditor() {
       if (element) {
         addElement(element)
         setSelected([element.id])
-        setStatus(`${element.type} ${element.id} created`)
+        setStatus(t('status.elementCreated', { type: element.type, id: element.id }))
         draw.delete([feature.id as string])
         // Stay in the current drawing mode so the user can draw again immediately.
         // Re-enter the mode in MapboxDraw (custom modes call changeMode('simple_select')
@@ -263,10 +264,10 @@ export default function MapEditor() {
         if (ts.kind === 'connect_lanes') {
           if (!connectFromId) {
             setConnectFromId(id)
-            setStatus(`Source: ${id}. Now click the target lane.`)
+            setStatus(t('status.connectSource', { id }))
           } else {
             if (connectFromId === id) {
-              setStatus('Cannot connect a lane to itself')
+              setStatus(t('status.cannotSelfConnect'))
               setConnectFromId(null)
               return
             }
@@ -279,7 +280,11 @@ export default function MapEditor() {
             const toStart = toLane?.centerLine.geometry.coordinates[0]
             const snapped =
               fromEnd && toStart && fromEnd[0] === toStart[0] && fromEnd[1] === toStart[1]
-            setStatus(`Connected ${connectFromId} → ${id}${snapped ? ' (endpoints snapped)' : ''}`)
+            setStatus(
+              snapped
+                ? t('status.connectedSnapped', { from: connectFromId, to: id })
+                : t('status.connected', { from: connectFromId, to: id })
+            )
             setConnectFromId(null)
           }
         } else {
