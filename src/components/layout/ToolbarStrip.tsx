@@ -12,6 +12,7 @@ import {
   Pentagon,
   PenTool,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '@/store/uiStore'
 import { useMapStore } from '@/store/mapStore'
 import { Toggle } from '@/components/ui/toggle'
@@ -20,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ShapeType, getEntriesForShape } from '@/types/shapes'
 import type { ToolState } from '@/types/editor'
 
-// --- Domain-specific icons (reused from original) ---
+// --- Domain-specific icons ---
 
 const LaneIcon = () => (
   <svg
@@ -99,26 +100,18 @@ const ELEMENT_ICONS: Record<string, React.ReactNode> = {
   lane_curve: <LaneIcon />,
 }
 
-// --- Shape definitions for the top row ---
-
-interface ShapeDef {
-  shape: ShapeType
-  label: string
-  icon: React.ReactNode
-  shortcut: string
+// i18n key mapping for element types
+const ELEMENT_TYPE_KEYS: Record<string, string> = {
+  lane: 'toolbar.element.lane',
+  signal: 'toolbar.element.signal',
+  stop_sign: 'toolbar.element.stopSign',
+  speed_bump: 'toolbar.element.speedBump',
+  crosswalk: 'toolbar.element.crosswalk',
+  parking_space: 'toolbar.element.parking',
+  junction: 'toolbar.element.junction',
+  clear_area: 'toolbar.element.clearArea',
+  lane_curve: 'toolbar.element.laneCurve',
 }
-
-const SHAPE_DEFS: ShapeDef[] = [
-  { shape: ShapeType.Polyline, label: 'Polyline', icon: <Spline size={16} />, shortcut: '1' },
-  {
-    shape: ShapeType.RotatableRect,
-    label: 'Rectangle',
-    icon: <RectangleHorizontal size={16} />,
-    shortcut: '2',
-  },
-  { shape: ShapeType.Polygon, label: 'Polygon', icon: <Pentagon size={16} />, shortcut: '3' },
-  { shape: ShapeType.Curve, label: 'Curve', icon: <PenTool size={16} />, shortcut: '4' },
-]
 
 // --- Helpers ---
 
@@ -135,13 +128,40 @@ function getActiveElementType(ts: ToolState): string | null {
 // --- Component ---
 
 export default function ToolbarStrip() {
+  const { t } = useTranslation()
   const { toolState, setToolState, startDrawing, selectShape } = useUIStore()
 
   const activeShape = getActiveShape(toolState)
   const activeElementType = getActiveElementType(toolState)
 
-  // Get element entries for the currently active shape
   const elementEntries = activeShape ? getEntriesForShape(activeShape) : []
+
+  const SHAPE_DEFS = [
+    {
+      shape: ShapeType.Polyline,
+      label: t('toolbar.shape.polyline'),
+      icon: <Spline size={16} />,
+      shortcut: '1',
+    },
+    {
+      shape: ShapeType.RotatableRect,
+      label: t('toolbar.shape.rectangle'),
+      icon: <RectangleHorizontal size={16} />,
+      shortcut: '2',
+    },
+    {
+      shape: ShapeType.Polygon,
+      label: t('toolbar.shape.polygon'),
+      icon: <Pentagon size={16} />,
+      shortcut: '3',
+    },
+    {
+      shape: ShapeType.Curve,
+      label: t('toolbar.shape.curve'),
+      icon: <PenTool size={16} />,
+      shortcut: '4',
+    },
+  ]
 
   const handleUndo = () => {
     const temporal = (
@@ -172,11 +192,11 @@ export default function ToolbarStrip() {
                 className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
               >
                 <MousePointer size={16} />
-                <span className="hidden lg:inline">Select</span>
+                <span className="hidden lg:inline">{t('toolbar.select')}</span>
               </Toggle>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Select <span className="text-muted-foreground">(S)</span>
+              {t('toolbar.select')} <span className="text-muted-foreground">(S)</span>
             </TooltipContent>
           </Tooltip>
 
@@ -214,11 +234,11 @@ export default function ToolbarStrip() {
                 className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
               >
                 <Link2 size={16} />
-                <span className="hidden lg:inline">Connect</span>
+                <span className="hidden lg:inline">{t('toolbar.connect')}</span>
               </Toggle>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Connect Lanes <span className="text-muted-foreground">(C)</span>
+              {t('toolbar.connectLanes')} <span className="text-muted-foreground">(C)</span>
             </TooltipContent>
           </Tooltip>
 
@@ -234,11 +254,11 @@ export default function ToolbarStrip() {
                 className="h-7 px-2 gap-1.5 text-xs shrink-0"
               >
                 <RotateCcw size={14} />
-                <span className="hidden lg:inline">Undo</span>
+                <span className="hidden lg:inline">{t('toolbar.undo')}</span>
               </Toggle>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Undo <span className="text-muted-foreground">(Ctrl+Z)</span>
+              {t('toolbar.undo')} <span className="text-muted-foreground">(Ctrl+Z)</span>
             </TooltipContent>
           </Tooltip>
 
@@ -251,11 +271,11 @@ export default function ToolbarStrip() {
                 className="h-7 px-2 gap-1.5 text-xs shrink-0"
               >
                 <RotateCw size={14} />
-                <span className="hidden lg:inline">Redo</span>
+                <span className="hidden lg:inline">{t('toolbar.redo')}</span>
               </Toggle>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              Redo <span className="text-muted-foreground">(Ctrl+Y)</span>
+              {t('toolbar.redo')} <span className="text-muted-foreground">(Ctrl+Y)</span>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -263,29 +283,34 @@ export default function ToolbarStrip() {
         {/* Bottom row: element types for current shape */}
         {elementEntries.length > 0 && (
           <div className="flex h-9 items-center px-2 gap-0.5 border-t border-border/50 overflow-x-auto">
-            {elementEntries.map((entry) => (
-              <Tooltip key={`${entry.shape}-${entry.elementType}`}>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    pressed={activeElementType === entry.elementType}
-                    onPressedChange={() =>
-                      startDrawing({ shape: entry.shape, elementType: entry.elementType })
-                    }
-                    className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
-                  >
-                    {ELEMENT_ICONS[entry.icon] ?? null}
-                    <span>{entry.label}</span>
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-xs">
-                  {entry.label}
-                  {entry.shortcut && (
-                    <span className="ml-2 text-muted-foreground">({entry.shortcut})</span>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            ))}
+            {elementEntries.map((entry) => {
+              const label = t(ELEMENT_TYPE_KEYS[entry.elementType] ?? entry.elementType, {
+                defaultValue: entry.label,
+              })
+              return (
+                <Tooltip key={`${entry.shape}-${entry.elementType}`}>
+                  <TooltipTrigger asChild>
+                    <Toggle
+                      size="sm"
+                      pressed={activeElementType === entry.elementType}
+                      onPressedChange={() =>
+                        startDrawing({ shape: entry.shape, elementType: entry.elementType })
+                      }
+                      className="h-7 px-2 gap-1.5 text-xs data-[state=on]:bg-primary/20 data-[state=on]:text-primary shrink-0"
+                    >
+                      {ELEMENT_ICONS[entry.icon] ?? null}
+                      <span>{label}</span>
+                    </Toggle>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {label}
+                    {entry.shortcut && (
+                      <span className="ml-2 text-muted-foreground">({entry.shortcut})</span>
+                    )}
+                  </TooltipContent>
+                </Tooltip>
+              )
+            })}
           </div>
         )}
       </div>
