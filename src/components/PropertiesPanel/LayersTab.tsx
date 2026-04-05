@@ -1,21 +1,23 @@
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '@/store/uiStore'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 
 const LAYER_GROUPS = [
-  { key: 'lanes', label: 'Lanes', color: '#4fc3f7' },
-  { key: 'boundaries', label: 'Boundaries', color: '#81c784' },
-  { key: 'junctions', label: 'Junctions', color: '#ffb74d' },
-  { key: 'signals', label: 'Signals', color: '#e57373' },
-  { key: 'crosswalks', label: 'Crosswalks', color: '#ba68c8' },
-  { key: 'stopSigns', label: 'Stop Signs', color: '#ff8a65' },
-  { key: 'clearAreas', label: 'Clear Areas', color: '#fff176' },
-  { key: 'speedBumps', label: 'Speed Bumps', color: '#a1887f' },
-  { key: 'parkingSpaces', label: 'Parking Spaces', color: '#90a4ae' },
-  { key: 'connections', label: 'Connections', color: '#007acc' },
+  { key: 'lanes', labelKey: 'layers.lanes', color: '#4fc3f7' },
+  { key: 'boundaries', labelKey: 'layers.boundaries', color: '#81c784' },
+  { key: 'junctions', labelKey: 'layers.junctions', color: '#ffb74d' },
+  { key: 'signals', labelKey: 'layers.signals', color: '#e57373' },
+  { key: 'crosswalks', labelKey: 'layers.crosswalks', color: '#ba68c8' },
+  { key: 'stopSigns', labelKey: 'layers.stopSigns', color: '#ff8a65' },
+  { key: 'clearAreas', labelKey: 'layers.clearAreas', color: '#fff176' },
+  { key: 'speedBumps', labelKey: 'layers.speedBumps', color: '#a1887f' },
+  { key: 'parkingSpaces', labelKey: 'layers.parkingSpaces', color: '#90a4ae' },
+  { key: 'connections', labelKey: 'layers.connections', color: '#007acc' },
 ]
 
 export default function LayersTab() {
+  const { t } = useTranslation()
   const { layerVisibility, toggleLayer, setLayerVisible } = useUIStore()
 
   const allVisible = LAYER_GROUPS.every((l) => layerVisibility[l.key] !== false)
@@ -34,7 +36,7 @@ export default function LayersTab() {
           onClick={showAll}
           disabled={allVisible}
         >
-          Show All
+          {t('layers.showAll')}
         </Button>
         <Button
           variant="outline"
@@ -43,7 +45,7 @@ export default function LayersTab() {
           onClick={hideAll}
           disabled={noneVisible}
         >
-          Hide All
+          {t('layers.hideAll')}
         </Button>
       </div>
 
@@ -60,7 +62,7 @@ export default function LayersTab() {
                 className="w-2.5 h-2.5 rounded-full shrink-0"
                 style={{ background: visible ? layer.color : '#555' }}
               />
-              <span className="text-xs text-foreground">{layer.label}</span>
+              <span className="text-xs text-foreground">{t(layer.labelKey)}</span>
             </div>
             <Switch
               checked={visible}
