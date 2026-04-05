@@ -1,5 +1,6 @@
 import { useState, useMemo, useDeferredValue, memo, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Search } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useMapStore } from '@/store/mapStore'
 import { useShallow } from 'zustand/react/shallow'
 import { useUIStore } from '@/store/uiStore'
@@ -20,16 +21,16 @@ type StoreKeys =
   | 'speedBumps'
   | 'parkingSpaces'
 
-const ELEMENT_GROUPS: { storeKey: StoreKeys; label: string; color: string }[] = [
-  { storeKey: 'roads', label: 'Roads', color: '#81c784' },
-  { storeKey: 'lanes', label: 'Lanes', color: '#4fc3f7' },
-  { storeKey: 'junctions', label: 'Junctions', color: '#ffb74d' },
-  { storeKey: 'signals', label: 'Signals', color: '#e57373' },
-  { storeKey: 'stopSigns', label: 'Stop Signs', color: '#ff8a65' },
-  { storeKey: 'crosswalks', label: 'Crosswalks', color: '#ba68c8' },
-  { storeKey: 'clearAreas', label: 'Clear Areas', color: '#fff176' },
-  { storeKey: 'speedBumps', label: 'Speed Bumps', color: '#a1887f' },
-  { storeKey: 'parkingSpaces', label: 'Parking', color: '#90a4ae' },
+const ELEMENT_GROUPS: { storeKey: StoreKeys; labelKey: string; color: string }[] = [
+  { storeKey: 'roads', labelKey: 'elements.roads', color: '#81c784' },
+  { storeKey: 'lanes', labelKey: 'elements.lanes', color: '#4fc3f7' },
+  { storeKey: 'junctions', labelKey: 'elements.junctions', color: '#ffb74d' },
+  { storeKey: 'signals', labelKey: 'elements.signals', color: '#e57373' },
+  { storeKey: 'stopSigns', labelKey: 'elements.stopSigns', color: '#ff8a65' },
+  { storeKey: 'crosswalks', labelKey: 'elements.crosswalks', color: '#ba68c8' },
+  { storeKey: 'clearAreas', labelKey: 'elements.clearAreas', color: '#fff176' },
+  { storeKey: 'speedBumps', labelKey: 'elements.speedBumps', color: '#a1887f' },
+  { storeKey: 'parkingSpaces', labelKey: 'elements.parking', color: '#90a4ae' },
 ]
 
 const MAX_VISIBLE = 200
@@ -109,6 +110,7 @@ const ElementItem = memo(function ElementItem({
 })
 
 export default function ElementListPanel() {
+  const { t } = useTranslation()
   const storeData = useMapStore(useShallow(selectElementCounts))
   const { lanes } = storeData
 
@@ -202,7 +204,7 @@ export default function ElementListPanel() {
             className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
           <Input
-            placeholder="Search elements..."
+            placeholder={t('elementList.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="h-7 text-xs pl-7"
@@ -245,7 +247,7 @@ export default function ElementListPanel() {
                   style={{ background: group.color }}
                 />
                 <span className="text-[11px] font-semibold text-accent-foreground flex-1">
-                  {group.label}
+                  {t(group.labelKey)}
                 </span>
                 <Badge variant="secondary" className="h-4 px-1.5 text-[10px] font-normal">
                   {count}
@@ -255,7 +257,7 @@ export default function ElementListPanel() {
               <CollapsibleContent>
                 {!elements || count === 0 ? (
                   <div className="px-7 py-2 text-[10px] text-muted-foreground italic">
-                    No matches
+                    {t('elementList.noMatches')}
                   </div>
                 ) : (
                   <>
@@ -272,7 +274,7 @@ export default function ElementListPanel() {
                         onClick={() => handleShowAll(group.storeKey)}
                         className="px-7 py-1.5 text-[10px] text-primary hover:text-primary/80 cursor-pointer bg-transparent border-none text-left w-full"
                       >
-                        Show {hiddenCount} more...
+                        {t('elementList.showMore', { count: hiddenCount })}
                       </button>
                     )}
                   </>

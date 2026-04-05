@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMapStore } from '@/store/mapStore'
 import { useUIStore } from '@/store/uiStore'
 
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export default function MapContextMenu({ menu, onClose }: Props) {
+  const { t } = useTranslation()
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,7 +53,7 @@ export default function MapContextMenu({ menu, onClose }: Props) {
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(menu.elementId)
-    useUIStore.getState().setStatus(`Copied: ${menu.elementId}`)
+    useUIStore.getState().setStatus(t('status.copiedId', { id: menu.elementId }))
     onClose()
   }
 
@@ -82,13 +84,13 @@ export default function MapContextMenu({ menu, onClose }: Props) {
         {menu.elementType.replace('_', ' ')}
       </div>
       <div className="h-px bg-border my-0.5" />
-      <MenuItem onClick={handleSelect}>Select</MenuItem>
-      <MenuItem onClick={handleZoomTo}>Zoom to Element</MenuItem>
-      {hasBezier && <MenuItem onClick={handleEditCurve}>Edit Curve</MenuItem>}
-      <MenuItem onClick={handleCopyId}>Copy ID</MenuItem>
+      <MenuItem onClick={handleSelect}>{t('contextmenu.select')}</MenuItem>
+      <MenuItem onClick={handleZoomTo}>{t('contextmenu.zoomTo')}</MenuItem>
+      {hasBezier && <MenuItem onClick={handleEditCurve}>{t('contextmenu.editCurve')}</MenuItem>}
+      <MenuItem onClick={handleCopyId}>{t('contextmenu.copyId')}</MenuItem>
       <div className="h-px bg-border my-0.5" />
       <MenuItem onClick={handleDelete} destructive>
-        Delete
+        {t('contextmenu.delete')}
       </MenuItem>
     </div>
   )

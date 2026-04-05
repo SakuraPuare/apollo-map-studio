@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from './store/uiStore'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable'
@@ -85,6 +86,7 @@ function useGlobalFileDrop() {
 }
 
 export default function App() {
+  const { t } = useTranslation()
   const {
     showNewProjectDialog,
     showExportDialog,
@@ -163,8 +165,10 @@ export default function App() {
       {dragOver && (
         <div className="absolute inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
           <div className="border-2 border-dashed border-primary rounded-xl p-12 text-center">
-            <div className="text-lg font-medium text-primary">Drop map file to import</div>
-            <div className="text-sm text-muted-foreground mt-1">.bin or .txt</div>
+            <div className="text-lg font-medium text-primary">{t('app.dropOverlay.title')}</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              {t('app.dropOverlay.subtitle')}
+            </div>
           </div>
         </div>
       )}
