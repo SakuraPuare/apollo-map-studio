@@ -47,14 +47,22 @@ interface BezierState {
   /** Whether Alt key is held during drag (break symmetry mode). */
   altDrag: boolean
 
-  /** Timestamp of last mouseUp, for double-click detection. */
+  /** Timestamp of last click (onClick), for double-click detection. */
   lastMouseUpTime: number
 
-  /** Screen position of last mouseUp, for double-click detection. */
+  /** Screen position of last click (onClick), for double-click detection. */
   lastMouseUpScreenPt: { x: number; y: number } | null
 
   /** Whether Alt key is currently held. */
   altKey: boolean
+
+  /** Placeholder feature kept in draw store so toDisplayFeatures is called on every render. */
+  placeholder: PlaceholderFeature | null
+}
+
+interface PlaceholderFeature {
+  id: string
+  changed: () => void
 }
 
 type DrawContext = {
@@ -64,6 +72,9 @@ type DrawContext = {
   }
   changeMode: (mode: string) => void
   updateUIClasses?: (opts?: { mouse?: string }) => void
+  newFeature: (geojson: object) => PlaceholderFeature
+  addFeature: (feature: PlaceholderFeature) => void
+  deleteFeature: (ids: string[]) => void
 }
 
 function screenDist(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -89,6 +100,12 @@ function buildPreviewSegment(lastAnchor: BezierAnchor, cursorPos: Position): Pos
 const DrawBezierMode = {
   onSetup(this: DrawContext): BezierState {
     this.updateUIClasses?.({ mouse: 'add' })
+    const placeholder = this.newFeature({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [] },
+    })
+    this.addFeature(placeholder)
     return {
       anchors: [],
       currentPos: null,
@@ -100,17 +117,47 @@ const DrawBezierMode = {
       lastMouseUpTime: 0,
       lastMouseUpScreenPt: null,
       altKey: false,
+      placeholder,
     }
   },
 
   /**
-   * No-op: we handle all click logic via onMouseDown / onMouseUp
-   * to distinguish click vs drag. Defining onClick prevents MapboxDraw
-   * default click handling.
+   * MapboxDraw calls onClick for simple clicks and onMouseUp ONLY for drags.
+   * Anchor confirmation for non-drag clicks must happen here.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onClick(state: BezierState, e: unknown) {
-    // intentionally empty — click logic is handled via onMouseDown/onMouseUp
+  onClick(
+    this: DrawContext,
+    state: BezierState,
+    e: { lngLat: { lng: number; lat: number }; originalEvent: MouseEvent }
+  ) {
+    const screenPt = this.map.project(e.lngLat)
+    const now = Date.now()
+
+    // Double-click: finish drawing. The second mouseDown already pushed a duplicate
+    // anchor — pop it before finishing.
+    if (
+      state.lastMouseUpScreenPt &&
+      now - state.lastMouseUpTime < DOUBLE_CLICK_MS &&
+      screenDist(screenPt, state.lastMouseUpScreenPt) < DOUBLE_CLICK_PX
+    ) {
+      if (state.hasPendingAnchor && state.anchors.length > 1) {
+        state.anchors.pop()
+      }
+      finishDrawing.call(this, state)
+      state.mouseDownScreenPt = null
+      state.lastMouseUpTime = 0
+      state.lastMouseUpScreenPt = null
+      return
+    }
+
+    // Single click: anchor was already pushed in onMouseDown with null handles. Confirm it.
+    state.lastMouseUpTime = now
+    state.lastMouseUpScreenPt = { x: screenPt.x, y: screenPt.y }
+    state.mouseDownScreenPt = null
+    state.mouseDownGeoPos = null
+    state.isDragging = false
+    state.hasPendingAnchor = false
+    state.altDrag = false
   },
 
   onMouseDown(
@@ -150,6 +197,7 @@ const DrawBezierMode = {
   ) {
     const geoPos: Position = [e.lngLat.lng, e.lngLat.lat]
     state.currentPos = geoPos
+    state.placeholder?.changed()
 
     // If mouse button is not pressed (no mouseDownScreenPt), this is just a hover preview
     if (!state.mouseDownScreenPt) return
@@ -185,44 +233,11 @@ const DrawBezierMode = {
     }
   },
 
-  onMouseUp(
-    this: DrawContext,
-    state: BezierState,
-    e: { lngLat: { lng: number; lat: number }; originalEvent: MouseEvent }
-  ) {
-    const screenPt = this.map.project(e.lngLat)
-    const now = Date.now()
-
-    // Double-click detection (check BEFORE processing this mouseUp)
-    if (
-      state.lastMouseUpScreenPt &&
-      now - state.lastMouseUpTime < DOUBLE_CLICK_MS &&
-      screenDist(screenPt, state.lastMouseUpScreenPt) < DOUBLE_CLICK_PX
-    ) {
-      // Double-click detected: finish drawing.
-      // The second click added a duplicate anchor — remove it.
-      if (state.hasPendingAnchor && state.anchors.length > 1) {
-        state.anchors.pop()
-      }
-      finishDrawing.call(this, state)
-      state.mouseDownScreenPt = null
-      state.lastMouseUpTime = 0
-      state.lastMouseUpScreenPt = null
-      return
-    }
-
-    state.lastMouseUpTime = now
-    state.lastMouseUpScreenPt = { x: screenPt.x, y: screenPt.y }
-
-    if (!state.isDragging && state.hasPendingAnchor) {
-      // Click (no drag): confirm as corner anchor (handles stay null)
-      // Already pushed in onMouseDown with null handles — nothing more to do
-    }
-
-    // If it was a drag, the handles were already set during onMouseMove.
-    // If it was an alt-drag, symmetry was already broken during onMouseMove.
-
-    // Reset mouse state
+  /**
+   * MapboxDraw only calls onMouseUp for drags (not simple clicks — those go to onClick).
+   * Handles were already set during onMouseMove; just reset mouse tracking state.
+   */
+  onMouseUp(state: BezierState) {
     state.mouseDownScreenPt = null
     state.mouseDownGeoPos = null
     state.isDragging = false
@@ -266,7 +281,17 @@ const DrawBezierMode = {
     }
   },
 
-  toDisplayFeatures(state: BezierState, _geojson: unknown, display: (feature: unknown) => void) {
+  toDisplayFeatures(
+    state: BezierState,
+    geojson: { properties?: { id?: string } },
+    display: (feature: unknown) => void
+  ) {
+    // Only handle our placeholder feature; pass everything else through unchanged.
+    if (!state.placeholder || geojson.properties?.id !== state.placeholder.id) {
+      display(geojson)
+      return
+    }
+
     const { anchors, currentPos } = state
 
     // --- Curve body: flattened bezier through all confirmed anchors ---
@@ -341,8 +366,11 @@ const DrawBezierMode = {
     }
   },
 
-  onStop() {
-    // cleanup
+  onStop(this: DrawContext, state: BezierState) {
+    if (state.placeholder) {
+      this.deleteFeature([state.placeholder.id])
+      state.placeholder = null
+    }
   },
 
   onTrash(this: DrawContext) {
