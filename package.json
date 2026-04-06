@@ -76,7 +76,7 @@
     "@eslint/js": "^9.0.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/mapbox__mapbox-gl-draw": "^1.4.9",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.5.2",
     "@types/rbush": "^4.0.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
