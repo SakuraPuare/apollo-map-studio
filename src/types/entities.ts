@@ -5,12 +5,46 @@ export interface PointENU {
   z?: number;
 }
 
-/** 多段线实体 (MVP) */
+/** 贝塞尔锚点（存储用） */
+export interface BezierAnchorData {
+  point: PointENU;
+  handleIn: PointENU | null;
+  handleOut: PointENU | null;
+}
+
+/** 多段线实体 */
 export interface PolylineEntity {
   id: string;
   entityType: 'polyline';
   points: PointENU[];
 }
 
+/** Catmull-Rom 样条实体 */
+export interface CatmullRomEntity {
+  id: string;
+  entityType: 'catmullRom';
+  points: PointENU[];
+}
+
+/** 贝塞尔曲线实体 */
+export interface BezierEntity {
+  id: string;
+  entityType: 'bezier';
+  anchors: BezierAnchorData[];
+}
+
+/** 圆弧实体（三点定弧） */
+export interface ArcEntity {
+  id: string;
+  entityType: 'arc';
+  start: PointENU;
+  mid: PointENU;
+  end: PointENU;
+}
+
 /** 所有可编辑实体的联合类型 */
-export type MapEntity = PolylineEntity;
+export type MapEntity =
+  | PolylineEntity
+  | CatmullRomEntity
+  | BezierEntity
+  | ArcEntity;
