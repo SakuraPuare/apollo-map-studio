@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { editorMachine, type DrawTool, isDrawingState } from '@/core/fsm/editorMachine';
 import { MapCanvas } from '@/components/map/MapCanvas';
-import { useMapStore } from '@/store/mapStore';
+import { useMapStore, useSettingsStore, MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from '@/store/mapStore';
 
 const TOOLS: { tool: DrawTool; label: string; activeLabel: string; color: string }[] = [
   { tool: 'drawPolyline', label: '多段线', activeLabel: '多段线绘制中', color: 'bg-cyan-500' },
@@ -28,6 +28,11 @@ export default function App() {
   const actorRef = useActorRef(editorMachine);
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const entityCount = useMapStore((s) => s.entities.size);
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const historyLimit = useSettingsStore((s) => s.historyLimit);
+  const setHistoryLimit = useSettingsStore((s) => s.setHistoryLimit);
+  const [draft, setDraft] = useState(String(historyLimit));
 
   const isDrawing = isDrawingState(currentState);
 
@@ -73,6 +78,47 @@ export default function App() {
           ? HINTS[currentState]
           : `已绘制 ${entityCount} 条曲线 | 点击曲线选中编辑`}
       </div>
+
+      {/* 设置按钮 */}
+      <button
+        onClick={() => setSettingsOpen((v) => !v)}
+        className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded bg-white/10 text-white hover:bg-white/20 transition-colors text-sm"
+        title="设置"
+      >
+        ⚙
+      </button>
+
+      {/* 设置面板 */}
+      {settingsOpen && (
+        <div className="absolute top-14 right-4 w-64 rounded-lg bg-gray-900/95 border border-white/10 p-4 text-white text-sm shadow-lg">
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-medium">设置</span>
+            <button onClick={() => setSettingsOpen(false)} className="text-white/50 hover:text-white">✕</button>
+          </div>
+          <label className="block mb-1 text-white/70 text-xs">撤销/重做历史条数</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={MIN_HISTORY_LIMIT}
+              max={MAX_HISTORY_LIMIT}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => {
+                const n = Number(draft);
+                if (Number.isFinite(n)) {
+                  setHistoryLimit(n);
+                  setDraft(String(Math.max(MIN_HISTORY_LIMIT, Math.min(MAX_HISTORY_LIMIT, Math.round(n)))));
+                } else {
+                  setDraft(String(historyLimit));
+                }
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              className="w-full px-2 py-1 rounded bg-white/10 border border-white/20 text-white text-sm outline-none focus:border-cyan-400"
+            />
+          </div>
+          <p className="mt-1.5 text-white/40 text-xs">范围 {MIN_HISTORY_LIMIT}–{MAX_HISTORY_LIMIT}，修改后刷新页面生效</p>
+        </div>
+      )}
     </div>
   );
 }
