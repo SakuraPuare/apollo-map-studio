@@ -1,5 +1,5 @@
 import { useActorRef, useSelector } from '@xstate/react';
-import { editorMachine, type DrawTool } from '@/core/fsm/editorMachine';
+import { editorMachine, type DrawTool, isDrawingState } from '@/core/fsm/editorMachine';
 import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore } from '@/store/mapStore';
 
@@ -24,7 +24,7 @@ export default function App() {
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const entityCount = useMapStore((s) => s.entities.size);
 
-  const isDrawing = currentState !== 'idle' && currentState !== 'selected' && currentState !== 'editingPoint';
+  const isDrawing = isDrawingState(currentState);
 
   return (
     <div className="relative w-full h-full">

@@ -1,24 +1,40 @@
 import { setup, assign } from 'xstate';
-import type { BezierAnchor } from '@/core/geometry/interpolate';
-
-type LngLat = [number, number];
+import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
+import { mirrorPoint } from '@/core/geometry/interpolate';
 
 export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc';
 export type DragPointType = 'vertex' | 'handleIn' | 'handleOut';
 
+const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc'];
+
+/** 判断 FSM state value 是否为绘制状态 */
+export function isDrawingState(state: string): boolean {
+  return DRAW_STATES.includes(state);
+}
+
+/** SELECT_TOOL 转换（idle 用，无需 deselectEntity） */
+const selectToolTransitions = [
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawPolyline', target: 'drawPolyline' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawCatmullRom', target: 'drawCatmullRom' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawBezier', target: 'drawBezier' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawArc', target: 'drawArc' as const, actions: ['resetDraw'] as const },
+];
+
+/** SELECT_TOOL 转换（selected 用，需先 deselectEntity） */
+const selectToolFromSelected = selectToolTransitions.map((t) => ({
+  ...t,
+  actions: ['deselectEntity', ...t.actions] as const,
+}));
+
 export interface EditorContext {
-  // 绘制相关
   drawPoints: LngLat[];
   previewPoint: LngLat | null;
   bezierAnchors: BezierAnchor[];
   isDraggingHandle: boolean;
-  activeTool: DrawTool | null;
-  // 选中 + 编辑相关
   selectedEntityId: string | null;
   dragPointIndex: number;
   dragPointType: DragPointType;
   dragCurrentPoint: LngLat | null;
-  /** Alt 拖拽控制柄时打破对称（cusp 模式） */
   dragAltKey: boolean;
 }
 
@@ -79,7 +95,7 @@ const bezierDragHandle = assign<EditorContext, EditorEvent>({
     const last = { ...anchors[anchors.length - 1] };
     const pt = last.point;
     last.handleOut = event.point;
-    last.handleIn = [2 * pt[0] - event.point[0], 2 * pt[1] - event.point[1]];
+    last.handleIn = mirrorPoint(pt, event.point);
     anchors[anchors.length - 1] = last;
     return anchors;
   },
@@ -180,9 +196,6 @@ export const editorMachine = setup({
     startDrag,
     dragMove,
     removeLastPoint,
-    setTool: assign({
-      activeTool: ({ event }) => (event.type === 'SELECT_TOOL' ? event.tool : null),
-    }),
   },
 }).createMachine({
   id: 'editor',
@@ -192,7 +205,6 @@ export const editorMachine = setup({
     previewPoint: null,
     bezierAnchors: [],
     isDraggingHandle: false,
-    activeTool: null,
     selectedEntityId: null,
     dragPointIndex: -1,
     dragPointType: 'vertex' as DragPointType,
@@ -202,12 +214,7 @@ export const editorMachine = setup({
   states: {
     idle: {
       on: {
-        SELECT_TOOL: [
-          { guard: ({ event }) => event.tool === 'drawPolyline', target: 'drawPolyline', actions: ['resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawCatmullRom', target: 'drawCatmullRom', actions: ['resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawBezier', target: 'drawBezier', actions: ['resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawArc', target: 'drawArc', actions: ['resetDraw', 'setTool'] },
-        ],
+        SELECT_TOOL: selectToolTransitions,
         SELECT_ENTITY: {
           target: 'selected',
           actions: 'selectEntity',
@@ -234,12 +241,7 @@ export const editorMachine = setup({
           target: 'selected',
           actions: 'selectEntity',
         },
-        SELECT_TOOL: [
-          { guard: ({ event }) => event.tool === 'drawPolyline', target: 'drawPolyline', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawCatmullRom', target: 'drawCatmullRom', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawBezier', target: 'drawBezier', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
-          { guard: ({ event }) => event.tool === 'drawArc', target: 'drawArc', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
-        ],
+        SELECT_TOOL: selectToolFromSelected,
         CANCEL: {
           target: 'idle',
           actions: 'deselectEntity',

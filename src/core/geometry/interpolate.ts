@@ -5,13 +5,18 @@
  * - 三点圆弧：经过三点的圆弧插值
  */
 
-type LngLat = [number, number];
+export type LngLat = [number, number];
 
 /** 贝塞尔锚点：位置 + 入/出控制柄 */
 export interface BezierAnchor {
   point: LngLat;
-  handleIn: LngLat | null;   // 入方向控制柄（绝对坐标）
-  handleOut: LngLat | null;  // 出方向控制柄（绝对坐标）
+  handleIn: LngLat | null;
+  handleOut: LngLat | null;
+}
+
+/** 以 pivot 为中心镜像 pt */
+export function mirrorPoint(pivot: LngLat, pt: LngLat): LngLat {
+  return [2 * pivot[0] - pt[0], 2 * pivot[1] - pt[1]];
 }
 
 // ─── Catmull-Rom ────────────────────────────────────────────
