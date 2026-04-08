@@ -19,6 +19,65 @@ export function mirrorPoint(pivot: LngLat, pt: LngLat): LngLat {
   return [2 * pivot[0] - pt[0], 2 * pivot[1] - pt[1]];
 }
 
+// ─── 线段相交检测 ──────────────────────────────────────────
+
+/** 判断两条线段 (a1→a2) 和 (b1→b2) 是否严格相交（不含端点重合） */
+export function segmentsIntersect(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat): boolean {
+  const d1 = cross(a1, a2, b1);
+  const d2 = cross(a1, a2, b2);
+  const d3 = cross(b1, b2, a1);
+  const d4 = cross(b1, b2, a2);
+
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return true;
+  }
+  return false;
+}
+
+function cross(o: LngLat, a: LngLat, b: LngLat): number {
+  return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+}
+
+/** 检查多边形是否自交（将 newPt 加入 points 后形成的新边是否与已有边相交） */
+export function wouldSelfIntersect(points: LngLat[], newPt: LngLat): boolean {
+  const n = points.length;
+  if (n < 2) return false;
+
+  // 新增的边：points[n-1] → newPt
+  const edgeStart = points[n - 1];
+  const edgeEnd = newPt;
+
+  // 检查与所有已有边（除了相邻的最后一条边 points[n-2]→points[n-1]）
+  for (let i = 0; i < n - 2; i++) {
+    if (segmentsIntersect(edgeStart, edgeEnd, points[i], points[i + 1])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** 检查闭合多边形是否自交（闭合边 points[n-1]→points[0] 与其他边） */
+export function polygonSelfIntersects(points: LngLat[]): boolean {
+  const n = points.length;
+  if (n < 4) return false;
+
+  for (let i = 0; i < n; i++) {
+    const a1 = points[i];
+    const a2 = points[(i + 1) % n];
+    // 检查与非相邻边
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // 首尾相邻
+      const b1 = points[j];
+      const b2 = points[(j + 1) % n];
+      if (segmentsIntersect(a1, a2, b1, b2)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ─── Catmull-Rom ────────────────────────────────────────────
 
 /**
@@ -212,4 +271,71 @@ function normalizeAngle(a: number): number {
   while (a > Math.PI) a -= 2 * Math.PI;
   while (a < -Math.PI) a += 2 * Math.PI;
   return a;
+}
+
+// ─── 可旋转矩形 ────────────────────────────────────────────
+
+/**
+ * 两对角点 + 旋转角度 → 4 个角点（闭合 5 点）
+ * 先算轴对齐矩形的 4 角，再绕中心旋转
+ * 使用简易等距投影修正经纬度变形
+ */
+export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[] {
+  const refLat = (p1[1] + p2[1]) / 2;
+  const cosLat = Math.cos(refLat * Math.PI / 180);
+
+  // 投影到近似等距空间
+  const x1 = p1[0] * cosLat, y1 = p1[1];
+  const x2 = p2[0] * cosLat, y2 = p2[1];
+
+  // 中心
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+
+  // 轴对齐的 4 角（投影空间）
+  const raw: [number, number][] = [
+    [x1, y1], [x2, y1], [x2, y2], [x1, y2],
+  ];
+
+  // 绕中心旋转（取负使视觉上顺时针为正方向）
+  const cosR = Math.cos(-rotation);
+  const sinR = Math.sin(-rotation);
+
+  const corners: LngLat[] = raw.map(([x, y]) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    const rx = cx + dx * cosR - dy * sinR;
+    const ry = cy + dx * sinR + dy * cosR;
+    return [rx / cosLat, ry] as LngLat;
+  });
+
+  corners.push(corners[0]); // 闭合
+  return corners;
+}
+
+/**
+ * 矩形旋转手柄位置：中心上方偏移一段距离
+ */
+export function rectRotateHandle(p1: LngLat, p2: LngLat, rotation: number): LngLat {
+  const refLat = (p1[1] + p2[1]) / 2;
+  const cosLat = Math.cos(refLat * Math.PI / 180);
+
+  const x1 = p1[0] * cosLat, y1 = p1[1];
+  const x2 = p2[0] * cosLat, y2 = p2[1];
+
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+
+  // 手柄在矩形上边中点再往外延伸一段
+  const halfH = Math.abs(y2 - y1) / 2;
+  const offset = halfH + Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1)) * 0.18;
+
+  // 旋转后的位置（与 rectCorners 一致，取负）
+  const cosR = Math.cos(-rotation);
+  const sinR = Math.sin(-rotation);
+  // 初始手柄在 +Y 方向（上方），偏移 (0, offset)
+  const hx = cx + 0 * cosR - offset * sinR;
+  const hy = cy + 0 * sinR + offset * cosR;
+
+  return [hx / cosLat, hy];
 }

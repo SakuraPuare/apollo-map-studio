@@ -7,10 +7,10 @@ import type { editorMachine, DragPointType } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 import type { ActorRefFrom } from 'xstate';
 import { useMapStore } from '@/store/mapStore';
-import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity } from '@/types/entities';
-import { catmullRom, cubicBezier, threePointArc, type BezierAnchor, type LngLat } from '@/core/geometry/interpolate';
+import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity, RectEntity, PolygonEntity } from '@/types/entities';
+import { catmullRom, cubicBezier, threePointArc, rectCorners, type BezierAnchor, type LngLat } from '@/core/geometry/interpolate';
 import { anchorToData, anchorToRuntime } from '@/core/geometry/anchorConvert';
-import { lineFeature, pointFeature, handleLineFeature, entityToHotFeatures, entityToColdFeatures } from './geoJsonHelpers';
+import { lineFeature, pointFeature, handleLineFeature, polygonFeature, entityToHotFeatures, entityToColdFeatures } from './geoJsonHelpers';
 import { applyDrag, toggleSmooth } from './entityMutations';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
@@ -36,6 +36,8 @@ const CURVE_COLORS: Record<string, string> = {
   catmullRom: '#00ff88',
   bezier: '#ff66cc',
   arc: '#ffaa00',
+  rect: '#ff4444',
+  polygon: '#aa66ff',
 };
 
 interface MapCanvasProps {
@@ -89,6 +91,22 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
           end: { x: points[2][0], y: points[2][1] },
         };
         addEntity(entity);
+      } else if (state === 'drawRect' && points.length >= 2) {
+        const entity: RectEntity = {
+          id: `rect_${nanoid(12)}`,
+          entityType: 'rect',
+          p1: { x: points[0][0], y: points[0][1] },
+          p2: { x: points[1][0], y: points[1][1] },
+          rotation: 0,
+        };
+        addEntity(entity);
+      } else if (state === 'drawPolygon' && points.length >= 3) {
+        const entity: PolygonEntity = {
+          id: `polygon_${nanoid(12)}`,
+          entityType: 'polygon',
+          points: points.map(([x, y]) => ({ x, y })),
+        };
+        addEntity(entity);
       }
     },
     [addEntity],
@@ -128,10 +146,17 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       // cold layer
       map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
       map.addLayer({
+        id: 'cold-fill',
+        type: 'fill',
+        source: 'cold',
+        filter: ['==', '$type', 'Polygon'],
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 },
+      });
+      map.addLayer({
         id: 'cold-line',
         type: 'line',
         source: 'cold',
-        filter: ['==', '$type', 'LineString'],
+        filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
         paint: { 'line-color': ['get', 'color'], 'line-width': 2 },
       });
       map.addLayer({
@@ -150,10 +175,17 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       // hot layer
       map.addSource('hot', { type: 'geojson', data: EMPTY_FC });
       map.addLayer({
+        id: 'hot-fill',
+        type: 'fill',
+        source: 'hot',
+        filter: ['==', '$type', 'Polygon'],
+        paint: { 'fill-color': '#ff4444', 'fill-opacity': 0.12 },
+      });
+      map.addLayer({
         id: 'hot-line',
         type: 'line',
         source: 'hot',
-        filter: ['==', '$type', 'LineString'],
+        filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
         paint: {
           'line-color': ['case', ['==', ['get', 'role'], 'handleLine'], '#ffffff', '#ff4444'],
           'line-width': ['case', ['==', ['get', 'role'], 'handleLine'], 1, 2.5],
@@ -176,10 +208,17 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       // overlay layer
       map.addSource('overlay', { type: 'geojson', data: EMPTY_FC });
       map.addLayer({
+        id: 'overlay-fill',
+        type: 'fill',
+        source: 'overlay',
+        filter: ['==', '$type', 'Polygon'],
+        paint: { 'fill-color': '#ffcc00', 'fill-opacity': 0.1 },
+      });
+      map.addLayer({
         id: 'overlay-line',
         type: 'line',
         source: 'overlay',
-        filter: ['==', '$type', 'LineString'],
+        filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
         paint: { 'line-color': '#ffcc00', 'line-width': 2, 'line-dasharray': [4, 3] },
       });
       map.addLayer({
@@ -268,6 +307,14 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
           actorRef.send({ type: 'START_DRAG', index: idx, pointType: pType, altKey });
           return;
         }
+
+        // 点击填充区域内部 → 整体平移
+        const fillHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-fill'] });
+        if (fillHits.length > 0) {
+          map.dragPan.disable();
+          actorRef.send({ type: 'START_DRAG', index: -2, pointType: 'center' as DragPointType, altKey: false });
+          return;
+        }
       }
 
       if (state === 'editingPoint') return;
@@ -293,7 +340,7 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         if (hotHits.length > 0) return;
 
-        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices'] });
+        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices', 'cold-fill'] });
         if (coldHits.length > 0 && coldHits[0].properties?.id) {
           actorRef.send({ type: 'SELECT_ENTITY', id: coldHits[0].properties.id as string });
           return;
@@ -303,7 +350,7 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       }
 
       if (state === 'idle') {
-        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices'] });
+        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices', 'cold-fill'] });
         if (coldHits.length > 0 && coldHits[0].properties?.id) {
           actorRef.send({ type: 'SELECT_ENTITY', id: coldHits[0].properties.id as string });
           return;
@@ -445,6 +492,22 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       } else if (allPts.length === 2) {
         features.push(lineFeature(allPts));
       }
+    } else if (currentState === 'drawRect') {
+      const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
+      for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
+      if (allPts.length === 2) {
+        features.push(polygonFeature(rectCorners(allPts[0], allPts[1], 0)));
+      } else if (allPts.length === 1 && previewPoint) {
+        features.push(lineFeature([allPts[0], previewPoint]));
+      }
+    } else if (currentState === 'drawPolygon') {
+      const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
+      for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
+      if (allPts.length >= 3) {
+        features.push(polygonFeature(allPts));
+      } else if (allPts.length === 2) {
+        features.push(lineFeature(allPts));
+      }
     }
 
     src.setData({ type: 'FeatureCollection', features });
@@ -483,7 +546,7 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       return;
     }
 
-    const displayEntity = (isEditingPoint && dragCurrentPoint && dragPointIndex >= 0)
+    const displayEntity = (isEditingPoint && dragCurrentPoint && (dragPointIndex >= 0 || dragPointType === 'rotate' || dragPointType === 'center'))
       ? applyDrag(entity, dragPointIndex, dragPointType, dragCurrentPoint, dragAltKey)
       : entity;
 

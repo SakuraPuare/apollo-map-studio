@@ -8,6 +8,8 @@ const TOOLS: { tool: DrawTool; label: string; activeLabel: string; color: string
   // { tool: 'drawCatmullRom', label: '样条曲线', activeLabel: '样条曲线绘制中', color: 'bg-green-500' },
   { tool: 'drawBezier', label: '贝塞尔', activeLabel: '贝塞尔绘制中', color: 'bg-pink-500' },
   { tool: 'drawArc', label: '圆弧', activeLabel: '圆弧绘制中', color: 'bg-amber-500' },
+  { tool: 'drawRect', label: '矩形', activeLabel: '矩形绘制中', color: 'bg-red-500' },
+  { tool: 'drawPolygon', label: '多边形', activeLabel: '多边形绘制中', color: 'bg-purple-500' },
 ];
 
 const HINTS: Record<string, string> = {
@@ -15,6 +17,8 @@ const HINTS: Record<string, string> = {
   drawCatmullRom: '点击放置途经点 | 双击或 Enter 完成 | Esc 取消',
   drawBezier: '点击放置锚点，拖拽定义控制柄 | 双击或 Enter 完成 | Esc 取消',
   drawArc: '依次点击起点、弧上点、终点（三点自动完成） | Esc 取消',
+  drawRect: '点击对角两点绘制矩形 | 选中后拖拽旋转手柄旋转 | Esc 取消',
+  drawPolygon: '点击放置顶点 | 双击或 Enter 完成（自动闭合） | Esc 取消',
   selected: '拖拽控制点编辑 | Alt+点击锚点切换尖角/平滑 | Alt+拖拽控制柄打破对称 | Delete 删除 | Esc 取消选中',
   editingPoint: '拖拽中... 松开鼠标确认位置',
 };

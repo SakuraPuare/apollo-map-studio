@@ -1,11 +1,11 @@
 import { setup, assign } from 'xstate';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
-import { mirrorPoint } from '@/core/geometry/interpolate';
+import { mirrorPoint, wouldSelfIntersect, polygonSelfIntersects } from '@/core/geometry/interpolate';
 
-export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc';
-export type DragPointType = 'vertex' | 'handleIn' | 'handleOut';
+export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRect' | 'drawPolygon';
+export type DragPointType = 'vertex' | 'handleIn' | 'handleOut' | 'rotate' | 'center';
 
-const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc'];
+const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc', 'drawRect', 'drawPolygon'];
 
 /** 判断 FSM state value 是否为绘制状态 */
 export function isDrawingState(state: string): boolean {
@@ -18,6 +18,8 @@ const selectToolTransitions = [
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawCatmullRom', target: 'drawCatmullRom' as const, actions: ['resetDraw'] as const },
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawBezier', target: 'drawBezier' as const, actions: ['resetDraw'] as const },
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawArc', target: 'drawArc' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawRect', target: 'drawRect' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawPolygon', target: 'drawPolygon' as const, actions: ['resetDraw'] as const },
 ];
 
 /** SELECT_TOOL 转换（selected 用，需先 deselectEntity） */
@@ -303,6 +305,48 @@ export const editorMachine = setup({
           { actions: 'addPoint' },
         ],
         MOUSE_MOVE: { actions: 'updatePreview' },
+        CANCEL: { target: 'idle', actions: 'resetDraw' },
+      },
+    },
+
+    drawRect: {
+      on: {
+        MOUSE_DOWN: [
+          // 第2点：完成矩形
+          { guard: ({ context }) => context.drawPoints.length === 1, target: 'idle', actions: 'addPoint' },
+          { actions: 'addPoint' },
+        ],
+        MOUSE_MOVE: { actions: 'updatePreview' },
+        CANCEL: { target: 'idle', actions: 'resetDraw' },
+      },
+    },
+
+    drawPolygon: {
+      on: {
+        MOUSE_DOWN: {
+          guard: ({ context, event }) => {
+            if (event.type !== 'MOUSE_DOWN') return false;
+            return !wouldSelfIntersect(context.drawPoints, event.point);
+          },
+          actions: 'addPoint',
+        },
+        MOUSE_MOVE: { actions: 'updatePreview' },
+        DOUBLE_CLICK: {
+          guard: ({ context }) => {
+            const pts = context.drawPoints.slice(0, -1); // 去掉双击多出的重复点
+            if (pts.length < 3) return false;
+            return !polygonSelfIntersects(pts);
+          },
+          target: 'idle',
+          actions: 'removeLastPoint',
+        },
+        CONFIRM: {
+          guard: ({ context }) => {
+            if (context.drawPoints.length < 3) return false;
+            return !polygonSelfIntersects(context.drawPoints);
+          },
+          target: 'idle',
+        },
         CANCEL: { target: 'idle', actions: 'resetDraw' },
       },
     },

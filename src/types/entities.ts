@@ -42,9 +42,27 @@ export interface ArcEntity {
   end: PointENU;
 }
 
+/** 可旋转矩形实体（两对角点 + 旋转角度） */
+export interface RectEntity {
+  id: string;
+  entityType: 'rect';
+  p1: PointENU;       // 对角点1
+  p2: PointENU;       // 对角点2
+  rotation: number;   // 绕中心旋转角度（弧度）
+}
+
+/** 多边形实体 */
+export interface PolygonEntity {
+  id: string;
+  entityType: 'polygon';
+  points: PointENU[];
+}
+
 /** 所有可编辑实体的联合类型 */
 export type MapEntity =
   | PolylineEntity
   | CatmullRomEntity
   | BezierEntity
-  | ArcEntity;
+  | ArcEntity
+  | RectEntity
+  | PolygonEntity;
