@@ -15,6 +15,8 @@ const HINTS: Record<string, string> = {
   drawCatmullRom: '点击放置途经点 | 双击或 Enter 完成 | Esc 取消',
   drawBezier: '点击放置锚点，拖拽定义控制柄 | 双击或 Enter 完成 | Esc 取消',
   drawArc: '依次点击起点、弧上点、终点（三点自动完成） | Esc 取消',
+  selected: '拖拽控制点编辑 | Alt+点击锚点切换尖角/平滑 | Alt+拖拽控制柄打破对称 | Delete 删除 | Esc 取消选中',
+  editingPoint: '拖拽中... 松开鼠标确认位置',
 };
 
 export default function App() {
@@ -22,7 +24,7 @@ export default function App() {
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const entityCount = useMapStore((s) => s.entities.size);
 
-  const isDrawing = currentState !== 'idle';
+  const isDrawing = currentState !== 'idle' && currentState !== 'selected' && currentState !== 'editingPoint';
 
   return (
     <div className="relative w-full h-full">
@@ -50,9 +52,9 @@ export default function App() {
 
       {/* 状态栏 */}
       <div className="absolute bottom-4 left-4 px-3 py-1.5 rounded bg-black/60 text-white/70 text-xs">
-        {isDrawing
-          ? HINTS[currentState] ?? ''
-          : `已绘制 ${entityCount} 条曲线`}
+        {HINTS[currentState]
+          ? HINTS[currentState]
+          : `已绘制 ${entityCount} 条曲线 | 点击曲线选中编辑`}
       </div>
     </div>
   );

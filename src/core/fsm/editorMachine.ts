@@ -4,15 +4,22 @@ import type { BezierAnchor } from '@/core/geometry/interpolate';
 type LngLat = [number, number];
 
 export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc';
+export type DragPointType = 'vertex' | 'handleIn' | 'handleOut';
 
 export interface EditorContext {
+  // 绘制相关
   drawPoints: LngLat[];
   previewPoint: LngLat | null;
-  /** 贝塞尔锚点（含控制柄） */
   bezierAnchors: BezierAnchor[];
-  /** 贝塞尔：当前正在拖拽控制柄 */
   isDraggingHandle: boolean;
   activeTool: DrawTool | null;
+  // 选中 + 编辑相关
+  selectedEntityId: string | null;
+  dragPointIndex: number;
+  dragPointType: DragPointType;
+  dragCurrentPoint: LngLat | null;
+  /** Alt 拖拽控制柄时打破对称（cusp 模式） */
+  dragAltKey: boolean;
 }
 
 export type EditorEvent =
@@ -22,7 +29,17 @@ export type EditorEvent =
   | { type: 'MOUSE_UP'; point: LngLat }
   | { type: 'DOUBLE_CLICK'; point: LngLat }
   | { type: 'CONFIRM' }
-  | { type: 'CANCEL' };
+  | { type: 'CANCEL' }
+  // 选中 + 编辑
+  | { type: 'SELECT_ENTITY'; id: string }
+  | { type: 'DESELECT' }
+  | { type: 'START_DRAG'; index: number; pointType: DragPointType; altKey?: boolean }
+  | { type: 'DRAG_MOVE'; point: LngLat }
+  | { type: 'DRAG_END'; point: LngLat }
+  | { type: 'DELETE_ENTITY' }
+  | { type: 'TOGGLE_SMOOTH'; index: number };
+
+// ─── 绘制 actions ──────────────────────────────────────────
 
 const resetDraw = assign<EditorContext, EditorEvent>({
   drawPoints: [],
@@ -45,43 +62,30 @@ const updatePreview = assign<EditorContext, EditorEvent>({
   },
 });
 
-/** 贝塞尔：mousedown 添加锚点并开始拖拽控制柄 */
 const bezierAddAnchor = assign<EditorContext, EditorEvent>({
   bezierAnchors: ({ context, event }) => {
     if (event.type !== 'MOUSE_DOWN') return context.bezierAnchors;
-    const anchor: BezierAnchor = {
-      point: event.point,
-      handleIn: null,
-      handleOut: null,
-    };
+    const anchor: BezierAnchor = { point: event.point, handleIn: null, handleOut: null };
     return [...context.bezierAnchors, anchor];
   },
   isDraggingHandle: true,
 });
 
-/** 贝塞尔：拖拽中更新当前锚点的控制柄 */
 const bezierDragHandle = assign<EditorContext, EditorEvent>({
   bezierAnchors: ({ context, event }) => {
     if (event.type !== 'MOUSE_MOVE') return context.bezierAnchors;
     if (!context.isDraggingHandle || context.bezierAnchors.length === 0) return context.bezierAnchors;
-
     const anchors = [...context.bezierAnchors];
     const last = { ...anchors[anchors.length - 1] };
     const pt = last.point;
-
-    // handleOut = 鼠标位置, handleIn = 镜像
     last.handleOut = event.point;
     last.handleIn = [2 * pt[0] - event.point[0], 2 * pt[1] - event.point[1]];
     anchors[anchors.length - 1] = last;
     return anchors;
   },
-  previewPoint: ({ event }) => {
-    if (event.type !== 'MOUSE_MOVE') return null;
-    return event.point;
-  },
+  previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
 });
 
-/** 贝塞尔：mouseup 确认控制柄，如果拖拽距离太小则清除控制柄（纯单击） */
 const bezierConfirmHandle = assign<EditorContext, EditorEvent>({
   isDraggingHandle: false,
   bezierAnchors: ({ context, event }) => {
@@ -89,10 +93,7 @@ const bezierConfirmHandle = assign<EditorContext, EditorEvent>({
     const anchors = [...context.bezierAnchors];
     const last = { ...anchors[anchors.length - 1] };
     const pt = last.point;
-    // 拖拽距离小于阈值 → 视为纯单击，不产生控制柄
-    const dx = event.point[0] - pt[0];
-    const dy = event.point[1] - pt[1];
-    const dist = Math.hypot(dx, dy);
+    const dist = Math.hypot(event.point[0] - pt[0], event.point[1] - pt[1]);
     if (dist < 1e-6) {
       last.handleIn = null;
       last.handleOut = null;
@@ -102,23 +103,47 @@ const bezierConfirmHandle = assign<EditorContext, EditorEvent>({
   },
 });
 
-/** 贝塞尔：非拖拽时的 mousemove 仅更新预览 */
 const bezierPreview = assign<EditorContext, EditorEvent>({
-  previewPoint: ({ event }) => {
-    if (event.type !== 'MOUSE_MOVE') return null;
-    return event.point;
-  },
+  previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
 });
 
-/** 圆弧：第三个点放下后自动完成，所以也用 addPoint */
+// ─── 选中/编辑 actions ─────────────────────────────────────
 
-// 共享的绘制状态事件（Catmull-Rom / Polyline 通用）
+const selectEntity = assign<EditorContext, EditorEvent>({
+  selectedEntityId: ({ event }) => (event.type === 'SELECT_ENTITY' ? event.id : null),
+});
+
+const deselectEntity = assign<EditorContext, EditorEvent>({
+  selectedEntityId: null,
+  dragPointIndex: -1,
+  dragCurrentPoint: null,
+});
+
+const startDrag = assign<EditorContext, EditorEvent>({
+  dragPointIndex: ({ event }) => (event.type === 'START_DRAG' ? event.index : -1),
+  dragPointType: ({ event }) => (event.type === 'START_DRAG' ? event.pointType : 'vertex' as DragPointType),
+  dragCurrentPoint: null,
+  dragAltKey: ({ event }) => (event.type === 'START_DRAG' ? !!event.altKey : false),
+});
+
+const dragMove = assign<EditorContext, EditorEvent>({
+  dragCurrentPoint: ({ event }) => (event.type === 'DRAG_MOVE' ? event.point : null),
+});
+
+// ─── 共享绘制事件 ──────────────────────────────────────────
+
+/** 双击完成时移除最后一个多余点（双击触发了两次 mousedown） */
+const removeLastPoint = assign<EditorContext, EditorEvent>({
+  drawPoints: ({ context }) => context.drawPoints.slice(0, -1),
+});
+
 const sharedDrawEvents = {
   MOUSE_DOWN: { actions: 'addPoint' as const },
   MOUSE_MOVE: { actions: 'updatePreview' as const },
   DOUBLE_CLICK: {
     guard: 'minPointsReached' as const,
     target: 'idle' as const,
+    actions: 'removeLastPoint' as const,
   },
   CONFIRM: {
     guard: 'minPointsReached' as const,
@@ -130,6 +155,8 @@ const sharedDrawEvents = {
   },
 };
 
+// ─── Machine ───────────────────────────────────────────────
+
 export const editorMachine = setup({
   types: {
     context: {} as EditorContext,
@@ -138,9 +165,7 @@ export const editorMachine = setup({
   guards: {
     minPointsReached: ({ context }) => context.drawPoints.length >= 2,
     bezierMinAnchors: ({ context }) => context.bezierAnchors.length >= 2,
-    arcComplete: ({ context }) => context.drawPoints.length >= 3,
     isDraggingHandle: ({ context }) => context.isDraggingHandle,
-    isNotDraggingHandle: ({ context }) => !context.isDraggingHandle,
   },
   actions: {
     addPoint,
@@ -150,11 +175,13 @@ export const editorMachine = setup({
     bezierDragHandle,
     bezierConfirmHandle,
     bezierPreview,
+    selectEntity,
+    deselectEntity,
+    startDrag,
+    dragMove,
+    removeLastPoint,
     setTool: assign({
-      activeTool: ({ event }) => {
-        if (event.type !== 'SELECT_TOOL') return null;
-        return event.tool;
-      },
+      activeTool: ({ event }) => (event.type === 'SELECT_TOOL' ? event.tool : null),
     }),
   },
 }).createMachine({
@@ -166,6 +193,11 @@ export const editorMachine = setup({
     bezierAnchors: [],
     isDraggingHandle: false,
     activeTool: null,
+    selectedEntityId: null,
+    dragPointIndex: -1,
+    dragPointType: 'vertex' as DragPointType,
+    dragCurrentPoint: null,
+    dragAltKey: false,
   },
   states: {
     idle: {
@@ -176,62 +208,100 @@ export const editorMachine = setup({
           { guard: ({ event }) => event.tool === 'drawBezier', target: 'drawBezier', actions: ['resetDraw', 'setTool'] },
           { guard: ({ event }) => event.tool === 'drawArc', target: 'drawArc', actions: ['resetDraw', 'setTool'] },
         ],
+        SELECT_ENTITY: {
+          target: 'selected',
+          actions: 'selectEntity',
+        },
       },
     },
 
-    drawPolyline: {
-      on: sharedDrawEvents,
+    // ─── 选中态 ──────────────────────────────────────────
+    selected: {
+      on: {
+        START_DRAG: {
+          target: 'editingPoint',
+          actions: 'startDrag',
+        },
+        DESELECT: {
+          target: 'idle',
+          actions: 'deselectEntity',
+        },
+        DELETE_ENTITY: {
+          target: 'idle',
+          actions: 'deselectEntity',
+        },
+        SELECT_ENTITY: {
+          target: 'selected',
+          actions: 'selectEntity',
+        },
+        SELECT_TOOL: [
+          { guard: ({ event }) => event.tool === 'drawPolyline', target: 'drawPolyline', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
+          { guard: ({ event }) => event.tool === 'drawCatmullRom', target: 'drawCatmullRom', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
+          { guard: ({ event }) => event.tool === 'drawBezier', target: 'drawBezier', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
+          { guard: ({ event }) => event.tool === 'drawArc', target: 'drawArc', actions: ['deselectEntity', 'resetDraw', 'setTool'] },
+        ],
+        CANCEL: {
+          target: 'idle',
+          actions: 'deselectEntity',
+        },
+        TOGGLE_SMOOTH: {
+          // Alt+点击锚点：尖角↔平滑切换，实际修改由 MapCanvas 执行
+          target: 'selected',
+        },
+      },
     },
 
-    drawCatmullRom: {
-      on: sharedDrawEvents,
+    // ─── 拖拽编辑控制点 ──────────────────────────────────
+    editingPoint: {
+      on: {
+        DRAG_MOVE: {
+          actions: 'dragMove',
+        },
+        DRAG_END: {
+          target: 'selected',
+          // 实际的 entity 更新由 MapCanvas 组件在 DRAG_END 时执行
+        },
+        CANCEL: {
+          target: 'selected',
+          actions: assign({ dragPointIndex: -1, dragCurrentPoint: null }),
+        },
+      },
     },
+
+    // ─── 绘制状态 ────────────────────────────────────────
+    drawPolyline: { on: sharedDrawEvents },
+    drawCatmullRom: { on: sharedDrawEvents },
 
     drawBezier: {
       on: {
-        MOUSE_DOWN: {
-          actions: 'bezierAddAnchor',
-        },
+        MOUSE_DOWN: { actions: 'bezierAddAnchor' },
         MOUSE_MOVE: [
           { guard: 'isDraggingHandle', actions: 'bezierDragHandle' },
           { actions: 'bezierPreview' },
         ],
-        MOUSE_UP: {
-          actions: 'bezierConfirmHandle',
-        },
+        MOUSE_UP: { actions: 'bezierConfirmHandle' },
         DOUBLE_CLICK: {
           guard: 'bezierMinAnchors',
           target: 'idle',
+          actions: assign<EditorContext, EditorEvent>({
+            // 双击会触发两次 mousedown，移除最后一个多余锚点
+            bezierAnchors: ({ context }) => context.bezierAnchors.slice(0, -1),
+            isDraggingHandle: false,
+          }),
         },
-        CONFIRM: {
-          guard: 'bezierMinAnchors',
-          target: 'idle',
-        },
-        CANCEL: {
-          target: 'idle',
-          actions: 'resetDraw',
-        },
+        CONFIRM: { guard: 'bezierMinAnchors', target: 'idle' },
+        CANCEL: { target: 'idle', actions: 'resetDraw' },
       },
     },
 
     drawArc: {
       on: {
         MOUSE_DOWN: [
-          // 第三个点放下 → 自动完成
-          {
-            guard: ({ context }) => context.drawPoints.length === 2,
-            target: 'idle',
-            actions: 'addPoint',
-          },
+          { guard: ({ context }) => context.drawPoints.length === 2, target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
         ],
-        MOUSE_MOVE: {
-          actions: 'updatePreview',
-        },
-        CANCEL: {
-          target: 'idle',
-          actions: 'resetDraw',
-        },
+        MOUSE_MOVE: { actions: 'updatePreview' },
+        CANCEL: { target: 'idle', actions: 'resetDraw' },
       },
     },
   },

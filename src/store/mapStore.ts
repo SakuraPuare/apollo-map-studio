@@ -8,6 +8,7 @@ enableMapSet();
 interface MapStore {
   entities: Map<string, MapEntity>;
   addEntity(entity: MapEntity): void;
+  updateEntity(id: string, entity: MapEntity): void;
   removeEntity(id: string): void;
 }
 
@@ -18,6 +19,14 @@ export const useMapStore = create<MapStore>()(
     addEntity(entity) {
       set((state) => {
         state.entities.set(entity.id, entity);
+      });
+    },
+
+    updateEntity(id, entity) {
+      set((state) => {
+        if (state.entities.has(id)) {
+          state.entities.set(id, entity);
+        }
       });
     },
 
