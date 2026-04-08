@@ -5,7 +5,7 @@ import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore, useSettingsStore, MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from '@/store/mapStore';
 
 const TOOLS: { tool: DrawTool; label: string; activeLabel: string; color: string }[] = [
-  { tool: 'drawPolyline', label: '多段线', activeLabel: '多段线绘制中', color: 'bg-cyan-500' },
+  // { tool: 'drawPolyline', label: '多段线', activeLabel: '多段线绘制中', color: 'bg-cyan-500' },
   // { tool: 'drawCatmullRom', label: '样条曲线', activeLabel: '样条曲线绘制中', color: 'bg-green-500' },
   { tool: 'drawBezier', label: '贝塞尔', activeLabel: '贝塞尔绘制中', color: 'bg-pink-500' },
   { tool: 'drawArc', label: '圆弧', activeLabel: '圆弧绘制中', color: 'bg-amber-500' },
