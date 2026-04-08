@@ -10,8 +10,10 @@ import { useMapStore } from '@/store/mapStore';
 import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity, RectEntity, PolygonEntity } from '@/types/entities';
 import { catmullRom, cubicBezier, threePointArc, rectCorners, type BezierAnchor, type LngLat } from '@/core/geometry/interpolate';
 import { anchorToData, anchorToRuntime } from '@/core/geometry/anchorConvert';
-import { lineFeature, pointFeature, handleLineFeature, polygonFeature, entityToHotFeatures, entityToColdFeatures } from './geoJsonHelpers';
+import { lineFeature, pointFeature, handleLineFeature, polygonFeature, entityToHotFeatures } from './geoJsonHelpers';
 import { applyDrag, toggleSmooth, deleteVertex } from './entityMutations';
+import { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
+import type { SerializedEntity } from '@/core/workers/protocol';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -31,15 +33,6 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
   ],
 };
 
-const CURVE_COLORS: Record<string, string> = {
-  polyline: '#00d4ff',
-  catmullRom: '#00ff88',
-  bezier: '#ff66cc',
-  arc: '#ffaa00',
-  rect: '#ff4444',
-  polygon: '#aa66ff',
-};
-
 interface MapCanvasProps {
   actorRef: ActorRefFrom<typeof editorMachine>;
 }
@@ -48,6 +41,17 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapLoadedRef = useRef(false);
+  const bridgeRef = useRef<SpatialWorkerBridge | null>(null);
+
+  // 初始化 Worker Bridge
+  useEffect(() => {
+    const bridge = new SpatialWorkerBridge();
+    bridgeRef.current = bridge;
+    return () => {
+      bridge.dispose();
+      bridgeRef.current = null;
+    };
+  }, []);
 
   const addEntity = useMapStore((s) => s.addEntity);
   const entities = useMapStore((s) => s.entities);
@@ -324,6 +328,27 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       }
     };
 
+    /** 将像素容差转为经纬度半径（近似） */
+    const pixelToRadius = (px: number): number => {
+      const zoom = map.getZoom();
+      // 在赤道处，zoom=0 时 1px ≈ 360/512 度；每增加 1 级缩小一半
+      return (px * 360) / (512 * Math.pow(2, zoom));
+    };
+
+    const workerHitTest = (e: maplibregl.MapMouseEvent): Promise<string | null> => {
+      const bridge = bridgeRef.current;
+      if (!bridge) return Promise.resolve(null);
+      const pt = toLngLat(e);
+      return bridge.send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(10) })
+        .then((result) => {
+          if (result.type === 'HIT_RESULT' && result.hits.length > 0) {
+            return result.hits[0].id;
+          }
+          return null;
+        })
+        .catch(() => null);
+    };
+
     const onClick = (e: maplibregl.MapMouseEvent) => {
       if (mouseDownScreenPos) {
         const dx = e.point.x - mouseDownScreenPos.x;
@@ -340,21 +365,30 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         if (hotHits.length > 0) return;
 
-        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices', 'cold-fill'] });
-        if (coldHits.length > 0 && coldHits[0].properties?.id) {
-          actorRef.send({ type: 'SELECT_ENTITY', id: coldHits[0].properties.id as string });
-          return;
-        }
-        actorRef.send({ type: 'DESELECT' });
+        workerHitTest(e).then((hitId) => {
+          // 重新检查状态，可能在异步期间已变化
+          const current = actorRef.getSnapshot();
+          if ((current.value as string) !== 'selected') return;
+          if (hitId) {
+            actorRef.send({ type: 'SELECT_ENTITY', id: hitId });
+          } else {
+            actorRef.send({ type: 'DESELECT' });
+          }
+        });
         return;
       }
 
       if (state === 'idle') {
-        const coldHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['cold-line', 'cold-vertices', 'cold-fill'] });
-        if (coldHits.length > 0 && coldHits[0].properties?.id) {
-          actorRef.send({ type: 'SELECT_ENTITY', id: coldHits[0].properties.id as string });
-          return;
-        }
+        workerHitTest(e).then((hitId) => {
+          const current = actorRef.getSnapshot();
+          if ((current.value as string) !== 'idle') return;
+          if (hitId) {
+            actorRef.send({ type: 'SELECT_ENTITY', id: hitId });
+          }
+        });
+        // 不 return — 如果不是 idle 了（比如绘制中），继续走下面的逻辑
+        // 但 idle 状态下不需要发 MOUSE_DOWN，所以直接 return
+        return;
       }
 
       if (!snap.matches('drawBezier')) {
@@ -532,20 +566,27 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
     src.setData({ type: 'FeatureCollection', features });
   }, [drawPoints, previewPoint, bezierAnchors, isDrawing, currentState]);
 
-  // 更新 cold layer
+  // 更新 cold layer（通过 Worker 异步编译）
   useEffect(() => {
     if (!mapLoadedRef.current) return;
     const src = mapRef.current?.getSource('cold') as maplibregl.GeoJSONSource | undefined;
-    if (!src) return;
+    const bridge = bridgeRef.current;
+    if (!src || !bridge) return;
 
-    const features: GeoJSON.Feature[] = [];
+    const serialized: SerializedEntity[] = [];
     for (const entity of entities.values()) {
-      if (entity.id === selectedEntityId) continue;
-      const color = CURVE_COLORS[entity.entityType] ?? '#ffffff';
-      features.push(...entityToColdFeatures(entity, color));
+      serialized.push(entity);
     }
 
-    src.setData({ type: 'FeatureCollection', features });
+    bridge.send({
+      type: 'SYNC',
+      entities: serialized,
+      excludeId: selectedEntityId,
+    }).then((result) => {
+      if (result.type === 'COLD_READY') {
+        src.setData(result.featureCollection);
+      }
+    }).catch(() => { /* Worker unavailable — cold layer stays stale */ });
   }, [entities, selectedEntityId]);
 
   // 更新 hot layer

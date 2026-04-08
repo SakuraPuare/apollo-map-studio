@@ -15,6 +15,7 @@
     "immer": "^11.1.4",
     "maplibre-gl": "^5.22.0",
     "nanoid": "^5.1.7",
+    "rbush": "^4.0.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "xstate": "^5.30.0",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
+    "@types/rbush": "^4.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
