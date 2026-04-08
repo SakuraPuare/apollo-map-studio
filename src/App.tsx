@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { editorMachine, type DrawTool, isDrawingState } from '@/core/fsm/editorMachine';
 import { MapCanvas } from '@/components/map/MapCanvas';
@@ -29,6 +30,18 @@ export default function App() {
   const entityCount = useMapStore((s) => s.entities.size);
 
   const isDrawing = isDrawingState(currentState);
+
+  // Ctrl+Z / Ctrl+Shift+Z 撤销/重做
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      const { undo, redo } = useMapStore.temporal.getState();
+      e.shiftKey ? redo() : undo();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   return (
     <div className="relative w-full h-full">
