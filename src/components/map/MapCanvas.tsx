@@ -11,7 +11,7 @@ import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity, RectEnt
 import { catmullRom, cubicBezier, threePointArc, rectCorners, type BezierAnchor, type LngLat } from '@/core/geometry/interpolate';
 import { anchorToData, anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { lineFeature, pointFeature, handleLineFeature, polygonFeature, entityToHotFeatures, entityToColdFeatures } from './geoJsonHelpers';
-import { applyDrag, toggleSmooth } from './entityMutations';
+import { applyDrag, toggleSmooth, deleteVertex } from './entityMutations';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -416,11 +416,30 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
       if (e.key === 'Enter') actorRef.send({ type: 'CONFIRM' });
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const snap = actorRef.getSnapshot();
-        if (snap.value === 'selected' && snap.context.selectedEntityId) {
-          const id = snap.context.selectedEntityId;
-          actorRef.send({ type: 'DELETE_ENTITY' });
-          useMapStore.getState().removeEntity(id);
+        if (snap.value !== 'selected' || !snap.context.selectedEntityId) return;
+        const id = snap.context.selectedEntityId;
+        const store = useMapStore.getState();
+        const entity = store.entities.get(id);
+        if (!entity) return;
+
+        const idx = snap.context.dragPointIndex;
+        const pType = snap.context.dragPointType;
+
+        // 最后交互的是顶点 → 尝试删除该顶点
+        if (pType === 'vertex' && idx >= 0) {
+          const result = deleteVertex(entity, idx);
+          if (result) {
+            store.updateEntity(id, result);
+            // 重新选中以重置 dragPointIndex
+            actorRef.send({ type: 'SELECT_ENTITY', id });
+            return;
+          }
+          // result === null → 顶点不足，降级为删除整体
         }
+
+        // 删除整个实体
+        actorRef.send({ type: 'DELETE_ENTITY' });
+        store.removeEntity(id);
       }
     };
 

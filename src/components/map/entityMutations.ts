@@ -3,6 +3,33 @@ import type { DragPointType } from '@/core/fsm/editorMachine';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { rectCorners, polygonSelfIntersects } from '@/core/geometry/interpolate';
 
+/**
+ * 删除实体的第 index 个顶点。
+ * 返回新实体，如果删除后顶点不足最小数量则返回 null（表示应删除整个实体）。
+ */
+export function deleteVertex(entity: MapEntity, index: number): MapEntity | null {
+  if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
+    if (entity.points.length <= 2) return null;
+    const points = entity.points.filter((_, i) => i !== index);
+    return { ...entity, points };
+  }
+
+  if (entity.entityType === 'bezier') {
+    if (entity.anchors.length <= 2) return null;
+    const anchors = entity.anchors.filter((_, i) => i !== index);
+    return { ...entity, anchors };
+  }
+
+  if (entity.entityType === 'polygon') {
+    if (entity.points.length <= 3) return null;
+    const points = entity.points.filter((_, i) => i !== index);
+    return { ...entity, points };
+  }
+
+  // arc / rect 不支持顶点删除
+  return entity;
+}
+
 /** Alt+点击锚点：尖角↔平滑切换 */
 export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity {
   const anchors = entity.anchors.map((a) => ({ ...a }));

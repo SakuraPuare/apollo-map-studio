@@ -129,6 +129,9 @@ const bezierPreview = assign<EditorContext, EditorEvent>({
 
 const selectEntity = assign<EditorContext, EditorEvent>({
   selectedEntityId: ({ event }) => (event.type === 'SELECT_ENTITY' ? event.id : null),
+  dragPointIndex: -1,
+  dragPointType: 'vertex' as DragPointType,
+  dragCurrentPoint: null,
 });
 
 const deselectEntity = assign<EditorContext, EditorEvent>({
