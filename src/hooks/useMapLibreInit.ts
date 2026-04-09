@@ -9,6 +9,7 @@ const EMPTY_FC: GeoJSON.FeatureCollection = {
 const DARK_STYLE: maplibregl.StyleSpecification = {
   version: 8,
   name: 'dark-blank',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {},
   layers: [
     {
@@ -18,6 +19,27 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
     },
   ],
 };
+
+/** 生成条纹图案并注册到 MapLibre */
+function addStripeImage(
+  map: maplibregl.Map, id: string, size: number,
+  stripeW: number, gap: number,
+  r: number, g: number, b: number, a: number,
+  diagonal: boolean,
+) {
+  const data = new Uint8Array(size * size * 4);
+  const period = stripeW + gap;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const pos = diagonal ? ((x + y) % period + period) % period : (y % period + period) % period;
+      if (pos < stripeW) {
+        const idx = (y * size + x) * 4;
+        data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
+      }
+    }
+  }
+  map.addImage(id, { width: size, height: size, data });
+}
 
 export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | null>) {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -37,32 +59,95 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
     map.on('load', () => {
       mapLoadedRef.current = true;
 
-      // cold layer
+      // ─── 生成条纹图案 ───
+      addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false);     // 白色水平条纹（斑马线，细密）
+      addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true);         // 红色斜线（禁停区，细密连续）
+
+      // ─── 冷层 ───
       map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
+
+      // 冷层 z0：多边形实色填充
       map.addLayer({
         id: 'cold-fill',
         type: 'fill',
         source: 'cold',
         filter: ['==', '$type', 'Polygon'],
-        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 },
+        paint: {
+          'fill-color': ['get', 'color'],
+          'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.15],
+        },
       });
+
+      // 冷层 z1：人行横道条纹叠加
+      map.addLayer({
+        id: 'cold-fill-crosswalk',
+        type: 'fill',
+        source: 'cold',
+        filter: ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'crosswalk']],
+        paint: { 'fill-pattern': 'zebra-stripe', 'fill-opacity': 0.8 },
+      });
+
+      // 冷层 z2：禁停区红色斜线叠加
+      map.addLayer({
+        id: 'cold-fill-cleararea',
+        type: 'fill',
+        source: 'cold',
+        filter: ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'clearArea']],
+        paint: { 'fill-pattern': 'red-hatch', 'fill-opacity': 0.7 },
+      });
+
+      // 冷层 z3：实线（排除 dashed 特征）
       map.addLayer({
         id: 'cold-line',
         type: 'line',
         source: 'cold',
-        filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2 },
-      });
-      map.addLayer({
-        id: 'cold-vertices',
-        type: 'circle',
-        source: 'cold',
-        filter: ['all', ['==', '$type', 'Point'], ['==', 'role', 'vertex']],
+        filter: ['all',
+          ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
+          ['!has', 'dashed'],
+        ],
         paint: {
-          'circle-radius': 3.5,
-          'circle-color': ['get', 'color'],
-          'circle-stroke-color': '#ffffff',
-          'circle-stroke-width': 1,
+          'line-color': ['get', 'color'],
+          'line-width': ['coalesce', ['get', 'lineWidth'], 2],
+          'line-opacity': ['coalesce', ['get', 'lineOpacity'], 1],
+        },
+      });
+
+      // 冷层 z3b：虚线（减速带条纹/让行线/道闸等）
+      map.addLayer({
+        id: 'cold-line-dashed',
+        type: 'line',
+        source: 'cold',
+        filter: ['all',
+          ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
+          ['has', 'dashed'],
+        ],
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': ['coalesce', ['get', 'lineWidth'], 2],
+          'line-opacity': ['coalesce', ['get', 'lineOpacity'], 1],
+          'line-dasharray': [3, 3],
+        },
+      });
+
+      // 冷层 z4：标注符号
+      map.addLayer({
+        id: 'cold-labels',
+        type: 'symbol',
+        source: 'cold',
+        filter: ['==', 'role', 'label'],
+        layout: {
+          'text-field': ['get', 'label'],
+          'text-size': ['coalesce', ['get', 'labelSize'], 14],
+          'text-font': ['Open Sans Regular'],
+          'text-allow-overlap': true,
+          'text-ignore-placement': false,
+          'text-padding': 2,
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#000000',
+          'text-halo-width': 2,
+          'text-opacity': 0.95,
         },
       });
 

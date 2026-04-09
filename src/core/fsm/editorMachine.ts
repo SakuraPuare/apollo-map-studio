@@ -3,6 +3,7 @@ import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { mirrorPoint } from '@/core/geometry/interpolate';
 import { wouldSelfIntersect, polygonSelfIntersects } from '@/core/geometry/validation';
 import type { DragPointType } from '@/types/editor';
+import type { MapElementType } from '@/core/elements';
 
 export type { DragPointType } from '@/types/editor';
 
@@ -41,10 +42,12 @@ export interface EditorContext {
   dragPointType: DragPointType;
   dragCurrentPoint: LngLat | null;
   dragAltKey: boolean;
+  /** 当前正在绘制的 Apollo 元素类型，null 则创建基础几何图形 */
+  activeElement: MapElementType | null;
 }
 
 export type EditorEvent =
-  | { type: 'SELECT_TOOL'; tool: DrawTool }
+  | { type: 'SELECT_TOOL'; tool: DrawTool; element?: MapElementType }
   | { type: 'MOUSE_DOWN'; point: LngLat }
   | { type: 'MOUSE_MOVE'; point: LngLat }
   | { type: 'MOUSE_UP'; point: LngLat }
@@ -67,6 +70,8 @@ const resetDraw = assign<EditorContext, EditorEvent>({
   previewPoint: null,
   bezierAnchors: [],
   isDraggingHandle: false,
+  activeElement: ({ event }) =>
+    event.type === 'SELECT_TOOL' ? (event.element ?? null) : null,
 });
 
 const addPoint = assign<EditorContext, EditorEvent>({
@@ -162,6 +167,7 @@ const removeLastPoint = assign<EditorContext, EditorEvent>({
 });
 
 const sharedDrawEvents = {
+  SELECT_TOOL: selectToolTransitions,
   MOUSE_DOWN: { actions: 'addPoint' as const },
   MOUSE_MOVE: { actions: 'updatePreview' as const },
   DOUBLE_CLICK: {
@@ -233,6 +239,7 @@ export const editorMachine = setup({
     dragPointType: 'vertex' as DragPointType,
     dragCurrentPoint: null,
     dragAltKey: false,
+    activeElement: null,
   },
   states: {
     idle: {
@@ -299,6 +306,7 @@ export const editorMachine = setup({
 
     drawBezier: {
       on: {
+        SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: { actions: 'bezierAddAnchor' },
         MOUSE_MOVE: [
           { guard: 'isDraggingHandle', actions: 'bezierDragHandle' },
@@ -321,6 +329,7 @@ export const editorMachine = setup({
 
     drawArc: {
       on: {
+        SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: [
           { guard: 'arcComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
@@ -332,6 +341,7 @@ export const editorMachine = setup({
 
     drawRect: {
       on: {
+        SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: [
           { guard: 'rectComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
@@ -343,6 +353,7 @@ export const editorMachine = setup({
 
     drawPolygon: {
       on: {
+        SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: {
           guard: 'polygonNoSelfIntersect',
           actions: 'addPoint',

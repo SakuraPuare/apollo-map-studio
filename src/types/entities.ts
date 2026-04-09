@@ -61,11 +61,65 @@ export interface PolygonEntity {
   points: PointENU[];
 }
 
-/** 所有可编辑实体的联合类型 */
-export type MapEntity =
+// ─── Apollo HD Map entity re-exports ─────────────────────────────────
+
+export type {
+  ApolloEntity,
+  ApolloEntityType,
+  ApolloMapProto,
+  ApolloPolygon,
+  AreaEntity,
+  AreaType,
+  BarrierGateEntity,
+  BarrierGateType,
+  BoundaryEdge,
+  BoundaryPolygon,
+  BoundaryLineType,
+  ClearAreaEntity,
+  CrosswalkEntity,
+  Curve,
+  CurveSegment,
+  JunctionEntity,
+  JunctionType,
+  LaneBoundary,
+  LaneBoundaryTypeEntry,
+  LaneDirection,
+  LaneEntity,
+  LaneSampleAssociation,
+  LaneTurn,
+  LaneType,
+  LineSegment,
+  ObjectOverlapInfo,
+  OverlapEntity,
+  ParkingLotEntity,
+  ParkingSpaceEntity,
+  PNCJunctionEntity,
+  RoadBoundary,
+  RoadEntity,
+  RoadSection,
+  RoadType,
+  RSUEntity,
+  SignalEntity,
+  SignalType,
+  SpeedBumpEntity,
+  SpeedControlEntity,
+  StopSignEntity,
+  StopSignType,
+  Subsignal,
+  SubsignalType,
+  YieldSignEntity,
+} from './apollo';
+
+import type { ApolloEntity } from './apollo';
+
+/** Drawing primitive entity types (geometry tools) */
+export type DrawingEntity =
   | PolylineEntity
   | CatmullRomEntity
   | BezierEntity
   | ArcEntity
   | RectEntity
   | PolygonEntity;
+
+/** All editable entity types — drawing primitives + Apollo HD map elements */
+export type MapEntity = DrawingEntity | ApolloEntity;

@@ -9,15 +9,34 @@ import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
 import { useMapStore } from '@/store/mapStore';
+import type { MapElementType } from '@/core/elements';
+import { createApolloEntity } from '@/core/geometry/apolloCompile';
 
 export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
   const addEntity = useMapStore((s) => s.addEntity);
   const drawPoints = useSelector(actorRef, (s) => s.context.drawPoints);
   const bezierAnchors = useSelector(actorRef, (s) => s.context.bezierAnchors);
   const currentState = useSelector(actorRef, (s) => s.value as string);
+  const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
 
   const commitEntity = useCallback(
-    (state: string, points: LngLat[], anchors: BezierAnchor[]) => {
+    (state: string, points: LngLat[], anchors: BezierAnchor[], element: MapElementType | null) => {
+      // Apollo 元素模式：将绘制结果转为 Apollo 实体
+      if (element) {
+        const hasGeometry =
+          (state === 'drawBezier' && anchors.length >= 2) ||
+          (state === 'drawArc' && points.length >= 3) ||
+          (state === 'drawRect' && points.length >= 2) ||
+          (state === 'drawPolygon' && points.length >= 3) ||
+          ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2);
+
+        if (hasGeometry) {
+          addEntity(createApolloEntity(element, state, points, anchors));
+        }
+        return;
+      }
+
+      // 基础几何模式（原有逻辑）
       if ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2) {
         const entityType = state === 'drawPolyline' ? 'polyline' : 'catmullRom';
         addEntity({
@@ -61,15 +80,17 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
   const prevStateRef = useRef<string>('idle');
   const prevPointsRef = useRef<LngLat[]>([]);
   const prevAnchorsRef = useRef<BezierAnchor[]>([]);
+  const prevElementRef = useRef<MapElementType | null>(null);
 
   useEffect(() => {
     const prev = prevStateRef.current;
     prevStateRef.current = currentState;
     prevPointsRef.current = drawPoints;
     prevAnchorsRef.current = bezierAnchors;
+    prevElementRef.current = activeElement;
 
     if (currentState === 'idle' && isDrawingState(prev)) {
-      commitEntity(prev, prevPointsRef.current, prevAnchorsRef.current);
+      commitEntity(prev, prevPointsRef.current, prevAnchorsRef.current, prevElementRef.current);
     }
-  }, [currentState, drawPoints, bezierAnchors, commitEntity]);
+  }, [currentState, drawPoints, bezierAnchors, activeElement, commitEntity]);
 }

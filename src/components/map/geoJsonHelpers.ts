@@ -1,8 +1,10 @@
 import type { MapEntity } from '@/types/entities';
+import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { catmullRom, cubicBezier, threePointArc, rectCorners, rectRotateHandle } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
+import { getApolloEditPoints, isApolloAreaEntity } from '@/core/geometry/apolloCompile';
 
 export function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
   return {
@@ -87,6 +89,70 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
   } else if (entity.entityType === 'polygon') {
     const coords = pointsToCoords(entity.points);
     features.push(polygonFeature(coords));
+    coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
+  } else {
+    // Apollo 实体
+    const apolloEntity = entity as ApolloEntity;
+    const source = (apolloEntity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+    const sourceRect = (apolloEntity as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
+
+    // ① 有贝塞尔源：以贝塞尔模式编辑（含控制柄）
+    if (source?.drawTool === 'drawBezier' && source.anchors) {
+      const anchors: BezierAnchor[] = source.anchors.map(anchorToRuntime);
+      if (anchors.length >= 2) features.push(lineFeature(cubicBezier(anchors)));
+      anchors.forEach((a, i) => {
+        features.push(pointFeature(a.point, 'vertex', { index: i }));
+        if (a.handleIn) {
+          features.push(handleLineFeature(a.point, a.handleIn));
+          features.push(pointFeature(a.handleIn, 'handle', { index: i, handleType: 'handleIn' }));
+        }
+        if (a.handleOut) {
+          features.push(handleLineFeature(a.point, a.handleOut));
+          features.push(pointFeature(a.handleOut, 'handle', { index: i, handleType: 'handleOut' }));
+        }
+      });
+      return features;
+    }
+
+    // ② 有圆弧源：三点编辑
+    if (source?.drawTool === 'drawArc' && source.arcPoints) {
+      const [s, m, e] = source.arcPoints;
+      const p1 = toLngLat(s), p2 = toLngLat(m), p3 = toLngLat(e);
+      features.push(lineFeature(threePointArc(p1, p2, p3)));
+      features.push(pointFeature(p1, 'vertex', { index: 0 }));
+      features.push(pointFeature(p2, 'vertex', { index: 1 }));
+      features.push(pointFeature(p3, 'vertex', { index: 2 }));
+      return features;
+    }
+
+    // ③ 有矩形源：矩形编辑（含旋转把手）
+    if (sourceRect) {
+      const p1 = toLngLat(sourceRect.p1);
+      const p2 = toLngLat(sourceRect.p2);
+      const corners = rectCorners(p1, p2, sourceRect.rotation);
+      features.push(polygonFeature(corners));
+      for (let i = 0; i < 4; i++) {
+        features.push(pointFeature(corners[i], 'vertex', { index: i }));
+      }
+      const center: LngLat = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+      const handle = rectRotateHandle(p1, p2, sourceRect.rotation);
+      features.push(handleLineFeature(center, handle));
+      features.push(pointFeature(handle, 'handle', { index: -1, handleType: 'rotate' }));
+      return features;
+    }
+
+    // ④ 通用 Apollo 编辑：顶点编辑
+    const editPoints = getApolloEditPoints(apolloEntity);
+    const coords = editPoints.map(toLngLat);
+
+    if (coords.length >= 2) {
+      if (isApolloAreaEntity(apolloEntity)) {
+        features.push(polygonFeature(coords));
+      } else {
+        features.push(lineFeature(coords));
+      }
+    }
+
     coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
   }
 
