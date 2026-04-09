@@ -1,8 +1,8 @@
-import type { GeoJSON } from 'geojson';
 import type { MapEntity } from '@/types/entities';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { catmullRom, cubicBezier, threePointArc, rectCorners, rectRotateHandle } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
+import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
 
 export function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
   return {
@@ -44,7 +44,7 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
 
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
+    const coords = pointsToCoords(entity.points);
     const line = entity.entityType === 'catmullRom' ? catmullRom(coords) : coords;
     features.push(lineFeature(line));
     coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
@@ -65,68 +65,29 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
       }
     });
   } else if (entity.entityType === 'arc') {
-    const p1: LngLat = [entity.start.x, entity.start.y];
-    const p2: LngLat = [entity.mid.x, entity.mid.y];
-    const p3: LngLat = [entity.end.x, entity.end.y];
+    const p1 = toLngLat(entity.start);
+    const p2 = toLngLat(entity.mid);
+    const p3 = toLngLat(entity.end);
     features.push(lineFeature(threePointArc(p1, p2, p3)));
     features.push(pointFeature(p1, 'vertex', { index: 0 }));
     features.push(pointFeature(p2, 'vertex', { index: 1 }));
     features.push(pointFeature(p3, 'vertex', { index: 2 }));
   } else if (entity.entityType === 'rect') {
-    const p1: LngLat = [entity.p1.x, entity.p1.y];
-    const p2: LngLat = [entity.p2.x, entity.p2.y];
+    const p1 = toLngLat(entity.p1);
+    const p2 = toLngLat(entity.p2);
     const corners = rectCorners(p1, p2, entity.rotation);
     features.push(polygonFeature(corners));
-    // 4 个角点可拖拽
     for (let i = 0; i < 4; i++) {
       features.push(pointFeature(corners[i], 'vertex', { index: i }));
     }
-    // 旋转手柄
     const center: LngLat = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
     const handle = rectRotateHandle(p1, p2, entity.rotation);
     features.push(handleLineFeature(center, handle));
     features.push(pointFeature(handle, 'handle', { index: -1, handleType: 'rotate' }));
   } else if (entity.entityType === 'polygon') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
+    const coords = pointsToCoords(entity.points);
     features.push(polygonFeature(coords));
     coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
-  }
-
-  return features;
-}
-
-/** 将实体转为 cold 层 GeoJSON features（含颜色和 id） */
-export function entityToColdFeatures(entity: MapEntity, color: string): GeoJSON.Feature[] {
-  const features: GeoJSON.Feature[] = [];
-  const props = { color, id: entity.id };
-
-  if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
-    const line = entity.entityType === 'catmullRom' ? catmullRom(coords) : coords;
-    features.push(lineFeature(line, props));
-    for (const c of coords) features.push(pointFeature(c, 'vertex', props));
-  } else if (entity.entityType === 'bezier') {
-    const anchors = entity.anchors.map(anchorToRuntime);
-    features.push(lineFeature(cubicBezier(anchors), props));
-    for (const a of anchors) features.push(pointFeature(a.point, 'vertex', props));
-  } else if (entity.entityType === 'arc') {
-    const p1: LngLat = [entity.start.x, entity.start.y];
-    const p2: LngLat = [entity.mid.x, entity.mid.y];
-    const p3: LngLat = [entity.end.x, entity.end.y];
-    features.push(lineFeature(threePointArc(p1, p2, p3), props));
-    features.push(pointFeature(p1, 'vertex', props));
-    features.push(pointFeature(p2, 'vertex', props));
-    features.push(pointFeature(p3, 'vertex', props));
-  } else if (entity.entityType === 'rect') {
-    const p1: LngLat = [entity.p1.x, entity.p1.y];
-    const p2: LngLat = [entity.p2.x, entity.p2.y];
-    const corners = rectCorners(p1, p2, entity.rotation);
-    features.push(polygonFeature(corners, props));
-    for (let i = 0; i < 4; i++) features.push(pointFeature(corners[i], 'vertex', props));
-  } else if (entity.entityType === 'polygon') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
-    features.push(polygonFeature(coords, props));
-    for (const c of coords) features.push(pointFeature(c, 'vertex', props));
   }
 
   return features;

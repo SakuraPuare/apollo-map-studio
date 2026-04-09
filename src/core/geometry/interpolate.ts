@@ -3,6 +3,8 @@
  * - Catmull-Rom 样条：穿过所有控制点的平滑曲线
  * - Cubic Bezier：带控制柄的贝塞尔曲线
  * - 三点圆弧：经过三点的圆弧插值
+ *
+ * 自交检测已移至 validation.ts
  */
 
 export type LngLat = [number, number];
@@ -17,65 +19,6 @@ export interface BezierAnchor {
 /** 以 pivot 为中心镜像 pt */
 export function mirrorPoint(pivot: LngLat, pt: LngLat): LngLat {
   return [2 * pivot[0] - pt[0], 2 * pivot[1] - pt[1]];
-}
-
-// ─── 线段相交检测 ──────────────────────────────────────────
-
-/** 判断两条线段 (a1→a2) 和 (b1→b2) 是否严格相交（不含端点重合） */
-export function segmentsIntersect(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat): boolean {
-  const d1 = cross(a1, a2, b1);
-  const d2 = cross(a1, a2, b2);
-  const d3 = cross(b1, b2, a1);
-  const d4 = cross(b1, b2, a2);
-
-  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
-    return true;
-  }
-  return false;
-}
-
-function cross(o: LngLat, a: LngLat, b: LngLat): number {
-  return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-}
-
-/** 检查多边形是否自交（将 newPt 加入 points 后形成的新边是否与已有边相交） */
-export function wouldSelfIntersect(points: LngLat[], newPt: LngLat): boolean {
-  const n = points.length;
-  if (n < 2) return false;
-
-  // 新增的边：points[n-1] → newPt
-  const edgeStart = points[n - 1];
-  const edgeEnd = newPt;
-
-  // 检查与所有已有边（除了相邻的最后一条边 points[n-2]→points[n-1]）
-  for (let i = 0; i < n - 2; i++) {
-    if (segmentsIntersect(edgeStart, edgeEnd, points[i], points[i + 1])) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/** 检查闭合多边形是否自交（闭合边 points[n-1]→points[0] 与其他边） */
-export function polygonSelfIntersects(points: LngLat[]): boolean {
-  const n = points.length;
-  if (n < 4) return false;
-
-  for (let i = 0; i < n; i++) {
-    const a1 = points[i];
-    const a2 = points[(i + 1) % n];
-    // 检查与非相邻边
-    for (let j = i + 2; j < n; j++) {
-      if (i === 0 && j === n - 1) continue; // 首尾相邻
-      const b1 = points[j];
-      const b2 = points[(j + 1) % n];
-      if (segmentsIntersect(a1, a2, b1, b2)) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 // ─── Catmull-Rom ────────────────────────────────────────────
@@ -228,9 +171,9 @@ export function threePointArc(
   const [cx, cy] = center;
   const r = Math.hypot(pp1[0] - cx, pp1[1] - cy);
 
-  let a1 = Math.atan2(pp1[1] - cy, pp1[0] - cx);
-  let a2 = Math.atan2(pp2[1] - cy, pp2[0] - cx);
-  let a3 = Math.atan2(pp3[1] - cy, pp3[0] - cx);
+  const a1 = Math.atan2(pp1[1] - cy, pp1[0] - cx);
+  const a2 = Math.atan2(pp2[1] - cy, pp2[0] - cx);
+  const a3 = Math.atan2(pp3[1] - cy, pp3[0] - cx);
 
   let sweep = normalizeAngle(a3 - a1);
   const midSweep = normalizeAngle(a2 - a1);

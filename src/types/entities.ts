@@ -1,9 +1,12 @@
 /** 经纬度点 (WGS84) */
-export interface PointENU {
+export interface GeoPoint {
   x: number; // longitude
   y: number; // latitude
   z?: number;
 }
+
+/** @deprecated 使用 GeoPoint */
+export type PointENU = GeoPoint;
 
 /** 贝塞尔锚点（存储用） */
 export interface BezierAnchorData {

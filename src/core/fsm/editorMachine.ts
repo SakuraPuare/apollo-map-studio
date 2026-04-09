@@ -1,9 +1,12 @@
 import { setup, assign } from 'xstate';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
-import { mirrorPoint, wouldSelfIntersect, polygonSelfIntersects } from '@/core/geometry/interpolate';
+import { mirrorPoint } from '@/core/geometry/interpolate';
+import { wouldSelfIntersect, polygonSelfIntersects } from '@/core/geometry/validation';
+import type { DragPointType } from '@/types/editor';
+
+export type { DragPointType } from '@/types/editor';
 
 export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRect' | 'drawPolygon';
-export type DragPointType = 'vertex' | 'handleIn' | 'handleOut' | 'rotate' | 'center';
 
 const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc', 'drawRect', 'drawPolygon'];
 
@@ -187,6 +190,21 @@ export const editorMachine = setup({
     minPointsReached: ({ context }) => context.drawPoints.length >= 2,
     bezierMinAnchors: ({ context }) => context.bezierAnchors.length >= 2,
     isDraggingHandle: ({ context }) => context.isDraggingHandle,
+    arcComplete: ({ context }) => context.drawPoints.length === 2,
+    rectComplete: ({ context }) => context.drawPoints.length === 1,
+    polygonNoSelfIntersect: ({ context, event }) => {
+      if (event.type !== 'MOUSE_DOWN') return false;
+      return !wouldSelfIntersect(context.drawPoints, event.point);
+    },
+    polygonCanClose: ({ context }) => {
+      const pts = context.drawPoints.slice(0, -1);
+      if (pts.length < 3) return false;
+      return !polygonSelfIntersects(pts);
+    },
+    polygonCanConfirm: ({ context }) => {
+      if (context.drawPoints.length < 3) return false;
+      return !polygonSelfIntersects(context.drawPoints);
+    },
   },
   actions: {
     addPoint,
@@ -304,7 +322,7 @@ export const editorMachine = setup({
     drawArc: {
       on: {
         MOUSE_DOWN: [
-          { guard: ({ context }) => context.drawPoints.length === 2, target: 'idle', actions: 'addPoint' },
+          { guard: 'arcComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
         ],
         MOUSE_MOVE: { actions: 'updatePreview' },
@@ -315,8 +333,7 @@ export const editorMachine = setup({
     drawRect: {
       on: {
         MOUSE_DOWN: [
-          // 第2点：完成矩形
-          { guard: ({ context }) => context.drawPoints.length === 1, target: 'idle', actions: 'addPoint' },
+          { guard: 'rectComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
         ],
         MOUSE_MOVE: { actions: 'updatePreview' },
@@ -327,27 +344,17 @@ export const editorMachine = setup({
     drawPolygon: {
       on: {
         MOUSE_DOWN: {
-          guard: ({ context, event }) => {
-            if (event.type !== 'MOUSE_DOWN') return false;
-            return !wouldSelfIntersect(context.drawPoints, event.point);
-          },
+          guard: 'polygonNoSelfIntersect',
           actions: 'addPoint',
         },
         MOUSE_MOVE: { actions: 'updatePreview' },
         DOUBLE_CLICK: {
-          guard: ({ context }) => {
-            const pts = context.drawPoints.slice(0, -1); // 去掉双击多出的重复点
-            if (pts.length < 3) return false;
-            return !polygonSelfIntersects(pts);
-          },
+          guard: 'polygonCanClose',
           target: 'idle',
           actions: 'removeLastPoint',
         },
         CONFIRM: {
-          guard: ({ context }) => {
-            if (context.drawPoints.length < 3) return false;
-            return !polygonSelfIntersects(context.drawPoints);
-          },
+          guard: 'polygonCanConfirm',
           target: 'idle',
         },
         CANCEL: { target: 'idle', actions: 'resetDraw' },

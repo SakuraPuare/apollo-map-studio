@@ -1,7 +1,9 @@
-import type { MapEntity, BezierEntity, RectEntity } from '@/types/entities';
-import type { DragPointType } from '@/core/fsm/editorMachine';
+import type { MapEntity, BezierEntity } from '@/types/entities';
+import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
-import { rectCorners, polygonSelfIntersects } from '@/core/geometry/interpolate';
+import { rectCorners } from '@/core/geometry/interpolate';
+import { polygonSelfIntersects } from '@/core/geometry/validation';
+import { toGeoPoint, pointsToCoords } from '@/core/geometry/coords';
 
 /**
  * 删除实体的第 index 个顶点。
@@ -81,7 +83,7 @@ export function applyDrag(
 ): MapEntity {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
     const points = [...entity.points];
-    points[index] = { ...points[index], x: newPoint[0], y: newPoint[1] };
+    points[index] = { ...points[index], ...toGeoPoint(newPoint) };
     return { ...entity, points };
   }
 
@@ -92,7 +94,7 @@ export function applyDrag(
     if (pointType === 'vertex') {
       const dx = newPoint[0] - anchor.point.x;
       const dy = newPoint[1] - anchor.point.y;
-      anchor.point = { x: newPoint[0], y: newPoint[1] };
+      anchor.point = toGeoPoint(newPoint);
       if (anchor.handleIn) {
         anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
       }
@@ -100,7 +102,7 @@ export function applyDrag(
         anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
       }
     } else if (pointType === 'handleOut') {
-      anchor.handleOut = { x: newPoint[0], y: newPoint[1] };
+      anchor.handleOut = toGeoPoint(newPoint);
       if (!altKey) {
         anchor.handleIn = {
           x: 2 * anchor.point.x - newPoint[0],
@@ -108,7 +110,7 @@ export function applyDrag(
         };
       }
     } else if (pointType === 'handleIn') {
-      anchor.handleIn = { x: newPoint[0], y: newPoint[1] };
+      anchor.handleIn = toGeoPoint(newPoint);
       if (!altKey) {
         anchor.handleOut = {
           x: 2 * anchor.point.x - newPoint[0],
@@ -123,15 +125,14 @@ export function applyDrag(
 
   if (entity.entityType === 'arc') {
     const e = { ...entity };
-    if (index === 0) e.start = { x: newPoint[0], y: newPoint[1] };
-    else if (index === 1) e.mid = { x: newPoint[0], y: newPoint[1] };
-    else if (index === 2) e.end = { x: newPoint[0], y: newPoint[1] };
+    if (index === 0) e.start = toGeoPoint(newPoint);
+    else if (index === 1) e.mid = toGeoPoint(newPoint);
+    else if (index === 2) e.end = toGeoPoint(newPoint);
     return e;
   }
 
   if (entity.entityType === 'rect') {
     if (pointType === 'center') {
-      // 整体平移：newPoint 是鼠标当前位置，算出相对当前中心的偏移
       const cx = (entity.p1.x + entity.p2.x) / 2;
       const cy = (entity.p1.y + entity.p2.y) / 2;
       const dx = newPoint[0] - cx;
@@ -143,7 +144,6 @@ export function applyDrag(
       };
     }
     if (pointType === 'rotate') {
-      // 旋转手柄：计算鼠标相对中心的角度
       const cx = (entity.p1.x + entity.p2.x) / 2;
       const cy = (entity.p1.y + entity.p2.y) / 2;
       const refLat = cy;
@@ -156,10 +156,9 @@ export function applyDrag(
 
     // 角点拖拽：对角点固定，拖拽点和对角点重新定义 p1/p2
     const corners = rectCorners([entity.p1.x, entity.p1.y], [entity.p2.x, entity.p2.y], entity.rotation);
-    // corners: [0]=p1旋转后, [1]=(p2.x,p1.y)旋转后, [2]=p2旋转后, [3]=(p1.x,p2.y)旋转后, [4]=闭合
     const opIdx = (index + 2) % 4;
-    const anchor = corners[opIdx]; // 对角点固定不动
-    const dragged = newPoint;      // 拖拽到的新位置
+    const anchor = corners[opIdx];
+    const dragged = newPoint;
 
     const refLat = (anchor[1] + dragged[1]) / 2;
     const cosLat = Math.cos(refLat * Math.PI / 180);
@@ -167,19 +166,16 @@ export function applyDrag(
     const cosR = Math.cos(rot);
     const sinR = Math.sin(rot);
 
-    // 统一到投影坐标（x 按 cosLat 缩放）后再做逆旋转，避免坐标空间混用
     const project = (pt: LngLat): [number, number] => [pt[0] * cosLat, pt[1]];
     const [anchorX, anchorY] = project(anchor);
     const [draggedX, draggedY] = project(dragged);
 
-    // 将两个点逆旋转回轴对齐空间（绕两点中心）
     const mcx = (anchorX + draggedX) / 2;
     const mcy = (anchorY + draggedY) / 2;
 
     function unrotate(x: number, y: number): [number, number] {
       const px = x - mcx;
       const py = y - mcy;
-      // 逆旋转（rectCorners 用 -rotation，所以逆旋转用 +rotation）
       return [
         mcx + px * cosR - py * sinR,
         mcy + px * sinR + py * cosR,
@@ -189,7 +185,6 @@ export function applyDrag(
     const [ax, ay] = unrotate(anchorX, anchorY);
     const [dx, dy] = unrotate(draggedX, draggedY);
 
-    // 轴对齐空间中的 p1/p2（min/max）
     const minX = Math.min(ax, dx);
     const maxX = Math.max(ax, dx);
     const minY = Math.min(ay, dy);
@@ -212,10 +207,9 @@ export function applyDrag(
       return { ...entity, points };
     }
     const points = [...entity.points];
-    points[index] = { ...points[index], x: newPoint[0], y: newPoint[1] };
+    points[index] = { ...points[index], ...toGeoPoint(newPoint) };
     // 自交检测：如果拖拽后自交，拒绝变更
-    const coords: LngLat[] = points.map(p => [p.x, p.y]);
-    if (polygonSelfIntersects(coords)) return entity;
+    if (polygonSelfIntersects(pointsToCoords(points))) return entity;
     return { ...entity, points };
   }
 

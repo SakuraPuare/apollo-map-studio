@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { editorMachine, type DrawTool, isDrawingState } from '@/core/fsm/editorMachine';
 import { MapCanvas } from '@/components/map/MapCanvas';
-import { useMapStore, useSettingsStore, MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from '@/store/mapStore';
+import { useMapStore } from '@/store/mapStore';
+import { useSettingsStore, MIN_HISTORY_LIMIT, MAX_HISTORY_LIMIT } from '@/store/settingsStore';
 
 const TOOLS: { tool: DrawTool; label: string; activeLabel: string; color: string }[] = [
   // { tool: 'drawPolyline', label: '多段线', activeLabel: '多段线绘制中', color: 'bg-cyan-500' },

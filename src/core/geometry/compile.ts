@@ -6,6 +6,7 @@ import type { MapEntity } from '@/types/entities';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { catmullRom, cubicBezier, threePointArc, rectCorners } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
+import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
 
 const CURVE_COLORS: Record<string, string> = {
   polyline: '#00d4ff',
@@ -50,7 +51,7 @@ export function compileColdFeatures(entity: MapEntity): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
 
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
+    const coords = pointsToCoords(entity.points);
     const line = entity.entityType === 'catmullRom' ? catmullRom(coords) : coords;
     features.push(lineFeature(line, props));
     for (const c of coords) features.push(pointFeature(c, 'vertex', props));
@@ -59,21 +60,21 @@ export function compileColdFeatures(entity: MapEntity): GeoJSON.Feature[] {
     features.push(lineFeature(cubicBezier(anchors), props));
     for (const a of anchors) features.push(pointFeature(a.point, 'vertex', props));
   } else if (entity.entityType === 'arc') {
-    const p1: LngLat = [entity.start.x, entity.start.y];
-    const p2: LngLat = [entity.mid.x, entity.mid.y];
-    const p3: LngLat = [entity.end.x, entity.end.y];
+    const p1 = toLngLat(entity.start);
+    const p2 = toLngLat(entity.mid);
+    const p3 = toLngLat(entity.end);
     features.push(lineFeature(threePointArc(p1, p2, p3), props));
     features.push(pointFeature(p1, 'vertex', props));
     features.push(pointFeature(p2, 'vertex', props));
     features.push(pointFeature(p3, 'vertex', props));
   } else if (entity.entityType === 'rect') {
-    const p1: LngLat = [entity.p1.x, entity.p1.y];
-    const p2: LngLat = [entity.p2.x, entity.p2.y];
+    const p1 = toLngLat(entity.p1);
+    const p2 = toLngLat(entity.p2);
     const corners = rectCorners(p1, p2, entity.rotation);
     features.push(polygonFeature(corners, props));
     for (let i = 0; i < 4; i++) features.push(pointFeature(corners[i], 'vertex', props));
   } else if (entity.entityType === 'polygon') {
-    const coords = entity.points.map((p): LngLat => [p.x, p.y]);
+    const coords = pointsToCoords(entity.points);
     features.push(polygonFeature(coords, props));
     for (const c of coords) features.push(pointFeature(c, 'vertex', props));
   }
@@ -97,24 +98,19 @@ export function entityBBox(entity: MapEntity): [number, number, number, number] 
 /** 提取实体的所有坐标点（用于 AABB 和 hitTest） */
 export function entityCoords(entity: MapEntity): LngLat[] {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    return entity.points.map((p): LngLat => [p.x, p.y]);
+    return pointsToCoords(entity.points);
   }
   if (entity.entityType === 'bezier') {
-    const anchors = entity.anchors.map(anchorToRuntime);
-    return cubicBezier(anchors);
+    return cubicBezier(entity.anchors.map(anchorToRuntime));
   }
   if (entity.entityType === 'arc') {
-    return threePointArc(
-      [entity.start.x, entity.start.y],
-      [entity.mid.x, entity.mid.y],
-      [entity.end.x, entity.end.y],
-    );
+    return threePointArc(toLngLat(entity.start), toLngLat(entity.mid), toLngLat(entity.end));
   }
   if (entity.entityType === 'rect') {
-    return rectCorners([entity.p1.x, entity.p1.y], [entity.p2.x, entity.p2.y], entity.rotation);
+    return rectCorners(toLngLat(entity.p1), toLngLat(entity.p2), entity.rotation);
   }
   if (entity.entityType === 'polygon') {
-    return entity.points.map((p): LngLat => [p.x, p.y]);
+    return pointsToCoords(entity.points);
   }
   return [];
 }
@@ -122,7 +118,7 @@ export function entityCoords(entity: MapEntity): LngLat[] {
 /** 获取实体的渲染曲线坐标（用于精确 hitTest） */
 export function entityRenderCoords(entity: MapEntity): LngLat[] {
   if (entity.entityType === 'catmullRom') {
-    return catmullRom(entity.points.map((p): LngLat => [p.x, p.y]));
+    return catmullRom(pointsToCoords(entity.points));
   }
   return entityCoords(entity);
 }
