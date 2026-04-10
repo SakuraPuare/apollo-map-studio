@@ -5,7 +5,9 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
-import { applyDrag, toggleSmooth, deleteVertex } from '@/components/map/entityMutations';
+import { applyDrag, toggleSmooth, toggleSmoothApollo, deleteVertex } from '@/components/map/entityMutations';
+import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
+import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 
 export function useMapEventRouter(
@@ -19,11 +21,11 @@ export function useMapEventRouter(
 
     const toLngLat = (e: maplibregl.MapMouseEvent): LngLat => [e.lngLat.lng, e.lngLat.lat];
     let mouseDownScreenPos: { x: number; y: number } | null = null;
-    const CLICK_THRESHOLD = 5;
 
     const hitBbox = (point: maplibregl.PointLike): [maplibregl.PointLike, maplibregl.PointLike] => {
       const p = point as maplibregl.Point;
-      return [[p.x - 8, p.y - 8], [p.x + 8, p.y + 8]];
+      const pad = HIT_BBOX_PADDING_PX;
+      return [[p.x - pad, p.y - pad], [p.x + pad, p.y + pad]];
     };
 
     const pixelToRadius = (px: number): number => {
@@ -35,7 +37,7 @@ export function useMapEventRouter(
       const bridge = bridgeRef.current;
       if (!bridge) return Promise.resolve(null);
       const pt = toLngLat(e);
-      return bridge.send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(10) })
+      return bridge.send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(HIT_TEST_RADIUS_PX) })
         .then((result) => {
           if (result.type === 'HIT_RESULT' && result.hits.length > 0) {
             return result.hits[0].id;
@@ -64,8 +66,16 @@ export function useMapEventRouter(
             const entityId = snap.context.selectedEntityId;
             if (entityId) {
               const entity = useMapStore.getState().entities.get(entityId);
-              if (entity && entity.entityType === 'bezier') {
-                useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
+              if (entity) {
+                if (entity.entityType === 'bezier') {
+                  useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
+                } else {
+                  // Apollo entity with bezier source
+                  const src = (entity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+                  if (src?.drawTool === 'drawBezier' && src.anchors) {
+                    useMapStore.getState().updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
+                  }
+                }
               }
             }
             actorRef.send({ type: 'TOGGLE_SMOOTH', index: idx });
@@ -96,7 +106,7 @@ export function useMapEventRouter(
       if (mouseDownScreenPos) {
         const dx = e.point.x - mouseDownScreenPos.x;
         const dy = e.point.y - mouseDownScreenPos.y;
-        if (Math.hypot(dx, dy) > CLICK_THRESHOLD) return;
+        if (Math.hypot(dx, dy) > CLICK_THRESHOLD_PX) return;
       }
 
       const snap = actorRef.getSnapshot();

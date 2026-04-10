@@ -11,6 +11,7 @@ import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
 import { useMapStore } from '@/store/mapStore';
 import type { MapElementType } from '@/core/elements';
 import { createApolloEntity } from '@/core/geometry/apolloCompile';
+import { useSettingsStore } from '@/store/settingsStore';
 
 export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
   const addEntity = useMapStore((s) => s.addEntity);
@@ -31,7 +32,8 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
           ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2);
 
         if (hasGeometry) {
-          addEntity(createApolloEntity(element, state, points, anchors));
+          const { laneHalfWidth } = useSettingsStore.getState();
+          addEntity(createApolloEntity(element, state, points, anchors, { laneHalfWidth }));
         }
         return;
       }

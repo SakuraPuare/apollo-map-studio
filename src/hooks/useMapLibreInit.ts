@@ -1,5 +1,10 @@
 import { useRef, useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
+import {
+  LANE_ARROW_CHAR, LANE_ARROW_TEXT_SIZE,
+  LANE_ARROW_COLOR, LANE_ARROW_OPACITY,
+} from '@/config/mapConstants';
+import { readMapCenter, readMapZoom, useSettingsStore } from '@/store/settingsStore';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -51,8 +56,8 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: DARK_STYLE,
-      center: [116.4, 39.9],
-      zoom: 15,
+      center: readMapCenter(),
+      zoom: readMapZoom(),
       doubleClickZoom: false,
     });
 
@@ -104,6 +109,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         filter: ['all',
           ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
           ['!has', 'dashed'],
+          ['!has', 'noStroke'],
         ],
         paint: {
           'line-color': ['get', 'color'],
@@ -139,8 +145,9 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
           'text-field': ['get', 'label'],
           'text-size': ['coalesce', ['get', 'labelSize'], 14],
           'text-font': ['Open Sans Regular'],
+          'text-anchor': 'center',
           'text-allow-overlap': true,
-          'text-ignore-placement': false,
+          'text-ignore-placement': true,
           'text-padding': 2,
         },
         paint: {
@@ -148,6 +155,32 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
           'text-halo-color': '#000000',
           'text-halo-width': 2,
           'text-opacity': 0.95,
+        },
+      });
+
+      // 冷层 z5：车道方向箭头（沿中心线布置）
+      map.addLayer({
+        id: 'cold-lane-arrows',
+        type: 'symbol',
+        source: 'cold',
+        filter: ['all', ['==', '$type', 'LineString'], ['==', 'role', 'laneCenter']],
+        layout: {
+          'symbol-placement': 'line',
+          'text-field': LANE_ARROW_CHAR,
+          'text-size': LANE_ARROW_TEXT_SIZE,
+          'text-font': ['Open Sans Regular'],
+          'text-rotation-alignment': 'map',
+          'text-pitch-alignment': 'viewport',
+          'symbol-spacing': useSettingsStore.getState().laneArrowSpacing,
+          'text-keep-upright': false,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': LANE_ARROW_COLOR,
+          'text-opacity': LANE_ARROW_OPACITY,
+          'text-halo-color': 'rgba(0,0,0,0.4)',
+          'text-halo-width': 1,
         },
       });
 
@@ -240,6 +273,14 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       mapLoadedRef.current = false;
     };
   }, []);
+
+  // 实时响应箭头间距设置变更
+  const laneArrowSpacing = useSettingsStore((s) => s.laneArrowSpacing);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    map.setLayoutProperty('cold-lane-arrows', 'symbol-spacing', laneArrowSpacing);
+  }, [laneArrowSpacing]);
 
   return { mapRef, mapLoadedRef };
 }

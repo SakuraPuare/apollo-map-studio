@@ -1,11 +1,11 @@
-import type { MapEntity, BezierEntity, BezierAnchorData } from '@/types/entities';
+import type { MapEntity, BezierEntity, BezierAnchorData, GeoPoint } from '@/types/entities';
 import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
-import { rectCorners, cubicBezier } from '@/core/geometry/interpolate';
+import { rectCorners, cubicBezier, threePointArc } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { polygonSelfIntersects } from '@/core/geometry/validation';
-import { toGeoPoint, pointsToCoords, coordsToPoints } from '@/core/geometry/coords';
+import { toGeoPoint, toLngLat, pointsToCoords, coordsToPoints } from '@/core/geometry/coords';
 import {
   getApolloEditPoints, setApolloEditPoint, setAllApolloEditPoints,
   moveApolloEntity, deleteApolloVertex, isApolloAreaEntity, pointsToCurve,
@@ -257,7 +257,18 @@ export function applyDrag(
       return { ...updated, _source: newSource } as MapEntity;
     }
 
-    // ② 矩形源：旋转把手 + 角点拖拽
+    // ② 圆弧源：修改三点之一后重采样
+    if (source?.drawTool === 'drawArc' && source.arcPoints) {
+      const arcPoints = [...source.arcPoints] as [GeoPoint, GeoPoint, GeoPoint];
+      if (index >= 0 && index < 3) arcPoints[index] = toGeoPoint(newPoint);
+      const [s, m, e] = arcPoints;
+      const newCurvePoints = coordsToPoints(threePointArc(toLngLat(s), toLngLat(m), toLngLat(e)));
+      const newSource: SourceDrawInfo = { ...source, arcPoints };
+      const updated = setAllApolloEditPoints(apolloEntity, newCurvePoints);
+      return { ...updated, _source: newSource } as MapEntity;
+    }
+
+    // ③ 矩形源：旋转把手 + 角点拖拽 + 中心移动（同步更新 _sourceRect，保证实时预览正确）
     if (sourceRect) {
       if (pointType === 'rotate') {
         const cx = (sourceRect.p1.x + sourceRect.p2.x) / 2;
@@ -300,9 +311,24 @@ export function applyDrag(
         const pts = newCorners.map((c) => ({ x: c[0], y: c[1] }));
         return { ...apolloEntity, polygon: { points: pts }, _sourceRect: newRect } as unknown as MapEntity;
       }
+      if (pointType === 'center') {
+        // 整体移动：同步 _sourceRect，确保旋转把手随实体一起移动
+        const cx = (sourceRect.p1.x + sourceRect.p2.x) / 2;
+        const cy = (sourceRect.p1.y + sourceRect.p2.y) / 2;
+        const dx = newPoint[0] - cx;
+        const dy = newPoint[1] - cy;
+        const newRect: SourceRectInfo = {
+          p1: { x: sourceRect.p1.x + dx, y: sourceRect.p1.y + dy },
+          p2: { x: sourceRect.p2.x + dx, y: sourceRect.p2.y + dy },
+          rotation: sourceRect.rotation,
+        };
+        const corners = rectCorners([newRect.p1.x, newRect.p1.y], [newRect.p2.x, newRect.p2.y], newRect.rotation);
+        const pts = corners.map((c) => ({ x: c[0], y: c[1] }));
+        return { ...apolloEntity, polygon: { points: pts }, _sourceRect: newRect } as unknown as MapEntity;
+      }
     }
 
-    // ③ 通用拖拽
+    // ④ 通用拖拽
     if (pointType === 'center') {
       const pts = getApolloEditPoints(apolloEntity);
       if (pts.length === 0) return entity;
@@ -314,4 +340,41 @@ export function applyDrag(
   }
 
   return entity;
+}
+
+/** Alt+点击 Apollo 贝塞尔源实体的锚点：尖角 ↔ 平滑切换 */
+export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloEntity {
+  const source = (entity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+  if (!source?.anchors) return entity;
+
+  const anchors = source.anchors.map((a) => ({ ...a }));
+  const anchor = { ...anchors[index] };
+  const hasHandles = anchor.handleIn !== null || anchor.handleOut !== null;
+
+  if (hasHandles) {
+    anchor.handleIn = null;
+    anchor.handleOut = null;
+  } else {
+    const prev = index > 0 ? anchors[index - 1] : null;
+    const next = index < anchors.length - 1 ? anchors[index + 1] : null;
+    const px = anchor.point.x, py = anchor.point.y;
+    let dx = 0, dy = 0;
+    if (prev && next) { dx = next.point.x - prev.point.x; dy = next.point.y - prev.point.y; }
+    else if (next) { dx = next.point.x - px; dy = next.point.y - py; }
+    else if (prev) { dx = px - prev.point.x; dy = py - prev.point.y; }
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const scale = (prev && next) ? len / 6 : len / 3;
+      const nx = dx / len, ny = dy / len;
+      anchor.handleOut = { x: px + nx * scale, y: py + ny * scale };
+      anchor.handleIn = { x: px - nx * scale, y: py - ny * scale };
+    }
+  }
+  anchors[index] = anchor;
+
+  const runtimeAnchors = anchors.map(anchorToRuntime);
+  const newCurvePoints = coordsToPoints(cubicBezier(runtimeAnchors));
+  const newSource: SourceDrawInfo = { ...source, anchors };
+  const updated = setAllApolloEditPoints(entity, newCurvePoints);
+  return { ...updated, _source: newSource } as ApolloEntity;
 }

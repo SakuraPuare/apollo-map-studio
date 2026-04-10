@@ -2,6 +2,11 @@
  * Apollo 实体工厂 + GeoJSON 编译器 + 编辑点访问器
  */
 import { nanoid } from 'nanoid';
+import {
+  DEFAULT_LANE_HALF_WIDTH,
+  LANE_FILL_OPACITY, LANE_EDGE_LINE_WIDTH, LANE_EDGE_LINE_OPACITY,
+  LANE_CENTER_LINE_WIDTH, LANE_CENTER_LINE_OPACITY,
+} from '@/config/mapConstants';
 import type { LngLat, BezierAnchor } from '@/core/geometry/interpolate';
 import { cubicBezier, threePointArc, catmullRom, rectCorners } from '@/core/geometry/interpolate';
 import { coordsToPoints, pointsToCoords, toLngLat, toGeoPoint } from '@/core/geometry/coords';
@@ -31,35 +36,86 @@ export function pointsToPolygon(points: GeoPoint[]): ApolloPolygon {
   return { points };
 }
 
-/** 将折线按指定宽度（米）向左或右偏移，返回偏移后的点 */
+/**
+ * 将折线按指定宽度（米）向左或右偏移，返回偏移后的点
+ *
+ * 转折处使用 miter/bevel join：
+ *   - 当 miter 比例 ≤ MAX_MITER：使用单个斜接点（精确相交）
+ *   - 当 miter 比例 > MAX_MITER（锐角）：使用两点斜切（bevel），
+ *     避免内侧越界折叠和外侧极长尖刺
+ */
 function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side: 'left' | 'right'): GeoPoint[] {
   if (points.length < 2 || widthMeters <= 0) return points;
+
   const sign = side === 'left' ? 1 : -1;
   const DEG_TO_M = 111320;
+  const MAX_MITER = 3; // miter 比例上限，超过则切换为 bevel
+
+  // 用中间纬度做统一投影（百米以内误差可忽略）
+  const midLat = points.reduce((s, p) => s + p.y, 0) / points.length;
+  const cosLat = Math.cos(midLat * Math.PI / 180);
+
+  // 投影到平面（米）
+  const pts: [number, number][] = points.map((p) => [p.x * cosLat * DEG_TO_M, p.y * DEG_TO_M]);
+  const n = pts.length;
+
+  // 各线段的单位法向量（已含 side 符号）
+  // 左法向：(-uy, ux)，右法向：(uy, -ux)
+  const segN: [number, number][] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = pts[i + 1][0] - pts[i][0];
+    const dy = pts[i + 1][1] - pts[i][1];
+    const len = Math.hypot(dx, dy);
+    segN.push(len < 1e-10 ? [0, sign] : [-dy / len * sign, dx / len * sign]);
+  }
+
+  // 将投影米坐标转回经纬度
+  const back = (mx: number, my: number, zi?: number): GeoPoint => ({
+    x: mx / (cosLat * DEG_TO_M),
+    y: my / DEG_TO_M,
+    ...(zi !== undefined ? { z: zi } : {}),
+  });
+
   const result: GeoPoint[] = [];
 
-  for (let i = 0; i < points.length; i++) {
-    const p = points[i];
-    const cosLat = Math.cos(p.y * Math.PI / 180);
-    let dx: number, dy: number;
-    if (i === 0) { dx = points[1].x - p.x; dy = points[1].y - p.y; }
-    else if (i === points.length - 1) { dx = p.x - points[i - 1].x; dy = p.y - points[i - 1].y; }
-    else { dx = points[i + 1].x - points[i - 1].x; dy = points[i + 1].y - points[i - 1].y; }
+  for (let i = 0; i < n; i++) {
+    const [px, py] = pts[i];
+    const zi = points[i].z;
 
-    const dxM = dx * cosLat * DEG_TO_M;
-    const dyM = dy * DEG_TO_M;
-    const len = Math.hypot(dxM, dyM);
-    if (len === 0) { result.push(p); continue; }
+    if (i === 0) {
+      const [nx, ny] = segN[0];
+      result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
+    } else if (i === n - 1) {
+      const [nx, ny] = segN[n - 2];
+      result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
+    } else {
+      // 相邻两段的法向量
+      const [n1x, n1y] = segN[i - 1];
+      const [n2x, n2y] = segN[i];
+      const dot = n1x * n2x + n1y * n2y;
+      const denom = 1 + dot;
 
-    const perpXM = -dyM / len * widthMeters * sign;
-    const perpYM = dxM / len * widthMeters * sign;
+      if (denom < 0.05) {
+        // 近反向（接近 180° 急转弯）→ 直接 bevel
+        result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
+        result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
+      } else {
+        // 斜接向量 m：满足 dot(m, n1) = 1 且 dot(m, n2) = 1
+        const mx = (n1x + n2x) / denom;
+        const my = (n1y + n2y) / denom;
+        const miterRatio = Math.hypot(mx, my);
 
-    result.push({
-      x: p.x + perpXM / (cosLat * DEG_TO_M),
-      y: p.y + perpYM / DEG_TO_M,
-      ...(p.z !== undefined ? { z: p.z } : {}),
-    });
+        if (miterRatio > MAX_MITER) {
+          // 超限 → bevel（两点），防止内侧折叠 / 外侧尖刺
+          result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
+          result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
+        } else {
+          result.push(back(px + mx * widthMeters, py + my * widthMeters, zi));
+        }
+      }
+    }
   }
+
   return result;
 }
 
@@ -155,7 +211,7 @@ export function deleteApolloVertex(entity: ApolloEntity, index: number): ApolloE
 
 // ═══════════ 工厂函数 ════════════════════════════════════════
 
-interface DrawResult { drawTool: string; points: LngLat[]; anchors: BezierAnchor[]; }
+interface DrawResult { drawTool: string; points: LngLat[]; anchors: BezierAnchor[]; laneHalfWidth?: number; }
 
 function extractLinePoints(draw: DrawResult): GeoPoint[] {
   if (draw.drawTool === 'drawBezier' && draw.anchors.length >= 2) return coordsToPoints(cubicBezier(draw.anchors));
@@ -168,9 +224,6 @@ function extractPolygonPoints(draw: DrawResult): GeoPoint[] {
   if (draw.drawTool === 'drawRect' && draw.points.length >= 2) return coordsToPoints(rectCorners(draw.points[0], draw.points[1], 0));
   return coordsToPoints(draw.points);
 }
-
-/** 默认车道宽度（米），中心线到左/右边界的距离 */
-const DEFAULT_LANE_HALF_WIDTH = 1.75;
 
 /** 构建原始绘制信息（贝塞尔/圆弧），用于保留曲线可编辑性 */
 function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
@@ -193,6 +246,7 @@ function buildRectInfo(d: DrawResult): import('@/types/apollo').SourceRectInfo |
 
 function createLane(d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
+  const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
   return {
     id: `lane_${nanoid(12)}`, entityType: 'lane',
     centralCurve: pointsToCurve(extractLinePoints(d)),
@@ -203,8 +257,8 @@ function createLane(d: DrawResult): LaneEntity {
     leftNeighborForwardIds: [], rightNeighborForwardIds: [],
     leftNeighborReverseIds: [], rightNeighborReverseIds: [],
     selfReverseLaneIds: [], junctionId: null, overlapIds: [],
-    leftSamples: [{ s: 0, width: DEFAULT_LANE_HALF_WIDTH }],
-    rightSamples: [{ s: 0, width: DEFAULT_LANE_HALF_WIDTH }],
+    leftSamples: [{ s: 0, width: hw }],
+    rightSamples: [{ s: 0, width: hw }],
     leftRoadSamples: [], rightRoadSamples: [],
     ...(source ? { _source: source } : {}),
   };
@@ -258,8 +312,9 @@ const FACTORY_MAP: Record<MapElementType, (d: DrawResult) => ApolloEntity> = {
 
 export function createApolloEntity(
   elementType: MapElementType, drawTool: string, points: LngLat[], anchors: BezierAnchor[],
+  options?: { laneHalfWidth?: number },
 ): ApolloEntity {
-  return FACTORY_MAP[elementType]({ drawTool, points, anchors });
+  return FACTORY_MAP[elementType]({ drawTool, points, anchors, laneHalfWidth: options?.laneHalfWidth });
 }
 
 // ═══════════ 冷层 GeoJSON 编译 ══════════════════════════════
@@ -302,10 +357,6 @@ function mkPoint(coord: LngLat, props: Record<string, unknown>): GeoJSON.Feature
   return { type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: coord } };
 }
 
-function laneDirectionLabel(entity: LaneEntity): string {
-  switch (entity.direction) { case 'FORWARD': return '→'; case 'BACKWARD': return '←'; case 'BIDIRECTION': return '↔'; default: return '→'; }
-}
-
 /** 编译 Apollo 实体为冷层 GeoJSON features */
 export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
   const color = elementColor(entity.entityType) ?? '#ffffff';
@@ -321,18 +372,21 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
       const leftEdge = offsetPolylineDeg(centerPts, leftW, 'left');
       const rightEdge = offsetPolylineDeg(centerPts, rightW, 'right');
+      // 填充多边形（noStroke 抑制描边，避免首尾端盖闭合问题）
       const polyCoords = [...leftEdge, ...rightEdge.reverse()].map(toLngLat);
       if (polyCoords.length >= 4) {
-        features.push(mkPolygon(polyCoords, {
-          ...base, fillOpacity: 0.35,
-          laneType: entity.type, laneDirection: entity.direction,
-        }));
+        features.push(mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }));
       }
-      // 中心虚线
+      // 左右边界线（独立 LineString，无端盖）
+      features.push(mkLine(leftEdge.map(toLngLat), { ...base, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
+      features.push(mkLine(rightEdge.map(toLngLat), { ...base, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
+      // 中心虚线 + 方向箭头数据（BACKWARD 翻转坐标使箭头指向行驶方向）
       const centerCoords = pointsToCoords(centerPts);
-      features.push(mkLine(centerCoords, { ...base, lineWidth: 1.5, lineOpacity: 0.5, lineDash: [4, 4], color: '#ffffff' }));
-      // 方向标注
-      features.push(mkPoint(lineMid(centerCoords), { ...base, role: 'label', label: laneDirectionLabel(entity), labelSize: 16 }));
+      const dirCoords = entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;
+      features.push(mkLine(dirCoords, {
+        color: '#ffffff', id: entity.id, entityType: entity.entityType,
+        lineWidth: LANE_CENTER_LINE_WIDTH, lineOpacity: LANE_CENTER_LINE_OPACITY, dashed: true, role: 'laneCenter',
+      }));
       break;
     }
 
@@ -368,7 +422,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 4 }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🚥', labelSize: 18 }));
+      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🚦', labelSize: 18 }));
       break;
     }
 
@@ -387,7 +441,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 5, dashed: true }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '⛨', labelSize: 16 }));
+      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🚧', labelSize: 16 }));
       break;
     }
 
@@ -430,7 +484,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 3, dashed: true }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '⚠️', labelSize: 16 }));
+      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🔻', labelSize: 16 }));
       break;
     }
 
