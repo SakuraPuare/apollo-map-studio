@@ -78,7 +78,6 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       center: readMapCenter(),
       zoom: readMapZoom(),
       doubleClickZoom: false,
-      antialias: true,
     });
 
     map.on('load', () => {

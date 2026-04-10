@@ -39,17 +39,18 @@ export function pointsToPolygon(points: GeoPoint[]): ApolloPolygon {
 /**
  * 将折线按指定宽度（米）向左或右偏移，返回偏移后的点
  *
- * 转折处使用 miter/bevel join：
- *   - 当 miter 比例 ≤ MAX_MITER：使用单个斜接点（精确相交）
- *   - 当 miter 比例 > MAX_MITER（锐角）：使用两点斜切（bevel），
- *     避免内侧越界折叠和外侧极长尖刺
+ * 转折处区分内侧（角度小的那边）和外侧（角度大的那边）：
+ *   外侧 miter ≤ MAX_MITER → 单斜接点；外侧超限 → bevel（两点，防尖刺）
+ *   内侧始终 → 单斜接点（精确交点），保证内侧线段在正确交点处收短
+ *
+ * 内侧判定：n1×n2 与 sign 异号（crossN * sign < 0）
  */
-function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side: 'left' | 'right'): GeoPoint[] {
+export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side: 'left' | 'right'): GeoPoint[] {
   if (points.length < 2 || widthMeters <= 0) return points;
 
   const sign = side === 'left' ? 1 : -1;
   const DEG_TO_M = 111320;
-  const MAX_MITER = 3; // miter 比例上限，超过则切换为 bevel
+  const MAX_MITER = 3; // 外侧 miter 比例上限，超过则切换为 bevel
 
   // 用中间纬度做统一投影（百米以内误差可忽略）
   const midLat = points.reduce((s, p) => s + p.y, 0) / points.length;
@@ -95,21 +96,48 @@ function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side: 'left'
       const dot = n1x * n2x + n1y * n2y;
       const denom = 1 + dot;
 
-      if (denom < 0.05) {
-        // 近反向（接近 180° 急转弯）→ 直接 bevel
-        result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
-        result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
+      // 内侧判定：法向叉积与 side 符号异号时为内侧（转角小的那边）
+      // crossN = n1×n2 的 z 分量（去掉 sign² 后等于实际转向方向）
+      const crossN = n1x * n2y - n1y * n2x;
+      const isInner = crossN * sign < 0;
+
+      // 外侧过渡弧顶点方向：n1 顺时针旋转 90°（左转）或逆时针（右转），
+      // 始终朝向转角外侧，防止 bevel 两点连线穿越路面内部
+      const capX = crossN > 0 ? n1y : -n1y;
+      const capY = crossN > 0 ? -n1x : n1x;
+
+      if (denom < 0.01) {
+        // 近反向（接近 180° 急转弯）
+        if (isInner) {
+          // 内侧：取法向均值方向作为汇聚点，避免交叉
+          const avgX = n1x + n2x;
+          const avgY = n1y + n2y;
+          const avgLen = Math.hypot(avgX, avgY);
+          if (avgLen > 1e-10) {
+            result.push(back(px + (avgX / avgLen) * widthMeters, py + (avgY / avgLen) * widthMeters, zi));
+          } else {
+            result.push(back(px, py, zi)); // 完全对称时汇聚到顶点
+          }
+        } else {
+          // 外侧：三点弧（两端点 + 过渡弧顶），防止连线穿越路面
+          result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
+          result.push(back(px + capX * widthMeters, py + capY * widthMeters, zi));
+          result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
+        }
       } else {
         // 斜接向量 m：满足 dot(m, n1) = 1 且 dot(m, n2) = 1
         const mx = (n1x + n2x) / denom;
         const my = (n1y + n2y) / denom;
         const miterRatio = Math.hypot(mx, my);
 
-        if (miterRatio > MAX_MITER) {
-          // 超限 → bevel（两点），防止内侧折叠 / 外侧尖刺
+        if (miterRatio > MAX_MITER && !isInner) {
+          // 外侧超限：三点弧 bevel（防止尖刺 + 防止穿越路面）
           result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
+          result.push(back(px + capX * widthMeters, py + capY * widthMeters, zi));
           result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
         } else {
+          // 内侧或外侧未超限：直接使用两条偏移线的精确交点
+          // 内侧时交点自然在两段之间，线段收短是正确的几何行为
           result.push(back(px + mx * widthMeters, py + my * widthMeters, zi));
         }
       }
@@ -373,13 +401,13 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const leftEdge = offsetPolylineDeg(centerPts, leftW, 'left');
       const rightEdge = offsetPolylineDeg(centerPts, rightW, 'right');
       // 填充多边形（noStroke 抑制描边，避免首尾端盖闭合问题）
-      const polyCoords = [...leftEdge, ...rightEdge.reverse()].map(toLngLat);
+      const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
       if (polyCoords.length >= 4) {
         features.push(mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }));
       }
       // 左右边界线（独立 LineString，无端盖）
-      features.push(mkLine(leftEdge.map(toLngLat), { ...base, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
-      features.push(mkLine(rightEdge.map(toLngLat), { ...base, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
+      features.push(mkLine(leftEdge.map(toLngLat), { ...base, role: 'laneEdgeLeft', lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
+      features.push(mkLine(rightEdge.map(toLngLat), { ...base, role: 'laneEdgeRight', lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
       // 中心虚线 + 方向箭头数据（BACKWARD 翻转坐标使箭头指向行驶方向）
       const centerCoords = pointsToCoords(centerPts);
       const dirCoords = entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;

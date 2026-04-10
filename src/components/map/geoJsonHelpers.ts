@@ -90,11 +90,11 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     const coords = pointsToCoords(entity.points);
     features.push(polygonFeature(coords));
     coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
-  } else {
-    // Apollo 实体
-    const apolloEntity = entity as ApolloEntity;
-    const source = (apolloEntity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
-    const sourceRect = (apolloEntity as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
+    } else {
+      // Apollo 实体
+      const apolloEntity = entity as ApolloEntity;
+      const source = (apolloEntity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+      const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
 
     // ① 有贝塞尔源：以贝塞尔模式编辑（含控制柄）
     if (source?.drawTool === 'drawBezier' && source.anchors) {

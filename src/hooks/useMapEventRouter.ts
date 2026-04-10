@@ -71,7 +71,7 @@ export function useMapEventRouter(
                   useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
                 } else {
                   // Apollo entity with bezier source
-                  const src = (entity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+                  const src = (entity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
                   if (src?.drawTool === 'drawBezier' && src.anchors) {
                     useMapStore.getState().updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
                   }
@@ -97,7 +97,7 @@ export function useMapEventRouter(
 
       if (state === 'editingPoint') return;
 
-      if (snap.matches('drawBezier')) {
+      if (state === 'drawBezier') {
         actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
       }
     };
@@ -141,7 +141,7 @@ export function useMapEventRouter(
         return;
       }
 
-      if (!snap.matches('drawBezier')) {
+      if (state !== 'drawBezier') {
         actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
       }
     };

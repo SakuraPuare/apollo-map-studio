@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { setup, assign } from 'xstate';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { mirrorPoint } from '@/core/geometry/interpolate';

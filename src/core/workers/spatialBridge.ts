@@ -2,6 +2,9 @@ import type { WorkerRequest, WorkerResponse } from './protocol';
 
 const DEFAULT_TIMEOUT = 10_000; // 10s
 
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type WorkerRequestPayload = DistributiveOmit<WorkerRequest, 'requestId'>;
+
 type PendingEntry = {
   resolve: (value: WorkerResponse) => void;
   reject: (reason: Error) => void;
@@ -39,7 +42,7 @@ export class SpatialWorkerBridge {
   }
 
   send<T extends WorkerResponse>(
-    request: Omit<WorkerRequest, 'requestId'>,
+    request: WorkerRequestPayload,
     timeout = DEFAULT_TIMEOUT,
   ): Promise<T> {
     if (this.disposed) return Promise.reject(new Error('Worker disposed'));

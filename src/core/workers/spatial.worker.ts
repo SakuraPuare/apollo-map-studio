@@ -6,6 +6,7 @@ import RBush from 'rbush';
 import type { MapEntity } from '@/types/entities';
 import type { WorkerRequest, WorkerResponse, HitResult } from './protocol';
 import { compileColdFeatures, entityBBox, entityRenderCoords, isAreaEntity } from '@/core/geometry/compile';
+import { applyLaneJunctions } from '@/core/geometry/laneJunctions';
 import { pointToPolylineDist, pointToPolygonDist } from '@/core/geometry/hitTest';
 import type { LngLat } from '@/core/geometry/interpolate';
 
@@ -51,7 +52,7 @@ function buildFeatureCollection(excludeId?: string | null): GeoJSON.FeatureColle
     if (id === excludeId) continue;
     features.push(...cached);
   }
-  return { type: 'FeatureCollection', features };
+  return { type: 'FeatureCollection', features: applyLaneJunctions(features, entityMap.values(), excludeId) };
 }
 
 // --- hitTest ---

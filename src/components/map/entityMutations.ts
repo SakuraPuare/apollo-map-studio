@@ -226,8 +226,8 @@ export function applyDrag(
   // Apollo 实体
   if (!DRAWING_TYPES.has(entity.entityType)) {
     const apolloEntity = entity as ApolloEntity;
-    const source = (apolloEntity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
-    const sourceRect = (apolloEntity as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
+    const source = (apolloEntity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+    const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
 
     // ① 贝塞尔源：编辑锚点和控制柄，然后重新采样曲线
     if (source?.drawTool === 'drawBezier' && source.anchors) {
@@ -344,7 +344,7 @@ export function applyDrag(
 
 /** Alt+点击 Apollo 贝塞尔源实体的锚点：尖角 ↔ 平滑切换 */
 export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloEntity {
-  const source = (entity as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+  const source = (entity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
   if (!source?.anchors) return entity;
 
   const anchors = source.anchors.map((a) => ({ ...a }));
