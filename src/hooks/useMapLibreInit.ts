@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 import {
-  LANE_ARROW_CHAR, LANE_ARROW_TEXT_SIZE,
+  LANE_ARROW_TEXT_SIZE,
   LANE_ARROW_COLOR, LANE_ARROW_OPACITY,
 } from '@/config/mapConstants';
 import { readMapCenter, readMapZoom, useSettingsStore } from '@/store/settingsStore';
@@ -24,6 +24,25 @@ const DARK_STYLE: maplibregl.StyleSpecification = {
     },
   ],
 };
+
+/** 生成三角箭头 SDF 图像（白色箭头，透明背景），用于 icon-image 替代字体渲染 */
+function createArrowSDF(size: number = 20): { width: number; height: number; data: Uint8Array } {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  // 向右的实心三角箭头，稍微内缩以留 SDF 边距
+  ctx.moveTo(size * 0.15, size * 0.18);
+  ctx.lineTo(size * 0.85, size * 0.5);
+  ctx.lineTo(size * 0.15, size * 0.82);
+  ctx.closePath();
+  ctx.fill();
+  const { data } = ctx.getImageData(0, 0, size, size);
+  return { width: size, height: size, data: new Uint8Array(data) };
+}
 
 /** 生成条纹图案并注册到 MapLibre */
 function addStripeImage(
@@ -59,14 +78,16 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       center: readMapCenter(),
       zoom: readMapZoom(),
       doubleClickZoom: false,
+      antialias: true,
     });
 
     map.on('load', () => {
       mapLoadedRef.current = true;
 
-      // ─── 生成条纹图案 ───
+      // ─── 生成图案与图标 ───
       addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false);     // 白色水平条纹（斑马线，细密）
       addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true);         // 红色斜线（禁停区，细密连续）
+      map.addImage('lane-arrow', createArrowSDF(20), { sdf: true });               // 车道方向箭头 SDF 图标
 
       // ─── 冷层 ───
       map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
@@ -158,7 +179,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         },
       });
 
-      // 冷层 z5：车道方向箭头（沿中心线布置）
+      // 冷层 z5：车道方向箭头（沿中心线布置，使用 SDF 图标避免字体服务 404）
       map.addLayer({
         id: 'cold-lane-arrows',
         type: 'symbol',
@@ -166,21 +187,19 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         filter: ['all', ['==', '$type', 'LineString'], ['==', 'role', 'laneCenter']],
         layout: {
           'symbol-placement': 'line',
-          'text-field': LANE_ARROW_CHAR,
-          'text-size': LANE_ARROW_TEXT_SIZE,
-          'text-font': ['Open Sans Regular'],
-          'text-rotation-alignment': 'map',
-          'text-pitch-alignment': 'viewport',
+          'icon-image': 'lane-arrow',
+          'icon-size': LANE_ARROW_TEXT_SIZE / 20,   // 相对 20px sprite 的缩放比
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'viewport',
           'symbol-spacing': useSettingsStore.getState().laneArrowSpacing,
-          'text-keep-upright': false,
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
         },
         paint: {
-          'text-color': LANE_ARROW_COLOR,
-          'text-opacity': LANE_ARROW_OPACITY,
-          'text-halo-color': 'rgba(0,0,0,0.4)',
-          'text-halo-width': 1,
+          'icon-color': LANE_ARROW_COLOR,
+          'icon-opacity': LANE_ARROW_OPACITY,
+          'icon-halo-color': 'rgba(0,0,0,0.4)',
+          'icon-halo-width': 1,
         },
       });
 
