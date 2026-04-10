@@ -242,4 +242,24 @@ describe('紧弯连续采样', () => {
     const ring = (polygon as GeoJSON.Feature<GeoJSON.Polygon>).geometry.coordinates[0] ?? [];
     expect(polygonSelfIntersects(ring.slice(0, -1) as LngLat[])).toBe(false);
   });
+
+  it('当转弯半径小于半宽时，内侧短段会被折叠，而不是保留反向小段', () => {
+    const center = quarterTurn(2, 16);
+    const right = offsetPolylineDeg(center, WIDTH, 'right');
+    expect(right.length).toBeLessThan(center.length);
+    expect(polylineSelfIntersects(right.map(toCoord))).toBe(false);
+
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      center.map(toCoord),
+      [],
+      { laneHalfWidth: WIDTH },
+    ) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const rightEdge = features.find((feature) => feature.properties?.role === 'laneEdgeRight');
+    expect(rightEdge?.geometry.type).toBe('LineString');
+    expect((rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates.length).toBeLessThan(center.length);
+  });
 });

@@ -145,10 +145,25 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
     }
   }
 
-  return points.length < 6 ? result : collapseOffsetLoops(result, cosLat);
+  if (points.length < 6) {
+    return result;
+  }
+
+  if (hasDenseSegmentCollapse(result, pts, cosLat)) {
+    return collapseOffsetLoops(rebuildDenseOffset(pts, segN, widthMeters, cosLat), cosLat);
+  }
+
+  return collapseOffsetLoops(result, cosLat);
 }
 
 type ProjectedPoint = { x: number; y: number; z?: number };
+type Vec2 = [number, number];
+type DenseOffsetSegment = {
+  start: Vec2;
+  end: Vec2;
+  dir: Vec2;
+  normal: Vec2;
+};
 
 function projectPoint(p: GeoPoint, cosLat: number): ProjectedPoint {
   return { x: p.x * cosLat * DEG_TO_M, y: p.y * DEG_TO_M, ...(p.z !== undefined ? { z: p.z } : {}) };
@@ -183,6 +198,115 @@ function segmentIntersection(a1: ProjectedPoint, a2: ProjectedPoint, b1: Project
   if (t <= 1e-6 || t >= 1 - 1e-6 || u <= 1e-6 || u >= 1 - 1e-6) return null;
 
   return { x: a1.x + dax * t, y: a1.y + day * t };
+}
+
+function lineIntersection(a: ProjectedPoint, dirA: Vec2, b: ProjectedPoint, dirB: Vec2): ProjectedPoint | null {
+  const det = dirA[0] * dirB[1] - dirA[1] * dirB[0];
+  if (Math.abs(det) < 1e-8) return null;
+
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const t = (dx * dirB[1] - dy * dirB[0]) / det;
+  return { x: a.x + dirA[0] * t, y: a.y + dirA[1] * t };
+}
+
+function offsetProjected(anchor: Vec2, normal: Vec2, widthMeters: number): ProjectedPoint {
+  return { x: anchor[0] + normal[0] * widthMeters, y: anchor[1] + normal[1] * widthMeters };
+}
+
+function projectedLength(a: ProjectedPoint, b: ProjectedPoint, dir: Vec2): number {
+  return (b.x - a.x) * dir[0] + (b.y - a.y) * dir[1];
+}
+
+function hasDenseSegmentCollapse(offsetPoints: GeoPoint[], sourcePts: Vec2[], cosLat: number): boolean {
+  if (offsetPoints.length !== sourcePts.length || offsetPoints.length < 3) return false;
+
+  const projected = offsetPoints.map((point) => projectPoint(point, cosLat));
+  for (let i = 0; i < sourcePts.length - 1; i++) {
+    const dx = sourcePts[i + 1][0] - sourcePts[i][0];
+    const dy = sourcePts[i + 1][1] - sourcePts[i][1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-8) continue;
+
+    if (projectedLength(projected[i], projected[i + 1], [dx / len, dy / len]) <= 1e-4) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function denseJoin(a: DenseOffsetSegment, b: DenseOffsetSegment, widthMeters: number): ProjectedPoint {
+  const aOffset = offsetProjected(a.end, a.normal, widthMeters);
+  const bOffset = offsetProjected(b.start, b.normal, widthMeters);
+  return lineIntersection(aOffset, a.dir, bOffset, b.dir) ?? {
+    x: (aOffset.x + bOffset.x) / 2,
+    y: (aOffset.y + bOffset.y) / 2,
+  };
+}
+
+/**
+ * 对高采样曲线重建偏移边界：若某个内侧偏移段已经变成负长度，
+ * 则直接移除该段，并与前后偏移线重求 join。
+ */
+function rebuildDenseOffset(sourcePts: Vec2[], segN: Vec2[], widthMeters: number, cosLat: number): GeoPoint[] {
+  const segments: DenseOffsetSegment[] = [];
+
+  for (let i = 0; i < sourcePts.length - 1; i++) {
+    const dx = sourcePts[i + 1][0] - sourcePts[i][0];
+    const dy = sourcePts[i + 1][1] - sourcePts[i][1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-8) continue;
+
+    segments.push({
+      start: sourcePts[i],
+      end: sourcePts[i + 1],
+      dir: [dx / len, dy / len],
+      normal: segN[i],
+    });
+  }
+
+  if (segments.length === 0) return [];
+
+  const active = [segments[0]];
+  const poly: ProjectedPoint[] = [offsetProjected(segments[0].start, segments[0].normal, widthMeters)];
+
+  for (let i = 1; i < segments.length; i++) {
+    active.push(segments[i]);
+    poly.push(denseJoin(active[active.length - 2], active[active.length - 1], widthMeters));
+
+    while (active.length >= 3) {
+      const segment = active[active.length - 2];
+      const start = poly[poly.length - 2];
+      const end = poly[poly.length - 1];
+      if (projectedLength(start, end, segment.dir) > 1e-4) break;
+
+      active.splice(active.length - 2, 1);
+      poly.splice(poly.length - 2, 2);
+      poly.push(denseJoin(active[active.length - 2], active[active.length - 1], widthMeters));
+    }
+  }
+
+  poly.push(offsetProjected(active[active.length - 1].end, active[active.length - 1].normal, widthMeters));
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    while (active.length >= 2 && projectedLength(poly[poly.length - 2], poly[poly.length - 1], active[active.length - 1].dir) <= 1e-4) {
+      active.pop();
+      poly.splice(poly.length - 2, 1);
+      changed = true;
+    }
+
+    while (active.length >= 2 && projectedLength(poly[0], poly[1], active[0].dir) <= 1e-4) {
+      active.shift();
+      poly.splice(1, 1);
+      changed = true;
+    }
+  }
+
+  return poly.map((point) => unprojectPoint(point, cosLat));
 }
 
 /**
