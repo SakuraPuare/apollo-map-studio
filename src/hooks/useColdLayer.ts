@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
-import { useSelector } from '@xstate/react';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
@@ -59,11 +58,10 @@ export function useColdLayer(
   actorRef: ActorRefFrom<typeof editorMachine>,
   bridgeRef: React.RefObject<SpatialWorkerBridge | null>,
 ) {
-  const entities = useMapStore((s) => s.entities);
-  const selectedEntityId = useSelector(actorRef, (s) => s.context.selectedEntityId);
   const prevEntitiesRef = useRef<EntitySnapshot | null>(null);
   const syncFrameRef = useRef<number | null>(null);
   const syncVersionRef = useRef(0);
+  const selectedEntityIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -71,6 +69,7 @@ export function useColdLayer(
     if (!map || !bridge) return;
 
     let cancelled = false;
+    selectedEntityIdRef.current = actorRef.getSnapshot().context.selectedEntityId;
 
     const syncColdLayer = () => {
       syncFrameRef.current = null;
@@ -79,6 +78,7 @@ export function useColdLayer(
       const src = map.getSource('cold') as maplibregl.GeoJSONSource | undefined;
       if (!src) return;
 
+      const entities = useMapStore.getState().entities;
       const snapshot = cloneEntities(entities);
       const previousSnapshot = prevEntitiesRef.current;
       const requestVersion = ++syncVersionRef.current;
@@ -115,16 +115,40 @@ export function useColdLayer(
     };
 
     const scheduleSync = () => {
-      if (syncFrameRef.current !== null) {
-        cancelAnimationFrame(syncFrameRef.current);
-      }
+      if (syncFrameRef.current !== null) return;
       syncFrameRef.current = requestAnimationFrame(syncColdLayer);
     };
 
-    if (mapLoadedRef.current) {
+    const applySelection = () => {
+      if (!mapLoadedRef.current) return;
+      applyColdSelectionFilter(map, selectedEntityIdRef.current);
+    };
+
+    const onActorChange = () => {
+      const selectedEntityId = actorRef.getSnapshot().context.selectedEntityId;
+      if (selectedEntityId === selectedEntityIdRef.current) return;
+      selectedEntityIdRef.current = selectedEntityId;
+      applySelection();
+    };
+
+    const actorSubscription = actorRef.subscribe(onActorChange);
+    const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
+      if (state.entities !== prevState.entities) {
+        scheduleSync();
+      }
+    });
+
+    const onLoad = () => {
       scheduleSync();
+      applySelection();
+    };
+
+    if (mapLoadedRef.current) {
+      onLoad();
       return () => {
         cancelled = true;
+        actorSubscription.unsubscribe();
+        unsubscribeStore();
         if (syncFrameRef.current !== null) {
           cancelAnimationFrame(syncFrameRef.current);
           syncFrameRef.current = null;
@@ -132,34 +156,16 @@ export function useColdLayer(
       };
     }
 
-    map.once('load', syncColdLayer);
+    map.once('load', onLoad);
     return () => {
       cancelled = true;
-      map.off('load', syncColdLayer);
+      actorSubscription.unsubscribe();
+      unsubscribeStore();
+      map.off('load', onLoad);
       if (syncFrameRef.current !== null) {
         cancelAnimationFrame(syncFrameRef.current);
         syncFrameRef.current = null;
       }
     };
-  }, [entities]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const updateFilter = () => {
-      if (!mapLoadedRef.current) return;
-      applyColdSelectionFilter(map, selectedEntityId);
-    };
-
-    if (mapLoadedRef.current) {
-      updateFilter();
-      return;
-    }
-
-    map.once('load', updateFilter);
-    return () => {
-      map.off('load', updateFilter);
-    };
-  }, [selectedEntityId]);
+  }, [actorRef]);
 }

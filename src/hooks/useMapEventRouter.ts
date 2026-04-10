@@ -5,6 +5,7 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
+import { useUIStore } from '@/store/uiStore';
 import { applyDrag, toggleSmooth, toggleSmoothApollo, deleteVertex } from '@/components/map/entityMutations';
 import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
 import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
@@ -147,6 +148,9 @@ export function useMapEventRouter(
     };
 
     const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      // Update cursor position in UI store
+      useUIStore.getState().setCursorLngLat([e.lngLat.lng, e.lngLat.lat]);
+
       const snap = actorRef.getSnapshot();
       const state = snap.value as string;
 
@@ -223,11 +227,19 @@ export function useMapEventRouter(
       }
     };
 
+    const onZoomEnd = () => {
+      useUIStore.getState().setCurrentZoom(map.getZoom());
+    };
+
+    // Set initial zoom
+    useUIStore.getState().setCurrentZoom(map.getZoom());
+
     map.on('mousedown', onMouseDown);
     map.on('click', onClick);
     map.on('mousemove', onMouseMove);
     map.on('mouseup', onMouseUp);
     map.on('dblclick', onDblClick);
+    map.on('zoomend', onZoomEnd);
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
@@ -236,6 +248,7 @@ export function useMapEventRouter(
       map.off('mousemove', onMouseMove);
       map.off('mouseup', onMouseUp);
       map.off('dblclick', onDblClick);
+      map.off('zoomend', onZoomEnd);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [actorRef]);

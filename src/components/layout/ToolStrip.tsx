@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   MousePointer2, Hand, Pencil, Spline, Circle, Square, Hexagon,
-  ZoomIn, ZoomOut, Grid3X3, Magnet, ChevronDown, Command
+  Grid3X3, Magnet, ChevronDown, Command
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
+import { useUIStore } from '@/store/uiStore';
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -14,8 +15,6 @@ interface ToolStripProps {
   currentTool: string;
   currentElement: MapElementType | null;
   onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
   onOpenCommandPalette?: () => void;
 }
 
@@ -108,10 +107,13 @@ export function ToolStrip({
   currentTool,
   currentElement,
   onSelectTool,
-  onZoomIn,
-  onZoomOut,
   onOpenCommandPalette,
 }: ToolStripProps) {
+  const gridEnabled = useUIStore((s) => s.gridEnabled);
+  const snapEnabled = useUIStore((s) => s.snapEnabled);
+  const toggleGrid = useUIStore((s) => s.toggleGrid);
+  const toggleSnap = useUIStore((s) => s.toggleSnap);
+
   const [elementDropdownOpen, setElementDropdownOpen] = useState(false);
   const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
 
@@ -280,14 +282,8 @@ export function ToolStrip({
 
       <Divider />
 
-      {/* View controls */}
-      <ToolButton icon={ZoomOut} label="Zoom Out" shortcut="-" onClick={onZoomOut} />
-      <ToolButton icon={ZoomIn} label="Zoom In" shortcut="+" onClick={onZoomIn} />
-
-      <Divider />
-
-      <ToolButton icon={Grid3X3} label="Toggle Grid" shortcut="⌘G" />
-      <ToolButton icon={Magnet} label="Toggle Snap" shortcut="⌘⇧S" />
+      <ToolButton icon={Grid3X3} label="Toggle Grid" shortcut="⌘G" active={gridEnabled} onClick={toggleGrid} />
+      <ToolButton icon={Magnet} label="Toggle Snap" active={snapEnabled} onClick={toggleSnap} />
     </div>
   );
 }

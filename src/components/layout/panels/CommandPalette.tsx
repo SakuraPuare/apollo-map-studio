@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import {
   MousePointer2, Pencil, Spline, Circle, Square, Hexagon,
-  Undo2, Redo2, Trash2, Copy, Clipboard, Grid3X3, Magnet,
+  Undo2, Redo2, Trash2, Grid3X3, Magnet,
   Save, FolderOpen, Download, Settings, Search, Layers,
-  ZoomIn, ZoomOut, Maximize2
+  ZoomIn, ZoomOut, Maximize2, LayoutDashboard
 } from 'lucide-react';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
@@ -16,6 +16,12 @@ interface CommandPaletteProps {
   onUndo?: () => void;
   onRedo?: () => void;
   onDelete?: () => void;
+  onToggleGrid?: () => void;
+  onToggleSnap?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetLayout?: () => void;
+  onExport?: () => void;
 }
 
 interface CommandItem {
@@ -34,11 +40,16 @@ export function CommandPalette({
   onUndo,
   onRedo,
   onDelete,
+  onToggleGrid,
+  onToggleSnap,
+  onZoomIn,
+  onZoomOut,
+  onResetLayout,
+  onExport,
 }: CommandPaletteProps) {
   const [search, setSearch] = useState('');
 
-  // Define all commands
-  const commands: CommandItem[] = [
+  const commands: CommandItem[] = useMemo(() => [
     // Tools
     { id: 'select', label: 'Select Tool', shortcut: 'V', icon: MousePointer2, group: 'Tools', action: () => onSelectTool?.('idle' as DrawTool) },
     { id: 'polyline', label: 'Draw Polyline', shortcut: 'P', icon: Pencil, group: 'Tools', action: () => onSelectTool?.('drawPolyline') },
@@ -51,39 +62,34 @@ export function CommandPalette({
     { id: 'undo', label: 'Undo', shortcut: '⌘Z', icon: Undo2, group: 'Edit', action: () => onUndo?.() },
     { id: 'redo', label: 'Redo', shortcut: '⇧⌘Z', icon: Redo2, group: 'Edit', action: () => onRedo?.() },
     { id: 'delete', label: 'Delete Selection', shortcut: '⌫', icon: Trash2, group: 'Edit', action: () => onDelete?.() },
-    { id: 'copy', label: 'Copy', shortcut: '⌘C', icon: Copy, group: 'Edit', action: () => {} },
-    { id: 'paste', label: 'Paste', shortcut: '⌘V', icon: Clipboard, group: 'Edit', action: () => {} },
 
     // View
-    { id: 'grid', label: 'Toggle Grid', shortcut: '⌘G', icon: Grid3X3, group: 'View', action: () => {} },
-    { id: 'snap', label: 'Toggle Snap', shortcut: '⌘⇧S', icon: Magnet, group: 'View', action: () => {} },
-    { id: 'zoomin', label: 'Zoom In', shortcut: '⌘+', icon: ZoomIn, group: 'View', action: () => {} },
-    { id: 'zoomout', label: 'Zoom Out', shortcut: '⌘-', icon: ZoomOut, group: 'View', action: () => {} },
-    { id: 'fit', label: 'Fit to Screen', shortcut: '⌘0', icon: Maximize2, group: 'View', action: () => {} },
-    { id: 'layers', label: 'Toggle Layers Panel', icon: Layers, group: 'View', action: () => {} },
+    { id: 'grid', label: 'Toggle Grid', shortcut: '⌘G', icon: Grid3X3, group: 'View', action: () => onToggleGrid?.() },
+    { id: 'snap', label: 'Toggle Snap', icon: Magnet, group: 'View', action: () => onToggleSnap?.() },
+    { id: 'zoomin', label: 'Zoom In', shortcut: '⌘+', icon: ZoomIn, group: 'View', action: () => onZoomIn?.() },
+    { id: 'zoomout', label: 'Zoom Out', shortcut: '⌘-', icon: ZoomOut, group: 'View', action: () => onZoomOut?.() },
+    { id: 'resetlayout', label: 'Reset Layout', icon: LayoutDashboard, group: 'View', action: () => onResetLayout?.() },
 
     // File
-    { id: 'save', label: 'Save', shortcut: '⌘S', icon: Save, group: 'File', action: () => {} },
-    { id: 'open', label: 'Open...', shortcut: '⌘O', icon: FolderOpen, group: 'File', action: () => {} },
-    { id: 'export', label: 'Export Apollo Format...', icon: Download, group: 'File', action: () => {} },
-    { id: 'settings', label: 'Settings', shortcut: '⌘,', icon: Settings, group: 'File', action: () => {} },
-  ];
+    { id: 'export', label: 'Export Apollo Format...', icon: Download, group: 'File', action: () => onExport?.() },
+  ], [onSelectTool, onUndo, onRedo, onDelete, onToggleGrid, onToggleSnap, onZoomIn, onZoomOut, onResetLayout, onExport]);
 
   // Group commands
-  const groupedCommands = commands.reduce((acc, cmd) => {
-    if (!acc[cmd.group]) acc[cmd.group] = [];
-    acc[cmd.group].push(cmd);
-    return acc;
-  }, {} as Record<string, CommandItem[]>);
+  const groupedCommands = useMemo(() => {
+    return commands.reduce((acc, cmd) => {
+      if (!acc[cmd.group]) acc[cmd.group] = [];
+      acc[cmd.group].push(cmd);
+      return acc;
+    }, {} as Record<string, CommandItem[]>);
+  }, [commands]);
 
-  // Handle command execution
   const runCommand = useCallback((cmd: CommandItem) => {
     cmd.action();
     onOpenChange(false);
     setSearch('');
   }, [onOpenChange]);
 
-  // Keyboard shortcut to open
+  // ⌘K to open
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -113,7 +119,6 @@ export function CommandPalette({
         className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
         loop
       >
-        {/* Search input */}
         <div className="flex items-center border-b border-white/10 px-4">
           <Search className="w-4 h-4 text-zinc-500 mr-3" />
           <Command.Input
@@ -127,7 +132,6 @@ export function CommandPalette({
           </kbd>
         </div>
 
-        {/* Command list */}
         <Command.List className="max-h-[300px] overflow-y-auto p-2">
           <Command.Empty className="py-6 text-center text-sm text-zinc-500">
             No results found.
@@ -159,7 +163,6 @@ export function CommandPalette({
           ))}
         </Command.List>
 
-        {/* Footer */}
         <div className="border-t border-white/10 px-4 py-2 flex items-center gap-4 text-[10px] text-zinc-600">
           <span>↑↓ Navigate</span>
           <span>↵ Select</span>

@@ -1,7 +1,8 @@
 import { useMemo, useRef, useCallback } from 'react';
 import { Tree, NodeRendererProps, TreeApi } from 'react-arborist';
-import { ChevronRight, Eye, EyeOff, Lock, Unlock, Layers, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff, Lock, Unlock, Layers, Trash2, Copy } from 'lucide-react';
 import { useMapStore } from '@/store/mapStore';
+import { useUIStore } from '@/store/uiStore';
 import { clsx } from 'clsx';
 
 // ─── Types ─────────────────────────────────────────────────
@@ -11,8 +12,6 @@ interface TreeNode {
   name: string;
   entityType?: string;
   isGroup?: boolean;
-  visible?: boolean;
-  locked?: boolean;
   children?: TreeNode[];
 }
 
@@ -33,19 +32,9 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const TYPE_ICONS: Record<string, string> = {
-  lane: '🛣️',
-  junction: '🔀',
-  parkingSpace: '🅿️',
-  signal: '🚦',
-  crosswalk: '🚶',
-  stopSign: '🛑',
-  speedBump: '⚠️',
-  polyline: '📏',
-  bezier: '〰️',
-  arc: '⌒',
-  rect: '▭',
-  polygon: '⬡',
-  catmullRom: '🔄',
+  lane: '🛣️', junction: '🔀', parkingSpace: '🅿️', signal: '🚦',
+  crosswalk: '🚶', stopSign: '🛑', speedBump: '⚠️', polyline: '📏',
+  bezier: '〰️', arc: '⌒', rect: '▭', polygon: '⬡', catmullRom: '🔄',
 };
 
 // ─── Node Renderer ─────────────────────────────────────────
@@ -53,16 +42,48 @@ const TYPE_ICONS: Record<string, string> = {
 function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
   const data = node.data;
   const isGroup = data.isGroup;
+  const entityType = data.entityType || '';
+
+  const toggleLayerVisible = useUIStore((s) => s.toggleLayerVisible);
+  const toggleLayerLocked = useUIStore((s) => s.toggleLayerLocked);
+  const isVisible = useUIStore((s) => s.layerStates[entityType]?.visible ?? true);
+  const isLocked = useUIStore((s) => s.layerStates[entityType]?.locked ?? false);
+  const removeEntity = useMapStore((s) => s.removeEntity);
+
+  const handleVisibilityToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isGroup) {
+      toggleLayerVisible(entityType);
+    }
+  };
+
+  const handleLockToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isGroup) {
+      toggleLayerLocked(entityType);
+    }
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isGroup) {
+      removeEntity(data.id);
+    }
+  };
 
   return (
     <div
       ref={dragHandle}
       style={style}
-      onClick={() => node.isInternal && node.toggle()}
+      onClick={() => {
+        if (node.isInternal) node.toggle();
+        else node.select();
+      }}
       className={clsx(
         'flex items-center gap-1 px-2 py-0.5 cursor-pointer select-none group',
         'hover:bg-white/5 rounded',
-        node.isSelected && 'bg-cyan-500/20'
+        node.isSelected && !isGroup && 'bg-cyan-500/15',
+        isGroup && !isVisible && 'opacity-50'
       )}
     >
       {/* Expand arrow for groups */}
@@ -82,7 +103,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
         {isGroup ? (
           <Layers className="w-3.5 h-3.5 text-zinc-500" />
         ) : (
-          TYPE_ICONS[data.entityType || ''] || '📄'
+          TYPE_ICONS[entityType] || '📄'
         )}
       </span>
 
@@ -105,46 +126,46 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
 
       {/* Actions (visible on hover) */}
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        {/* Visibility toggle */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // TODO: toggle visibility
-          }}
-          className="p-0.5 hover:bg-white/10 rounded"
-        >
-          {data.visible === false ? (
-            <EyeOff className="w-3 h-3 text-zinc-600" />
-          ) : (
-            <Eye className="w-3 h-3 text-zinc-500" />
-          )}
-        </button>
+        {isGroup ? (
+          <>
+            {/* Visibility toggle */}
+            <button
+              onClick={handleVisibilityToggle}
+              className="p-0.5 hover:bg-white/10 rounded"
+              title={isVisible ? 'Hide layer' : 'Show layer'}
+            >
+              {isVisible ? (
+                <Eye className="w-3 h-3 text-zinc-500" />
+              ) : (
+                <EyeOff className="w-3 h-3 text-zinc-600" />
+              )}
+            </button>
 
-        {/* Lock toggle */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // TODO: toggle lock
-          }}
-          className="p-0.5 hover:bg-white/10 rounded"
-        >
-          {data.locked ? (
-            <Lock className="w-3 h-3 text-amber-500" />
-          ) : (
-            <Unlock className="w-3 h-3 text-zinc-600" />
-          )}
-        </button>
-
-        {/* More actions */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            // TODO: context menu
-          }}
-          className="p-0.5 hover:bg-white/10 rounded"
-        >
-          <MoreHorizontal className="w-3 h-3 text-zinc-600" />
-        </button>
+            {/* Lock toggle */}
+            <button
+              onClick={handleLockToggle}
+              className="p-0.5 hover:bg-white/10 rounded"
+              title={isLocked ? 'Unlock layer' : 'Lock layer'}
+            >
+              {isLocked ? (
+                <Lock className="w-3 h-3 text-amber-500" />
+              ) : (
+                <Unlock className="w-3 h-3 text-zinc-600" />
+              )}
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Delete entity */}
+            <button
+              onClick={handleDelete}
+              className="p-0.5 hover:bg-red-500/20 rounded"
+              title="Delete entity"
+            >
+              <Trash2 className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -174,8 +195,6 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
           name: TYPE_LABELS[type] || type,
           entityType: type,
           isGroup: true,
-          visible: true,
-          locked: false,
           children: [],
         });
       }
@@ -189,7 +208,6 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
       });
     });
 
-    // Sort groups by count (descending)
     return Array.from(groups.values()).sort(
       (a, b) => (b.children?.length || 0) - (a.children?.length || 0)
     );

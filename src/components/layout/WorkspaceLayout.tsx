@@ -13,16 +13,18 @@ import { ActivityBar, type ActivityTab } from './ActivityBar';
 import { LayerTree } from './panels/LayerTree';
 import { TimelinePanel } from './panels/TimelinePanel';
 import { CommandPalette } from './panels/CommandPalette';
+import { SettingsPanel } from './panels/SettingsPanel';
 import { EntityForm } from './panels/InspectorForms';
 import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore } from '@/store/mapStore';
+import { useUIStore } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
 
 import { useActorRef, useSelector } from '@xstate/react';
 import { editorMachine, type DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 
-// ─── Panel Components for Dockview ─────────────────────────────────
+// ─── Panel Components for Dockview ─────────────────────────
 
 function MapPanelContent() {
   const actorRef = useEditorActor();
@@ -39,7 +41,7 @@ function LayersPanelContent() {
 
   const handleSelect = useCallback((id: string | null) => {
     if (id) {
-      actorRef.send({ type: 'SELECT_ENTITY', entityId: id });
+      actorRef.send({ type: 'SELECT_ENTITY', id });
     }
   }, [actorRef]);
 
@@ -68,7 +70,6 @@ function InspectorPanelContent() {
       <div className="p-3">
         {entity ? (
           <>
-            {/* Entity header */}
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
               <span className="font-medium text-sm text-cyan-400">
                 {entity.entityType.charAt(0).toUpperCase() + entity.entityType.slice(1)}
@@ -77,7 +78,6 @@ function InspectorPanelContent() {
                 {entity.id.length > 16 ? `...${entity.id.slice(-12)}` : entity.id}
               </span>
             </div>
-            {/* Dynamic form */}
             <EntityForm entity={entity} />
           </>
         ) : (
@@ -94,18 +94,6 @@ function TimelinePanelContent() {
   return <TimelinePanel />;
 }
 
-function WelcomePanelContent() {
-  return (
-    <div className="h-full bg-zinc-900/50 flex items-center justify-center">
-      <div className="text-center">
-        <h2 className="text-lg font-medium text-zinc-300 mb-2">Apollo Map Studio</h2>
-        <p className="text-sm text-zinc-500 mb-4">HD Map Editor for Autonomous Driving</p>
-        <p className="text-xs text-zinc-600">Press ⌘K to open command palette</p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Component Registry ─────────────────────────────────
 
 const components = {
@@ -113,7 +101,6 @@ const components = {
   layers: LayersPanelContent,
   inspector: InspectorPanelContent,
   timeline: TimelinePanelContent,
-  welcome: WelcomePanelContent,
 };
 
 // ─── Layout Persistence ─────────────────────────────────
@@ -122,11 +109,8 @@ const LAYOUT_KEY = 'ams-layout-v2';
 
 function saveLayout(api: DockviewApi) {
   try {
-    const layout = api.toJSON();
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
-  } catch {
-    // ignore
-  }
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(api.toJSON()));
+  } catch { /* ignore */ }
 }
 
 function loadLayout(api: DockviewApi): boolean {
@@ -137,21 +121,18 @@ function loadLayout(api: DockviewApi): boolean {
       return true;
     }
   } catch {
-    // ignore corrupted layout
     localStorage.removeItem(LAYOUT_KEY);
   }
   return false;
 }
 
 function createDefaultLayout(api: DockviewApi) {
-  // Main map panel
   const mapPanel = api.addPanel({
     id: 'map',
     component: 'map',
     title: 'Map Editor',
   });
 
-  // Layers panel on the left
   api.addPanel({
     id: 'layers',
     component: 'layers',
@@ -159,7 +140,6 @@ function createDefaultLayout(api: DockviewApi) {
     position: { referencePanel: mapPanel, direction: 'left' },
   });
 
-  // Inspector panel on the right
   api.addPanel({
     id: 'inspector',
     component: 'inspector',
@@ -167,7 +147,6 @@ function createDefaultLayout(api: DockviewApi) {
     position: { referencePanel: mapPanel, direction: 'right' },
   });
 
-  // Timeline panel at the bottom
   api.addPanel({
     id: 'timeline',
     component: 'timeline',
@@ -175,27 +154,33 @@ function createDefaultLayout(api: DockviewApi) {
     position: { referencePanel: mapPanel, direction: 'below' },
   });
 
-  // Set initial sizes
   api.getPanel('layers')?.api.setSize({ width: 220 });
   api.getPanel('inspector')?.api.setSize({ width: 280 });
   api.getPanel('timeline')?.api.setSize({ height: 180 });
 }
 
-// ─── Inner Layout Component ─────────────────────────────
+// ─── Inner Layout ─────────────────────────────────────────
 
 function WorkspaceLayoutInner() {
   const actorRef = useEditorActor();
   const currentState = useSelector(actorRef, (s) => s.value as string);
-  const selectedElement = useSelector(actorRef, (s) => s.context.selectedElement);
+  // Fix: FSM uses 'activeElement' not 'selectedElement'
+  const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
   const entityCount = useMapStore((s) => s.entities.size);
+
+  // UI Store
+  const gridEnabled = useUIStore((s) => s.gridEnabled);
+  const snapEnabled = useUIStore((s) => s.snapEnabled);
+  const toggleGrid = useUIStore((s) => s.toggleGrid);
+  const toggleSnap = useUIStore((s) => s.toggleSnap);
 
   const [activeTab, setActiveTab] = useState<ActivityTab>('layers');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [cursorPosition, setCursorPosition] = useState<[number, number] | null>(null);
-  const [zoom, setZoom] = useState(18);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
 
-  // Undo/Redo
+  // ── Actions ──────────────────────────────────────────
+
   const handleUndo = useCallback(() => {
     useMapStore.temporal.getState().undo();
   }, []);
@@ -204,91 +189,14 @@ function WorkspaceLayoutInner() {
     useMapStore.temporal.getState().redo();
   }, []);
 
-  // Delete selected
   const handleDelete = useCallback(() => {
-    actorRef.send({ type: 'DELETE' });
+    actorRef.send({ type: 'DELETE_ENTITY' });
   }, [actorRef]);
 
-  // Tool selection
   const handleSelectTool = useCallback((tool: DrawTool, element?: MapElementType) => {
     actorRef.send({ type: 'SELECT_TOOL', tool, element });
   }, [actorRef]);
 
-  // Zoom controls
-  const handleZoomIn = useCallback(() => {
-    setZoom((z) => Math.min(z + 1, 22));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setZoom((z) => Math.max(z - 1, 1));
-  }, []);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Undo/Redo
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        e.shiftKey ? handleRedo() : handleUndo();
-        return;
-      }
-
-      // Command palette
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(true);
-        return;
-      }
-
-      // Tool shortcuts (when not in input)
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      switch (e.key.toLowerCase()) {
-        case 'v':
-          handleSelectTool('idle' as DrawTool);
-          break;
-        case 'p':
-          handleSelectTool('drawPolyline');
-          break;
-        case 'b':
-          handleSelectTool('drawBezier');
-          break;
-        case 'a':
-          handleSelectTool('drawArc');
-          break;
-        case 'r':
-          handleSelectTool('drawRect');
-          break;
-        case 'g':
-          handleSelectTool('drawPolygon');
-          break;
-        case 'delete':
-        case 'backspace':
-          handleDelete();
-          break;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo, handleSelectTool, handleDelete]);
-
-  // Dockview ready handler
-  const onReady = useCallback((event: DockviewReadyEvent) => {
-    apiRef.current = event.api;
-
-    // Try to restore layout, or create default
-    const loaded = loadLayout(event.api);
-    if (!loaded) {
-      createDefaultLayout(event.api);
-    }
-
-    // Save layout on changes
-    event.api.onDidLayoutChange(() => {
-      saveLayout(event.api);
-    });
-  }, []);
-
-  // Reset layout
   const handleResetLayout = useCallback(() => {
     if (apiRef.current) {
       localStorage.removeItem(LAYOUT_KEY);
@@ -297,18 +205,110 @@ function WorkspaceLayoutInner() {
     }
   }, []);
 
+  const handleExport = useCallback(() => {
+    // Export entities as JSON for now
+    const entities = useMapStore.getState().entities;
+    const data = Array.from(entities.values());
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `apollo-map-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ── Keyboard shortcuts ───────────────────────────────
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // ⌘Z / ⇧⌘Z
+      if (ctrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.shiftKey ? handleRedo() : handleUndo();
+        return;
+      }
+
+      // ⌘K — command palette
+      if (ctrl && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+
+      // ⌘G — toggle grid
+      if (ctrl && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        toggleGrid();
+        return;
+      }
+
+      // ⌘, — settings
+      if (ctrl && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
+      // Ignore shortcuts when typing in inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+
+      // Single-key tool shortcuts
+      switch (e.key.toLowerCase()) {
+        case 'v': handleSelectTool('idle' as DrawTool); break;
+        case 'p': handleSelectTool('drawPolyline'); break;
+        case 'b': handleSelectTool('drawBezier'); break;
+        case 'a': handleSelectTool('drawArc'); break;
+        case 'r': handleSelectTool('drawRect'); break;
+        case 'g': if (!ctrl) handleSelectTool('drawPolygon'); break;
+        case 'delete':
+        case 'backspace': handleDelete(); break;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo, handleSelectTool, handleDelete, toggleGrid]);
+
+  // ── Dockview ─────────────────────────────────────────
+
+  const onReady = useCallback((event: DockviewReadyEvent) => {
+    apiRef.current = event.api;
+
+    const loaded = loadLayout(event.api);
+    if (!loaded) {
+      createDefaultLayout(event.api);
+    }
+
+    event.api.onDidLayoutChange(() => {
+      saveLayout(event.api);
+    });
+  }, []);
+
+  // ── Render ───────────────────────────────────────────
+
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
       {/* Menu Bar */}
-      <MenuBar onUndo={handleUndo} onRedo={handleRedo} />
+      <MenuBar
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onDelete={handleDelete}
+        onToggleGrid={toggleGrid}
+        onToggleSnap={toggleSnap}
+        onResetLayout={handleResetLayout}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onExport={handleExport}
+        gridEnabled={gridEnabled}
+        snapEnabled={snapEnabled}
+      />
 
       {/* Tool Strip */}
       <ToolStrip
         currentTool={currentState}
-        currentElement={selectedElement as MapElementType | null}
+        currentElement={activeElement as MapElementType | null}
         onSelectTool={handleSelectTool}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
@@ -331,8 +331,6 @@ function WorkspaceLayoutInner() {
       <StatusBar
         mode={currentState}
         entityCount={entityCount}
-        zoom={zoom}
-        cursorPosition={cursorPosition}
       />
 
       {/* Command Palette */}
@@ -343,6 +341,16 @@ function WorkspaceLayoutInner() {
         onUndo={handleUndo}
         onRedo={handleRedo}
         onDelete={handleDelete}
+        onToggleGrid={toggleGrid}
+        onToggleSnap={toggleSnap}
+        onResetLayout={handleResetLayout}
+        onExport={handleExport}
+      />
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
     </div>
   );
