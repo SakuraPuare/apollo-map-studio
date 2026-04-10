@@ -11,7 +11,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { offsetPolylineDeg } from '../apolloCompile';
+import type { LaneEntity } from '@/types/apollo';
+import type { LngLat } from '../interpolate';
+import { createApolloEntity, compileApolloFeatures, offsetPolylineDeg } from '../apolloCompile';
+import { polygonSelfIntersects, segmentsIntersect } from '../validation';
 
 // ── 工具函数 ────────────────────────────────────────────────────
 
@@ -53,6 +56,32 @@ function signedDist(
   const len = Math.hypot(dx, dy);
   // 叉积 (b-a) × (q-a)，正 = 左
   return (dx * (qy - ay) - dy * (qx - ax)) / len;
+}
+
+function toCoord(p: { x: number; y: number }): LngLat {
+  return [p.x, p.y];
+}
+
+function polylineSelfIntersects(points: LngLat[]): boolean {
+  for (let i = 0; i < points.length - 1; i++) {
+    for (let j = i + 2; j < points.length - 1; j++) {
+      if (segmentsIntersect(points[i], points[i + 1], points[j], points[j + 1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function quarterTurn(radiusMeters: number, samples = 16): { x: number; y: number }[] {
+  const result: { x: number; y: number }[] = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (Math.PI / 2) * (i / samples);
+    const x = radiusMeters * Math.sin(t);
+    const y = radiusMeters * (Math.cos(t) - 1);
+    result.push(pt(116 + x / mPerLng, LAT + y / mPerLat));
+  }
+  return result;
 }
 
 const WIDTH = 3.5; // 偏移宽度（米）
@@ -186,5 +215,31 @@ describe('150° 右转（miterRatio ≈ 3.86，与左转镜像对称）', () => 
     const left = offsetPolylineDeg(turn, WIDTH, 'left');
     const d = signedDist(left[1], p0, p1);
     expect(d).toBeGreaterThan(0);
+  });
+});
+
+describe('紧弯连续采样', () => {
+  it('内侧偏移线和 lane polygon 都不保留自交 loop', () => {
+    const center = quarterTurn(WIDTH, 16);
+    const right = offsetPolylineDeg(center, WIDTH, 'right');
+    expect(polylineSelfIntersects(right.map(toCoord))).toBe(false);
+
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      center.map(toCoord),
+      [],
+      { laneHalfWidth: WIDTH },
+    ) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const rightEdge = features.find((feature) => feature.properties?.role === 'laneEdgeRight');
+    expect(rightEdge?.geometry.type).toBe('LineString');
+    expect(polylineSelfIntersects((rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates)).toBe(false);
+
+    const polygon = features.find((feature) => feature.geometry.type === 'Polygon');
+    expect(polygon?.geometry.type).toBe('Polygon');
+    const ring = (polygon as GeoJSON.Feature<GeoJSON.Polygon>).geometry.coordinates[0] ?? [];
+    expect(polygonSelfIntersects(ring.slice(0, -1) as LngLat[])).toBe(false);
   });
 });

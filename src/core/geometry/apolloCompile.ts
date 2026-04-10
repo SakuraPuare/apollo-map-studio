@@ -22,6 +22,8 @@ import type {
 import type { GeoPoint, BezierAnchorData } from '@/types/entities';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 
+const DEG_TO_M = 111320;
+
 // ═══════════ 几何转换 ═══════════════════════════════════════
 
 export function pointsToCurve(points: GeoPoint[]): Curve {
@@ -49,7 +51,6 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
   if (points.length < 2 || widthMeters <= 0) return points;
 
   const sign = side === 'left' ? 1 : -1;
-  const DEG_TO_M = 111320;
   const MAX_MITER = 3; // 外侧 miter 比例上限，超过则切换为 bevel
 
   // 用中间纬度做统一投影（百米以内误差可忽略）
@@ -144,7 +145,76 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
     }
   }
 
-  return result;
+  return points.length < 6 ? result : collapseOffsetLoops(result, cosLat);
+}
+
+type ProjectedPoint = { x: number; y: number; z?: number };
+
+function projectPoint(p: GeoPoint, cosLat: number): ProjectedPoint {
+  return { x: p.x * cosLat * DEG_TO_M, y: p.y * DEG_TO_M, ...(p.z !== undefined ? { z: p.z } : {}) };
+}
+
+function unprojectPoint(p: ProjectedPoint, cosLat: number): GeoPoint {
+  return { x: p.x / (cosLat * DEG_TO_M), y: p.y / DEG_TO_M, ...(p.z !== undefined ? { z: p.z } : {}) };
+}
+
+function dedupeProjected(points: ProjectedPoint[]): ProjectedPoint[] {
+  const out: ProjectedPoint[] = [];
+  for (const point of points) {
+    const prev = out[out.length - 1];
+    if (prev && Math.hypot(point.x - prev.x, point.y - prev.y) < 1e-6) continue;
+    out.push(point);
+  }
+  return out;
+}
+
+function segmentIntersection(a1: ProjectedPoint, a2: ProjectedPoint, b1: ProjectedPoint, b2: ProjectedPoint): ProjectedPoint | null {
+  const dax = a2.x - a1.x;
+  const day = a2.y - a1.y;
+  const dbx = b2.x - b1.x;
+  const dby = b2.y - b1.y;
+  const det = dax * dby - day * dbx;
+  if (Math.abs(det) < 1e-8) return null;
+
+  const dx = b1.x - a1.x;
+  const dy = b1.y - a1.y;
+  const t = (dx * dby - dy * dbx) / det;
+  const u = (dx * day - dy * dax) / det;
+  if (t <= 1e-6 || t >= 1 - 1e-6 || u <= 1e-6 || u >= 1 - 1e-6) return null;
+
+  return { x: a1.x + dax * t, y: a1.y + day * t };
+}
+
+/**
+ * 紧弯内侧偏移可能自然形成 loop；这里移除回折环，保留起点到终点的简单折线。
+ */
+function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
+  if (points.length < 4) return points;
+
+  let projected = dedupeProjected(points.map((point) => projectPoint(point, cosLat)));
+  let changed = true;
+
+  while (changed && projected.length >= 4) {
+    changed = false;
+
+    outer:
+    for (let i = 0; i < projected.length - 1; i++) {
+      for (let j = i + 2; j < projected.length - 1; j++) {
+        const hit = segmentIntersection(projected[i], projected[i + 1], projected[j], projected[j + 1]);
+        if (!hit) continue;
+
+        projected = dedupeProjected([
+          ...projected.slice(0, i + 1),
+          hit,
+          ...projected.slice(j + 1),
+        ]);
+        changed = true;
+        break outer;
+      }
+    }
+  }
+
+  return projected.map((point) => unprojectPoint(point, cosLat));
 }
 
 // ═══════════ 编辑点访问器 ════════════════════════════════════
