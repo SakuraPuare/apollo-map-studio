@@ -599,9 +599,25 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       if (polyCoords.length >= 4) {
         features.push(mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }));
       }
-      // 左右边界线（独立 LineString，无端盖）
-      features.push(mkLine(leftEdge.map(toLngLat), { ...base, role: 'laneEdgeLeft', lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
-      features.push(mkLine(rightEdge.map(toLngLat), { ...base, role: 'laneEdgeRight', lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY }));
+      // 左右边界线基线：供 junction 修正和后续按 boundaryType 生成装饰线
+      features.push(mkLine(leftEdge.map(toLngLat), {
+        ...base,
+        role: 'laneEdgeLeft',
+        boundarySide: 'left',
+        boundaryBase: true,
+        noStroke: true,
+        lineWidth: LANE_EDGE_LINE_WIDTH,
+        lineOpacity: LANE_EDGE_LINE_OPACITY,
+      }));
+      features.push(mkLine(rightEdge.map(toLngLat), {
+        ...base,
+        role: 'laneEdgeRight',
+        boundarySide: 'right',
+        boundaryBase: true,
+        noStroke: true,
+        lineWidth: LANE_EDGE_LINE_WIDTH,
+        lineOpacity: LANE_EDGE_LINE_OPACITY,
+      }));
       // 中心虚线 + 方向箭头数据（BACKWARD 翻转坐标使箭头指向行驶方向）
       const centerCoords = pointsToCoords(centerPts);
       const dirCoords = entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;

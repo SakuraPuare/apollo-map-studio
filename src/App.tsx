@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useActorRef, useSelector } from '@xstate/react';
 import { editorMachine, type DrawTool, isDrawingState } from '@/core/fsm/editorMachine';
 import { MapCanvas } from '@/components/map/MapCanvas';
+import { PropertiesPanel } from '@/components/panels/PropertiesPanel';
 import { useMapStore } from '@/store/mapStore';
 import {
   useSettingsStore,
@@ -51,6 +52,7 @@ const HINTS: Record<string, string> = {
 export default function App() {
   const actorRef = useActorRef(editorMachine);
   const currentState = useSelector(actorRef, (s) => s.value as string);
+  const selectedEntityId = useSelector(actorRef, (s) => s.context.selectedEntityId);
   const entityCount = useMapStore((s) => s.entities.size);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -175,6 +177,9 @@ export default function App() {
             : HINTS[currentState])
           : `已绘制 ${entityCount} 个元素 | 点击元素选中编辑`}
       </div>
+
+      {/* 属性面板 */}
+      <PropertiesPanel selectedId={selectedEntityId} />
 
       {/* 设置按钮 */}
       <button

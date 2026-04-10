@@ -66,6 +66,18 @@ function lanePolygon(features: GeoJSON.Feature[], id: string): GeoJSON.Feature<G
   return feature as GeoJSON.Feature<GeoJSON.Polygon>;
 }
 
+function laneDecorLines(
+  features: GeoJSON.Feature[],
+  id: string,
+  side: 'left' | 'right',
+): GeoJSON.Feature<GeoJSON.LineString>[] {
+  return features.filter((item) =>
+    item.properties?.id === id
+    && item.properties?.role === 'laneBoundaryDecor'
+    && item.properties?.boundarySide === side
+    && item.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString>[];
+}
+
 function polygonEndpoint(
   polygon: GeoJSON.Feature<GeoJSON.Polygon>,
   left: GeoJSON.Feature<GeoJSON.LineString>,
@@ -196,5 +208,49 @@ describe('applyLaneJunctions', () => {
     expect(leftAfter[1]).toBeCloseTo(originalLeft[1], 10);
     expect(rightAfter[0]).toBeCloseTo(originalRight[0], 10);
     expect(rightAfter[1]).toBeCloseTo(originalRight[1], 10);
+  });
+
+  it('左右边界按各自 boundaryType 渲染，不再共用同一种样式', () => {
+    const lane = makeLane('laneA', [
+      [116.000, LAT],
+      [116.001, LAT],
+    ]);
+    lane.leftBoundary.boundaryType = [{ s: 0, types: ['DOUBLE_YELLOW'] }];
+    lane.rightBoundary.boundaryType = [{ s: 0, types: ['DOTTED_WHITE'] }];
+
+    const features = stitch([lane]);
+    const leftDecor = laneDecorLines(features, lane.id, 'left');
+    const rightDecor = laneDecorLines(features, lane.id, 'right');
+
+    expect(leftDecor).toHaveLength(2);
+    expect(leftDecor.every((feature) => feature.properties?.boundaryType === 'DOUBLE_YELLOW')).toBe(true);
+    expect(leftDecor.every((feature) => feature.properties?.color === '#f3d046')).toBe(true);
+
+    expect(rightDecor).toHaveLength(1);
+    expect(rightDecor[0].properties?.boundaryType).toBe('DOTTED_WHITE');
+    expect(rightDecor[0].properties?.color).toBe('#ffffff');
+    expect(rightDecor[0].properties?.dashed).toBe(true);
+    expect(rightDecor[0].properties?.dotted).toBe(true);
+  });
+
+  it('同一侧 boundaryType 按 s 分段渲染', () => {
+    const lane = makeLane('laneA', [
+      [116.000, LAT],
+      [116.000 + 120 / mPerLng, LAT],
+    ]);
+    lane.leftBoundary.boundaryType = [
+      { s: 0, types: ['SOLID_YELLOW'] },
+      { s: 60, types: ['DOTTED_YELLOW'] },
+    ];
+
+    const features = stitch([lane]);
+    const leftDecor = laneDecorLines(features, lane.id, 'left');
+
+    expect(leftDecor).toHaveLength(2);
+    expect(leftDecor[0].properties?.boundaryType).toBe('SOLID_YELLOW');
+    expect(leftDecor[0].properties?.dashed).toBeUndefined();
+    expect(leftDecor[1].properties?.boundaryType).toBe('DOTTED_YELLOW');
+    expect(leftDecor[1].properties?.dashed).toBe(true);
+    expect(leftDecor[1].properties?.dotted).toBe(true);
   });
 });

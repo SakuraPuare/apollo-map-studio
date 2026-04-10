@@ -5,6 +5,7 @@ import {
   LANE_ARROW_COLOR, LANE_ARROW_OPACITY,
 } from '@/config/mapConstants';
 import { readMapCenter, readMapZoom, useSettingsStore } from '@/store/settingsStore';
+import { COLD_LAYER_FILTERS } from '@/components/map/coldLayerConfig';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -96,7 +97,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-fill',
         type: 'fill',
         source: 'cold',
-        filter: ['==', '$type', 'Polygon'],
+        filter: COLD_LAYER_FILTERS['cold-fill'],
         paint: {
           'fill-color': ['get', 'color'],
           'fill-opacity': ['coalesce', ['get', 'fillOpacity'], 0.15],
@@ -108,7 +109,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-fill-crosswalk',
         type: 'fill',
         source: 'cold',
-        filter: ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'crosswalk']],
+        filter: COLD_LAYER_FILTERS['cold-fill-crosswalk'],
         paint: { 'fill-pattern': 'zebra-stripe', 'fill-opacity': 0.8 },
       });
 
@@ -117,7 +118,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-fill-cleararea',
         type: 'fill',
         source: 'cold',
-        filter: ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'clearArea']],
+        filter: COLD_LAYER_FILTERS['cold-fill-cleararea'],
         paint: { 'fill-pattern': 'red-hatch', 'fill-opacity': 0.7 },
       });
 
@@ -126,11 +127,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-line',
         type: 'line',
         source: 'cold',
-        filter: ['all',
-          ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
-          ['!has', 'dashed'],
-          ['!has', 'noStroke'],
-        ],
+        filter: COLD_LAYER_FILTERS['cold-line'],
         paint: {
           'line-color': ['get', 'color'],
           'line-width': ['coalesce', ['get', 'lineWidth'], 2],
@@ -140,13 +137,28 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
 
       // 冷层 z3b：虚线（减速带条纹/让行线/道闸等）
       map.addLayer({
+        id: 'cold-line-dotted',
+        type: 'line',
+        source: 'cold',
+        filter: COLD_LAYER_FILTERS['cold-line-dotted'],
+        layout: {
+          'line-cap': 'round',
+          'line-join': 'round',
+        },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': ['coalesce', ['get', 'lineWidth'], 2],
+          'line-opacity': ['coalesce', ['get', 'lineOpacity'], 1],
+          'line-dasharray': [0.01, 2.2],
+        },
+      });
+
+      // 冷层 z3c：普通虚线（减速带条纹/让行线/道闸/中心线等）
+      map.addLayer({
         id: 'cold-line-dashed',
         type: 'line',
         source: 'cold',
-        filter: ['all',
-          ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
-          ['has', 'dashed'],
-        ],
+        filter: COLD_LAYER_FILTERS['cold-line-dashed'],
         paint: {
           'line-color': ['get', 'color'],
           'line-width': ['coalesce', ['get', 'lineWidth'], 2],
@@ -160,7 +172,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-labels',
         type: 'symbol',
         source: 'cold',
-        filter: ['==', 'role', 'label'],
+        filter: COLD_LAYER_FILTERS['cold-labels'],
         layout: {
           'text-field': ['get', 'label'],
           'text-size': ['coalesce', ['get', 'labelSize'], 14],
@@ -183,7 +195,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         id: 'cold-lane-arrows',
         type: 'symbol',
         source: 'cold',
-        filter: ['all', ['==', '$type', 'LineString'], ['==', 'role', 'laneCenter']],
+        filter: COLD_LAYER_FILTERS['cold-lane-arrows'],
         layout: {
           'symbol-placement': 'line',
           'icon-image': 'lane-arrow',
