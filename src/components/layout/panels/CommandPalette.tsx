@@ -2,92 +2,61 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import {
   MousePointer2, Pencil, Spline, Circle, Square, Hexagon,
-  Undo2, Redo2, Trash2, Grid3X3, Magnet,
-  Save, FolderOpen, Download, Settings, Search, Layers,
-  ZoomIn, ZoomOut, Maximize2, LayoutDashboard
+  Undo2, Redo2, Trash2, Grid3X3, Magnet, Settings,
+  Download, Search, LayoutDashboard, Command as CommandIcon
 } from 'lucide-react';
-import type { DrawTool } from '@/core/fsm/editorMachine';
-import type { MapElementType } from '@/core/elements';
+import { getCommandPaletteActions, type ActionDef } from '@/core/actions/registry';
+
+// ─── Icon Map ──────────────────────────────────────────────
+
+const ICON_MAP: Record<string, React.ElementType> = {
+  MousePointer2, Pencil, Spline, Circle, Square, Hexagon,
+  Undo2, Redo2, Trash2, Grid3X3, Magnet, Settings,
+  Download, LayoutDashboard, Command: CommandIcon,
+};
+
+function getIcon(name?: string): React.ElementType {
+  return (name && ICON_MAP[name]) || Search;
+}
+
+// ─── Main Component ────────────────────────────────────────
 
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectTool?: (tool: DrawTool, element?: MapElementType) => void;
-  onUndo?: () => void;
-  onRedo?: () => void;
-  onDelete?: () => void;
-  onToggleGrid?: () => void;
-  onToggleSnap?: () => void;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  onResetLayout?: () => void;
-  onExport?: () => void;
-}
-
-interface CommandItem {
-  id: string;
-  label: string;
-  shortcut?: string;
-  icon: React.ElementType;
-  group: string;
-  action: () => void;
+  /** Execute action by ID — provided by ActionDispatcher */
+  onExecute: (actionId: string) => void;
+  /** Get toggle state for toggle actions */
+  getToggleState?: (actionId: string) => boolean;
 }
 
 export function CommandPalette({
   open,
   onOpenChange,
-  onSelectTool,
-  onUndo,
-  onRedo,
-  onDelete,
-  onToggleGrid,
-  onToggleSnap,
-  onZoomIn,
-  onZoomOut,
-  onResetLayout,
-  onExport,
+  onExecute,
+  getToggleState,
 }: CommandPaletteProps) {
   const [search, setSearch] = useState('');
 
-  const commands: CommandItem[] = useMemo(() => [
-    // Tools
-    { id: 'select', label: 'Select Tool', shortcut: 'V', icon: MousePointer2, group: 'Tools', action: () => onSelectTool?.('idle' as DrawTool) },
-    { id: 'polyline', label: 'Draw Polyline', shortcut: 'P', icon: Pencil, group: 'Tools', action: () => onSelectTool?.('drawPolyline') },
-    { id: 'bezier', label: 'Draw Bezier', shortcut: 'B', icon: Spline, group: 'Tools', action: () => onSelectTool?.('drawBezier') },
-    { id: 'arc', label: 'Draw Arc', shortcut: 'A', icon: Circle, group: 'Tools', action: () => onSelectTool?.('drawArc') },
-    { id: 'rect', label: 'Draw Rectangle', shortcut: 'R', icon: Square, group: 'Tools', action: () => onSelectTool?.('drawRect') },
-    { id: 'polygon', label: 'Draw Polygon', shortcut: 'G', icon: Hexagon, group: 'Tools', action: () => onSelectTool?.('drawPolygon') },
+  // Read actions from registry
+  const actions = useMemo(() => getCommandPaletteActions(), []);
 
-    // Edit
-    { id: 'undo', label: 'Undo', shortcut: '⌘Z', icon: Undo2, group: 'Edit', action: () => onUndo?.() },
-    { id: 'redo', label: 'Redo', shortcut: '⇧⌘Z', icon: Redo2, group: 'Edit', action: () => onRedo?.() },
-    { id: 'delete', label: 'Delete Selection', shortcut: '⌫', icon: Trash2, group: 'Edit', action: () => onDelete?.() },
+  // Group by category
+  const grouped = useMemo(() => {
+    const groups: Record<string, ActionDef[]> = {};
+    for (const a of actions) {
+      const cat = a.category.charAt(0).toUpperCase() + a.category.slice(1);
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(a);
+    }
+    return groups;
+  }, [actions]);
 
-    // View
-    { id: 'grid', label: 'Toggle Grid', shortcut: '⌘G', icon: Grid3X3, group: 'View', action: () => onToggleGrid?.() },
-    { id: 'snap', label: 'Toggle Snap', icon: Magnet, group: 'View', action: () => onToggleSnap?.() },
-    { id: 'zoomin', label: 'Zoom In', shortcut: '⌘+', icon: ZoomIn, group: 'View', action: () => onZoomIn?.() },
-    { id: 'zoomout', label: 'Zoom Out', shortcut: '⌘-', icon: ZoomOut, group: 'View', action: () => onZoomOut?.() },
-    { id: 'resetlayout', label: 'Reset Layout', icon: LayoutDashboard, group: 'View', action: () => onResetLayout?.() },
-
-    // File
-    { id: 'export', label: 'Export Apollo Format...', icon: Download, group: 'File', action: () => onExport?.() },
-  ], [onSelectTool, onUndo, onRedo, onDelete, onToggleGrid, onToggleSnap, onZoomIn, onZoomOut, onResetLayout, onExport]);
-
-  // Group commands
-  const groupedCommands = useMemo(() => {
-    return commands.reduce((acc, cmd) => {
-      if (!acc[cmd.group]) acc[cmd.group] = [];
-      acc[cmd.group].push(cmd);
-      return acc;
-    }, {} as Record<string, CommandItem[]>);
-  }, [commands]);
-
-  const runCommand = useCallback((cmd: CommandItem) => {
-    cmd.action();
+  const runCommand = useCallback((action: ActionDef) => {
+    onExecute(action.id);
     onOpenChange(false);
     setSearch('');
-  }, [onOpenChange]);
+  }, [onExecute, onOpenChange]);
 
   // ⌘K to open
   useEffect(() => {
@@ -108,13 +77,11 @@ export function CommandPalette({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
       />
 
-      {/* Command dialog */}
       <Command
         className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
         loop
@@ -137,28 +104,34 @@ export function CommandPalette({
             No results found.
           </Command.Empty>
 
-          {Object.entries(groupedCommands).map(([group, items]) => (
+          {Object.entries(grouped).map(([group, items]) => (
             <Command.Group
               key={group}
               heading={group}
               className="mb-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-zinc-600"
             >
-              {items.map((cmd) => (
-                <Command.Item
-                  key={cmd.id}
-                  value={`${cmd.label} ${cmd.group}`}
-                  onSelect={() => runCommand(cmd)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-cyan-400"
-                >
-                  <cmd.icon className="w-4 h-4 text-zinc-500" />
-                  <span className="flex-1">{cmd.label}</span>
-                  {cmd.shortcut && (
-                    <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
-                      {cmd.shortcut}
-                    </kbd>
-                  )}
-                </Command.Item>
-              ))}
+              {items.map((action) => {
+                const Icon = getIcon(action.icon);
+                const isChecked = action.isToggle && getToggleState?.(action.id);
+
+                return (
+                  <Command.Item
+                    key={action.id}
+                    value={`${action.label} ${group}`}
+                    onSelect={() => runCommand(action)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-cyan-400"
+                  >
+                    <Icon className="w-4 h-4 text-zinc-500" />
+                    <span className="flex-1">{action.label}</span>
+                    {isChecked && <span className="text-cyan-400 text-xs">✓</span>}
+                    {action.shortcut && (
+                      <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
+                        {action.shortcut}
+                      </kbd>
+                    )}
+                  </Command.Item>
+                );
+              })}
             </Command.Group>
           ))}
         </Command.List>

@@ -8,4 +8,5 @@ export { WorkspaceLayout } from './WorkspaceLayout';
 export { LayerTree } from './panels/LayerTree';
 export { TimelinePanel } from './panels/TimelinePanel';
 export { CommandPalette } from './panels/CommandPalette';
+export { SettingsPanel } from './panels/SettingsPanel';
 export { EntityForm } from './panels/InspectorForms';

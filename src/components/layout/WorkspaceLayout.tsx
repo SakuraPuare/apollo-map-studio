@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useState } from 'react';
 import {
   DockviewReact,
   DockviewReadyEvent,
@@ -17,11 +17,11 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { EntityForm } from './panels/InspectorForms';
 import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore } from '@/store/mapStore';
-import { useUIStore } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
+import { useActionDispatcher } from '@/core/actions/useActionDispatcher';
 
 import { useActorRef, useSelector } from '@xstate/react';
-import { editorMachine, type DrawTool } from '@/core/fsm/editorMachine';
+import { editorMachine } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 
 // ─── Panel Components for Dockview ─────────────────────────
@@ -127,33 +127,10 @@ function loadLayout(api: DockviewApi): boolean {
 }
 
 function createDefaultLayout(api: DockviewApi) {
-  const mapPanel = api.addPanel({
-    id: 'map',
-    component: 'map',
-    title: 'Map Editor',
-  });
-
-  api.addPanel({
-    id: 'layers',
-    component: 'layers',
-    title: 'Layers',
-    position: { referencePanel: mapPanel, direction: 'left' },
-  });
-
-  api.addPanel({
-    id: 'inspector',
-    component: 'inspector',
-    title: 'Inspector',
-    position: { referencePanel: mapPanel, direction: 'right' },
-  });
-
-  api.addPanel({
-    id: 'timeline',
-    component: 'timeline',
-    title: 'Timeline',
-    position: { referencePanel: mapPanel, direction: 'below' },
-  });
-
+  const mapPanel = api.addPanel({ id: 'map', component: 'map', title: 'Map Editor' });
+  api.addPanel({ id: 'layers', component: 'layers', title: 'Layers', position: { referencePanel: mapPanel, direction: 'left' } });
+  api.addPanel({ id: 'inspector', component: 'inspector', title: 'Inspector', position: { referencePanel: mapPanel, direction: 'right' } });
+  api.addPanel({ id: 'timeline', component: 'timeline', title: 'Timeline', position: { referencePanel: mapPanel, direction: 'below' } });
   api.getPanel('layers')?.api.setSize({ width: 220 });
   api.getPanel('inspector')?.api.setSize({ width: 280 });
   api.getPanel('timeline')?.api.setSize({ height: 180 });
@@ -164,39 +141,15 @@ function createDefaultLayout(api: DockviewApi) {
 function WorkspaceLayoutInner() {
   const actorRef = useEditorActor();
   const currentState = useSelector(actorRef, (s) => s.value as string);
-  // Fix: FSM uses 'activeElement' not 'selectedElement'
   const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
   const entityCount = useMapStore((s) => s.entities.size);
-
-  // UI Store
-  const gridEnabled = useUIStore((s) => s.gridEnabled);
-  const snapEnabled = useUIStore((s) => s.snapEnabled);
-  const toggleGrid = useUIStore((s) => s.toggleGrid);
-  const toggleSnap = useUIStore((s) => s.toggleSnap);
 
   const [activeTab, setActiveTab] = useState<ActivityTab>('layers');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
 
-  // ── Actions ──────────────────────────────────────────
-
-  const handleUndo = useCallback(() => {
-    useMapStore.temporal.getState().undo();
-  }, []);
-
-  const handleRedo = useCallback(() => {
-    useMapStore.temporal.getState().redo();
-  }, []);
-
-  const handleDelete = useCallback(() => {
-    actorRef.send({ type: 'DELETE_ENTITY' });
-  }, [actorRef]);
-
-  const handleSelectTool = useCallback((tool: DrawTool, element?: MapElementType) => {
-    actorRef.send({ type: 'SELECT_TOOL', tool, element });
-  }, [actorRef]);
-
+  // Reset layout handler (needs apiRef)
   const handleResetLayout = useCallback(() => {
     if (apiRef.current) {
       localStorage.removeItem(LAYOUT_KEY);
@@ -205,104 +158,32 @@ function WorkspaceLayoutInner() {
     }
   }, []);
 
-  const handleExport = useCallback(() => {
-    // Export entities as JSON for now
-    const entities = useMapStore.getState().entities;
-    const data = Array.from(entities.values());
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `apollo-map-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, []);
+  // Action dispatcher — single source of all action handling + keyboard shortcuts
+  const { execute, getToggleState } = useActionDispatcher({
+    actorRef,
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onOpenSettings: () => setSettingsOpen(true),
+    onResetLayout: handleResetLayout,
+  });
 
-  // ── Keyboard shortcuts ───────────────────────────────
+  // Tool selection (for ToolStrip which needs element param)
+  const handleSelectTool = useCallback((tool: string, element?: MapElementType) => {
+    actorRef.send({ type: 'SELECT_TOOL', tool, element });
+  }, [actorRef]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const ctrl = e.ctrlKey || e.metaKey;
-
-      // ⌘Z / ⇧⌘Z
-      if (ctrl && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        e.shiftKey ? handleRedo() : handleUndo();
-        return;
-      }
-
-      // ⌘K — command palette
-      if (ctrl && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(true);
-        return;
-      }
-
-      // ⌘G — toggle grid
-      if (ctrl && e.key.toLowerCase() === 'g') {
-        e.preventDefault();
-        toggleGrid();
-        return;
-      }
-
-      // ⌘, — settings
-      if (ctrl && e.key === ',') {
-        e.preventDefault();
-        setSettingsOpen(true);
-        return;
-      }
-
-      // Ignore shortcuts when typing in inputs
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
-
-      // Single-key tool shortcuts
-      switch (e.key.toLowerCase()) {
-        case 'v': handleSelectTool('idle' as DrawTool); break;
-        case 'p': handleSelectTool('drawPolyline'); break;
-        case 'b': handleSelectTool('drawBezier'); break;
-        case 'a': handleSelectTool('drawArc'); break;
-        case 'r': handleSelectTool('drawRect'); break;
-        case 'g': if (!ctrl) handleSelectTool('drawPolygon'); break;
-        case 'delete':
-        case 'backspace': handleDelete(); break;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [handleUndo, handleRedo, handleSelectTool, handleDelete, toggleGrid]);
-
-  // ── Dockview ─────────────────────────────────────────
-
+  // Dockview ready
   const onReady = useCallback((event: DockviewReadyEvent) => {
     apiRef.current = event.api;
-
-    const loaded = loadLayout(event.api);
-    if (!loaded) {
+    if (!loadLayout(event.api)) {
       createDefaultLayout(event.api);
     }
-
-    event.api.onDidLayoutChange(() => {
-      saveLayout(event.api);
-    });
+    event.api.onDidLayoutChange(() => saveLayout(event.api));
   }, []);
-
-  // ── Render ───────────────────────────────────────────
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
-      {/* Menu Bar */}
-      <MenuBar
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onDelete={handleDelete}
-        onToggleGrid={toggleGrid}
-        onToggleSnap={toggleSnap}
-        onResetLayout={handleResetLayout}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onExport={handleExport}
-        gridEnabled={gridEnabled}
-        snapEnabled={snapEnabled}
-      />
+      {/* Menu Bar — reads from Action Registry */}
+      <MenuBar onExecute={execute} getToggleState={getToggleState} />
 
       {/* Tool Strip */}
       <ToolStrip
@@ -312,12 +193,9 @@ function WorkspaceLayoutInner() {
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
-      {/* Main content area */}
+      {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Activity Bar */}
         <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} />
-
-        {/* Dockview workspace */}
         <div className="flex-1">
           <DockviewReact
             components={components}
@@ -328,39 +206,26 @@ function WorkspaceLayoutInner() {
       </div>
 
       {/* Status Bar */}
-      <StatusBar
-        mode={currentState}
-        entityCount={entityCount}
-      />
+      <StatusBar mode={currentState} entityCount={entityCount} />
 
-      {/* Command Palette */}
+      {/* Command Palette — reads from Action Registry */}
       <CommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
-        onSelectTool={handleSelectTool}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onDelete={handleDelete}
-        onToggleGrid={toggleGrid}
-        onToggleSnap={toggleSnap}
-        onResetLayout={handleResetLayout}
-        onExport={handleExport}
+        onExecute={execute}
+        getToggleState={getToggleState}
       />
 
-      {/* Settings Panel */}
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
+      {/* Settings */}
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
 
-// ─── Main Component with Provider ─────────────────────────
+// ─── Main Component ───────────────────────────────────────
 
 export function WorkspaceLayout() {
   const actorRef = useActorRef(editorMachine);
-
   return (
     <EditorProvider actorRef={actorRef}>
       <WorkspaceLayoutInner />
