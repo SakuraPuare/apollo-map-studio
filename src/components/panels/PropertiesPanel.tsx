@@ -351,13 +351,19 @@ function EntityDetail({ entity }: { entity: MapEntity }) {
 export function PropertiesPanel({ selectedId }: { selectedId: string | null }) {
   const entity = useMapStore((s) => selectedId ? s.entities.get(selectedId) : undefined);
 
-  if (!selectedId || !entity) return null;
+  if (!selectedId || !entity) {
+    return (
+      <div className="p-4 text-center text-zinc-600 text-xs">
+        Select an entity to view properties
+      </div>
+    );
+  }
 
   const label = ENTITY_LABELS[entity.entityType] ?? entity.entityType;
   const shortId = entity.id.length > 20 ? `…${entity.id.slice(-14)}` : entity.id;
 
   return (
-    <div className="absolute top-4 right-14 w-64 rounded-lg bg-gray-900/95 border border-white/10 p-3 text-white text-xs shadow-lg max-h-[calc(100vh-2rem)] overflow-y-auto">
+    <div className="text-white text-xs">
       {/* header */}
       <div className="flex items-center justify-between mb-2 pb-2 border-b border-white/10">
         <span className="font-medium text-sm text-cyan-400">{label}</span>

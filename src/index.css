@@ -5,3 +5,52 @@ html, body, #root {
   height: 100%;
   margin: 0;
 }
+
+/* ─── Dockview Theme Customization ─────────────────────────────────── */
+
+.dockview-theme-dark {
+  --dv-paneview-header-border-color: rgba(255, 255, 255, 0.07);
+  --dv-tabs-and-actions-container-background-color: #0a0a0a;
+  --dv-activegroup-visiblepanel-tab-background-color: #171717;
+  --dv-activegroup-hiddenpanel-tab-background-color: #0a0a0a;
+  --dv-inactivegroup-visiblepanel-tab-background-color: #0f0f0f;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: #0a0a0a;
+  --dv-tab-divider-color: rgba(255, 255, 255, 0.07);
+  --dv-activegroup-visiblepanel-tab-color: #e4e4e7;
+  --dv-activegroup-hiddenpanel-tab-color: #71717a;
+  --dv-inactivegroup-visiblepanel-tab-color: #a1a1aa;
+  --dv-inactivegroup-hiddenpanel-tab-color: #52525b;
+  --dv-separator-border: rgba(255, 255, 255, 0.07);
+  --dv-paneview-active-outline-color: #22d3ee40;
+  --dv-drag-over-background-color: rgba(34, 211, 238, 0.1);
+  --dv-drag-over-border-color: rgba(34, 211, 238, 0.3);
+  --dv-background-color: #09090b;
+  --dv-group-view-background-color: #0a0a0a;
+}
+
+/* Tab styling */
+.dockview-theme-dark .tab {
+  font-size: 11px;
+  padding: 0 12px;
+}
+
+/* Active tab indicator */
+.dockview-theme-dark .tab.active-tab::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #22d3ee;
+}
+
+/* Resize sash styling */
+.dockview-theme-dark .sash {
+  background: transparent;
+}
+
+.dockview-theme-dark .sash:hover,
+.dockview-theme-dark .sash.active {
+  background: rgba(34, 211, 238, 0.3);
+}
