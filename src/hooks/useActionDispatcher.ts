@@ -90,6 +90,8 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
 
     // Tools
     map.set('tool:select', () => actorRef.send({ type: 'CANCEL' }));
+    // Pan is the implicit default — selecting it just exits any active draw mode.
+    map.set('tool:pan', () => actorRef.send({ type: 'CANCEL' }));
     map.set('tool:drawPolyline', () =>
       actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolyline' as DrawTool }),
     );

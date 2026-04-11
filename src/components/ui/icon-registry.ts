@@ -1,5 +1,6 @@
 import {
   MousePointer2,
+  Hand,
   Pencil,
   Spline,
   Circle,
@@ -19,6 +20,7 @@ import {
 
 const ICON_MAP: Record<string, React.ElementType> = {
   MousePointer2,
+  Hand,
   Pencil,
   Spline,
   Circle,

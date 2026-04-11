@@ -35,12 +35,16 @@ export type ActionId =
   | 'resetLayout'
   | 'commandPalette'
   | 'tool:select'
+  | 'tool:pan'
   | 'tool:drawPolyline'
   | 'tool:drawBezier'
   | 'tool:drawArc'
   | 'tool:drawRotatedRect'
   | 'tool:drawPolygon'
   | 'tool:drawCatmullRom';
+
+/** Where an action renders inside the ToolStrip toolbar (if anywhere). */
+export type ToolStripSlot = 'selection' | 'view';
 
 export interface ActionDef {
   /** Unique action ID */
@@ -65,6 +69,10 @@ export interface ActionDef {
   isToggle?: boolean;
   /** For tool actions: the draw tool to activate */
   drawTool?: DrawTool;
+  /** Which fixed ToolStrip slot this action belongs in (drives uiLayout). */
+  uiSlot?: ToolStripSlot;
+  /** Display order within a ToolStrip slot (lower first). */
+  uiOrder?: number;
 }
 
 export interface KeyBinding {
@@ -148,6 +156,8 @@ export const ACTION_DEFS: ActionDef[] = [
     menu: 'View',
     menuOrder: 20,
     isToggle: true,
+    uiSlot: 'view',
+    uiOrder: 10,
   },
   {
     id: 'toggleSnap',
@@ -158,6 +168,8 @@ export const ACTION_DEFS: ActionDef[] = [
     menu: 'View',
     menuOrder: 30,
     isToggle: true,
+    uiSlot: 'view',
+    uiOrder: 20,
   },
   {
     id: 'resetLayout',
@@ -187,6 +199,19 @@ export const ACTION_DEFS: ActionDef[] = [
     keybinding: { key: 'v' },
     icon: 'MousePointer2',
     inCommandPalette: true,
+    uiSlot: 'selection',
+    uiOrder: 10,
+  },
+  {
+    id: 'tool:pan',
+    label: 'Pan',
+    category: 'tool',
+    shortcut: 'H',
+    keybinding: { key: 'h' },
+    icon: 'Hand',
+    inCommandPalette: true,
+    uiSlot: 'selection',
+    uiOrder: 20,
   },
   {
     id: 'tool:drawPolyline',
@@ -287,6 +312,13 @@ export function getKeyBindingActions(): ActionDef[] {
 /** Find the action that activates a given draw tool, if any */
 export function getToolAction(drawTool: DrawTool): ActionDef | undefined {
   return ACTION_DEFS.find((a) => a.drawTool === drawTool);
+}
+
+/** Get all actions registered in a fixed ToolStrip slot, sorted by uiOrder. */
+export function getToolStripSlotActions(slot: ToolStripSlot): ActionDef[] {
+  return ACTION_DEFS.filter((a) => a.uiSlot === slot).sort(
+    (a, b) => (a.uiOrder ?? 99) - (b.uiOrder ?? 99),
+  );
 }
 
 /** Check if a keyboard event matches a keybinding */

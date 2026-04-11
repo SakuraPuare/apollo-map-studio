@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
-import { Hand, ChevronDown, Command } from 'lucide-react';
+import { ChevronDown, Command } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import { useUIStore } from '@/store/uiStore';
-import { getToolAction, ACTION_MAP } from '@/core/actions/registry';
+import { getToolAction, getToolStripSlotActions, type ActionId } from '@/core/actions/registry';
 import { getIcon } from '@/components/ui/icon-registry';
 
 // ─── Types ─────────────────────────────────────────────────
@@ -15,6 +15,8 @@ interface ToolStripProps {
   currentElement: MapElementType | null;
   onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
   onOpenCommandPalette?: () => void;
+  /** Optional dispatcher for registry-driven slot actions (selection / view). */
+  onExecuteAction?: (actionId: ActionId) => void;
 }
 
 // ─── Tool Button ───────────────────────────────────────────
@@ -130,6 +132,7 @@ export function ToolStrip({
   currentElement,
   onSelectTool,
   onOpenCommandPalette,
+  onExecuteAction,
 }: ToolStripProps) {
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
@@ -151,20 +154,59 @@ export function ToolStrip({
     onSelectTool(tool, currentElement);
   };
 
-  const selectAction = ACTION_MAP.get('tool:select');
-  const SelectIcon = getIcon(selectAction?.icon);
+  // P1: ToolStrip is now driven entirely by the Action Registry's uiSlot field.
+  // Adding a new selection or view tool means dropping a single ACTION_DEFS entry
+  // — no JSX edit required.
+  const selectionActions = getToolStripSlotActions('selection');
+  const viewActions = getToolStripSlotActions('view');
+
+  const isSelectionActive = (id: ActionId): boolean => {
+    if (id === 'tool:select') return currentTool === 'idle' || currentTool === 'selected';
+    if (id === 'tool:pan') return currentTool === 'panning';
+    return false;
+  };
+
+  const handleSelectionClick = (id: ActionId) => {
+    if (onExecuteAction) {
+      onExecuteAction(id);
+      return;
+    }
+    // Fallback for hosts that don't pass a dispatcher (preserves prior behavior).
+    if (id === 'tool:select') onSelectTool('idle' as DrawTool);
+  };
+
+  const isViewActive = (id: ActionId): boolean => {
+    if (id === 'toggleGrid') return gridEnabled;
+    if (id === 'toggleSnap') return snapEnabled;
+    return false;
+  };
+
+  const handleViewClick = (id: ActionId) => {
+    if (onExecuteAction) {
+      onExecuteAction(id);
+      return;
+    }
+    // Fallback path matches the prior hardcoded handlers.
+    if (id === 'toggleGrid') toggleGrid();
+    else if (id === 'toggleSnap') toggleSnap();
+  };
 
   return (
     <div className="h-9 bg-zinc-900/80 border-b border-white/[0.07] flex items-center px-2 gap-1 shrink-0">
-      {/* Selection tools */}
-      <ToolButton
-        icon={SelectIcon}
-        label={selectAction?.label ?? 'Select'}
-        shortcut={selectAction?.shortcut ?? 'V'}
-        active={currentTool === 'idle' || currentTool === 'selected'}
-        onClick={() => onSelectTool('idle' as DrawTool)}
-      />
-      <ToolButton icon={Hand} label="Pan" shortcut="H" active={currentTool === 'panning'} />
+      {/* Selection slot — registry-driven */}
+      {selectionActions.map((action) => {
+        const Icon = getIcon(action.icon);
+        return (
+          <ToolButton
+            key={action.id}
+            icon={Icon}
+            label={action.label}
+            shortcut={action.shortcut}
+            active={isSelectionActive(action.id)}
+            onClick={() => handleSelectionClick(action.id)}
+          />
+        );
+      })}
 
       <Divider />
 
@@ -209,29 +251,20 @@ export function ToolStrip({
 
       <Divider />
 
-      {(() => {
-        const gridAction = ACTION_MAP.get('toggleGrid');
-        const snapAction = ACTION_MAP.get('toggleSnap');
-        const GridIcon = getIcon(gridAction?.icon);
-        const SnapIcon = getIcon(snapAction?.icon);
+      {/* View slot — registry-driven */}
+      {viewActions.map((action) => {
+        const Icon = getIcon(action.icon);
         return (
-          <>
-            <ToolButton
-              icon={GridIcon}
-              label={gridAction?.label ?? 'Toggle Grid'}
-              shortcut={gridAction?.shortcut}
-              active={gridEnabled}
-              onClick={toggleGrid}
-            />
-            <ToolButton
-              icon={SnapIcon}
-              label={snapAction?.label ?? 'Toggle Snap'}
-              active={snapEnabled}
-              onClick={toggleSnap}
-            />
-          </>
+          <ToolButton
+            key={action.id}
+            icon={Icon}
+            label={action.label}
+            shortcut={action.shortcut}
+            active={isViewActive(action.id)}
+            onClick={() => handleViewClick(action.id)}
+          />
         );
-      })()}
+      })}
     </div>
   );
 }
