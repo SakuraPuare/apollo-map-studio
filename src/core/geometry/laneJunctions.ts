@@ -1,8 +1,12 @@
-import { DEFAULT_LANE_HALF_WIDTH, LANE_EDGE_LINE_OPACITY, LANE_EDGE_LINE_WIDTH } from '@/config/mapConstants';
+import {
+  DEFAULT_LANE_HALF_WIDTH,
+  LANE_EDGE_LINE_OPACITY,
+  LANE_EDGE_LINE_WIDTH,
+} from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { offsetPolylineDeg } from '@/core/geometry/apolloCompile';
 import type { MapEntity, GeoPoint } from '@/types/entities';
-import type { BoundaryLineType, LaneBoundary, LaneBoundaryTypeEntry, LaneEntity } from '@/types/apollo';
+import type { BoundaryLineType, LaneBoundary, LaneEntity } from '@/types/apollo';
 
 const DEG_TO_M = 111320;
 const MAX_OUTER_MITER = 3;
@@ -74,7 +78,7 @@ function midpoint(a: Vec2, b: Vec2): Vec2 {
 
 function projectLine(coords: LngLat[]): ProjectedLine {
   const avgLat = coords.reduce((sum, [, lat]) => sum + lat, 0) / Math.max(coords.length, 1);
-  const cosLat = Math.cos(avgLat * Math.PI / 180);
+  const cosLat = Math.cos((avgLat * Math.PI) / 180);
   const points = coords.map(([lng, lat]) => [lng * cosLat * DEG_TO_M, lat * DEG_TO_M] as Vec2);
   const cumulative = [0];
   for (let i = 1; i < points.length; i++) {
@@ -136,7 +140,10 @@ function normalizeBoundaryType(types: BoundaryLineType[] | undefined): BoundaryL
   return firstKnown ?? 'UNKNOWN';
 }
 
-function boundarySegments(boundary: LaneBoundary | undefined, totalLength: number): BoundarySegment[] {
+function boundarySegments(
+  boundary: LaneBoundary | undefined,
+  totalLength: number,
+): BoundarySegment[] {
   const entries = [...(boundary?.boundaryType ?? [])]
     .map((entry) => ({
       s: Math.max(0, Math.min(totalLength, entry.s)),
@@ -181,9 +188,21 @@ function offsetCoords(coords: LngLat[], meters: number, side: 'left' | 'right'):
 function boundaryPaint(type: BoundaryLineType, fallbackColor: string): BoundaryPaint {
   switch (type) {
     case 'DOTTED_YELLOW':
-      return { color: '#f3d046', dashed: true, dotted: true, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: 1 };
+      return {
+        color: '#f3d046',
+        dashed: true,
+        dotted: true,
+        lineWidth: LANE_EDGE_LINE_WIDTH,
+        lineOpacity: 1,
+      };
     case 'DOTTED_WHITE':
-      return { color: '#ffffff', dashed: true, dotted: true, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: 1 };
+      return {
+        color: '#ffffff',
+        dashed: true,
+        dotted: true,
+        lineWidth: LANE_EDGE_LINE_WIDTH,
+        lineOpacity: 1,
+      };
     case 'SOLID_YELLOW':
       return { color: '#f3d046', lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: 1 };
     case 'SOLID_WHITE':
@@ -198,7 +217,11 @@ function boundaryPaint(type: BoundaryLineType, fallbackColor: string): BoundaryP
     case 'CURB':
       return { color: '#9aa6b2', lineWidth: LANE_EDGE_LINE_WIDTH + 1, lineOpacity: 1 };
     default:
-      return { color: fallbackColor, lineWidth: LANE_EDGE_LINE_WIDTH, lineOpacity: LANE_EDGE_LINE_OPACITY };
+      return {
+        color: fallbackColor,
+        lineWidth: LANE_EDGE_LINE_WIDTH,
+        lineOpacity: LANE_EDGE_LINE_OPACITY,
+      };
   }
 }
 
@@ -220,7 +243,7 @@ function decorateBoundary(
 ): GeoJSON.Feature<GeoJSON.LineString>[] {
   if (!boundaryFeature) return [];
 
-  const coords = boundaryFeature.geometry.coordinates;
+  const coords = boundaryFeature.geometry.coordinates as LngLat[];
   if (coords.length < 2) return [];
 
   const projected = projectLine(coords);
@@ -245,19 +268,21 @@ function decorateBoundary(
       : [segCoords];
 
     variants.forEach((variant, index) => {
-      out.push(lineFeature(variant, {
-        id: lane.id,
-        entityType: 'lane',
-        role: 'laneBoundaryDecor',
-        boundarySide: side,
-        boundaryType: segment.type,
-        boundarySegmentIndex: index,
-        color: paint.color,
-        lineWidth: paint.lineWidth,
-        lineOpacity: paint.lineOpacity,
-        ...(paint.dashed ? { dashed: true } : {}),
-        ...(paint.dotted ? { dotted: true } : {}),
-      }));
+      out.push(
+        lineFeature(variant, {
+          id: lane.id,
+          entityType: 'lane',
+          role: 'laneBoundaryDecor',
+          boundarySide: side,
+          boundaryType: segment.type,
+          boundarySegmentIndex: index,
+          color: paint.color,
+          lineWidth: paint.lineWidth,
+          lineOpacity: paint.lineOpacity,
+          ...(paint.dashed ? { dashed: true } : {}),
+          ...(paint.dotted ? { dotted: true } : {}),
+        }),
+      );
     });
   }
 
@@ -266,20 +291,15 @@ function decorateBoundary(
 
 function endpointDirection(ep: LaneEndpoint, cosLat: number): Vec2 {
   const pts = ep.pts;
-  const [p0, p1] = ep.isStart
-    ? [pts[0], pts[1]]
-    : [pts[pts.length - 2], pts[pts.length - 1]];
+  const [p0, p1] = ep.isStart ? [pts[0], pts[1]] : [pts[pts.length - 2], pts[pts.length - 1]];
 
-  return normalize2(
-    (p1.x - p0.x) * cosLat * DEG_TO_M,
-    (p1.y - p0.y) * DEG_TO_M,
-  );
+  return normalize2((p1.x - p0.x) * cosLat * DEG_TO_M, (p1.y - p0.y) * DEG_TO_M);
 }
 
 function clampVector(vec: Vec2, maxLen: number): Vec2 {
   const len = Math.hypot(vec[0], vec[1]);
   if (len < 1e-10 || len <= maxLen) return vec;
-  return [vec[0] / len * maxLen, vec[1] / len * maxLen];
+  return [(vec[0] / len) * maxLen, (vec[1] / len) * maxLen];
 }
 
 function sideJoinOffset(
@@ -382,15 +402,15 @@ function updatePolygonEndpoint(
 
   const leftLen = refs.left.geometry.coordinates.length;
   const rightLen = refs.right.geometry.coordinates.length;
-  const isClosed = ring.length > 1
-    && ring[0][0] === ring[ring.length - 1][0]
-    && ring[0][1] === ring[ring.length - 1][1];
+  const isClosed =
+    ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1];
   const logicalLen = isClosed ? ring.length - 1 : ring.length;
   if (logicalLen < leftLen + rightLen) return;
 
-  const index = side === 'left'
-    ? (isStart ? 0 : leftLen - 1)
-    : (isStart ? leftLen + rightLen - 1 : leftLen);
+  const index =
+    side === 'left' ? (isStart ? 0 : leftLen - 1) : isStart ? leftLen + rightLen - 1 : leftLen;
 
   ring[index] = joinPt;
   if (isClosed && index === 0) {
@@ -448,7 +468,9 @@ export function applyLaneJunctions(
 
     const junctions: Array<{ pt: GeoPoint; a: LaneEndpoint; b: LaneEndpoint }> = [];
     for (const endpoints of endpointIndex.values()) {
-      const unique = endpoints.filter((endpoint, index, arr) => arr.findIndex((item) => item.id === endpoint.id) === index);
+      const unique = endpoints.filter(
+        (endpoint, index, arr) => arr.findIndex((item) => item.id === endpoint.id) === index,
+      );
       if (unique.length !== 2) continue;
       const a = unique[0];
       const b = unique[1];
@@ -460,7 +482,7 @@ export function applyLaneJunctions(
     }
 
     for (const { pt, a, b } of junctions) {
-      const cosLat = Math.cos(pt.y * Math.PI / 180);
+      const cosLat = Math.cos((pt.y * Math.PI) / 180);
       const dirA = endpointDirection(a, cosLat);
       const dirB = endpointDirection(b, cosLat);
 

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useCallback } from 'react';
-import { Tree, NodeRendererProps, TreeApi } from 'react-arborist';
-import { ChevronRight, Eye, EyeOff, Lock, Unlock, Layers, Trash2, Copy } from 'lucide-react';
+import { Tree, NodeRendererProps, TreeApi, NodeApi } from 'react-arborist';
+import { ChevronRight, Eye, EyeOff, Lock, Unlock, Layers, Trash2 } from 'lucide-react';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import { clsx } from 'clsx';
@@ -32,9 +32,19 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const TYPE_ICONS: Record<string, string> = {
-  lane: '🛣️', junction: '🔀', parkingSpace: '🅿️', signal: '🚦',
-  crosswalk: '🚶', stopSign: '🛑', speedBump: '⚠️', polyline: '📏',
-  bezier: '〰️', arc: '⌒', rect: '▭', polygon: '⬡', catmullRom: '🔄',
+  lane: '🛣️',
+  junction: '🔀',
+  parkingSpace: '🅿️',
+  signal: '🚦',
+  crosswalk: '🚶',
+  stopSign: '🛑',
+  speedBump: '⚠️',
+  polyline: '📏',
+  bezier: '〰️',
+  arc: '⌒',
+  rect: '▭',
+  polygon: '⬡',
+  catmullRom: '🔄',
 };
 
 // ─── Node Renderer ─────────────────────────────────────────
@@ -83,7 +93,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
         'flex items-center gap-1 px-2 py-0.5 cursor-pointer select-none group',
         'hover:bg-white/5 rounded',
         node.isSelected && !isGroup && 'bg-cyan-500/15',
-        isGroup && !isVisible && 'opacity-50'
+        isGroup && !isVisible && 'opacity-50',
       )}
     >
       {/* Expand arrow for groups */}
@@ -91,7 +101,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
         <ChevronRight
           className={clsx(
             'w-3.5 h-3.5 text-zinc-600 transition-transform shrink-0',
-            node.isOpen && 'rotate-90'
+            node.isOpen && 'rotate-90',
           )}
         />
       ) : (
@@ -111,7 +121,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
       <span
         className={clsx(
           'flex-1 text-xs truncate',
-          isGroup ? 'text-zinc-300 font-medium' : 'text-zinc-400 font-mono'
+          isGroup ? 'text-zinc-300 font-medium' : 'text-zinc-400 font-mono',
         )}
       >
         {data.name}
@@ -119,9 +129,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
 
       {/* Count badge for groups */}
       {isGroup && data.children && (
-        <span className="text-[10px] font-mono text-zinc-600 px-1">
-          {data.children.length}
-        </span>
+        <span className="text-[10px] font-mono text-zinc-600 px-1">{data.children.length}</span>
       )}
 
       {/* Actions (visible on hover) */}
@@ -209,20 +217,21 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
     });
 
     return Array.from(groups.values()).sort(
-      (a, b) => (b.children?.length || 0) - (a.children?.length || 0)
+      (a, b) => (b.children?.length || 0) - (a.children?.length || 0),
     );
   }, [entities]);
 
   // Handle selection
   const handleSelect = useCallback(
-    (nodes: TreeNode[]) => {
-      if (nodes.length > 0 && !nodes[0].isGroup) {
-        onSelect?.(nodes[0].id);
+    (nodes: NodeApi<TreeNode>[]) => {
+      const first = nodes[0]?.data;
+      if (first && !first.isGroup) {
+        onSelect?.(first.id);
       } else {
         onSelect?.(null);
       }
     },
-    [onSelect]
+    [onSelect],
   );
 
   return (

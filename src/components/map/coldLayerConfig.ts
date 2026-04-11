@@ -25,17 +25,20 @@ export const COLD_LAYER_FILTERS: Record<ColdLayerId, maplibregl.FilterSpecificat
   'cold-fill': ['==', '$type', 'Polygon'],
   'cold-fill-crosswalk': ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'crosswalk']],
   'cold-fill-cleararea': ['all', ['==', '$type', 'Polygon'], ['==', 'entityType', 'clearArea']],
-  'cold-line': ['all',
+  'cold-line': [
+    'all',
     ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
     ['!has', 'dashed'],
     ['!has', 'noStroke'],
   ],
-  'cold-line-dotted': ['all',
+  'cold-line-dotted': [
+    'all',
     ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
     ['has', 'dashed'],
     ['has', 'dotted'],
   ],
-  'cold-line-dashed': ['all',
+  'cold-line-dashed': [
+    'all',
     ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
     ['has', 'dashed'],
     ['!has', 'dotted'],
@@ -50,5 +53,12 @@ export function buildColdLayerFilter(
 ): maplibregl.FilterSpecification {
   const baseFilter = COLD_LAYER_FILTERS[layerId];
   if (!hiddenEntityId) return baseFilter;
-  return ['all', baseFilter, ['!=', ['get', 'id'], hiddenEntityId]];
+  // maplibre's FilterSpecification is a nested union; the compiler can't
+  // narrow a runtime-composed ['all', X, Y] because X is the full union.
+  // Runtime behavior is correct; this cast pins the return type.
+  return [
+    'all',
+    baseFilter,
+    ['!=', ['get', 'id'], hiddenEntityId],
+  ] as unknown as maplibregl.FilterSpecification;
 }

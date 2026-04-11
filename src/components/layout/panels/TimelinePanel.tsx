@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import {
-  Play, Pause, Square, SkipBack, SkipForward,
-  Plus, ChevronRight
-} from 'lucide-react';
+import { Play, Pause, Square, SkipBack, SkipForward, Plus, ChevronRight } from 'lucide-react';
 import { clsx } from 'clsx';
 
 // Width (px) reserved on the left for the track-header column.
@@ -140,7 +137,7 @@ export function TimelinePanel() {
   // Container width → derived effective zoom so the whole duration fits.
   const trackAreaRef = useRef<HTMLDivElement>(null);
   const [trackAreaWidth, setTrackAreaWidth] = useState<number>(600);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const el = trackAreaRef.current;
@@ -161,7 +158,7 @@ export function TimelinePanel() {
   // panel still renders something sane, and keep it finite when duration=0.
   const effectiveZoom = Math.max(
     1,
-    (Math.max(trackAreaWidth - TRACK_RIGHT_PADDING, 60)) / Math.max(state.duration, 0.001)
+    Math.max(trackAreaWidth - TRACK_RIGHT_PADDING, 60) / Math.max(state.duration, 0.001),
   );
 
   // Playback loop
@@ -190,6 +187,9 @@ export function TimelinePanel() {
         cancelAnimationFrame(animationRef.current);
       }
     };
+    // state.currentTime is written inside tick() via functional setState;
+    // listing it would restart the animation on every frame.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.isPlaying, state.duration]);
 
   const togglePlay = () => {
@@ -211,9 +211,7 @@ export function TimelinePanel() {
   const toggleTrackExpand = (trackId: string) => {
     setState((s) => ({
       ...s,
-      tracks: s.tracks.map((t) =>
-        t.id === trackId ? { ...t, expanded: !t.expanded } : t
-      ),
+      tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, expanded: !t.expanded } : t)),
     }));
   };
 
@@ -228,16 +226,28 @@ export function TimelinePanel() {
     <div className="h-full flex flex-col bg-zinc-950">
       {/* Transport controls */}
       <div className="h-9 flex items-center gap-2 px-3 border-b border-white/[0.07] shrink-0">
-        <button onClick={skipBack} className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200">
+        <button
+          onClick={skipBack}
+          className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
+        >
           <SkipBack className="w-4 h-4" />
         </button>
-        <button onClick={togglePlay} className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200">
+        <button
+          onClick={togglePlay}
+          className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
+        >
           {state.isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
         </button>
-        <button onClick={stop} className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200">
+        <button
+          onClick={stop}
+          className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
+        >
           <Square className="w-4 h-4" />
         </button>
-        <button onClick={skipForward} className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200">
+        <button
+          onClick={skipForward}
+          className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
+        >
           <SkipForward className="w-4 h-4" />
         </button>
 
@@ -248,9 +258,7 @@ export function TimelinePanel() {
           {formatTime(state.currentTime)}
         </span>
         <span className="text-zinc-600 text-xs">/</span>
-        <span className="font-mono text-xs text-zinc-500 w-24">
-          {formatTime(state.duration)}
-        </span>
+        <span className="font-mono text-xs text-zinc-500 w-24">{formatTime(state.duration)}</span>
 
         <div className="flex-1" />
 
@@ -279,7 +287,7 @@ export function TimelinePanel() {
                 <ChevronRight
                   className={clsx(
                     'w-3 h-3 text-zinc-600 transition-transform',
-                    track.expanded && 'rotate-90'
+                    track.expanded && 'rotate-90',
                   )}
                 />
               </button>
@@ -300,10 +308,7 @@ export function TimelinePanel() {
           {/* Tracks */}
           <div className="relative">
             {state.tracks.map((track) => (
-              <div
-                key={track.id}
-                className="relative h-8 border-b border-white/[0.05]"
-              >
+              <div key={track.id} className="relative h-8 border-b border-white/[0.05]">
                 {track.keyframes.map((kf, i) => (
                   <div
                     key={i}

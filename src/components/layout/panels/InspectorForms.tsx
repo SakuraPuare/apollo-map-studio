@@ -1,20 +1,41 @@
 import { useEffect } from 'react';
-import { useForm, FormProvider } from 'react-hook-form';
+import { useForm, FormProvider, type Resolver, type FieldValues } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMapStore } from '@/store/mapStore';
+
+// Zod 4 + @hookform/resolvers@5 overload-resolution shim: runtime is
+// version-aware (checks `_zod` vs `_def.typeName`) but TS only sees the
+// Zod 3 overload for bare ZodObject inputs. This bridges both.
+function zodResolverZ4<T extends FieldValues>(schema: unknown): Resolver<T> {
+  return zodResolver(schema as never) as unknown as Resolver<T>;
+}
 import { Input, Select, Section, Value } from '@/components/ui/form-fields';
 import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import {
-  laneSchema, type LaneFormValues,
-  laneTypeOptions, laneTurnOptions, laneDirectionOptions, boundaryTypeOptions,
-  junctionSchema, type JunctionFormValues, junctionTypeOptions,
-  parkingSpaceSchema, type ParkingSpaceFormValues,
-  signalSchema, type SignalFormValues, signalTypeOptions,
-  stopSignSchema, type StopSignFormValues, stopSignTypeOptions,
+  laneSchema,
+  type LaneFormValues,
+  laneTypeOptions,
+  laneTurnOptions,
+  laneDirectionOptions,
+  boundaryTypeOptions,
+  junctionSchema,
+  type JunctionFormValues,
+  junctionTypeOptions,
+  parkingSpaceSchema,
+  type ParkingSpaceFormValues,
+  signalSchema,
+  type SignalFormValues,
+  signalTypeOptions,
+  stopSignSchema,
+  type StopSignFormValues,
+  stopSignTypeOptions,
 } from '@/lib/schemas';
 import type {
-  LaneEntity, JunctionEntity, ParkingSpaceEntity,
-  SignalEntity, StopSignEntity,
+  LaneEntity,
+  JunctionEntity,
+  ParkingSpaceEntity,
+  SignalEntity,
+  StopSignEntity,
   LaneSampleAssociation,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
@@ -46,7 +67,7 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
   const rightWidth = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
 
   const methods = useForm<LaneFormValues>({
-    resolver: zodResolver(laneSchema),
+    resolver: zodResolverZ4<LaneFormValues>(laneSchema),
     defaultValues: {
       type: entity.type,
       turn: entity.turn,
@@ -71,6 +92,9 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
       leftBoundaryType: leftType,
       rightBoundaryType: rightType,
     });
+    // Intentionally only re-seed when switching entities, not when the user
+    // edits any individual field — doing otherwise would fight the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id, methods]);
 
   // Auto-save on change
@@ -137,12 +161,15 @@ function JunctionForm({ entity }: { entity: JunctionEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
   const methods = useForm<JunctionFormValues>({
-    resolver: zodResolver(junctionSchema),
+    resolver: zodResolverZ4<JunctionFormValues>(junctionSchema),
     defaultValues: { type: entity.type },
   });
 
   useEffect(() => {
     methods.reset({ type: entity.type });
+    // Intentionally only re-seed when switching entities, not when the user
+    // edits any individual field — doing otherwise would fight the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id, methods]);
 
   useEffect(() => {
@@ -171,12 +198,15 @@ function ParkingSpaceForm({ entity }: { entity: ParkingSpaceEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
   const methods = useForm<ParkingSpaceFormValues>({
-    resolver: zodResolver(parkingSpaceSchema),
-    defaultValues: { heading: parseFloat((entity.heading * 180 / Math.PI).toFixed(2)) },
+    resolver: zodResolverZ4<ParkingSpaceFormValues>(parkingSpaceSchema),
+    defaultValues: { heading: parseFloat(((entity.heading * 180) / Math.PI).toFixed(2)) },
   });
 
   useEffect(() => {
-    methods.reset({ heading: parseFloat((entity.heading * 180 / Math.PI).toFixed(2)) });
+    methods.reset({ heading: parseFloat(((entity.heading * 180) / Math.PI).toFixed(2)) });
+    // Intentionally only re-seed when switching entities, not when the user
+    // edits any individual field — doing otherwise would fight the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id, methods]);
 
   useEffect(() => {
@@ -204,12 +234,15 @@ function SignalForm({ entity }: { entity: SignalEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
   const methods = useForm<SignalFormValues>({
-    resolver: zodResolver(signalSchema),
+    resolver: zodResolverZ4<SignalFormValues>(signalSchema),
     defaultValues: { type: entity.type },
   });
 
   useEffect(() => {
     methods.reset({ type: entity.type });
+    // Intentionally only re-seed when switching entities, not when the user
+    // edits any individual field — doing otherwise would fight the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id, methods]);
 
   useEffect(() => {
@@ -238,12 +271,15 @@ function StopSignForm({ entity }: { entity: StopSignEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
   const methods = useForm<StopSignFormValues>({
-    resolver: zodResolver(stopSignSchema),
+    resolver: zodResolverZ4<StopSignFormValues>(stopSignSchema),
     defaultValues: { type: entity.type },
   });
 
   useEffect(() => {
     methods.reset({ type: entity.type });
+    // Intentionally only re-seed when switching entities, not when the user
+    // edits any individual field — doing otherwise would fight the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id, methods]);
 
   useEffect(() => {

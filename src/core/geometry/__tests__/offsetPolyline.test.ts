@@ -24,13 +24,10 @@ const DEG_TO_M = 111320;
 const LAT = 30;
 const cosLat = Math.cos((LAT * Math.PI) / 180);
 const mPerLng = cosLat * DEG_TO_M; // ≈ 96388 m/deg
-const mPerLat = DEG_TO_M;           // 111320 m/deg
+const mPerLat = DEG_TO_M; // 111320 m/deg
 
 /** 经纬度 → 平面米坐标（局部近似） */
-const toM = (p: { x: number; y: number }) => [
-  p.x * mPerLng,
-  p.y * mPerLat,
-] as const;
+const toM = (p: { x: number; y: number }) => [p.x * mPerLng, p.y * mPerLat] as const;
 
 /** 两点间距（米） */
 function dist2d(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -89,11 +86,7 @@ const WIDTH = 3.5; // 偏移宽度（米）
 // ── Case 1: 直线段 ──────────────────────────────────────────────
 
 describe('直线段（向东）', () => {
-  const line = [
-    pt(116.000, LAT),
-    pt(116.001, LAT),
-    pt(116.002, LAT),
-  ];
+  const line = [pt(116.0, LAT), pt(116.001, LAT), pt(116.002, LAT)];
 
   it('左偏移各点在中心线左侧（北侧）≈ WIDTH', () => {
     const left = offsetPolylineDeg(line, WIDTH, 'left');
@@ -118,9 +111,9 @@ describe('直线段（向东）', () => {
 
 describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
   // p0 → p1: 向东 100m；p1 → p2: 向北 100m
-  const p0 = pt(116.000, LAT);
-  const p1 = pt(116.000 + 100 / mPerLng, LAT);
-  const p2 = pt(116.000 + 100 / mPerLng, LAT + 100 / mPerLat);
+  const p0 = pt(116.0, LAT);
+  const p1 = pt(116.0 + 100 / mPerLng, LAT);
+  const p2 = pt(116.0 + 100 / mPerLng, LAT + 100 / mPerLat);
   const turn = [p0, p1, p2];
 
   it('左侧（外侧）共 3 个点，join 点在折点西北', () => {
@@ -128,7 +121,7 @@ describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
     expect(left.length).toBe(3);
     const [jx, jy] = toM(left[1]);
     const [px, py] = toM(p1);
-    expect(jx).toBeLessThan(px);   // 偏西
+    expect(jx).toBeLessThan(px); // 偏西
     expect(jy).toBeGreaterThan(py); // 偏北
   });
 
@@ -138,7 +131,7 @@ describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
     const [jx, jy] = toM(right[1]);
     const [px, py] = toM(p1);
     expect(jx).toBeGreaterThan(px); // 偏东
-    expect(jy).toBeLessThan(py);    // 偏南
+    expect(jy).toBeLessThan(py); // 偏南
   });
 
   it('内侧 join 点到中心折点距离 ≈ √2 × WIDTH（精确交点）', () => {
@@ -163,8 +156,8 @@ describe('150° 左转（miterRatio ≈ 3.86，触发 bevel 阈值）', () => {
   // 段1: 向东 100m；段2: 150° 方向 = (-√3/2, 1/2) 单位向量
   const segLen = 100;
   const alpha = (150 * Math.PI) / 180;
-  const p0 = pt(116.000, LAT);
-  const p1 = pt(116.000 + segLen / mPerLng, LAT);
+  const p0 = pt(116.0, LAT);
+  const p1 = pt(116.0 + segLen / mPerLng, LAT);
   const p2 = pt(
     p1.x + (segLen * Math.cos(alpha)) / mPerLng,
     p1.y + (segLen * Math.sin(alpha)) / mPerLat,
@@ -193,8 +186,8 @@ describe('150° 左转（miterRatio ≈ 3.86，触发 bevel 阈值）', () => {
 describe('150° 右转（miterRatio ≈ 3.86，与左转镜像对称）', () => {
   const segLen = 100;
   const alpha = (-150 * Math.PI) / 180; // 右转
-  const p0 = pt(116.000, LAT);
-  const p1 = pt(116.000 + segLen / mPerLng, LAT);
+  const p0 = pt(116.0, LAT);
+  const p1 = pt(116.0 + segLen / mPerLng, LAT);
   const p2 = pt(
     p1.x + (segLen * Math.cos(alpha)) / mPerLng,
     p1.y + (segLen * Math.sin(alpha)) / mPerLat,
@@ -224,18 +217,18 @@ describe('紧弯连续采样', () => {
     const right = offsetPolylineDeg(center, WIDTH, 'right');
     expect(polylineSelfIntersects(right.map(toCoord))).toBe(false);
 
-    const lane = createApolloEntity(
-      'lane',
-      'drawPolyline',
-      center.map(toCoord),
-      [],
-      { laneHalfWidth: WIDTH },
-    ) as LaneEntity;
+    const lane = createApolloEntity('lane', 'drawPolyline', center.map(toCoord), [], {
+      laneHalfWidth: WIDTH,
+    }) as LaneEntity;
 
     const features = compileApolloFeatures(lane);
     const rightEdge = features.find((feature) => feature.properties?.role === 'laneEdgeRight');
     expect(rightEdge?.geometry.type).toBe('LineString');
-    expect(polylineSelfIntersects((rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates)).toBe(false);
+    expect(
+      polylineSelfIntersects(
+        (rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates as LngLat[],
+      ),
+    ).toBe(false);
 
     const polygon = features.find((feature) => feature.geometry.type === 'Polygon');
     expect(polygon?.geometry.type).toBe('Polygon');
@@ -249,17 +242,15 @@ describe('紧弯连续采样', () => {
     expect(right.length).toBeLessThan(center.length);
     expect(polylineSelfIntersects(right.map(toCoord))).toBe(false);
 
-    const lane = createApolloEntity(
-      'lane',
-      'drawPolyline',
-      center.map(toCoord),
-      [],
-      { laneHalfWidth: WIDTH },
-    ) as LaneEntity;
+    const lane = createApolloEntity('lane', 'drawPolyline', center.map(toCoord), [], {
+      laneHalfWidth: WIDTH,
+    }) as LaneEntity;
 
     const features = compileApolloFeatures(lane);
     const rightEdge = features.find((feature) => feature.properties?.role === 'laneEdgeRight');
     expect(rightEdge?.geometry.type).toBe('LineString');
-    expect((rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates.length).toBeLessThan(center.length);
+    expect(
+      (rightEdge as GeoJSON.Feature<GeoJSON.LineString>).geometry.coordinates.length,
+    ).toBeLessThan(center.length);
   });
 });
