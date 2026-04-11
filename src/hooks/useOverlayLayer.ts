@@ -76,7 +76,7 @@ function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[
     const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
     for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
     if (allPts.length === 3) {
-      features.push(lineFeature(threePointArc(allPts[0], allPts[1], allPts[2])));
+      features.push(lineFeature(threePointArc(allPts[0]!, allPts[1]!, allPts[2]!)));
     } else if (allPts.length === 2) {
       features.push(lineFeature(allPts));
     }
@@ -84,13 +84,13 @@ function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[
     const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
     for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
     if (allPts.length === 3) {
-      const r = rotatedRectFromPoints(allPts[0], allPts[1], allPts[2]);
+      const r = rotatedRectFromPoints(allPts[0]!, allPts[1]!, allPts[2]!);
       features.push(polygonFeature(rectCorners(r.p1, r.p2, r.rotation)));
     } else if (allPts.length === 2) {
       // 显示主轴
-      features.push(lineFeature([allPts[0], allPts[1]]));
+      features.push(lineFeature([allPts[0]!, allPts[1]!]));
     } else if (allPts.length === 1 && previewPoint) {
-      features.push(lineFeature([allPts[0], previewPoint]));
+      features.push(lineFeature([allPts[0]!, previewPoint]));
     }
   } else if (currentState === 'drawPolygon') {
     const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;

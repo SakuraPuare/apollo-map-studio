@@ -94,8 +94,10 @@ export function offsetPolylineDeg(
   // 左法向：(-uy, ux)，右法向：(uy, -ux)
   const segN: [number, number][] = [];
   for (let i = 0; i < n - 1; i++) {
-    const dx = pts[i + 1][0] - pts[i][0];
-    const dy = pts[i + 1][1] - pts[i][1];
+    const a = pts[i]!;
+    const b = pts[i + 1]!;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
     const len = Math.hypot(dx, dy);
     segN.push(len < 1e-10 ? [0, sign] : [(-dy / len) * sign, (dx / len) * sign]);
   }
@@ -110,19 +112,19 @@ export function offsetPolylineDeg(
   const result: GeoPoint[] = [];
 
   for (let i = 0; i < n; i++) {
-    const [px, py] = pts[i];
-    const zi = points[i].z;
+    const [px, py] = pts[i]!;
+    const zi = points[i]!.z;
 
     if (i === 0) {
-      const [nx, ny] = segN[0];
+      const [nx, ny] = segN[0]!;
       result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
     } else if (i === n - 1) {
-      const [nx, ny] = segN[n - 2];
+      const [nx, ny] = segN[n - 2]!;
       result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
     } else {
       // 相邻两段的法向量
-      const [n1x, n1y] = segN[i - 1];
-      const [n2x, n2y] = segN[i];
+      const [n1x, n1y] = segN[i - 1]!;
+      const [n2x, n2y] = segN[i]!;
       const dot = n1x * n2x + n1y * n2y;
       const denom = 1 + dot;
 
@@ -276,12 +278,14 @@ function hasDenseSegmentCollapse(
 
   const projected = offsetPoints.map((point) => projectPoint(point, cosLat));
   for (let i = 0; i < sourcePts.length - 1; i++) {
-    const dx = sourcePts[i + 1][0] - sourcePts[i][0];
-    const dy = sourcePts[i + 1][1] - sourcePts[i][1];
+    const a = sourcePts[i]!;
+    const b = sourcePts[i + 1]!;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
     const len = Math.hypot(dx, dy);
     if (len < 1e-8) continue;
 
-    if (projectedLength(projected[i], projected[i + 1], [dx / len, dy / len]) <= 1e-4) {
+    if (projectedLength(projected[i]!, projected[i + 1]!, [dx / len, dy / len]) <= 1e-4) {
       return true;
     }
   }
@@ -317,44 +321,46 @@ function rebuildDenseOffset(
   const segments: DenseOffsetSegment[] = [];
 
   for (let i = 0; i < sourcePts.length - 1; i++) {
-    const dx = sourcePts[i + 1][0] - sourcePts[i][0];
-    const dy = sourcePts[i + 1][1] - sourcePts[i][1];
+    const a = sourcePts[i]!;
+    const b = sourcePts[i + 1]!;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
     const len = Math.hypot(dx, dy);
     if (len < 1e-8) continue;
 
     segments.push({
-      start: sourcePts[i],
-      end: sourcePts[i + 1],
+      start: a,
+      end: b,
       dir: [dx / len, dy / len],
-      normal: segN[i],
+      normal: segN[i]!,
     });
   }
 
   if (segments.length === 0) return [];
 
-  const active = [segments[0]];
+  const active = [segments[0]!];
   const poly: ProjectedPoint[] = [
-    offsetProjected(segments[0].start, segments[0].normal, widthMeters),
+    offsetProjected(segments[0]!.start, segments[0]!.normal, widthMeters),
   ];
 
   for (let i = 1; i < segments.length; i++) {
-    active.push(segments[i]);
-    poly.push(denseJoin(active[active.length - 2], active[active.length - 1], widthMeters));
+    active.push(segments[i]!);
+    poly.push(denseJoin(active[active.length - 2]!, active[active.length - 1]!, widthMeters));
 
     while (active.length >= 3) {
-      const segment = active[active.length - 2];
-      const start = poly[poly.length - 2];
-      const end = poly[poly.length - 1];
+      const segment = active[active.length - 2]!;
+      const start = poly[poly.length - 2]!;
+      const end = poly[poly.length - 1]!;
       if (projectedLength(start, end, segment.dir) > 1e-4) break;
 
       active.splice(active.length - 2, 1);
       poly.splice(poly.length - 2, 2);
-      poly.push(denseJoin(active[active.length - 2], active[active.length - 1], widthMeters));
+      poly.push(denseJoin(active[active.length - 2]!, active[active.length - 1]!, widthMeters));
     }
   }
 
   poly.push(
-    offsetProjected(active[active.length - 1].end, active[active.length - 1].normal, widthMeters),
+    offsetProjected(active[active.length - 1]!.end, active[active.length - 1]!.normal, widthMeters),
   );
 
   let changed = true;
@@ -364,9 +370,9 @@ function rebuildDenseOffset(
     while (
       active.length >= 2 &&
       projectedLength(
-        poly[poly.length - 2],
-        poly[poly.length - 1],
-        active[active.length - 1].dir,
+        poly[poly.length - 2]!,
+        poly[poly.length - 1]!,
+        active[active.length - 1]!.dir,
       ) <= 1e-4
     ) {
       active.pop();
@@ -374,7 +380,7 @@ function rebuildDenseOffset(
       changed = true;
     }
 
-    while (active.length >= 2 && projectedLength(poly[0], poly[1], active[0].dir) <= 1e-4) {
+    while (active.length >= 2 && projectedLength(poly[0]!, poly[1]!, active[0]!.dir) <= 1e-4) {
       active.shift();
       poly.splice(1, 1);
       changed = true;
@@ -399,10 +405,10 @@ function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
     outer: for (let i = 0; i < projected.length - 1; i++) {
       for (let j = i + 2; j < projected.length - 1; j++) {
         const hit = segmentIntersection(
-          projected[i],
-          projected[i + 1],
-          projected[j],
-          projected[j + 1],
+          projected[i]!,
+          projected[i + 1]!,
+          projected[j]!,
+          projected[j + 1]!,
         );
         if (!hit) continue;
 
@@ -456,9 +462,9 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
     case 'barrierGate': {
       if (entity.stopLines.length > 0) {
         const l = [...entity.stopLines];
-        const s = [...l[0].segments];
-        s[0] = { ...s[0], lineSegment: { points } };
-        l[0] = { ...l[0], segments: s };
+        const s = [...l[0]!.segments];
+        s[0] = { ...s[0]!, lineSegment: { points } };
+        l[0] = { ...l[0]!, segments: s };
         return { ...entity, stopLines: l };
       }
       return { ...entity, polygon: { points } } as typeof entity;
@@ -466,16 +472,16 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
     case 'signal': {
       if (entity.stopLines.length > 0) {
         const l = [...entity.stopLines];
-        const s = [...l[0].segments];
-        s[0] = { ...s[0], lineSegment: { points } };
-        l[0] = { ...l[0], segments: s };
+        const s = [...l[0]!.segments];
+        s[0] = { ...s[0]!, lineSegment: { points } };
+        l[0] = { ...l[0]!, segments: s };
         return { ...entity, stopLines: l };
       }
       return { ...entity, boundary: { points } } as typeof entity;
     }
     case 'lane': {
       const segs = [...entity.centralCurve.segments];
-      segs[0] = { ...segs[0], lineSegment: { points } };
+      segs[0] = { ...segs[0]!, lineSegment: { points } };
       return {
         ...entity,
         centralCurve: { segments: segs },
@@ -484,23 +490,23 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
     }
     case 'stopSign': {
       const l = [...entity.stopLines];
-      const s = [...l[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } };
-      l[0] = { ...l[0], segments: s };
+      const s = [...l[0]!.segments];
+      s[0] = { ...s[0]!, lineSegment: { points } };
+      l[0] = { ...l[0]!, segments: s };
       return { ...entity, stopLines: l };
     }
     case 'speedBump': {
       const p = [...entity.position];
-      const s = [...p[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } };
-      p[0] = { ...p[0], segments: s };
+      const s = [...p[0]!.segments];
+      s[0] = { ...s[0]!, lineSegment: { points } };
+      p[0] = { ...p[0]!, segments: s };
       return { ...entity, position: p };
     }
     case 'yieldSign': {
       const l = [...entity.stopLines];
-      const s = [...l[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } };
-      l[0] = { ...l[0], segments: s };
+      const s = [...l[0]!.segments];
+      s[0] = { ...s[0]!, lineSegment: { points } };
+      l[0] = { ...l[0]!, segments: s };
       return { ...entity, stopLines: l };
     }
     default:
@@ -555,7 +561,7 @@ function extractLinePoints(draw: DrawResult): GeoPoint[] {
   if (draw.drawTool === 'drawBezier' && draw.anchors.length >= 2)
     return coordsToPoints(cubicBezier(draw.anchors));
   if (draw.drawTool === 'drawArc' && draw.points.length >= 3)
-    return coordsToPoints(threePointArc(draw.points[0], draw.points[1], draw.points[2]));
+    return coordsToPoints(threePointArc(draw.points[0]!, draw.points[1]!, draw.points[2]!));
   if (draw.drawTool === 'drawCatmullRom' && draw.points.length >= 2)
     return coordsToPoints(catmullRom(draw.points));
   return coordsToPoints(draw.points);
@@ -563,7 +569,7 @@ function extractLinePoints(draw: DrawResult): GeoPoint[] {
 
 function extractPolygonPoints(draw: DrawResult): GeoPoint[] {
   if (draw.drawTool === 'drawRotatedRect' && draw.points.length >= 3) {
-    const r = rotatedRectFromPoints(draw.points[0], draw.points[1], draw.points[2]);
+    const r = rotatedRectFromPoints(draw.points[0]!, draw.points[1]!, draw.points[2]!);
     return coordsToPoints(rectCorners(r.p1, r.p2, r.rotation));
   }
   return coordsToPoints(draw.points);
@@ -577,7 +583,7 @@ function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
   if (d.drawTool === 'drawArc' && d.points.length >= 3) {
     return {
       drawTool: d.drawTool,
-      arcPoints: [toGeoPoint(d.points[0]), toGeoPoint(d.points[1]), toGeoPoint(d.points[2])],
+      arcPoints: [toGeoPoint(d.points[0]!), toGeoPoint(d.points[1]!), toGeoPoint(d.points[2]!)],
     };
   }
   return undefined;
@@ -586,7 +592,7 @@ function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
 /** 构建矩形源信息（用于保留旋转能力） */
 function buildRectInfo(d: DrawResult): import('@/types/apollo').SourceRectInfo | undefined {
   if (d.drawTool === 'drawRotatedRect' && d.points.length >= 3) {
-    const r = rotatedRectFromPoints(d.points[0], d.points[1], d.points[2]);
+    const r = rotatedRectFromPoints(d.points[0]!, d.points[1]!, d.points[2]!);
     return { p1: toGeoPoint(r.p1), p2: toGeoPoint(r.p2), rotation: r.rotation };
   }
   return undefined;
@@ -785,12 +791,11 @@ function centroid(coords: LngLat[]): LngLat {
 function lineMid(coords: LngLat[]): LngLat {
   if (coords.length === 0) return [0, 0];
   if (coords.length <= 2) {
-    return [
-      (coords[0][0] + coords[coords.length - 1][0]) / 2,
-      (coords[0][1] + coords[coords.length - 1][1]) / 2,
-    ];
+    const a = coords[0]!;
+    const b = coords[coords.length - 1]!;
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   }
-  return coords[Math.floor(coords.length / 2)];
+  return coords[Math.floor(coords.length / 2)]!;
 }
 
 function mkLine(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
@@ -802,11 +807,10 @@ function mkLine(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Featu
 }
 
 function mkPolygon(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
+  const first = coords[0];
+  const last = coords[coords.length - 1];
   const ring =
-    coords.length > 0 &&
-    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-      ? [...coords, coords[0]]
-      : coords;
+    first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return { type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [ring] } };
 }
 

@@ -95,7 +95,7 @@ export function useMapEventRouter(
         .send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(HIT_TEST_RADIUS_PX) })
         .then((result) => {
           if (result.type === 'HIT_RESULT' && result.hits.length > 0) {
-            return result.hits[0].id;
+            return result.hits[0]!.id;
           }
           return null;
         })
@@ -111,7 +111,7 @@ export function useMapEventRouter(
       if (state === 'selected') {
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         if (hotHits.length > 0) {
-          const props = hotHits[0].properties;
+          const props = hotHits[0]!.properties;
           const idx = props?.index as number;
           const pType = (
             props?.role === 'handle' ? (props?.handleType as DragPointType) : 'vertex'

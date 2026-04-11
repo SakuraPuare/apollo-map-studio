@@ -26,11 +26,11 @@ export function wouldSelfIntersect(points: LngLat[], newPt: LngLat): boolean {
   const n = points.length;
   if (n < 2) return false;
 
-  const edgeStart = points[n - 1];
+  const edgeStart = points[n - 1]!;
   const edgeEnd = newPt;
 
   for (let i = 0; i < n - 2; i++) {
-    if (segmentsIntersect(edgeStart, edgeEnd, points[i], points[i + 1])) {
+    if (segmentsIntersect(edgeStart, edgeEnd, points[i]!, points[i + 1]!)) {
       return true;
     }
   }
@@ -43,12 +43,12 @@ export function polygonSelfIntersects(points: LngLat[]): boolean {
   if (n < 4) return false;
 
   for (let i = 0; i < n; i++) {
-    const a1 = points[i];
-    const a2 = points[(i + 1) % n];
+    const a1 = points[i]!;
+    const a2 = points[(i + 1) % n]!;
     for (let j = i + 2; j < n; j++) {
       if (i === 0 && j === n - 1) continue;
-      const b1 = points[j];
-      const b2 = points[(j + 1) % n];
+      const b1 = points[j]!;
+      const b2 = points[(j + 1) % n]!;
       if (segmentsIntersect(a1, a2, b1, b2)) {
         return true;
       }

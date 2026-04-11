@@ -47,11 +47,10 @@ export function polygonFeature(
   coords: LngLat[],
   props: Record<string, unknown> = {},
 ): GeoJSON.Feature {
+  const first = coords[0];
+  const last = coords[coords.length - 1];
   const ring =
-    coords.length > 0 &&
-    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-      ? [...coords, coords[0]]
-      : coords;
+    first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return {
     type: 'Feature',
     properties: { ...props },
@@ -98,7 +97,7 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     const corners = rectCorners(p1, p2, entity.rotation);
     features.push(polygonFeature(corners));
     for (let i = 0; i < 4; i++) {
-      features.push(pointFeature(corners[i], 'vertex', { index: i }));
+      features.push(pointFeature(corners[i]!, 'vertex', { index: i }));
     }
     const center: LngLat = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
     const handle = rectRotateHandle(p1, p2, entity.rotation);
@@ -138,10 +137,10 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
 
     // ② 有圆弧源：三点编辑
     if (source?.drawTool === 'drawArc' && source.arcPoints) {
-      const [s, m, e] = source.arcPoints;
-      const p1 = toLngLat(s),
-        p2 = toLngLat(m),
-        p3 = toLngLat(e);
+      const arcPts = source.arcPoints;
+      const p1 = toLngLat(arcPts[0]),
+        p2 = toLngLat(arcPts[1]),
+        p3 = toLngLat(arcPts[2]);
       features.push(lineFeature(threePointArc(p1, p2, p3)));
       features.push(pointFeature(p1, 'vertex', { index: 0 }));
       features.push(pointFeature(p2, 'vertex', { index: 1 }));
@@ -156,7 +155,7 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
       const corners = rectCorners(p1, p2, sourceRect.rotation);
       features.push(polygonFeature(corners));
       for (let i = 0; i < 4; i++) {
-        features.push(pointFeature(corners[i], 'vertex', { index: i }));
+        features.push(pointFeature(corners[i]!, 'vertex', { index: i }));
       }
       const center: LngLat = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
       const handle = rectRotateHandle(p1, p2, sourceRect.rotation);

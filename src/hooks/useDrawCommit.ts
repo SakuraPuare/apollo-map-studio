@@ -60,12 +60,12 @@ function commitEntity(
     addEntity({
       id: `arc_${nanoid(12)}`,
       entityType: 'arc',
-      start: toGeoPoint(points[0]),
-      mid: toGeoPoint(points[1]),
-      end: toGeoPoint(points[2]),
+      start: toGeoPoint(points[0]!),
+      mid: toGeoPoint(points[1]!),
+      end: toGeoPoint(points[2]!),
     } as ArcEntity);
   } else if (state === 'drawRotatedRect' && points.length >= 3) {
-    const r = rotatedRectFromPoints(points[0], points[1], points[2]);
+    const r = rotatedRectFromPoints(points[0]!, points[1]!, points[2]!);
     addEntity({
       id: `rect_${nanoid(12)}`,
       entityType: 'rect',

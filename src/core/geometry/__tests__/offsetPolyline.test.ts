@@ -62,7 +62,7 @@ function toCoord(p: { x: number; y: number }): LngLat {
 function polylineSelfIntersects(points: LngLat[]): boolean {
   for (let i = 0; i < points.length - 1; i++) {
     for (let j = i + 2; j < points.length - 1; j++) {
-      if (segmentsIntersect(points[i], points[i + 1], points[j], points[j + 1])) {
+      if (segmentsIntersect(points[i]!, points[i + 1]!, points[j]!, points[j + 1]!)) {
         return true;
       }
     }
@@ -92,7 +92,7 @@ describe('直线段（向东）', () => {
     const left = offsetPolylineDeg(line, WIDTH, 'left');
     expect(left.length).toBe(3);
     for (let i = 0; i < 3; i++) {
-      const d = signedDist(left[i], line[0], line[2]);
+      const d = signedDist(left[i]!, line[0]!, line[2]!);
       expect(d).toBeCloseTo(WIDTH, 0);
     }
   });
@@ -101,7 +101,7 @@ describe('直线段（向东）', () => {
     const right = offsetPolylineDeg(line, WIDTH, 'right');
     expect(right.length).toBe(3);
     for (let i = 0; i < 3; i++) {
-      const d = signedDist(right[i], line[0], line[2]);
+      const d = signedDist(right[i]!, line[0]!, line[2]!);
       expect(d).toBeCloseTo(-WIDTH, 0);
     }
   });
@@ -119,7 +119,7 @@ describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
   it('左侧（外侧）共 3 个点，join 点在折点西北', () => {
     const left = offsetPolylineDeg(turn, WIDTH, 'left');
     expect(left.length).toBe(3);
-    const [jx, jy] = toM(left[1]);
+    const [jx, jy] = toM(left[1]!);
     const [px, py] = toM(p1);
     expect(jx).toBeLessThan(px); // 偏西
     expect(jy).toBeGreaterThan(py); // 偏北
@@ -128,7 +128,7 @@ describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
   it('右侧（内侧）共 3 个点，join 点在折点东南', () => {
     const right = offsetPolylineDeg(turn, WIDTH, 'right');
     expect(right.length).toBe(3);
-    const [jx, jy] = toM(right[1]);
+    const [jx, jy] = toM(right[1]!);
     const [px, py] = toM(p1);
     expect(jx).toBeGreaterThan(px); // 偏东
     expect(jy).toBeLessThan(py); // 偏南
@@ -136,13 +136,13 @@ describe('90° 左转（miterRatio = √2，不触发 bevel）', () => {
 
   it('内侧 join 点到中心折点距离 ≈ √2 × WIDTH（精确交点）', () => {
     const right = offsetPolylineDeg(turn, WIDTH, 'right');
-    const d = dist2d(right[1], p1);
+    const d = dist2d(right[1]!, p1);
     expect(d).toBeCloseTo(Math.SQRT2 * WIDTH, 0);
   });
 
   it('内侧 join 点在段1右侧（signedDist < 0），不穿越中心线', () => {
     const right = offsetPolylineDeg(turn, WIDTH, 'right');
-    const d = signedDist(right[1], p0, p1);
+    const d = signedDist(right[1]!, p0, p1);
     expect(d).toBeLessThan(0);
   });
 });
@@ -176,7 +176,7 @@ describe('150° 左转（miterRatio ≈ 3.86，触发 bevel 阈值）', () => {
 
   it('内侧 join 在段1右侧（不穿越中心线）', () => {
     const right = offsetPolylineDeg(turn, WIDTH, 'right');
-    const d = signedDist(right[1], p0, p1);
+    const d = signedDist(right[1]!, p0, p1);
     expect(d).toBeLessThan(0); // 修复前为正（穿越到左侧），修复后为负
   });
 });
@@ -206,7 +206,7 @@ describe('150° 右转（miterRatio ≈ 3.86，与左转镜像对称）', () => 
 
   it('内侧（左）join 在段1左侧（不穿越中心线）', () => {
     const left = offsetPolylineDeg(turn, WIDTH, 'left');
-    const d = signedDist(left[1], p0, p1);
+    const d = signedDist(left[1]!, p0, p1);
     expect(d).toBeGreaterThan(0);
   });
 });

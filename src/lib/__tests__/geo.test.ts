@@ -41,7 +41,7 @@ describe('polylineLengthMeters', () => {
 
   it('matches haversineMeters for a 2-point line', () => {
     const pts = [gp(116, 39), gp(116, 40)];
-    expect(polylineLengthMeters(pts)).toBeCloseTo(haversineMeters(pts[0], pts[1]), 6);
+    expect(polylineLengthMeters(pts)).toBeCloseTo(haversineMeters(pts[0]!, pts[1]!), 6);
   });
 
   // 一条折线：沿 116 经线 39°→39.001°→39.002°。约 2 × 111 m ≈ 222 m

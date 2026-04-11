@@ -29,8 +29,8 @@ export function endpointKeyOf(pt: GeoPoint): EndpointKey {
 export function laneEndpointKeys(lane: LaneEntity): [EndpointKey, EndpointKey] | null {
   const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
   if (pts.length < 2) return null;
-  const start = pts[0];
-  const end = pts[pts.length - 1];
+  const start = pts[0]!;
+  const end = pts[pts.length - 1]!;
   return [endpointKeyOf(start), endpointKeyOf(end)];
 }
 

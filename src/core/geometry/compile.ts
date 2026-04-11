@@ -28,11 +28,10 @@ function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): Geo
 }
 
 function polygonFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
+  const first = coords[0];
+  const last = coords[coords.length - 1];
   const ring =
-    coords.length > 0 &&
-    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-      ? [...coords, coords[0]]
-      : coords;
+    first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return {
     type: 'Feature',
     properties: { ...props },

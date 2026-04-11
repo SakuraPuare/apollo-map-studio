@@ -82,9 +82,9 @@ function projectLine(coords: LngLat[]): ProjectedLine {
   const points = coords.map(([lng, lat]) => [lng * cosLat * DEG_TO_M, lat * DEG_TO_M] as Vec2);
   const cumulative = [0];
   for (let i = 1; i < points.length; i++) {
-    const [ax, ay] = points[i - 1];
-    const [bx, by] = points[i];
-    cumulative.push(cumulative[i - 1] + Math.hypot(bx - ax, by - ay));
+    const [ax, ay] = points[i - 1]!;
+    const [bx, by] = points[i]!;
+    cumulative.push(cumulative[i - 1]! + Math.hypot(bx - ax, by - ay));
   }
   return { points, cumulative, total: cumulative[cumulative.length - 1] ?? 0, cosLat };
 }
@@ -107,12 +107,12 @@ function sliceLineByS(coords: LngLat[], startS: number, endS: number): LngLat[] 
 
   const out: Vec2[] = [];
   for (let i = 0; i < projected.points.length - 1; i++) {
-    const segStart = projected.cumulative[i];
-    const segEnd = projected.cumulative[i + 1];
+    const segStart = projected.cumulative[i]!;
+    const segEnd = projected.cumulative[i + 1]!;
     if (segEnd <= clampedStart || segStart >= clampedEnd) continue;
 
-    const a = projected.points[i];
-    const b = projected.points[i + 1];
+    const a = projected.points[i]!;
+    const b = projected.points[i + 1]!;
 
     if (out.length === 0) {
       const t0 = segEnd === segStart ? 0 : (clampedStart - segStart) / (segEnd - segStart);
@@ -156,7 +156,7 @@ function boundarySegments(
   }
 
   const normalized: Array<{ s: number; type: BoundaryLineType }> = [];
-  if (entries[0].s > 1e-4) normalized.push({ s: 0, type: 'UNKNOWN' });
+  if (entries[0]!.s > 1e-4) normalized.push({ s: 0, type: 'UNKNOWN' });
   for (const entry of entries) {
     const prev = normalized[normalized.length - 1];
     if (prev && Math.abs(prev.s - entry.s) < 1e-4) {
@@ -168,10 +168,11 @@ function boundarySegments(
 
   const segments: BoundarySegment[] = [];
   for (let i = 0; i < normalized.length; i++) {
-    const startS = normalized[i].s;
-    const endS = i + 1 < normalized.length ? normalized[i + 1].s : totalLength;
+    const item = normalized[i]!;
+    const startS = item.s;
+    const endS = i + 1 < normalized.length ? normalized[i + 1]!.s : totalLength;
     if (endS - startS <= 1e-4) continue;
-    segments.push({ startS, endS, type: normalized[i].type });
+    segments.push({ startS, endS, type: item.type });
   }
 
   return segments;
@@ -291,7 +292,7 @@ function decorateBoundary(
 
 function endpointDirection(ep: LaneEndpoint, cosLat: number): Vec2 {
   const pts = ep.pts;
-  const [p0, p1] = ep.isStart ? [pts[0], pts[1]] : [pts[pts.length - 2], pts[pts.length - 1]];
+  const [p0, p1] = ep.isStart ? [pts[0]!, pts[1]!] : [pts[pts.length - 2]!, pts[pts.length - 1]!];
 
   return normalize2((p1.x - p0.x) * cosLat * DEG_TO_M, (p1.y - p0.y) * DEG_TO_M);
 }
@@ -402,10 +403,9 @@ function updatePolygonEndpoint(
 
   const leftLen = refs.left.geometry.coordinates.length;
   const rightLen = refs.right.geometry.coordinates.length;
-  const isClosed =
-    ring.length > 1 &&
-    ring[0][0] === ring[ring.length - 1][0] &&
-    ring[0][1] === ring[ring.length - 1][1];
+  const ringFirst = ring[0]!;
+  const ringLast = ring[ring.length - 1]!;
+  const isClosed = ring.length > 1 && ringFirst[0] === ringLast[0] && ringFirst[1] === ringLast[1];
   const logicalLen = isClosed ? ring.length - 1 : ring.length;
   if (logicalLen < leftLen + rightLen) return;
 
@@ -461,7 +461,7 @@ export function applyLaneJunctions(
   if (laneEndpoints.length >= 4) {
     const endpointIndex = new Map<string, LaneEndpoint[]>();
     for (const endpoint of laneEndpoints) {
-      const pt = endpoint.isStart ? endpoint.pts[0] : endpoint.pts[endpoint.pts.length - 1];
+      const pt = endpoint.isStart ? endpoint.pts[0]! : endpoint.pts[endpoint.pts.length - 1]!;
       const key = `${pt.x.toFixed(6)},${pt.y.toFixed(6)}`;
       if (!endpointIndex.has(key)) endpointIndex.set(key, []);
       endpointIndex.get(key)!.push(endpoint);
@@ -480,10 +480,10 @@ export function applyLaneJunctions(
         unique.push(endpoint);
       }
       if (unique.length !== 2) continue;
-      const a = unique[0];
-      const b = unique[1];
+      const a = unique[0]!;
+      const b = unique[1]!;
       junctions.push({
-        pt: a.isStart ? a.pts[0] : a.pts[a.pts.length - 1],
+        pt: a.isStart ? a.pts[0]! : a.pts[a.pts.length - 1]!,
         a,
         b,
       });

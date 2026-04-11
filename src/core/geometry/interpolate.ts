@@ -35,18 +35,18 @@ export function catmullRom(points: LngLat[], segments = 32, alpha = 0.5): LngLat
 
   // 扩展首尾虚拟点（镜像）
   const pts: LngLat[] = [
-    mirror(points[0], points[1]),
+    mirror(points[0]!, points[1]!),
     ...points,
-    mirror(points[points.length - 1], points[points.length - 2]),
+    mirror(points[points.length - 1]!, points[points.length - 2]!),
   ];
 
   const result: LngLat[] = [];
 
   for (let i = 1; i < pts.length - 2; i++) {
-    const p0 = pts[i - 1];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2];
+    const p0 = pts[i - 1]!;
+    const p1 = pts[i]!;
+    const p2 = pts[i + 1]!;
+    const p3 = pts[i + 2]!;
 
     for (let j = 0; j < segments; j++) {
       const t = j / segments;
@@ -54,7 +54,7 @@ export function catmullRom(points: LngLat[], segments = 32, alpha = 0.5): LngLat
     }
   }
   // 最后一个点
-  result.push(points[points.length - 1]);
+  result.push(points[points.length - 1]!);
 
   return result;
 }
@@ -111,8 +111,8 @@ export function cubicBezier(anchors: BezierAnchor[], segments = 48): LngLat[] {
   const result: LngLat[] = [];
 
   for (let i = 0; i < anchors.length - 1; i++) {
-    const a0 = anchors[i];
-    const a1 = anchors[i + 1];
+    const a0 = anchors[i]!;
+    const a1 = anchors[i + 1]!;
 
     const p0 = a0.point;
     const p1 = a0.handleOut ?? a0.point;
@@ -124,7 +124,7 @@ export function cubicBezier(anchors: BezierAnchor[], segments = 48): LngLat[] {
       result.push(cubicBezierPoint(p0, p1, p2, p3, t));
     }
   }
-  result.push(anchors[anchors.length - 1].point);
+  result.push(anchors[anchors.length - 1]!.point);
 
   return result;
 }
@@ -266,7 +266,7 @@ export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[] 
     return [rx / cosLat, ry] as LngLat;
   });
 
-  corners.push(corners[0]); // 闭合
+  corners.push(corners[0]!); // 闭合
   return corners;
 }
 

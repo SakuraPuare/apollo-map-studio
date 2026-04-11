@@ -36,10 +36,10 @@ describe('Action Registry', () => {
 
   // ── Coverage checks ─────────────────────────────────────
 
-  it('all tool actions define a drawTool or are the select tool', () => {
+  it('all tool actions define a drawTool or are select/pan', () => {
     const toolActions = ACTION_DEFS.filter((a) => a.category === 'tool');
     for (const a of toolActions) {
-      if (a.id === 'tool:select') continue;
+      if (a.id === 'tool:select' || a.id === 'tool:pan') continue;
       expect(a.drawTool, `${a.id} missing drawTool`).toBeDefined();
     }
   });
@@ -96,9 +96,11 @@ describe('Action Registry', () => {
     for (const menu of ['File', 'Edit', 'View']) {
       const actions = getMenuActions(menu);
       for (let i = 1; i < actions.length; i++) {
+        const prev = actions[i - 1]!;
+        const curr = actions[i]!;
         expect(
-          (actions[i - 1].menuOrder ?? 99) <= (actions[i].menuOrder ?? 99),
-          `${menu} menu: ${actions[i - 1].id} should come before ${actions[i].id}`,
+          (prev.menuOrder ?? 99) <= (curr.menuOrder ?? 99),
+          `${menu} menu: ${prev.id} should come before ${curr.id}`,
         ).toBe(true);
       }
     }

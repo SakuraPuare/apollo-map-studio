@@ -96,7 +96,7 @@ function polygonEndpoint(
   side: 'left' | 'right',
   isStart: boolean,
 ): LngLat {
-  const ring = polygon.geometry.coordinates[0];
+  const ring = polygon.geometry.coordinates[0]!;
   const logicalLen = ring.length - 1;
   const leftLen = left.geometry.coordinates.length;
   const rightLen = right.geometry.coordinates.length;
@@ -286,10 +286,10 @@ describe('applyLaneJunctions', () => {
     expect(leftDecor.every((feature) => feature.properties?.color === '#f3d046')).toBe(true);
 
     expect(rightDecor).toHaveLength(1);
-    expect(rightDecor[0].properties?.boundaryType).toBe('DOTTED_WHITE');
-    expect(rightDecor[0].properties?.color).toBe('#ffffff');
-    expect(rightDecor[0].properties?.dashed).toBe(true);
-    expect(rightDecor[0].properties?.dotted).toBe(true);
+    expect(rightDecor[0]!.properties?.boundaryType).toBe('DOTTED_WHITE');
+    expect(rightDecor[0]!.properties?.color).toBe('#ffffff');
+    expect(rightDecor[0]!.properties?.dashed).toBe(true);
+    expect(rightDecor[0]!.properties?.dotted).toBe(true);
   });
 
   it('同一侧 boundaryType 按 s 分段渲染', () => {
@@ -306,11 +306,11 @@ describe('applyLaneJunctions', () => {
     const leftDecor = laneDecorLines(features, lane.id, 'left');
 
     expect(leftDecor).toHaveLength(2);
-    expect(leftDecor[0].properties?.boundaryType).toBe('SOLID_YELLOW');
-    expect(leftDecor[0].properties?.dashed).toBeUndefined();
-    expect(leftDecor[1].properties?.boundaryType).toBe('DOTTED_YELLOW');
-    expect(leftDecor[1].properties?.dashed).toBe(true);
-    expect(leftDecor[1].properties?.dotted).toBe(true);
+    expect(leftDecor[0]!.properties?.boundaryType).toBe('SOLID_YELLOW');
+    expect(leftDecor[0]!.properties?.dashed).toBeUndefined();
+    expect(leftDecor[1]!.properties?.boundaryType).toBe('DOTTED_YELLOW');
+    expect(leftDecor[1]!.properties?.dashed).toBe(true);
+    expect(leftDecor[1]!.properties?.dotted).toBe(true);
   });
 });
 

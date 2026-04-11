@@ -49,7 +49,7 @@ export function deleteVertex(entity: MapEntity, index: number): MapEntity | null
 /** Alt+点击锚点：尖角↔平滑切换 */
 export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity {
   const anchors = entity.anchors.map((a) => ({ ...a }));
-  const anchor = anchors[index];
+  const anchor = anchors[index]!;
   const hasHandles = anchor.handleIn !== null || anchor.handleOut !== null;
 
   if (hasHandles) {
@@ -99,13 +99,13 @@ export function applyDrag(
 ): MapEntity {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
     const points = [...entity.points];
-    points[index] = { ...points[index], ...toGeoPoint(newPoint) };
+    points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
     return { ...entity, points };
   }
 
   if (entity.entityType === 'bezier') {
     const anchors = entity.anchors.map((a) => ({ ...a }));
-    const anchor = { ...anchors[index] };
+    const anchor = { ...anchors[index]! };
 
     if (pointType === 'vertex') {
       const dx = newPoint[0] - anchor.point.x;
@@ -177,7 +177,7 @@ export function applyDrag(
       entity.rotation,
     );
     const opIdx = (index + 2) % 4;
-    const anchor = corners[opIdx];
+    const anchor = corners[opIdx]!;
     const dragged = newPoint;
 
     const refLat = (anchor[1] + dragged[1]) / 2;
@@ -224,7 +224,7 @@ export function applyDrag(
       return { ...entity, points };
     }
     const points = [...entity.points];
-    points[index] = { ...points[index], ...toGeoPoint(newPoint) };
+    points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
     if (polygonSelfIntersects(pointsToCoords(points))) return entity;
     return { ...entity, points };
   }
@@ -242,7 +242,7 @@ export function applyDrag(
     // ① 贝塞尔源：编辑锚点和控制柄，然后重新采样曲线
     if (source?.drawTool === 'drawBezier' && source.anchors) {
       const anchors = source.anchors.map((a) => ({ ...a }));
-      const anchor = { ...anchors[index] };
+      const anchor = { ...anchors[index]! };
 
       if (pointType === 'vertex') {
         const dx = newPoint[0] - anchor.point.x;
@@ -281,7 +281,9 @@ export function applyDrag(
     if (source?.drawTool === 'drawArc' && source.arcPoints) {
       const arcPoints = [...source.arcPoints] as [GeoPoint, GeoPoint, GeoPoint];
       if (index >= 0 && index < 3) arcPoints[index] = toGeoPoint(newPoint);
-      const [s, m, e] = arcPoints;
+      const s = arcPoints[0];
+      const m = arcPoints[1];
+      const e = arcPoints[2];
       const newCurvePoints = coordsToPoints(threePointArc(toLngLat(s), toLngLat(m), toLngLat(e)));
       const newSource: SourceDrawInfo = { ...source, arcPoints };
       const updated = setAllApolloEditPoints(apolloEntity, newCurvePoints);
@@ -316,7 +318,7 @@ export function applyDrag(
         const p2L: LngLat = [sourceRect.p2.x, sourceRect.p2.y];
         const corners = rectCorners(p1L, p2L, sourceRect.rotation);
         const opIdx = (index + 2) % 4;
-        const anchor = corners[opIdx];
+        const anchor = corners[opIdx]!;
         const dragged = newPoint;
         const refLat = (anchor[1] + dragged[1]) / 2;
         const cosLat = Math.cos((refLat * Math.PI) / 180);
@@ -393,7 +395,7 @@ export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloE
   if (!source?.anchors) return entity;
 
   const anchors = source.anchors.map((a) => ({ ...a }));
-  const anchor = { ...anchors[index] };
+  const anchor = { ...anchors[index]! };
   const hasHandles = anchor.handleIn !== null || anchor.handleOut !== null;
 
   if (hasHandles) {
