@@ -84,6 +84,15 @@ export default tseslint.config(
       },
     },
   },
+  // Node CLI scripts (CI utilities) need node globals.
+  {
+    files: ['scripts/**/*.{js,mjs,cjs}'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
   // Must come last — turns off rules that conflict with Prettier.
   prettierConfig,
 );

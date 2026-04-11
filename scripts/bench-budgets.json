@@ -1,0 +1,8 @@
+{
+  "note": "Hardcoded p99 ceilings for core geometry / spatial primitives. Generous vs local mean to absorb GitHub Actions runner jitter (~1.5x). Tighten after N green runs give baseline confidence. Bench names must match the `bench()` labels in src/**/__tests__/*.bench.ts exactly.",
+  "budgets": {
+    "10-point polyline, 3.5m offset": { "p99Ms": 1 },
+    "100-point polyline, 3.5m offset": { "p99Ms": 3 },
+    "1000-point polyline, 3.5m offset": { "p99Ms": 40 }
+  }
+}
