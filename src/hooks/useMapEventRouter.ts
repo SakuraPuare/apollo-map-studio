@@ -6,7 +6,12 @@ import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
-import { applyDrag, toggleSmooth, toggleSmoothApollo, deleteVertex } from '@/components/map/entityMutations';
+import {
+  applyDrag,
+  toggleSmooth,
+  toggleSmoothApollo,
+  deleteVertex,
+} from '@/components/map/entityMutations';
 import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
 import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
@@ -23,10 +28,33 @@ export function useMapEventRouter(
     const toLngLat = (e: maplibregl.MapMouseEvent): LngLat => [e.lngLat.lng, e.lngLat.lat];
     let mouseDownScreenPos: { x: number; y: number } | null = null;
 
+    // P2d cursor throttle: coalesce cursorLngLat writes to one per animation
+    // frame. Mousemove fires ~120Hz on modern trackpads — previously every
+    // event triggered a Zustand update → StatusBar rerender. RAF-gating
+    // caps to 60fps and aligns with repaint.
+    let pendingCursorLngLat: LngLat | null = null;
+    let cursorRafId: number | null = null;
+    const flushCursor = () => {
+      if (pendingCursorLngLat) {
+        useUIStore.getState().setCursorLngLat(pendingCursorLngLat);
+        pendingCursorLngLat = null;
+      }
+      cursorRafId = null;
+    };
+    const scheduleCursorUpdate = (point: LngLat) => {
+      pendingCursorLngLat = point;
+      if (cursorRafId === null) {
+        cursorRafId = requestAnimationFrame(flushCursor);
+      }
+    };
+
     const hitBbox = (point: maplibregl.PointLike): [maplibregl.PointLike, maplibregl.PointLike] => {
       const p = point as maplibregl.Point;
       const pad = HIT_BBOX_PADDING_PX;
-      return [[p.x - pad, p.y - pad], [p.x + pad, p.y + pad]];
+      return [
+        [p.x - pad, p.y - pad],
+        [p.x + pad, p.y + pad],
+      ];
     };
 
     const pixelToRadius = (px: number): number => {
@@ -38,7 +66,8 @@ export function useMapEventRouter(
       const bridge = bridgeRef.current;
       if (!bridge) return Promise.resolve(null);
       const pt = toLngLat(e);
-      return bridge.send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(HIT_TEST_RADIUS_PX) })
+      return bridge
+        .send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(HIT_TEST_RADIUS_PX) })
         .then((result) => {
           if (result.type === 'HIT_RESULT' && result.hits.length > 0) {
             return result.hits[0].id;
@@ -59,9 +88,9 @@ export function useMapEventRouter(
         if (hotHits.length > 0) {
           const props = hotHits[0].properties;
           const idx = props?.index as number;
-          const pType = (props?.role === 'handle'
-            ? props?.handleType as DragPointType
-            : 'vertex') as DragPointType;
+          const pType = (
+            props?.role === 'handle' ? (props?.handleType as DragPointType) : 'vertex'
+          ) as DragPointType;
 
           if (altKey && pType === 'vertex') {
             const entityId = snap.context.selectedEntityId;
@@ -72,9 +101,13 @@ export function useMapEventRouter(
                   useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
                 } else {
                   // Apollo entity with bezier source
-                  const src = (entity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+                  const src = (entity as unknown as Record<string, unknown>)._source as
+                    | SourceDrawInfo
+                    | undefined;
                   if (src?.drawTool === 'drawBezier' && src.anchors) {
-                    useMapStore.getState().updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
+                    useMapStore
+                      .getState()
+                      .updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
                   }
                 }
               }
@@ -91,7 +124,12 @@ export function useMapEventRouter(
         const fillHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-fill'] });
         if (fillHits.length > 0) {
           map.dragPan.disable();
-          actorRef.send({ type: 'START_DRAG', index: -2, pointType: 'center' as DragPointType, altKey: false });
+          actorRef.send({
+            type: 'START_DRAG',
+            index: -2,
+            pointType: 'center' as DragPointType,
+            altKey: false,
+          });
           return;
         }
       }
@@ -148,8 +186,8 @@ export function useMapEventRouter(
     };
 
     const onMouseMove = (e: maplibregl.MapMouseEvent) => {
-      // Update cursor position in UI store
-      useUIStore.getState().setCursorLngLat([e.lngLat.lng, e.lngLat.lat]);
+      // Update cursor position in UI store (RAF-coalesced, 60fps cap)
+      scheduleCursorUpdate([e.lngLat.lng, e.lngLat.lat]);
 
       const snap = actorRef.getSnapshot();
       const state = snap.value as string;
@@ -250,6 +288,13 @@ export function useMapEventRouter(
       map.off('dblclick', onDblClick);
       map.off('zoomend', onZoomEnd);
       window.removeEventListener('keydown', onKeyDown);
+      if (cursorRafId !== null) {
+        cancelAnimationFrame(cursorRafId);
+        cursorRafId = null;
+      }
+      pendingCursorLngLat = null;
     };
+    // mapRef / bridgeRef are refs — non-reactive by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 }
