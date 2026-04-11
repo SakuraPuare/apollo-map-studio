@@ -6,7 +6,7 @@
 import RBush from 'rbush';
 import type { MapEntity } from '@/types/entities';
 import type { LaneEntity } from '@/types/apollo';
-import type { WorkerRequest, WorkerResponse, HitResult } from './protocol';
+import type { WorkerRequest, WorkerResponse, HitResult, EntityFeatureGroup } from './protocol';
 import {
   compileColdFeatures,
   entityBBox,
@@ -84,6 +84,25 @@ function removeEntity(id: string) {
     junctionGraph.removeLane(id);
     decorationCache.delete(id);
   }
+}
+
+/**
+ * Group features by `properties.id` for the delta encoding path.
+ * Features without a string id are bucketed into `__unkeyed` so they still
+ * make it to the main thread (no entity to attribute them to).
+ */
+function groupFeaturesByEntity(features: GeoJSON.Feature[]): EntityFeatureGroup[] {
+  const buckets = new Map<string, GeoJSON.Feature[]>();
+  for (const f of features) {
+    const id = typeof f.properties?.id === 'string' ? (f.properties.id as string) : '__unkeyed';
+    let bucket = buckets.get(id);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(id, bucket);
+    }
+    bucket.push(f);
+  }
+  return Array.from(buckets, ([id, fts]) => ({ id, features: fts }));
 }
 
 /**
@@ -322,13 +341,24 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
         }
       }
 
+      // Non-lane updates/adds also need to land in the delta. The affected
+      // set above only tracks lanes (the dep graph is lane-only).
+      const deltaIds = new Set<string>(affected);
+      for (const e of req.updated) deltaIds.add(e.id);
+      for (const e of req.added) deltaIds.add(e.id);
+
+      const fc = buildFeatureCollection(req.excludeId, affected.size > 0 ? affected : null);
+
+      // Group by entity id and ship only the changed entities. The main thread
+      // merges these into its cached entity → features map and rebuilds the FC.
+      const allGroups = groupFeaturesByEntity(fc.features);
+      const changed = allGroups.filter((g) => deltaIds.has(g.id));
+
       respond({
-        type: 'COLD_READY',
+        type: 'COLD_DELTA',
         requestId: req.requestId,
-        featureCollection: buildFeatureCollection(
-          req.excludeId,
-          affected.size > 0 ? affected : null,
-        ),
+        changed,
+        removed: [...req.removed],
       });
       break;
     }

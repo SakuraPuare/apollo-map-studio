@@ -9,6 +9,30 @@ import { COLD_LAYER_IDS, buildColdLayerFilter } from '@/components/map/coldLayer
 
 type EntitySnapshot = Map<string, SerializedEntity>;
 
+/**
+ * Group a flat feature collection into per-entity buckets keyed by
+ * `properties.id`. Used to seed the entity feature cache from a SYNC response.
+ */
+function groupFeaturesByEntity(features: GeoJSON.Feature[]): Map<string, GeoJSON.Feature[]> {
+  const buckets = new Map<string, GeoJSON.Feature[]>();
+  for (const f of features) {
+    const id = typeof f.properties?.id === 'string' ? (f.properties.id as string) : '__unkeyed';
+    let bucket = buckets.get(id);
+    if (!bucket) {
+      bucket = [];
+      buckets.set(id, bucket);
+    }
+    bucket.push(f);
+  }
+  return buckets;
+}
+
+function flattenEntityFeatures(cache: Map<string, GeoJSON.Feature[]>): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const bucket of cache.values()) features.push(...bucket);
+  return { type: 'FeatureCollection', features };
+}
+
 function cloneEntities(entities: Map<string, SerializedEntity>): EntitySnapshot {
   return new Map(entities);
 }
@@ -59,6 +83,10 @@ export function useColdLayer(
   const syncFrameRef = useRef<number | null>(null);
   const syncVersionRef = useRef(0);
   const selectedEntityIdRef = useRef<string | null>(null);
+  // P1: per-entity feature cache mirrors the worker's output. INCREMENTAL
+  // responses ship only the changed entities (COLD_DELTA), and we merge
+  // them into this map before rebuilding the flat FC for maplibre.
+  const entityFeatureCacheRef = useRef<Map<string, GeoJSON.Feature[]>>(new Map());
 
   useEffect(() => {
     const map = mapRef.current;
@@ -90,6 +118,11 @@ export function useColdLayer(
           .then((result) => {
             if (cancelled || requestVersion !== syncVersionRef.current) return;
             if (result.type === 'COLD_READY') {
+              // Seed the per-entity cache from the full FC, then push to
+              // maplibre. Future INCREMENTAL deltas merge into this cache.
+              entityFeatureCacheRef.current = groupFeaturesByEntity(
+                result.featureCollection.features,
+              );
               src.setData(result.featureCollection);
             }
           })
@@ -112,7 +145,19 @@ export function useColdLayer(
         })
         .then((result) => {
           if (cancelled || requestVersion !== syncVersionRef.current) return;
-          if (result.type === 'COLD_READY') {
+          if (result.type === 'COLD_DELTA') {
+            // Merge the delta into the per-entity cache, then ship the
+            // rebuilt FC to maplibre. The cache is the single source of
+            // truth for "what's currently rendered in the cold source".
+            const cache = entityFeatureCacheRef.current;
+            for (const id of result.removed) cache.delete(id);
+            for (const group of result.changed) cache.set(group.id, group.features);
+            src.setData(flattenEntityFeatures(cache));
+          } else if (result.type === 'COLD_READY') {
+            // Back-compat path (shouldn't fire on INCREMENTAL post-P1).
+            entityFeatureCacheRef.current = groupFeaturesByEntity(
+              result.featureCollection.features,
+            );
             src.setData(result.featureCollection);
           }
         })
