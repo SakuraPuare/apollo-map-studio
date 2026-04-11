@@ -6,7 +6,14 @@ export type SerializedEntity = MapEntity;
 /** 主线程 → Worker */
 export type WorkerRequest =
   | { type: 'SYNC'; requestId: string; entities: SerializedEntity[]; excludeId?: string | null }
-  | { type: 'INCREMENTAL'; requestId: string; added: SerializedEntity[]; removed: string[]; updated: SerializedEntity[]; excludeId?: string | null }
+  | {
+      type: 'INCREMENTAL';
+      requestId: string;
+      added: SerializedEntity[];
+      removed: string[];
+      updated: SerializedEntity[];
+      excludeId?: string | null;
+    }
   | { type: 'HIT_TEST'; requestId: string; point: [number, number]; radius: number };
 
 /** Worker → 主线程 */

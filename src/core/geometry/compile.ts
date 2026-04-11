@@ -9,7 +9,6 @@ import { catmullRom, cubicBezier, threePointArc, rectCorners } from '@/core/geom
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
 import { compileApolloFeatures, apolloEntityCoords, isApolloAreaEntity } from './apolloCompile';
-import { elementColor } from '@/core/elements';
 
 const CURVE_COLORS: Record<string, string> = {
   polyline: '#00d4ff',
@@ -28,18 +27,12 @@ function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): Geo
   };
 }
 
-function pointFeature(coord: LngLat, role: string, props: Record<string, unknown> = {}): GeoJSON.Feature {
-  return {
-    type: 'Feature',
-    properties: { role, ...props },
-    geometry: { type: 'Point', coordinates: coord },
-  };
-}
-
 function polygonFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
-  const ring = coords.length > 0 && (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-    ? [...coords, coords[0]]
-    : coords;
+  const ring =
+    coords.length > 0 &&
+    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
+      ? [...coords, coords[0]]
+      : coords;
   return {
     type: 'Feature',
     properties: { ...props },
@@ -49,9 +42,14 @@ function polygonFeature(coords: LngLat[], props: Record<string, unknown> = {}): 
 
 /** 判断 entityType 是否为基础绘制图形 */
 function isDrawingEntity(entity: MapEntity): entity is import('@/types/entities').DrawingEntity {
-  return entity.entityType === 'polyline' || entity.entityType === 'catmullRom'
-    || entity.entityType === 'bezier' || entity.entityType === 'arc'
-    || entity.entityType === 'rect' || entity.entityType === 'polygon';
+  return (
+    entity.entityType === 'polyline' ||
+    entity.entityType === 'catmullRom' ||
+    entity.entityType === 'bezier' ||
+    entity.entityType === 'arc' ||
+    entity.entityType === 'rect' ||
+    entity.entityType === 'polygon'
+  );
 }
 
 /** 将实体编译为冷层 GeoJSON features */
@@ -94,7 +92,10 @@ export function compileColdFeatures(entity: MapEntity): GeoJSON.Feature[] {
 /** 计算实体的 AABB 包围盒 [minX, minY, maxX, maxY] */
 export function entityBBox(entity: MapEntity): [number, number, number, number] {
   const coords = entityCoords(entity);
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
   for (const [x, y] of coords) {
     if (x < minX) minX = x;
     if (y < minY) minY = y;

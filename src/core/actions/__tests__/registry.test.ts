@@ -6,7 +6,6 @@ import {
   getCommandPaletteActions,
   getKeyBindingActions,
   matchesKeybinding,
-  type ActionDef,
 } from '../registry';
 
 describe('Action Registry', () => {
@@ -47,7 +46,7 @@ describe('Action Registry', () => {
 
   it('all actions with shortcuts have keybindings defined', () => {
     const withShortcuts = ACTION_DEFS.filter(
-      (a) => a.shortcut && a.shortcut.length <= 3 // single-key shortcuts
+      (a) => a.shortcut && a.shortcut.length <= 3, // single-key shortcuts
     );
     for (const a of withShortcuts) {
       expect(a.keybinding, `${a.id} has shortcut "${a.shortcut}" but no keybinding`).toBeDefined();
@@ -99,7 +98,7 @@ describe('Action Registry', () => {
       for (let i = 1; i < actions.length; i++) {
         expect(
           (actions[i - 1].menuOrder ?? 99) <= (actions[i].menuOrder ?? 99),
-          `${menu} menu: ${actions[i - 1].id} should come before ${actions[i].id}`
+          `${menu} menu: ${actions[i - 1].id} should come before ${actions[i].id}`,
         ).toBe(true);
       }
     }
@@ -131,7 +130,13 @@ describe('Action Registry', () => {
 
   // ── Keybinding matching ─────────────────────────────────
 
-  function fakeEvent(opts: { key: string; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean }): KeyboardEvent {
+  function fakeEvent(opts: {
+    key: string;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    shiftKey?: boolean;
+    altKey?: boolean;
+  }): KeyboardEvent {
     return {
       key: opts.key,
       ctrlKey: opts.ctrlKey ?? false,
@@ -147,13 +152,26 @@ describe('Action Registry', () => {
   });
 
   it('matchesKeybinding works for ctrl+key', () => {
-    expect(matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true }), { key: 'z', ctrl: true })).toBe(true);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true }), { key: 'z', ctrl: true }),
+    ).toBe(true);
     expect(matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true }), { key: 'z' })).toBe(false);
   });
 
   it('matchesKeybinding works for ctrl+shift+key', () => {
-    expect(matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true, shiftKey: true }), { key: 'z', ctrl: true, shift: true })).toBe(true);
-    expect(matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true, shiftKey: true }), { key: 'z', ctrl: true })).toBe(false);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true, shiftKey: true }), {
+        key: 'z',
+        ctrl: true,
+        shift: true,
+      }),
+    ).toBe(true);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true, shiftKey: true }), {
+        key: 'z',
+        ctrl: true,
+      }),
+    ).toBe(false);
   });
 
   // ── All draw tools are registered ───────────────────────
@@ -163,8 +181,12 @@ describe('Action Registry', () => {
     // rotatable rect tool); the axis-aligned FSM state still exists but is
     // no longer user-reachable via action registry.
     const drawTools = [
-      'drawPolyline', 'drawCatmullRom', 'drawBezier',
-      'drawArc', 'drawRotatedRect', 'drawPolygon',
+      'drawPolyline',
+      'drawCatmullRom',
+      'drawBezier',
+      'drawArc',
+      'drawRotatedRect',
+      'drawPolygon',
     ];
 
     for (const tool of drawTools) {
@@ -176,7 +198,7 @@ describe('Action Registry', () => {
   // ── Toggle actions have isToggle flag ───────────────────
 
   it('toggle actions are marked with isToggle', () => {
-    const toggleIds = ['toggleGrid', 'toggleSnap'];
+    const toggleIds = ['toggleGrid', 'toggleSnap'] as const;
     for (const id of toggleIds) {
       const action = ACTION_MAP.get(id);
       expect(action?.isToggle, `${id} should have isToggle=true`).toBe(true);

@@ -8,9 +8,24 @@ import type { MapElementType } from '@/core/elements';
 
 export type { DragPointType } from '@/types/editor';
 
-export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRect' | 'drawRotatedRect' | 'drawPolygon';
+export type DrawTool =
+  | 'drawPolyline'
+  | 'drawCatmullRom'
+  | 'drawBezier'
+  | 'drawArc'
+  | 'drawRect'
+  | 'drawRotatedRect'
+  | 'drawPolygon';
 
-const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc', 'drawRect', 'drawRotatedRect', 'drawPolygon'];
+const DRAW_STATES: readonly string[] = [
+  'drawPolyline',
+  'drawCatmullRom',
+  'drawBezier',
+  'drawArc',
+  'drawRect',
+  'drawRotatedRect',
+  'drawPolygon',
+];
 
 /** 判断 FSM state value 是否为绘制状态 */
 export function isDrawingState(state: string): boolean {
@@ -19,13 +34,48 @@ export function isDrawingState(state: string): boolean {
 
 /** SELECT_TOOL 转换（idle 用，无需 deselectEntity） */
 const selectToolTransitions = [
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawPolyline', target: 'drawPolyline' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawCatmullRom', target: 'drawCatmullRom' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawBezier', target: 'drawBezier' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawArc', target: 'drawArc' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawRect', target: 'drawRect' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawRotatedRect', target: 'drawRotatedRect' as const, actions: ['resetDraw'] as const },
-  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawPolygon', target: 'drawPolygon' as const, actions: ['resetDraw'] as const },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawPolyline',
+    target: 'drawPolyline' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawCatmullRom',
+    target: 'drawCatmullRom' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawBezier',
+    target: 'drawBezier' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawArc',
+    target: 'drawArc' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawRect',
+    target: 'drawRect' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawRotatedRect',
+    target: 'drawRotatedRect' as const,
+    actions: ['resetDraw'] as const,
+  },
+  {
+    guard: ({ event }: { event: EditorEvent }) =>
+      event.type === 'SELECT_TOOL' && event.tool === 'drawPolygon',
+    target: 'drawPolygon' as const,
+    actions: ['resetDraw'] as const,
+  },
 ];
 
 /** SELECT_TOOL 转换（selected 用，需先 deselectEntity） */
@@ -72,8 +122,7 @@ const resetDraw = assign<EditorContext, EditorEvent>({
   previewPoint: null,
   bezierAnchors: [],
   isDraggingHandle: false,
-  activeElement: ({ event }) =>
-    event.type === 'SELECT_TOOL' ? (event.element ?? null) : null,
+  activeElement: ({ event }) => (event.type === 'SELECT_TOOL' ? (event.element ?? null) : null),
 });
 
 const addPoint = assign<EditorContext, EditorEvent>({
@@ -102,7 +151,8 @@ const bezierAddAnchor = assign<EditorContext, EditorEvent>({
 const bezierDragHandle = assign<EditorContext, EditorEvent>({
   bezierAnchors: ({ context, event }) => {
     if (event.type !== 'MOUSE_MOVE') return context.bezierAnchors;
-    if (!context.isDraggingHandle || context.bezierAnchors.length === 0) return context.bezierAnchors;
+    if (!context.isDraggingHandle || context.bezierAnchors.length === 0)
+      return context.bezierAnchors;
     const anchors = [...context.bezierAnchors];
     const last = { ...anchors[anchors.length - 1] };
     const pt = last.point;
@@ -117,7 +167,8 @@ const bezierDragHandle = assign<EditorContext, EditorEvent>({
 const bezierConfirmHandle = assign<EditorContext, EditorEvent>({
   isDraggingHandle: false,
   bezierAnchors: ({ context, event }) => {
-    if (event.type !== 'MOUSE_UP' || context.bezierAnchors.length === 0) return context.bezierAnchors;
+    if (event.type !== 'MOUSE_UP' || context.bezierAnchors.length === 0)
+      return context.bezierAnchors;
     const anchors = [...context.bezierAnchors];
     const last = { ...anchors[anchors.length - 1] };
     const pt = last.point;
@@ -152,7 +203,8 @@ const deselectEntity = assign<EditorContext, EditorEvent>({
 
 const startDrag = assign<EditorContext, EditorEvent>({
   dragPointIndex: ({ event }) => (event.type === 'START_DRAG' ? event.index : -1),
-  dragPointType: ({ event }) => (event.type === 'START_DRAG' ? event.pointType : 'vertex' as DragPointType),
+  dragPointType: ({ event }) =>
+    event.type === 'START_DRAG' ? event.pointType : ('vertex' as DragPointType),
   dragCurrentPoint: null,
   dragAltKey: ({ event }) => (event.type === 'START_DRAG' ? !!event.altKey : false),
 });

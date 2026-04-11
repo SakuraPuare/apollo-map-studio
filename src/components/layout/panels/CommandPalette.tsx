@@ -1,18 +1,43 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import {
-  MousePointer2, Pencil, Spline, Circle, Square, Hexagon,
-  Undo2, Redo2, Trash2, Grid3X3, Magnet, Settings,
-  Download, Search, LayoutDashboard, Command as CommandIcon
+  MousePointer2,
+  Pencil,
+  Spline,
+  Circle,
+  Square,
+  Hexagon,
+  Undo2,
+  Redo2,
+  Trash2,
+  Grid3X3,
+  Magnet,
+  Settings,
+  Download,
+  Search,
+  LayoutDashboard,
+  Command as CommandIcon,
 } from 'lucide-react';
-import { getCommandPaletteActions, type ActionDef } from '@/core/actions/registry';
+import { getCommandPaletteActions, type ActionDef, type ActionId } from '@/core/actions/registry';
 
 // ─── Icon Map ──────────────────────────────────────────────
 
 const ICON_MAP: Record<string, React.ElementType> = {
-  MousePointer2, Pencil, Spline, Circle, Square, Hexagon,
-  Undo2, Redo2, Trash2, Grid3X3, Magnet, Settings,
-  Download, LayoutDashboard, Command: CommandIcon,
+  MousePointer2,
+  Pencil,
+  Spline,
+  Circle,
+  Square,
+  Hexagon,
+  Undo2,
+  Redo2,
+  Trash2,
+  Grid3X3,
+  Magnet,
+  Settings,
+  Download,
+  LayoutDashboard,
+  Command: CommandIcon,
 };
 
 function getIcon(name?: string): React.ElementType {
@@ -25,9 +50,9 @@ interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Execute action by ID — provided by ActionDispatcher */
-  onExecute: (actionId: string) => void;
+  onExecute: (actionId: ActionId) => void;
   /** Get toggle state for toggle actions */
-  getToggleState?: (actionId: string) => boolean;
+  getToggleState?: (actionId: ActionId) => boolean;
 }
 
 export function CommandPalette({
@@ -52,11 +77,14 @@ export function CommandPalette({
     return groups;
   }, [actions]);
 
-  const runCommand = useCallback((action: ActionDef) => {
-    onExecute(action.id);
-    onOpenChange(false);
-    setSearch('');
-  }, [onExecute, onOpenChange]);
+  const runCommand = useCallback(
+    (action: ActionDef) => {
+      onExecute(action.id);
+      onOpenChange(false);
+      setSearch('');
+    },
+    [onExecute, onOpenChange],
+  );
 
   // ⌘K to open
   useEffect(() => {

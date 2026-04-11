@@ -1,9 +1,6 @@
 import { useRef, useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
-import {
-  LANE_ARROW_TEXT_SIZE,
-  LANE_ARROW_COLOR, LANE_ARROW_OPACITY,
-} from '@/config/mapConstants';
+import { LANE_ARROW_TEXT_SIZE, LANE_ARROW_COLOR, LANE_ARROW_OPACITY } from '@/config/mapConstants';
 import { readMapCenter, readMapZoom, useSettingsStore } from '@/store/settingsStore';
 import { COLD_LAYER_FILTERS } from '@/components/map/coldLayerConfig';
 
@@ -47,19 +44,30 @@ function createArrowSDF(size: number = 20): { width: number; height: number; dat
 
 /** 生成条纹图案并注册到 MapLibre */
 function addStripeImage(
-  map: maplibregl.Map, id: string, size: number,
-  stripeW: number, gap: number,
-  r: number, g: number, b: number, a: number,
+  map: maplibregl.Map,
+  id: string,
+  size: number,
+  stripeW: number,
+  gap: number,
+  r: number,
+  g: number,
+  b: number,
+  a: number,
   diagonal: boolean,
 ) {
   const data = new Uint8Array(size * size * 4);
   const period = stripeW + gap;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const pos = diagonal ? ((x + y) % period + period) % period : (y % period + period) % period;
+      const pos = diagonal
+        ? (((x + y) % period) + period) % period
+        : ((y % period) + period) % period;
       if (pos < stripeW) {
         const idx = (y * size + x) * 4;
-        data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = a;
+        data[idx] = r;
+        data[idx + 1] = g;
+        data[idx + 2] = b;
+        data[idx + 3] = a;
       }
     }
   }
@@ -85,9 +93,9 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       mapLoadedRef.current = true;
 
       // ─── 生成图案与图标 ───
-      addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false);     // 白色水平条纹（斑马线，细密）
-      addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true);         // 红色斜线（禁停区，细密连续）
-      map.addImage('lane-arrow', createArrowSDF(20), { sdf: true });               // 车道方向箭头 SDF 图标
+      addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false); // 白色水平条纹（斑马线，细密）
+      addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true); // 红色斜线（禁停区，细密连续）
+      map.addImage('lane-arrow', createArrowSDF(20), { sdf: true }); // 车道方向箭头 SDF 图标
 
       // ─── 冷层 ───
       map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
@@ -199,7 +207,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         layout: {
           'symbol-placement': 'line',
           'icon-image': 'lane-arrow',
-          'icon-size': LANE_ARROW_TEXT_SIZE / 20,   // 相对 20px sprite 的缩放比
+          'icon-size': LANE_ARROW_TEXT_SIZE / 20, // 相对 20px sprite 的缩放比
           'icon-rotation-alignment': 'map',
           'icon-pitch-alignment': 'viewport',
           'symbol-spacing': useSettingsStore.getState().laneArrowSpacing,
@@ -231,7 +239,12 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         paint: {
           'line-color': ['case', ['==', ['get', 'role'], 'handleLine'], '#ffffff', '#ff4444'],
           'line-width': ['case', ['==', ['get', 'role'], 'handleLine'], 1, 2.5],
-          'line-dasharray': ['case', ['==', ['get', 'role'], 'handleLine'], ['literal', [3, 2]], ['literal', [1, 0]]],
+          'line-dasharray': [
+            'case',
+            ['==', ['get', 'role'], 'handleLine'],
+            ['literal', [3, 2]],
+            ['literal', [1, 0]],
+          ],
         },
       });
       map.addLayer({
@@ -302,6 +315,8 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       mapRef.current = null;
       mapLoadedRef.current = false;
     };
+    // containerRef is a ref — initializer runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 实时响应箭头间距设置变更

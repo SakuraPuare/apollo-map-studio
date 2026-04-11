@@ -10,7 +10,9 @@ interface FieldProps {
 }
 
 export function Field({ name, label, children }: FieldProps) {
-  const { formState: { errors } } = useFormContext();
+  const {
+    formState: { errors },
+  } = useFormContext();
   const error = errors[name]?.message as string | undefined;
 
   return (
@@ -18,9 +20,7 @@ export function Field({ name, label, children }: FieldProps) {
       <label className="text-[11px] text-zinc-500 w-24 shrink-0">{label}</label>
       <div className="flex-1 min-w-0">
         {children}
-        {error && (
-          <p className="text-[10px] text-red-400 mt-0.5">{error}</p>
-        )}
+        {error && <p className="text-[10px] text-red-400 mt-0.5">{error}</p>}
       </div>
     </div>
   );
@@ -53,7 +53,7 @@ export function Input({ name, label, type = 'text', min, max, step }: InputProps
           'bg-zinc-800/50 border border-white/10',
           'text-zinc-200 placeholder-zinc-600',
           'focus:border-cyan-500/50 focus:outline-none',
-          'transition-colors'
+          'transition-colors',
         )}
       />
     </Field>
@@ -84,7 +84,7 @@ export function Select({ name, label, options }: SelectProps) {
               'bg-zinc-800/50 border border-white/10',
               'text-zinc-200',
               'focus:border-cyan-500/50 focus:outline-none',
-              'transition-colors'
+              'transition-colors',
             )}
           >
             {options.map((opt) => (
@@ -111,9 +111,7 @@ export function Section({ title, children }: SectionProps) {
     <div className="mb-4">
       <div className="flex items-center gap-2 mb-2">
         <div className="w-[2px] h-3 rounded-full bg-cyan-500/50" />
-        <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-          {title}
-        </h3>
+        <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{title}</h3>
       </div>
       <div className="pl-2 border-l border-white/5">{children}</div>
     </div>

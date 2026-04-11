@@ -44,9 +44,11 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
 
         {/* Tool/state indicator */}
         <div className="flex items-center gap-1.5">
-          <div className={`w-1.5 h-1.5 rounded-full ${
-            isDrawing ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-600'
-          }`} />
+          <div
+            className={`w-1.5 h-1.5 rounded-full ${
+              isDrawing ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-600'
+            }`}
+          />
           <span className={isDrawing ? 'text-cyan-400' : 'text-zinc-400'}>{modeLabel}</span>
         </div>
 
@@ -63,11 +65,15 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
       <div className="flex items-center gap-4">
         {/* Grid / Snap indicators */}
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1 ${gridEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}>
+          <div
+            className={`flex items-center gap-1 ${gridEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}
+          >
             <Grid3X3 className="w-3 h-3" />
             <span>Grid</span>
           </div>
-          <div className={`flex items-center gap-1 ${snapEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}>
+          <div
+            className={`flex items-center gap-1 ${snapEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}
+          >
             <Magnet className="w-3 h-3" />
             <span>Snap</span>
           </div>

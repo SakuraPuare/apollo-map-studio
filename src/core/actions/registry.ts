@@ -14,9 +14,37 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 
 export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
 
+/**
+ * Known action IDs as a literal string union. Deliberately typed as a
+ * superset of `typeof ACTION_DEFS[number]['id']` because the `ACTION_DEFS`
+ * array is currently `ActionDef[]` (widened), which erases individual
+ * literal IDs. Maintaining this union by hand is a small price for
+ * compile-time typos-can't-happen on `dispatcher.execute('tool:typo')`.
+ *
+ * If you add a new action, add it to this union *and* the ACTION_DEFS
+ * array.
+ */
+export type ActionId =
+  | 'export'
+  | 'settings'
+  | 'undo'
+  | 'redo'
+  | 'delete'
+  | 'toggleGrid'
+  | 'toggleSnap'
+  | 'resetLayout'
+  | 'commandPalette'
+  | 'tool:select'
+  | 'tool:drawPolyline'
+  | 'tool:drawBezier'
+  | 'tool:drawArc'
+  | 'tool:drawRotatedRect'
+  | 'tool:drawPolygon'
+  | 'tool:drawCatmullRom';
+
 export interface ActionDef {
   /** Unique action ID */
-  id: string;
+  id: ActionId;
   /** Display label */
   label: string;
   /** Category for grouping in menus and command palette */
@@ -232,15 +260,17 @@ export function getActionsByCategory(category: ActionCategory): ActionDef[] {
 
 /** Get actions for a specific menu */
 export function getMenuActions(menu: string): ActionDef[] {
-  return ACTION_DEFS
-    .filter((a) => a.menu === menu)
-    .sort((a, b) => (a.menuOrder ?? 99) - (b.menuOrder ?? 99));
+  return ACTION_DEFS.filter((a) => a.menu === menu).sort(
+    (a, b) => (a.menuOrder ?? 99) - (b.menuOrder ?? 99),
+  );
 }
 
 /** Get all menus that have actions */
 export function getMenuNames(): string[] {
   const menus = new Set<string>();
-  ACTION_DEFS.forEach((a) => { if (a.menu) menus.add(a.menu); });
+  ACTION_DEFS.forEach((a) => {
+    if (a.menu) menus.add(a.menu);
+  });
   return Array.from(menus);
 }
 

@@ -5,7 +5,12 @@
 import RBush from 'rbush';
 import type { MapEntity } from '@/types/entities';
 import type { WorkerRequest, WorkerResponse, HitResult } from './protocol';
-import { compileColdFeatures, entityBBox, entityRenderCoords, isAreaEntity } from '@/core/geometry/compile';
+import {
+  compileColdFeatures,
+  entityBBox,
+  entityRenderCoords,
+  isAreaEntity,
+} from '@/core/geometry/compile';
 import { applyLaneJunctions } from '@/core/geometry/laneJunctions';
 import { pointToPolylineDist, pointToPolygonDist } from '@/core/geometry/hitTest';
 import type { LngLat } from '@/core/geometry/interpolate';
@@ -30,7 +35,14 @@ const featureCache = new Map<string, GeoJSON.Feature[]>();
 function insertEntity(entity: MapEntity) {
   entityMap.set(entity.id, entity);
   const [minX, minY, maxX, maxY] = entityBBox(entity);
-  const item: SpatialItem = { minX, minY, maxX, maxY, id: entity.id, entityType: entity.entityType };
+  const item: SpatialItem = {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    id: entity.id,
+    entityType: entity.entityType,
+  };
   itemMap.set(entity.id, item);
   tree.insert(item);
   featureCache.set(entity.id, compileColdFeatures(entity));
@@ -52,7 +64,10 @@ function buildFeatureCollection(excludeId?: string | null): GeoJSON.FeatureColle
     if (id === excludeId) continue;
     features.push(...cached);
   }
-  return { type: 'FeatureCollection', features: applyLaneJunctions(features, entityMap.values(), excludeId) };
+  return {
+    type: 'FeatureCollection',
+    features: applyLaneJunctions(features, entityMap.values(), excludeId),
+  };
 }
 
 // --- hitTest ---

@@ -1,7 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  MousePointer2, Hand, Pencil, Spline, Circle, Square, Hexagon,
-  Grid3X3, Magnet, ChevronDown, Command
+  MousePointer2,
+  Hand,
+  Pencil,
+  Spline,
+  Circle,
+  Square,
+  Hexagon,
+  Grid3X3,
+  Magnet,
+  ChevronDown,
+  Command,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
@@ -40,7 +49,7 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
         disabled && 'opacity-40 cursor-not-allowed',
         active
           ? 'bg-cyan-500/20 text-cyan-400 shadow-[inset_0_-2px_0_0_theme(colors.cyan.400)]'
-          : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+          : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
       )}
     >
       <Icon className="w-4 h-4" />
@@ -94,7 +103,7 @@ function ElementDropdown({ currentElement, onSelect }: ElementDropdownProps) {
           'h-7 px-2 flex items-center gap-1.5 rounded text-xs transition-all',
           currentElement
             ? 'bg-white/10 text-zinc-100 hover:bg-white/15'
-            : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+            : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
         )}
       >
         <span
@@ -102,7 +111,9 @@ function ElementDropdown({ currentElement, onSelect }: ElementDropdownProps) {
           style={{ backgroundColor: elementDef?.color ?? '#666' }}
         />
         <span className="whitespace-nowrap">{elementDef?.label ?? '选择元素'}</span>
-        <ChevronDown className={clsx('w-3 h-3 opacity-60 transition-transform', open && 'rotate-180')} />
+        <ChevronDown
+          className={clsx('w-3 h-3 opacity-60 transition-transform', open && 'rotate-180')}
+        />
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 py-1 min-w-[140px] bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50">
@@ -117,10 +128,13 @@ function ElementDropdown({ currentElement, onSelect }: ElementDropdownProps) {
                 'w-full px-3 py-1.5 flex items-center gap-2 text-xs text-left',
                 currentElement === el.type
                   ? 'bg-cyan-500/20 text-cyan-400'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
               )}
             >
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: el.color }} />
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: el.color }}
+              />
               <span className="whitespace-nowrap">{el.label}</span>
             </button>
           ))}
@@ -168,12 +182,7 @@ export function ToolStrip({
         active={currentTool === 'idle' || currentTool === 'selected'}
         onClick={() => onSelectTool('idle' as DrawTool)}
       />
-      <ToolButton
-        icon={Hand}
-        label="Pan"
-        shortcut="H"
-        active={currentTool === 'panning'}
-      />
+      <ToolButton icon={Hand} label="Pan" shortcut="H" active={currentTool === 'panning'} />
 
       <Divider />
 
@@ -216,7 +225,13 @@ export function ToolStrip({
 
       <Divider />
 
-      <ToolButton icon={Grid3X3} label="Toggle Grid" shortcut="⌘G" active={gridEnabled} onClick={toggleGrid} />
+      <ToolButton
+        icon={Grid3X3}
+        label="Toggle Grid"
+        shortcut="⌘G"
+        active={gridEnabled}
+        onClick={toggleGrid}
+      />
       <ToolButton icon={Magnet} label="Toggle Snap" active={snapEnabled} onClick={toggleSnap} />
     </div>
   );

@@ -49,9 +49,9 @@ export interface ArcEntity {
 export interface RectEntity {
   id: string;
   entityType: 'rect';
-  p1: PointENU;       // 对角点1
-  p2: PointENU;       // 对角点2
-  rotation: number;   // 绕中心旋转角度（弧度）
+  p1: PointENU; // 对角点1
+  p2: PointENU; // 对角点2
+  rotation: number; // 绕中心旋转角度（弧度）
 }
 
 /** 多边形实体 */

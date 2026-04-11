@@ -16,13 +16,15 @@ export function useDragPan(
     const syncDragPan = () => {
       const snapshot = actorRef.getSnapshot();
       const currentState = snapshot.value as string;
-      const shouldDisable = snapshot.context.isDraggingHandle
-        || currentState === 'editingPoint'
-        || currentState === 'drawBezier';
+      const shouldDisable =
+        snapshot.context.isDraggingHandle ||
+        currentState === 'editingPoint' ||
+        currentState === 'drawBezier';
 
       if (shouldDisable === dragPanDisabledRef.current) return;
       dragPanDisabledRef.current = shouldDisable;
-      shouldDisable ? map.dragPan.disable() : map.dragPan.enable();
+      if (shouldDisable) map.dragPan.disable();
+      else map.dragPan.enable();
     };
 
     syncDragPan();
@@ -31,5 +33,7 @@ export function useDragPan(
     return () => {
       subscription.unsubscribe();
     };
+    // mapRef is a ref — non-reactive by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 }

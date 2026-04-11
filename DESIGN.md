@@ -1,39 +1,40 @@
 # 高精地图 Web 编辑器 (HD Map Web Editor) - 架构与工程设计规范
 
 ## 1. 项目定位与核心目标
+
 本项目并非传统的 Web GIS 标注网页，而是一个运行在浏览器中的**轻量级 CAD 渲染引擎与关系型空间数据库**。主要面向 Lumina 等工业级落地场景，以及自动驾驶路网规划工具链。
 
-* **极高性能：** 支持十万级以上道路元素（车道线、路口、车位、信号灯等）的秒级解析与 60fps 丝滑交互。
-* **参数化几何：** 抛弃底层硬编码图形，基于参数（原点、宽高、旋转角、控制点）动态生成和渲染几何体。
-* **严格解耦：** UI 视图、渲染画布、空间计算与状态数据必须严格隔离，确保项目具备向 Rust/WebAssembly 计算底层演进的潜力。
-* **协议兼容：** 底层数据结构设计需高度契合 Apollo 等高精地图规范（支持 Protocol Buffers 格式的无损导入导出）。
+- **极高性能：** 支持十万级以上道路元素（车道线、路口、车位、信号灯等）的秒级解析与 60fps 丝滑交互。
+- **参数化几何：** 抛弃底层硬编码图形，基于参数（原点、宽高、旋转角、控制点）动态生成和渲染几何体。
+- **严格解耦：** UI 视图、渲染画布、空间计算与状态数据必须严格隔离，确保项目具备向 Rust/WebAssembly 计算底层演进的潜力。
+- **协议兼容：** 底层数据结构设计需高度契合 Apollo 等高精地图规范（支持 Protocol Buffers 格式的无损导入导出）。
 
 ## 2. 技术栈核心选型与职责边界
 
-* **框架与 UI：** `React 19` + `TypeScript` + `Tailwind CSS` + `Radix UI` (构建类 IDE 的专业桌面级界面)
-* **数据中心：** `Zustand` + `Immer` + `Zundo` (仅存储纯净的、扁平化的业务参数，提供低开销的撤销/重做)
-* **渲染底座：** `maplibre-gl` (纯粹的 WebGL 渲染器，剥离一切业务逻辑) + `geojson-vt` (海量静态数据实时切片)
-* **交互控制：** `xstate` (有限状态机，接管并统筹所有地图鼠标/键盘事件，杜绝事件冲突)
-* **空间计算：** `@turf/turf` + `rbush` (配合 Web Worker 进行 R 树碰撞检测和参数化几何多边形推演)
+- **框架与 UI：** `React 19` + `TypeScript` + `Tailwind CSS` + `Radix UI` (构建类 IDE 的专业桌面级界面)
+- **数据中心：** `Zustand` + `Immer` + `Zundo` (仅存储纯净的、扁平化的业务参数，提供低开销的撤销/重做)
+- **渲染底座：** `maplibre-gl` (纯粹的 WebGL 渲染器，剥离一切业务逻辑) + `geojson-vt` (海量静态数据实时切片)
+- **交互控制：** `xstate` (有限状态机，接管并统筹所有地图鼠标/键盘事件，杜绝事件冲突)
+- **空间计算：** `@turf/turf` + `rbush` (配合 Web Worker 进行 R 树碰撞检测和参数化几何多边形推演)
 
 ## 3. 五层解耦架构设计 (Five-Layer Architecture)
 
 系统严格划分为以下五层，单向数据流转，越往底层越与 UI 无关：
 
 1.  **数据模型层 (Data Layer)：单一事实来源**
-    * 采用扁平化哈希表 (Map) 管理实体，拒绝深层嵌套。
-    * 仅存储参数化数据（如：`{ id: 'spot_1', type: 'parking', center: [lng, lat], width: 2, length: 5, angle: 45 }`）。
+    - 采用扁平化哈希表 (Map) 管理实体，拒绝深层嵌套。
+    - 仅存储参数化数据（如：`{ id: 'spot_1', type: 'parking', center: [lng, lat], width: 2, length: 5, angle: 45 }`）。
 2.  **空间计算核心 (Compute Engine)：主线程降压**
-    * 由 Web Worker 承载海量数据的初始化与转换。
-    * 维护全局 `rbush` R树，提供毫秒级的鼠标悬停/选中碰撞检测。
+    - 由 Web Worker 承载海量数据的初始化与转换。
+    - 维护全局 `rbush` R树，提供毫秒级的鼠标悬停/选中碰撞检测。
 3.  **交互控制器 (Event & FSM Controller)：系统的“大脑”**
-    * 由 `xstate` 管理编辑器宏观状态 (`IDLE`, `DRAWING`, `ROTATING`, `EDITING_CURVE`)。
-    * 全局拦截 MapLibre 的原生 Canvas 事件，按当前状态派发逻辑。
+    - 由 `xstate` 管理编辑器宏观状态 (`IDLE`, `DRAWING`, `ROTATING`, `EDITING_CURVE`)。
+    - 全局拦截 MapLibre 的原生 Canvas 事件，按当前状态派发逻辑。
 4.  **渲染层 (Rendering Layer)：动静分离**
-    * **冷层 (Static)：** 未选中的十万级要素，通过矢量瓦片静默渲染。
-    * **热层 (Active)：** 当前高亮/编辑中的单一要素，极轻量。拖拽时通过 `map.getSource().setData()` 直接与 GPU 通信，绕过 React Diff 确保 60fps。
+    - **冷层 (Static)：** 未选中的十万级要素，通过矢量瓦片静默渲染。
+    - **热层 (Active)：** 当前高亮/编辑中的单一要素，极轻量。拖拽时通过 `map.getSource().setData()` 直接与 GPU 通信，绕过 React Diff 确保 60fps。
 5.  **应用 UI 层 (App UI)：**
-    * 响应 Zustand 的状态变更，更新图层树与属性面板 (`react-hook-form` + `zod`)。
+    - 响应 Zustand 的状态变更，更新图层树与属性面板 (`react-hook-form` + `zod`)。
 
 ## 4. 核心工作流示例：拖拽旋转对象
 
@@ -70,18 +71,18 @@ src/
 
 ### 6.1 设计原则
 
-* **扁平化优先：** 所有实体存储在 `Map<string, Entity>` 哈希表中，通过 ID 字符串引用关系，拒绝对象嵌套。
-* **参数化存储：** 仅存储生成几何体所需的最小参数集，渲染用的 GeoJSON 由计算层实时编译。
-* **Apollo 协议对齐：** TypeScript 类型与 Apollo `map_*.proto` 字段一一映射，确保 protobuf 无损往返。
-* **ID 策略：** 采用 `{type}_{nanoid(12)}` 格式（如 `lane_V1StGp4kQz3R`），兼顾可读性与唯一性。
+- **扁平化优先：** 所有实体存储在 `Map<string, Entity>` 哈希表中，通过 ID 字符串引用关系，拒绝对象嵌套。
+- **参数化存储：** 仅存储生成几何体所需的最小参数集，渲染用的 GeoJSON 由计算层实时编译。
+- **Apollo 协议对齐：** TypeScript 类型与 Apollo `map_*.proto` 字段一一映射，确保 protobuf 无损往返。
+- **ID 策略：** 采用 `{type}_{nanoid(12)}` 格式（如 `lane_V1StGp4kQz3R`），兼顾可读性与唯一性。
 
 ### 6.2 基础几何类型 (对齐 `map_geometry.proto`)
 
 ```typescript
 /** 经纬度点 (WGS84) */
 interface PointENU {
-  x: number;  // longitude
-  y: number;  // latitude
+  x: number; // longitude
+  y: number; // latitude
   z?: number; // elevation (meters)
 }
 
@@ -91,9 +92,15 @@ interface LineSegment {
 }
 
 /** 曲线段 —— 联合类型，对齐 Apollo CurveSegment */
-type CurveSegment =
-  | { type: 'line'; lineSegment: LineSegment; s: number; startPosition: PointENU; heading: number; length: number }
-  // 未来扩展：arc, spiral 等
+type CurveSegment = {
+  type: 'line';
+  lineSegment: LineSegment;
+  s: number;
+  startPosition: PointENU;
+  heading: number;
+  length: number;
+};
+// 未来扩展：arc, spiral 等
 
 /** 曲线 (由多段组成) */
 interface Curve {
@@ -113,11 +120,16 @@ interface Polygon {
 ```typescript
 /** 车道边界类型 —— 对齐 LaneBoundaryType.Type */
 type BoundaryLineType =
-  | 'UNKNOWN' | 'DOTTED_YELLOW' | 'DOTTED_WHITE'
-  | 'SOLID_YELLOW' | 'SOLID_WHITE' | 'DOUBLE_YELLOW' | 'CURB';
+  | 'UNKNOWN'
+  | 'DOTTED_YELLOW'
+  | 'DOTTED_WHITE'
+  | 'SOLID_YELLOW'
+  | 'SOLID_WHITE'
+  | 'DOUBLE_YELLOW'
+  | 'CURB';
 
 interface LaneBoundaryTypeEntry {
-  s: number;           // 沿车道的弧长位置
+  s: number; // 沿车道的弧长位置
   types: BoundaryLineType[];
 }
 
@@ -197,12 +209,23 @@ interface ParkingSpaceEntity {
 #### 6.3.4 Signal (信号灯)
 
 ```typescript
-type SignalType = 'UNKNOWN_SIGNAL' | 'MIX_2_HORIZONTAL' | 'MIX_2_VERTICAL'
-  | 'MIX_3_HORIZONTAL' | 'MIX_3_VERTICAL' | 'SINGLE';
+type SignalType =
+  | 'UNKNOWN_SIGNAL'
+  | 'MIX_2_HORIZONTAL'
+  | 'MIX_2_VERTICAL'
+  | 'MIX_3_HORIZONTAL'
+  | 'MIX_3_VERTICAL'
+  | 'SINGLE';
 
-type SubsignalType = 'UNKNOWN_SUBSIGNAL' | 'CIRCLE' | 'ARROW_LEFT'
-  | 'ARROW_FORWARD' | 'ARROW_RIGHT' | 'ARROW_LEFT_AND_FORWARD'
-  | 'ARROW_RIGHT_AND_FORWARD' | 'ARROW_U_TURN';
+type SubsignalType =
+  | 'UNKNOWN_SUBSIGNAL'
+  | 'CIRCLE'
+  | 'ARROW_LEFT'
+  | 'ARROW_FORWARD'
+  | 'ARROW_RIGHT'
+  | 'ARROW_LEFT_AND_FORWARD'
+  | 'ARROW_RIGHT_AND_FORWARD'
+  | 'ARROW_U_TURN';
 
 interface Subsignal {
   id: string;
@@ -214,7 +237,7 @@ interface SignalEntity {
   id: string;
   entityType: 'signal';
   boundary: Polygon;
-  subsignals: Subsignal[];  // 内嵌，不独立存储
+  subsignals: Subsignal[]; // 内嵌，不独立存储
   type: SignalType;
   overlapIds: string[];
   stopLineIds: string[];
@@ -235,8 +258,13 @@ interface CrosswalkEntity {
 #### 6.3.6 StopSign (停车标志)
 
 ```typescript
-type StopSignType = 'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY'
-  | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
+type StopSignType =
+  | 'UNKNOWN_STOP_SIGN'
+  | 'ONE_WAY'
+  | 'TWO_WAY'
+  | 'THREE_WAY'
+  | 'FOUR_WAY'
+  | 'ALL_WAY';
 
 interface StopSignEntity {
   id: string;
@@ -368,10 +396,10 @@ interface UIStore {
 
 ### 6.6 Immer + Zundo 撤销/重做策略
 
-* 所有 `addEntity` / `updateEntity` / `removeEntity` 通过 Immer produce 包裹，自动生成不可变快照。
-* Zundo 仅追踪 `MapDataSlice`（不追踪 UI 状态），避免撤销操作影响视口或选中态。
-* 批量操作 (`batchUpdate`) 合并为单个 Zundo 快照，确保"撤销"一步回退整个批量。
-* 快照上限 100 步，超出后 FIFO 淘汰最旧记录。
+- 所有 `addEntity` / `updateEntity` / `removeEntity` 通过 Immer produce 包裹，自动生成不可变快照。
+- Zundo 仅追踪 `MapDataSlice`（不追踪 UI 状态），避免撤销操作影响视口或选中态。
+- 批量操作 (`batchUpdate`) 合并为单个 Zundo 快照，确保"撤销"一步回退整个批量。
+- 快照上限 100 步，超出后 FIFO 淘汰最旧记录。
 
 ---
 
@@ -401,22 +429,42 @@ interface UIStore {
 /** 主线程 → Worker 的消息类型 */
 type WorkerRequest =
   | { type: 'INIT_INDEX'; requestId: string; entities: SerializedEntity[] }
-  | { type: 'UPDATE_INDEX'; requestId: string; added: SerializedEntity[]; removed: string[]; updated: SerializedEntity[] }
+  | {
+      type: 'UPDATE_INDEX';
+      requestId: string;
+      added: SerializedEntity[];
+      removed: string[];
+      updated: SerializedEntity[];
+    }
   | { type: 'HIT_TEST'; requestId: string; point: [number, number]; radius: number; zoom: number }
   | { type: 'RECT_SELECT'; requestId: string; bbox: [number, number, number, number] }
   | { type: 'COMPILE_GEOMETRY'; requestId: string; entityId: string; params: GeometryParams }
   | { type: 'BATCH_COMPILE'; requestId: string; entityIds: string[] }
-  | { type: 'NEAREST_SNAP'; requestId: string; point: [number, number]; snapTypes: MapEntity['entityType'][] };
+  | {
+      type: 'NEAREST_SNAP';
+      requestId: string;
+      point: [number, number];
+      snapTypes: MapEntity['entityType'][];
+    };
 
 /** Worker → 主线程的消息类型 */
 type WorkerResponse =
   | { type: 'INIT_COMPLETE'; requestId: string; featureCollection: GeoJSON.FeatureCollection }
   | { type: 'INDEX_UPDATED'; requestId: string }
-  | { type: 'HIT_RESULT'; requestId: string; hits: Array<{ id: string; entityType: string; distance: number }> }
+  | {
+      type: 'HIT_RESULT';
+      requestId: string;
+      hits: Array<{ id: string; entityType: string; distance: number }>;
+    }
   | { type: 'RECT_RESULT'; requestId: string; ids: string[] }
   | { type: 'GEOMETRY_COMPILED'; requestId: string; entityId: string; geojson: GeoJSON.Feature }
   | { type: 'BATCH_COMPILED'; requestId: string; featureCollection: GeoJSON.FeatureCollection }
-  | { type: 'SNAP_RESULT'; requestId: string; snapPoint: [number, number] | null; snapEntityId: string | null };
+  | {
+      type: 'SNAP_RESULT';
+      requestId: string;
+      snapPoint: [number, number] | null;
+      snapEntityId: string | null;
+    };
 ```
 
 ### 7.3 R-Tree 空间索引策略
@@ -424,16 +472,18 @@ type WorkerResponse =
 ```typescript
 /** RBush 节点结构 */
 interface SpatialIndexItem {
-  minX: number; minY: number;
-  maxX: number; maxY: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
   id: string;
   entityType: MapEntity['entityType'];
 }
 ```
 
-* **初始化：** 导入地图时，Worker 遍历所有实体，计算 AABB 包围盒后批量 `rbush.load()` 一次性构建。
-* **增量更新：** 编辑操作仅 `remove` + `insert` 受影响的单个节点，不重建整棵树。
-* **碰撞检测流程：**
+- **初始化：** 导入地图时，Worker 遍历所有实体，计算 AABB 包围盒后批量 `rbush.load()` 一次性构建。
+- **增量更新：** 编辑操作仅 `remove` + `insert` 受影响的单个节点，不重建整棵树。
+- **碰撞检测流程：**
   1. 鼠标坐标 → 以像素容差换算为经纬度半径的搜索矩形
   2. `rbush.search(bbox)` 获取候选集（粗筛，通常 < 10 个）
   3. 对候选集逐一做精确几何距离计算（点到多边形/线段距离）
@@ -449,23 +499,26 @@ interface SpatialIndexItem {
 
 各实体类型的编译规则：
 
-| 实体类型 | 输入参数 | 编译输出 |
-|---------|---------|---------|
-| Lane | centralCurve + leftSamples + rightSamples | `Polygon`（左右边界围合） + `LineString`（中心线） |
-| Junction | polygon.points | `Polygon` |
-| ParkingSpace | polygon.points + heading | `Polygon` + heading 属性 |
-| Signal | boundary.points + subsignal locations | `Polygon` + `MultiPoint` |
-| Crosswalk | polygon.points | `Polygon`（斑马线条纹由样式层处理） |
-| StopSign | position + stopLines | `Point` + `MultiLineString` |
-| SpeedBump | position curves | `MultiLineString` |
+| 实体类型     | 输入参数                                  | 编译输出                                           |
+| ------------ | ----------------------------------------- | -------------------------------------------------- |
+| Lane         | centralCurve + leftSamples + rightSamples | `Polygon`（左右边界围合） + `LineString`（中心线） |
+| Junction     | polygon.points                            | `Polygon`                                          |
+| ParkingSpace | polygon.points + heading                  | `Polygon` + heading 属性                           |
+| Signal       | boundary.points + subsignal locations     | `Polygon` + `MultiPoint`                           |
+| Crosswalk    | polygon.points                            | `Polygon`（斑马线条纹由样式层处理）                |
+| StopSign     | position + stopLines                      | `Point` + `MultiLineString`                        |
+| SpeedBump    | position curves                           | `MultiLineString`                                  |
 
 ```typescript
 /** 编译器入口 */
 function compileEntity(entity: MapEntity): GeoJSON.Feature {
   switch (entity.entityType) {
-    case 'lane': return compileLane(entity);
-    case 'junction': return compileJunction(entity);
-    case 'parkingSpace': return compileParkingSpace(entity);
+    case 'lane':
+      return compileLane(entity);
+    case 'junction':
+      return compileJunction(entity);
+    case 'parkingSpace':
+      return compileParkingSpace(entity);
     // ...
   }
 }
@@ -492,7 +545,7 @@ function compileLane(lane: LaneEntity): GeoJSON.Feature<GeoJSON.Polygon> {
       direction: lane.direction,
       speedLimit: lane.speedLimit,
     },
-    geometry: { type: 'Polygon', coordinates: [ring.map(p => [p.x, p.y])] },
+    geometry: { type: 'Polygon', coordinates: [ring.map((p) => [p.x, p.y])] },
   };
 }
 ```
@@ -506,7 +559,9 @@ class SpatialWorkerBridge {
   private requestCounter = 0;
 
   constructor() {
-    this.worker = new Worker(new URL('../core/workers/spatial.worker.ts', import.meta.url), { type: 'module' });
+    this.worker = new Worker(new URL('../core/workers/spatial.worker.ts', import.meta.url), {
+      type: 'module',
+    });
     this.pending = new Map();
     this.worker.onmessage = (e) => this.handleResponse(e.data);
   }
@@ -531,10 +586,10 @@ class SpatialWorkerBridge {
 
 ### 7.6 性能优化策略
 
-* **Transferable Objects：** 大型 Float64Array 坐标数据通过 `postMessage(data, [buffer])` 零拷贝传输。
-* **节流碰撞检测：** `HIT_TEST` 请求在主线程侧以 `requestAnimationFrame` 节流，确保每帧最多一次。
-* **批量编译：** 初始化和视口变化时使用 `BATCH_COMPILE`，Worker 内部流式处理避免长任务阻塞。
-* **编译缓存：** Worker 维护 `Map<string, GeoJSON.Feature>` 缓存，仅在实体参数变更时重新编译。
+- **Transferable Objects：** 大型 Float64Array 坐标数据通过 `postMessage(data, [buffer])` 零拷贝传输。
+- **节流碰撞检测：** `HIT_TEST` 请求在主线程侧以 `requestAnimationFrame` 节流，确保每帧最多一次。
+- **批量编译：** 初始化和视口变化时使用 `BATCH_COMPILE`，Worker 内部流式处理避免长任务阻塞。
+- **编译缓存：** Worker 维护 `Map<string, GeoJSON.Feature>` 缓存，仅在实体参数变更时重新编译。
 
 ---
 
@@ -542,9 +597,9 @@ class SpatialWorkerBridge {
 
 ### 8.1 设计原则
 
-* **单一状态机统治所有交互：** 编辑器在任意时刻只处于一个明确状态，杜绝多个事件监听器竞争冲突。
-* **事件拦截：** 全局拦截 MapLibre Canvas 上的 `mousedown / mousemove / mouseup / keydown / keyup / wheel / contextmenu`，由 FSM 按当前状态决定如何处理。
-* **动作与副作用分离：** FSM 的 `actions` 仅负责派发指令（更新 Store、调用 Worker、操作热层），不直接操作 DOM。
+- **单一状态机统治所有交互：** 编辑器在任意时刻只处于一个明确状态，杜绝多个事件监听器竞争冲突。
+- **事件拦截：** 全局拦截 MapLibre Canvas 上的 `mousedown / mousemove / mouseup / keydown / keyup / wheel / contextmenu`，由 FSM 按当前状态决定如何处理。
+- **动作与副作用分离：** FSM 的 `actions` 仅负责派发指令（更新 Store、调用 Worker、操作热层），不直接操作 DOM。
 
 ### 8.2 状态图总览 (State Chart)
 
@@ -577,25 +632,25 @@ class SpatialWorkerBridge {
 ```typescript
 /** 编辑器顶层状态 */
 type EditorState =
-  | 'idle'           // 空闲，可平移/缩放地图
-  | 'select'         // 已选中实体，显示控制柄
-  | 'dragging'       // 拖拽移动选中实体
-  | 'rotating'       // 拖拽旋转控制柄
-  | 'resizing'       // 拖拽缩放控制柄
-  | 'editCurve'      // 编辑车道曲线控制点
-  | 'drawLane'       // 绘制车道模式
-  | 'drawParkingSpot'// 绘制车位模式
-  | 'drawSignal'     // 放置信号灯模式
-  | 'drawCrosswalk'  // 绘制人行横道模式
-  | 'drawStopSign'   // 放置停车标志模式
-  | 'drawJunction'   // 绘制路口多边形模式
-  | 'rectSelect';    // 框选模式
+  | 'idle' // 空闲，可平移/缩放地图
+  | 'select' // 已选中实体，显示控制柄
+  | 'dragging' // 拖拽移动选中实体
+  | 'rotating' // 拖拽旋转控制柄
+  | 'resizing' // 拖拽缩放控制柄
+  | 'editCurve' // 编辑车道曲线控制点
+  | 'drawLane' // 绘制车道模式
+  | 'drawParkingSpot' // 绘制车位模式
+  | 'drawSignal' // 放置信号灯模式
+  | 'drawCrosswalk' // 绘制人行横道模式
+  | 'drawStopSign' // 放置停车标志模式
+  | 'drawJunction' // 绘制路口多边形模式
+  | 'rectSelect'; // 框选模式
 
 /** 绘制子状态 (适用于所有 draw* 状态) */
 type DrawSubState =
-  | 'placingFirst'   // 等待放置第一个点
-  | 'drawing'        // 已有至少一个点，持续追加
-  | 'preview';       // 预览即将完成的图形
+  | 'placingFirst' // 等待放置第一个点
+  | 'drawing' // 已有至少一个点，持续追加
+  | 'preview'; // 预览即将完成的图形
 ```
 
 ### 8.4 事件类型
@@ -617,43 +672,53 @@ type EditorEvent =
   | { type: 'HIT_RESULT'; hits: Array<{ id: string; entityType: string; distance: number }> }
 
   // 工具栏指令
-  | { type: 'SELECT_TOOL'; tool: 'select' | 'drawLane' | 'drawParkingSpot' | 'drawSignal' | 'drawCrosswalk' | 'drawStopSign' | 'drawJunction' }
+  | {
+      type: 'SELECT_TOOL';
+      tool:
+        | 'select'
+        | 'drawLane'
+        | 'drawParkingSpot'
+        | 'drawSignal'
+        | 'drawCrosswalk'
+        | 'drawStopSign'
+        | 'drawJunction';
+    }
 
   // 通用
-  | { type: 'CANCEL' }   // Escape 键
-  | { type: 'CONFIRM' }  // Enter 键
-  | { type: 'DELETE' }   // Delete/Backspace 键
+  | { type: 'CANCEL' } // Escape 键
+  | { type: 'CONFIRM' } // Enter 键
+  | { type: 'DELETE' } // Delete/Backspace 键
   | { type: 'UNDO' }
   | { type: 'REDO' };
 ```
 
 ### 8.5 核心状态转换表
 
-| 当前状态 | 事件 | 守卫条件 | 目标状态 | 动作 |
-|---------|------|---------|---------|------|
-| `idle` | `MOUSE_DOWN` | hitTest 命中实体 | `select` | 设置 selectedIds，显示控制柄 |
-| `idle` | `SELECT_TOOL(draw*)` | — | `draw*` | 切换光标样式，初始化绘制上下文 |
-| `select` | `MOUSE_DOWN` | 命中控制柄(move) | `dragging` | 记录拖拽起点 |
-| `select` | `MOUSE_DOWN` | 命中控制柄(rotate) | `rotating` | 记录旋转中心与初始角度 |
-| `select` | `MOUSE_DOWN` | 命中控制柄(resize) | `resizing` | 记录缩放锚点 |
-| `select` | `DOUBLE_CLICK` | 选中实体为 Lane | `editCurve` | 加载曲线控制点到热层 |
-| `select` | `MOUSE_DOWN` | hitTest 未命中 | `idle` | 清空 selectedIds |
-| `select` | `DELETE` | — | `idle` | 删除选中实体 |
-| `dragging` | `MOUSE_MOVE` | — | `dragging` | 实时更新热层位置 |
-| `dragging` | `MOUSE_UP` | — | `select` | 落盘到 Store，生成 Zundo 快照 |
-| `rotating` | `MOUSE_MOVE` | — | `rotating` | 计算角度差，实时更新热层 |
-| `rotating` | `MOUSE_UP` | — | `select` | 落盘角度到 Store |
-| `resizing` | `MOUSE_MOVE` | — | `resizing` | 计算缩放比，实时更新热层 |
-| `resizing` | `MOUSE_UP` | — | `select` | 落盘尺寸到 Store |
-| `editCurve` | `MOUSE_DOWN` | 命中控制点 | `editCurve` | 开始拖拽控制点 |
-| `editCurve` | `MOUSE_DOWN` | 命中曲线段 | `editCurve` | 在命中位置插入新控制点 |
-| `editCurve` | `CANCEL` | — | `select` | 退出曲线编辑 |
-| `draw*` | `MOUSE_DOWN` | — | `draw*` | 追加控制点 |
-| `draw*` | `MOUSE_MOVE` | — | `draw*` | 更新预览几何 |
-| `draw*` | `DOUBLE_CLICK` / `CONFIRM` | 点数 ≥ 最小值 | `idle` | 创建实体，落盘到 Store |
-| `draw*` | `CANCEL` | — | `idle` | 丢弃绘制中的数据 |
-| `*` | `UNDO` | — | `*` | 调用 Zundo undo() |
-| `*` | `REDO` | — | `*` | 调用 Zundo redo() |
+| 当前状态    | 事件                       | 守卫条件           | 目标状态    | 动作                           |
+| ----------- | -------------------------- | ------------------ | ----------- | ------------------------------ |
+| `idle`      | `MOUSE_DOWN`               | hitTest 命中实体   | `select`    | 设置 selectedIds，显示控制柄   |
+| `idle`      | `SELECT_TOOL(draw*)`       | —                  | `draw*`     | 切换光标样式，初始化绘制上下文 |
+| `select`    | `MOUSE_DOWN`               | 命中控制柄(move)   | `dragging`  | 记录拖拽起点                   |
+| `select`    | `MOUSE_DOWN`               | 命中控制柄(rotate) | `rotating`  | 记录旋转中心与初始角度         |
+| `select`    | `MOUSE_DOWN`               | 命中控制柄(resize) | `resizing`  | 记录缩放锚点                   |
+| `select`    | `DOUBLE_CLICK`             | 选中实体为 Lane    | `editCurve` | 加载曲线控制点到热层           |
+| `select`    | `MOUSE_DOWN`               | hitTest 未命中     | `idle`      | 清空 selectedIds               |
+| `select`    | `DELETE`                   | —                  | `idle`      | 删除选中实体                   |
+| `dragging`  | `MOUSE_MOVE`               | —                  | `dragging`  | 实时更新热层位置               |
+| `dragging`  | `MOUSE_UP`                 | —                  | `select`    | 落盘到 Store，生成 Zundo 快照  |
+| `rotating`  | `MOUSE_MOVE`               | —                  | `rotating`  | 计算角度差，实时更新热层       |
+| `rotating`  | `MOUSE_UP`                 | —                  | `select`    | 落盘角度到 Store               |
+| `resizing`  | `MOUSE_MOVE`               | —                  | `resizing`  | 计算缩放比，实时更新热层       |
+| `resizing`  | `MOUSE_UP`                 | —                  | `select`    | 落盘尺寸到 Store               |
+| `editCurve` | `MOUSE_DOWN`               | 命中控制点         | `editCurve` | 开始拖拽控制点                 |
+| `editCurve` | `MOUSE_DOWN`               | 命中曲线段         | `editCurve` | 在命中位置插入新控制点         |
+| `editCurve` | `CANCEL`                   | —                  | `select`    | 退出曲线编辑                   |
+| `draw*`     | `MOUSE_DOWN`               | —                  | `draw*`     | 追加控制点                     |
+| `draw*`     | `MOUSE_MOVE`               | —                  | `draw*`     | 更新预览几何                   |
+| `draw*`     | `DOUBLE_CLICK` / `CONFIRM` | 点数 ≥ 最小值      | `idle`      | 创建实体，落盘到 Store         |
+| `draw*`     | `CANCEL`                   | —                  | `idle`      | 丢弃绘制中的数据               |
+| `*`         | `UNDO`                     | —                  | `*`         | 调用 Zundo undo()              |
+| `*`         | `REDO`                     | —                  | `*`         | 调用 Zundo redo()              |
 
 ### 8.6 XState Machine 配置骨架
 
@@ -684,13 +749,25 @@ const editorMachine = setup({
     minPointsReached: ({ context }) => context.drawPoints.length >= 2,
   },
   actions: {
-    setSelection: assign({ /* ... */ }),
+    setSelection: assign({
+      /* ... */
+    }),
     clearSelection: assign({ selectedIds: new Set(), hoveredId: null }),
-    startDrag: assign({ /* 记录拖拽起点 */ }),
-    updateHotLayer: ({ context, event }) => { /* 直接调用 map.getSource().setData() */ },
-    commitToStore: ({ context }) => { /* 将变更写入 Zustand Store */ },
-    createEntity: ({ context }) => { /* 从 drawPoints 创建新实体 */ },
-    deleteSelected: ({ context }) => { /* 从 Store 删除选中实体 */ },
+    startDrag: assign({
+      /* 记录拖拽起点 */
+    }),
+    updateHotLayer: ({ context, event }) => {
+      /* 直接调用 map.getSource().setData() */
+    },
+    commitToStore: ({ context }) => {
+      /* 将变更写入 Zustand Store */
+    },
+    createEntity: ({ context }) => {
+      /* 从 drawPoints 创建新实体 */
+    },
+    deleteSelected: ({ context }) => {
+      /* 从 Store 删除选中实体 */
+    },
   },
 }).createMachine({
   id: 'editor',
@@ -706,19 +783,45 @@ const editorMachine = setup({
     activeHandleType: null,
   },
   states: {
-    idle: { /* 状态转换定义 */ },
-    select: { /* 状态转换定义 */ },
-    dragging: { /* 状态转换定义 */ },
-    rotating: { /* 状态转换定义 */ },
-    resizing: { /* 状态转换定义 */ },
-    editCurve: { /* 状态转换定义 */ },
-    drawLane: { /* 状态转换定义 */ },
-    drawParkingSpot: { /* 状态转换定义 */ },
-    drawSignal: { /* 状态转换定义 */ },
-    drawCrosswalk: { /* 状态转换定义 */ },
-    drawStopSign: { /* 状态转换定义 */ },
-    drawJunction: { /* 状态转换定义 */ },
-    rectSelect: { /* 状态转换定义 */ },
+    idle: {
+      /* 状态转换定义 */
+    },
+    select: {
+      /* 状态转换定义 */
+    },
+    dragging: {
+      /* 状态转换定义 */
+    },
+    rotating: {
+      /* 状态转换定义 */
+    },
+    resizing: {
+      /* 状态转换定义 */
+    },
+    editCurve: {
+      /* 状态转换定义 */
+    },
+    drawLane: {
+      /* 状态转换定义 */
+    },
+    drawParkingSpot: {
+      /* 状态转换定义 */
+    },
+    drawSignal: {
+      /* 状态转换定义 */
+    },
+    drawCrosswalk: {
+      /* 状态转换定义 */
+    },
+    drawStopSign: {
+      /* 状态转换定义 */
+    },
+    drawJunction: {
+      /* 状态转换定义 */
+    },
+    rectSelect: {
+      /* 状态转换定义 */
+    },
   },
 });
 ```
@@ -737,7 +840,12 @@ function attachEventInterceptor(map: maplibregl.Map, send: (event: EditorEvent) 
   };
 
   canvas.addEventListener('mousedown', (e) => {
-    send({ type: 'MOUSE_DOWN', point: toMapPoint(e), pixel: [e.offsetX, e.offsetY], button: e.button as 0 | 1 | 2 });
+    send({
+      type: 'MOUSE_DOWN',
+      point: toMapPoint(e),
+      pixel: [e.offsetX, e.offsetY],
+      button: e.button as 0 | 1 | 2,
+    });
   });
 
   canvas.addEventListener('mousemove', (e) => {
@@ -766,28 +874,35 @@ function attachEventInterceptor(map: maplibregl.Map, send: (event: EditorEvent) 
     else if (e.key === 'Delete' || e.key === 'Backspace') send({ type: 'DELETE' });
     else if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey) send({ type: 'UNDO' });
     else if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) send({ type: 'REDO' });
-    else send({ type: 'KEY_DOWN', key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey });
+    else
+      send({
+        type: 'KEY_DOWN',
+        key: e.key,
+        ctrl: e.ctrlKey || e.metaKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+      });
   });
 }
 ```
 
 ### 8.8 快捷键绑定表
 
-| 快捷键 | 动作 | 适用状态 |
-|--------|------|---------|
-| `Escape` | 取消当前操作 / 退出绘制模式 | 全局 |
-| `Enter` | 确认绘制 / 完成编辑 | draw*, editCurve |
-| `Delete` / `Backspace` | 删除选中实体 | select |
-| `Ctrl+Z` | 撤销 | 全局 |
-| `Ctrl+Shift+Z` | 重做 | 全局 |
-| `V` | 切换到选择工具 | 全局 |
-| `L` | 切换到绘制车道 | idle |
-| `P` | 切换到绘制车位 | idle |
-| `S` | 切换到绘制信号灯 | idle |
-| `C` | 切换到绘制人行横道 | idle |
-| `Ctrl+A` | 全选当前图层 | idle, select |
-| `Ctrl+D` | 取消选择 | select |
-| `Shift+Click` | 多选追加 | idle, select |
+| 快捷键                 | 动作                        | 适用状态          |
+| ---------------------- | --------------------------- | ----------------- |
+| `Escape`               | 取消当前操作 / 退出绘制模式 | 全局              |
+| `Enter`                | 确认绘制 / 完成编辑         | draw\*, editCurve |
+| `Delete` / `Backspace` | 删除选中实体                | select            |
+| `Ctrl+Z`               | 撤销                        | 全局              |
+| `Ctrl+Shift+Z`         | 重做                        | 全局              |
+| `V`                    | 切换到选择工具              | 全局              |
+| `L`                    | 切换到绘制车道              | idle              |
+| `P`                    | 切换到绘制车位              | idle              |
+| `S`                    | 切换到绘制信号灯            | idle              |
+| `C`                    | 切换到绘制人行横道          | idle              |
+| `Ctrl+A`               | 全选当前图层                | idle, select      |
+| `Ctrl+D`               | 取消选择                    | select            |
+| `Shift+Click`          | 多选追加                    | idle, select      |
 
 ---
 
@@ -829,9 +944,9 @@ const COLD_SOURCE: maplibregl.SourceSpecification = {
   data: { type: 'FeatureCollection', features: [] },
   // geojson-vt 参数：启用实时矢量切片
   maxzoom: 18,
-  tolerance: 0.5,       // 简化容差 (像素)
-  buffer: 64,           // 瓦片缓冲区 (像素)
-  generateId: true,     // 自动生成 feature id 用于 feature-state
+  tolerance: 0.5, // 简化容差 (像素)
+  buffer: 64, // 瓦片缓冲区 (像素)
+  generateId: true, // 自动生成 feature id 用于 feature-state
 };
 
 /** 热层 —— 实时 GeoJSON Source */
@@ -884,18 +999,19 @@ const LAYER_REGISTRY: LayerConfig[] = [
     filter: ['==', ['get', 'entityType'], 'lane'],
     paint: {
       'fill-color': [
-        'match', ['get', 'laneType'],
-        'CITY_DRIVING', '#4a6fa5',
-        'BIKING', '#6fa54a',
-        'SIDEWALK', '#a5a54a',
-        'PARKING', '#a54a6f',
+        'match',
+        ['get', 'laneType'],
+        'CITY_DRIVING',
+        '#4a6fa5',
+        'BIKING',
+        '#6fa54a',
+        'SIDEWALK',
+        '#a5a54a',
+        'PARKING',
+        '#a54a6f',
         /* default */ '#555577',
       ],
-      'fill-opacity': [
-        'case',
-        ['boolean', ['feature-state', 'hover'], false], 0.7,
-        0.4,
-      ],
+      'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.7, 0.4],
     },
   },
   // z=3: 车道边界线
@@ -906,20 +1022,30 @@ const LAYER_REGISTRY: LayerConfig[] = [
     filter: ['==', ['get', 'entityType'], 'laneBoundary'],
     paint: {
       'line-color': [
-        'match', ['get', 'boundaryType'],
-        'SOLID_WHITE', '#ffffff',
-        'DOTTED_WHITE', '#ffffff',
-        'SOLID_YELLOW', '#ffcc00',
-        'DOTTED_YELLOW', '#ffcc00',
-        'DOUBLE_YELLOW', '#ffcc00',
-        'CURB', '#888888',
+        'match',
+        ['get', 'boundaryType'],
+        'SOLID_WHITE',
+        '#ffffff',
+        'DOTTED_WHITE',
+        '#ffffff',
+        'SOLID_YELLOW',
+        '#ffcc00',
+        'DOTTED_YELLOW',
+        '#ffcc00',
+        'DOUBLE_YELLOW',
+        '#ffcc00',
+        'CURB',
+        '#888888',
         /* default */ '#666666',
       ],
       'line-width': 2,
       'line-dasharray': [
-        'match', ['get', 'boundaryType'],
-        'DOTTED_WHITE', ['literal', [2, 4]],
-        'DOTTED_YELLOW', ['literal', [2, 4]],
+        'match',
+        ['get', 'boundaryType'],
+        'DOTTED_WHITE',
+        ['literal', [2, 4]],
+        'DOTTED_YELLOW',
+        ['literal', [2, 4]],
         /* default */ ['literal', [1, 0]],
       ],
     },
@@ -1062,7 +1188,7 @@ class ColdLayerManager {
   async fullRefresh(entities: MapEntity[]) {
     const result = await this.workerBridge.send<BatchCompiledResponse>({
       type: 'BATCH_COMPILE',
-      entityIds: entities.map(e => e.id),
+      entityIds: entities.map((e) => e.id),
     });
     (this.map.getSource('cold') as maplibregl.GeoJSONSource).setData(result.featureCollection);
   }
@@ -1134,17 +1260,11 @@ class HoverController {
   onHoverChange(map: maplibregl.Map, featureId: string | number | null) {
     // 清除旧高亮
     if (this.hoveredFeatureId !== null) {
-      map.setFeatureState(
-        { source: 'cold', id: this.hoveredFeatureId },
-        { hover: false }
-      );
+      map.setFeatureState({ source: 'cold', id: this.hoveredFeatureId }, { hover: false });
     }
     // 设置新高亮
     if (featureId !== null) {
-      map.setFeatureState(
-        { source: 'cold', id: featureId },
-        { hover: true }
-      );
+      map.setFeatureState({ source: 'cold', id: featureId }, { hover: true });
     }
     this.hoveredFeatureId = featureId;
   }
@@ -1169,7 +1289,11 @@ function generateHandles(entity: MapEntity, bbox: BBox): GeoJSON.Feature[] {
     point([maxX, maxY], { role: 'handle', handleType: 'resize', cursor: 'nwse-resize' }),
     point([minX, maxY], { role: 'handle', handleType: 'resize', cursor: 'nesw-resize' }),
     // 顶部旋转柄
-    point([cx, maxY + ROTATE_HANDLE_OFFSET], { role: 'handle', handleType: 'rotate', cursor: 'grab' }),
+    point([cx, maxY + ROTATE_HANDLE_OFFSET], {
+      role: 'handle',
+      handleType: 'rotate',
+      cursor: 'grab',
+    }),
     // 中心移动柄
     point([cx, cy], { role: 'handle', handleType: 'move', cursor: 'move' }),
   ];
@@ -1243,11 +1367,46 @@ const TOOLBAR_ITEMS: ToolbarItem[] = [
 
   // 绘制组
   { id: 'drawLane', icon: LaneIcon, label: '车道', shortcut: 'L', tool: 'drawLane', group: 'draw' },
-  { id: 'drawParkingSpot', icon: ParkingIcon, label: '车位', shortcut: 'P', tool: 'drawParkingSpot', group: 'draw' },
-  { id: 'drawSignal', icon: SignalIcon, label: '信号灯', shortcut: 'S', tool: 'drawSignal', group: 'draw' },
-  { id: 'drawCrosswalk', icon: CrosswalkIcon, label: '人行横道', shortcut: 'C', tool: 'drawCrosswalk', group: 'draw' },
-  { id: 'drawStopSign', icon: StopSignIcon, label: '停车标志', shortcut: 'T', tool: 'drawStopSign', group: 'draw' },
-  { id: 'drawJunction', icon: JunctionIcon, label: '路口', shortcut: 'J', tool: 'drawJunction', group: 'draw' },
+  {
+    id: 'drawParkingSpot',
+    icon: ParkingIcon,
+    label: '车位',
+    shortcut: 'P',
+    tool: 'drawParkingSpot',
+    group: 'draw',
+  },
+  {
+    id: 'drawSignal',
+    icon: SignalIcon,
+    label: '信号灯',
+    shortcut: 'S',
+    tool: 'drawSignal',
+    group: 'draw',
+  },
+  {
+    id: 'drawCrosswalk',
+    icon: CrosswalkIcon,
+    label: '人行横道',
+    shortcut: 'C',
+    tool: 'drawCrosswalk',
+    group: 'draw',
+  },
+  {
+    id: 'drawStopSign',
+    icon: StopSignIcon,
+    label: '停车标志',
+    shortcut: 'T',
+    tool: 'drawStopSign',
+    group: 'draw',
+  },
+  {
+    id: 'drawJunction',
+    icon: JunctionIcon,
+    label: '路口',
+    shortcut: 'J',
+    tool: 'drawJunction',
+    group: 'draw',
+  },
 
   // 文件组
   { id: 'import', icon: ImportIcon, label: '导入', shortcut: 'Ctrl+O', tool: '', group: 'file' },
@@ -1265,23 +1424,30 @@ interface LayerTreeNode {
   entityType: MapEntity['entityType'];
   label: string;
   icon: React.ComponentType;
-  count: number;        // 该类型实体数量
-  visible: boolean;     // 图层可见性
-  locked: boolean;      // 图层锁定 (锁定后不可选中/编辑)
-  color: string;        // 图层标识色
+  count: number; // 该类型实体数量
+  visible: boolean; // 图层可见性
+  locked: boolean; // 图层锁定 (锁定后不可选中/编辑)
+  color: string; // 图层标识色
 }
 
 const LAYER_ORDER: LayerTreeNode['entityType'][] = [
-  'road', 'junction', 'lane', 'crosswalk',
-  'parkingSpace', 'signal', 'stopSign', 'speedBump',
+  'road',
+  'junction',
+  'lane',
+  'crosswalk',
+  'parkingSpace',
+  'signal',
+  'stopSign',
+  'speedBump',
 ];
 ```
 
 功能：
-* 点击眼睛图标切换图层可见性 → 更新 `UIStore.layerVisibility` → MapLibre `setLayoutProperty('visibility')`
-* 点击锁图标切换图层锁定 → 锁定的图层在 hitTest 中被过滤
-* 拖拽排序调整图层渲染优先级
-* 显示各类型实体计数
+
+- 点击眼睛图标切换图层可见性 → 更新 `UIStore.layerVisibility` → MapLibre `setLayoutProperty('visibility')`
+- 点击锁图标切换图层锁定 → 锁定的图层在 hitTest 中被过滤
+- 拖拽排序调整图层渲染优先级
+- 显示各类型实体计数
 
 ### 10.4 属性面板 (Properties Panel)
 
@@ -1461,25 +1627,25 @@ function exportApolloMap() {
 
 ## 12. 依赖清单 (Dependencies)
 
-| 包名 | 版本 | 用途 |
-|------|------|------|
-| `react` | ^19.0 | UI 框架 |
-| `react-dom` | ^19.0 | DOM 渲染 |
-| `typescript` | ^5.7 | 类型系统 |
-| `tailwindcss` | ^4.0 | 原子化 CSS |
-| `@radix-ui/react-*` | latest | 无障碍 UI 原语 |
-| `zustand` | ^5.0 | 状态管理 |
-| `immer` | ^10.0 | 不可变更新 |
-| `zundo` | ^2.0 | 撤销/重做 |
-| `maplibre-gl` | ^5.0 | WebGL 地图渲染 |
-| `xstate` | ^5.0 | 有限状态机 |
-| `@turf/turf` | ^7.0 | 空间几何计算 |
-| `rbush` | ^4.0 | R-Tree 空间索引 |
-| `geojson-vt` | ^4.0 | GeoJSON 矢量切片 |
-| `protobufjs` | ^7.0 | Protocol Buffers 编解码 |
-| `nanoid` | ^5.0 | 轻量 ID 生成 |
-| `react-resizable-panels` | ^2.0 | 可拖拽分栏布局 |
-| `react-hook-form` | ^7.0 | 表单状态管理 |
-| `zod` | ^3.0 | Schema 验证 |
-| `@hookform/resolvers` | ^3.0 | zod ↔ react-hook-form 桥接 |
-| `vite` | ^6.0 | 构建工具 |
+| 包名                     | 版本   | 用途                       |
+| ------------------------ | ------ | -------------------------- |
+| `react`                  | ^19.0  | UI 框架                    |
+| `react-dom`              | ^19.0  | DOM 渲染                   |
+| `typescript`             | ^5.7   | 类型系统                   |
+| `tailwindcss`            | ^4.0   | 原子化 CSS                 |
+| `@radix-ui/react-*`      | latest | 无障碍 UI 原语             |
+| `zustand`                | ^5.0   | 状态管理                   |
+| `immer`                  | ^10.0  | 不可变更新                 |
+| `zundo`                  | ^2.0   | 撤销/重做                  |
+| `maplibre-gl`            | ^5.0   | WebGL 地图渲染             |
+| `xstate`                 | ^5.0   | 有限状态机                 |
+| `@turf/turf`             | ^7.0   | 空间几何计算               |
+| `rbush`                  | ^4.0   | R-Tree 空间索引            |
+| `geojson-vt`             | ^4.0   | GeoJSON 矢量切片           |
+| `protobufjs`             | ^7.0   | Protocol Buffers 编解码    |
+| `nanoid`                 | ^5.0   | 轻量 ID 生成               |
+| `react-resizable-panels` | ^2.0   | 可拖拽分栏布局             |
+| `react-hook-form`        | ^7.0   | 表单状态管理               |
+| `zod`                    | ^3.0   | Schema 验证                |
+| `@hookform/resolvers`    | ^3.0   | zod ↔ react-hook-form 桥接 |
+| `vite`                   | ^6.0   | 构建工具                   |

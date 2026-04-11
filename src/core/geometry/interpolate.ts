@@ -29,11 +29,7 @@ export function mirrorPoint(pivot: LngLat, pt: LngLat): LngLat {
  * @param segments 每两个点之间的采样段数
  * @param alpha 0=uniform, 0.5=centripetal, 1=chordal
  */
-export function catmullRom(
-  points: LngLat[],
-  segments = 32,
-  alpha = 0.5,
-): LngLat[] {
+export function catmullRom(points: LngLat[], segments = 32, alpha = 0.5): LngLat[] {
   if (points.length < 2) return [...points];
   if (points.length === 2) return [...points];
 
@@ -64,8 +60,12 @@ export function catmullRom(
 }
 
 function catmullRomPoint(
-  p0: LngLat, p1: LngLat, p2: LngLat, p3: LngLat,
-  t: number, alpha: number,
+  p0: LngLat,
+  p1: LngLat,
+  p2: LngLat,
+  p3: LngLat,
+  t: number,
+  alpha: number,
 ): LngLat {
   const d1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
   const d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
@@ -75,11 +75,19 @@ function catmullRomPoint(
   const d2a = Math.pow(d2, alpha);
   const d3a = Math.pow(d3, alpha);
 
-  const b1x = (d1a * d1a * p2[0] - d2a * d2a * p0[0] + (2 * d1a * d1a + 3 * d1a * d2a + d2a * d2a) * p1[0]) / (3 * d1a * (d1a + d2a));
-  const b1y = (d1a * d1a * p2[1] - d2a * d2a * p0[1] + (2 * d1a * d1a + 3 * d1a * d2a + d2a * d2a) * p1[1]) / (3 * d1a * (d1a + d2a));
+  const b1x =
+    (d1a * d1a * p2[0] - d2a * d2a * p0[0] + (2 * d1a * d1a + 3 * d1a * d2a + d2a * d2a) * p1[0]) /
+    (3 * d1a * (d1a + d2a));
+  const b1y =
+    (d1a * d1a * p2[1] - d2a * d2a * p0[1] + (2 * d1a * d1a + 3 * d1a * d2a + d2a * d2a) * p1[1]) /
+    (3 * d1a * (d1a + d2a));
 
-  const b2x = (d3a * d3a * p1[0] - d2a * d2a * p3[0] + (2 * d3a * d3a + 3 * d3a * d2a + d2a * d2a) * p2[0]) / (3 * d3a * (d3a + d2a));
-  const b2y = (d3a * d3a * p1[1] - d2a * d2a * p3[1] + (2 * d3a * d3a + 3 * d3a * d2a + d2a * d2a) * p2[1]) / (3 * d3a * (d3a + d2a));
+  const b2x =
+    (d3a * d3a * p1[0] - d2a * d2a * p3[0] + (2 * d3a * d3a + 3 * d3a * d2a + d2a * d2a) * p2[0]) /
+    (3 * d3a * (d3a + d2a));
+  const b2y =
+    (d3a * d3a * p1[1] - d2a * d2a * p3[1] + (2 * d3a * d3a + 3 * d3a * d2a + d2a * d2a) * p2[1]) /
+    (3 * d3a * (d3a + d2a));
 
   return cubicBezierPoint(p1, [b1x, b1y], [b2x, b2y], p2, t);
 }
@@ -95,10 +103,7 @@ function mirror(anchor: LngLat, neighbor: LngLat): LngLat {
  * @param anchors 锚点数组（至少 2 个），每个锚点带入/出控制柄
  * @param segments 每段的采样数
  */
-export function cubicBezier(
-  anchors: BezierAnchor[],
-  segments = 48,
-): LngLat[] {
+export function cubicBezier(anchors: BezierAnchor[], segments = 48): LngLat[] {
   if (anchors.length < 2) {
     return anchors.map((a) => a.point);
   }
@@ -124,9 +129,7 @@ export function cubicBezier(
   return result;
 }
 
-function cubicBezierPoint(
-  p0: LngLat, p1: LngLat, p2: LngLat, p3: LngLat, t: number,
-): LngLat {
+function cubicBezierPoint(p0: LngLat, p1: LngLat, p2: LngLat, p3: LngLat, t: number): LngLat {
   const u = 1 - t;
   const uu = u * u;
   const uuu = uu * u;
@@ -147,13 +150,10 @@ function cubicBezierPoint(
  * @param segments 采样段数
  * @returns 圆弧上的采样点数组；若三点共线则返回直线段
  */
-export function threePointArc(
-  p1: LngLat, p2: LngLat, p3: LngLat,
-  segments = 64,
-): LngLat[] {
+export function threePointArc(p1: LngLat, p2: LngLat, p3: LngLat, segments = 64): LngLat[] {
   // 投影参考纬度（三点平均纬度）
   const refLat = (p1[1] + p2[1] + p3[1]) / 3;
-  const cosLat = Math.cos(refLat * Math.PI / 180);
+  const cosLat = Math.cos((refLat * Math.PI) / 180);
 
   // 投影到近似等距空间：x = lng * cos(lat), y = lat
   const proj = (p: LngLat): LngLat => [p[0] * cosLat, p[1]];
@@ -194,18 +194,27 @@ export function threePointArc(
 }
 
 /** 三点外接圆圆心，共线时返回 null */
-function circumcenter(
-  p1: LngLat, p2: LngLat, p3: LngLat,
-): LngLat | null {
-  const ax = p1[0], ay = p1[1];
-  const bx = p2[0], by = p2[1];
-  const cx = p3[0], cy = p3[1];
+function circumcenter(p1: LngLat, p2: LngLat, p3: LngLat): LngLat | null {
+  const ax = p1[0],
+    ay = p1[1];
+  const bx = p2[0],
+    by = p2[1];
+  const cx = p3[0],
+    cy = p3[1];
 
   const D = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
   if (Math.abs(D) < 1e-12) return null; // 共线
 
-  const ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / D;
-  const uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / D;
+  const ux =
+    ((ax * ax + ay * ay) * (by - cy) +
+      (bx * bx + by * by) * (cy - ay) +
+      (cx * cx + cy * cy) * (ay - by)) /
+    D;
+  const uy =
+    ((ax * ax + ay * ay) * (cx - bx) +
+      (bx * bx + by * by) * (ax - cx) +
+      (cx * cx + cy * cy) * (bx - ax)) /
+    D;
 
   return [ux, uy];
 }
@@ -225,11 +234,13 @@ function normalizeAngle(a: number): number {
  */
 export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[] {
   const refLat = (p1[1] + p2[1]) / 2;
-  const cosLat = Math.cos(refLat * Math.PI / 180);
+  const cosLat = Math.cos((refLat * Math.PI) / 180);
 
   // 投影到近似等距空间
-  const x1 = p1[0] * cosLat, y1 = p1[1];
-  const x2 = p2[0] * cosLat, y2 = p2[1];
+  const x1 = p1[0] * cosLat,
+    y1 = p1[1];
+  const x2 = p2[0] * cosLat,
+    y2 = p2[1];
 
   // 中心
   const cx = (x1 + x2) / 2;
@@ -237,7 +248,10 @@ export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[] 
 
   // 轴对齐的 4 角（投影空间）
   const raw: [number, number][] = [
-    [x1, y1], [x2, y1], [x2, y2], [x1, y2],
+    [x1, y1],
+    [x2, y1],
+    [x2, y2],
+    [x1, y2],
   ];
 
   // 绕中心旋转（取负使视觉上顺时针为正方向）
@@ -269,12 +283,15 @@ export function rotatedRectFromPoints(
   c: LngLat,
 ): { p1: LngLat; p2: LngLat; rotation: number } {
   const refLat = (a[1] + b[1]) / 2;
-  const cosLat = Math.cos(refLat * Math.PI / 180);
+  const cosLat = Math.cos((refLat * Math.PI) / 180);
 
   // 投影到近似等距空间
-  const ax = a[0] * cosLat, ay = a[1];
-  const bx = b[0] * cosLat, by = b[1];
-  const cx3 = c[0] * cosLat, cy3 = c[1];
+  const ax = a[0] * cosLat,
+    ay = a[1];
+  const bx = b[0] * cosLat,
+    by = b[1];
+  const cx3 = c[0] * cosLat,
+    cy3 = c[1];
 
   // 主轴向量
   const dx = bx - ax;
@@ -322,10 +339,12 @@ export function rotatedRectFromPoints(
  */
 export function rectRotateHandle(p1: LngLat, p2: LngLat, rotation: number): LngLat {
   const refLat = (p1[1] + p2[1]) / 2;
-  const cosLat = Math.cos(refLat * Math.PI / 180);
+  const cosLat = Math.cos((refLat * Math.PI) / 180);
 
-  const x1 = p1[0] * cosLat, y1 = p1[1];
-  const x2 = p2[0] * cosLat, y2 = p2[1];
+  const x1 = p1[0] * cosLat,
+    y1 = p1[1];
+  const x2 = p2[0] * cosLat,
+    y2 = p2[1];
 
   const cx = (x1 + x2) / 2;
   const cy = (y1 + y2) / 2;

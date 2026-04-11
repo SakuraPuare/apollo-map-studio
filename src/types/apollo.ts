@@ -100,16 +100,9 @@ export type LaneType =
   | 'SHOULDER'
   | 'SHARED';
 
-export type LaneTurn =
-  | 'NO_TURN'
-  | 'LEFT_TURN'
-  | 'RIGHT_TURN'
-  | 'U_TURN';
+export type LaneTurn = 'NO_TURN' | 'LEFT_TURN' | 'RIGHT_TURN' | 'U_TURN';
 
-export type LaneDirection =
-  | 'FORWARD'
-  | 'BACKWARD'
-  | 'BIDIRECTION';
+export type LaneDirection = 'FORWARD' | 'BACKWARD' | 'BIDIRECTION';
 
 export interface LaneEntity {
   id: string;
@@ -203,9 +196,7 @@ export interface Subsignal {
   location: PointENU;
 }
 
-export type SignInfoType =
-  | 'None'
-  | 'NO_RIGHT_TURN_ON_RED';
+export type SignInfoType = 'None' | 'NO_RIGHT_TURN_ON_RED';
 
 export interface SignInfo {
   type: SignInfoType;
@@ -312,11 +303,7 @@ export interface RoadSection {
   boundary?: RoadBoundary;
 }
 
-export type RoadType =
-  | 'UNKNOWN_ROAD'
-  | 'HIGHWAY'
-  | 'CITY_ROAD'
-  | 'PARK';
+export type RoadType = 'UNKNOWN_ROAD' | 'HIGHWAY' | 'CITY_ROAD' | 'PARK';
 
 export interface RoadEntity {
   id: string;
@@ -390,12 +377,7 @@ export interface PNCJunctionEntity {
 
 // ─── map_barrier_gate.proto ──────────────────────────────────────────
 
-export type BarrierGateType =
-  | 'ROD'
-  | 'FENCE'
-  | 'ADVERTISING'
-  | 'TELESCOPIC'
-  | 'OTHER';
+export type BarrierGateType = 'ROD' | 'FENCE' | 'ADVERTISING' | 'TELESCOPIC' | 'OTHER';
 
 export interface BarrierGateEntity {
   id: string;
@@ -418,12 +400,7 @@ export interface RSUEntity {
 
 // ─── map_area.proto ──────────────────────────────────────────────────
 
-export type AreaType =
-  | 'Driveable'
-  | 'UnDriveable'
-  | 'Custom1'
-  | 'Custom2'
-  | 'Custom3';
+export type AreaType = 'Driveable' | 'UnDriveable' | 'Custom1' | 'Custom2' | 'Custom3';
 
 export interface AreaEntity {
   id: string;

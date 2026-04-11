@@ -1,32 +1,34 @@
 import { create } from 'zustand';
 import {
-  MAP_DEFAULT_CENTER, MAP_DEFAULT_ZOOM,
-  DEFAULT_LANE_HALF_WIDTH, LANE_ARROW_SYMBOL_SPACING,
+  MAP_DEFAULT_CENTER,
+  MAP_DEFAULT_ZOOM,
+  DEFAULT_LANE_HALF_WIDTH,
+  LANE_ARROW_SYMBOL_SPACING,
 } from '@/config/mapConstants';
 
 // ─── localStorage keys ────────────────────────────────────────────────────────
 
-const HISTORY_LIMIT_KEY      = 'apollo-map-studio:historyLimit';
-const MAP_CENTER_LNG_KEY     = 'apollo-map-studio:mapCenterLng';
-const MAP_CENTER_LAT_KEY     = 'apollo-map-studio:mapCenterLat';
-const MAP_ZOOM_KEY           = 'apollo-map-studio:mapZoom';
-const LANE_HALF_WIDTH_KEY    = 'apollo-map-studio:laneHalfWidth';
+const HISTORY_LIMIT_KEY = 'apollo-map-studio:historyLimit';
+const MAP_CENTER_LNG_KEY = 'apollo-map-studio:mapCenterLng';
+const MAP_CENTER_LAT_KEY = 'apollo-map-studio:mapCenterLat';
+const MAP_ZOOM_KEY = 'apollo-map-studio:mapZoom';
+const LANE_HALF_WIDTH_KEY = 'apollo-map-studio:laneHalfWidth';
 const LANE_ARROW_SPACING_KEY = 'apollo-map-studio:laneArrowSpacing';
 
 // ─── 范围 ─────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_HISTORY_LIMIT   = 100;
-export const MIN_HISTORY_LIMIT       = 10;
-export const MAX_HISTORY_LIMIT       = 1000;
+export const DEFAULT_HISTORY_LIMIT = 100;
+export const MIN_HISTORY_LIMIT = 10;
+export const MAX_HISTORY_LIMIT = 1000;
 
-export const MIN_MAP_ZOOM            = 1;
-export const MAX_MAP_ZOOM            = 22;
+export const MIN_MAP_ZOOM = 1;
+export const MAX_MAP_ZOOM = 22;
 
-export const MIN_LANE_HALF_WIDTH     = 0.5;
-export const MAX_LANE_HALF_WIDTH     = 10;
+export const MIN_LANE_HALF_WIDTH = 0.5;
+export const MAX_LANE_HALF_WIDTH = 10;
 
-export const MIN_LANE_ARROW_SPACING  = 40;
-export const MAX_LANE_ARROW_SPACING  = 500;
+export const MIN_LANE_ARROW_SPACING = 40;
+export const MAX_LANE_ARROW_SPACING = 500;
 
 // ─── 读取函数（供 map 初始化等 useEffect 外部调用） ───────────────────────────
 
@@ -37,7 +39,9 @@ function readNum(key: string, fallback: number, min: number, max: number): numbe
       const n = Number(raw);
       if (Number.isFinite(n)) return Math.max(min, Math.min(max, n));
     }
-  } catch { /* SSR / 隐私模式 */ }
+  } catch {
+    /* SSR / 隐私模式 */
+  }
   return fallback;
 }
 
@@ -56,11 +60,21 @@ export function readMapZoom(): number {
 }
 
 export function readLaneHalfWidth(): number {
-  return readNum(LANE_HALF_WIDTH_KEY, DEFAULT_LANE_HALF_WIDTH, MIN_LANE_HALF_WIDTH, MAX_LANE_HALF_WIDTH);
+  return readNum(
+    LANE_HALF_WIDTH_KEY,
+    DEFAULT_LANE_HALF_WIDTH,
+    MIN_LANE_HALF_WIDTH,
+    MAX_LANE_HALF_WIDTH,
+  );
 }
 
 export function readLaneArrowSpacing(): number {
-  return readNum(LANE_ARROW_SPACING_KEY, LANE_ARROW_SYMBOL_SPACING, MIN_LANE_ARROW_SPACING, MAX_LANE_ARROW_SPACING);
+  return readNum(
+    LANE_ARROW_SPACING_KEY,
+    LANE_ARROW_SYMBOL_SPACING,
+    MIN_LANE_ARROW_SPACING,
+    MAX_LANE_ARROW_SPACING,
+  );
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -83,17 +97,21 @@ export interface SettingsActions {
 }
 
 function persist(key: string, value: number) {
-  try { localStorage.setItem(key, String(value)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    /* ignore */
+  }
 }
 
 export const useSettingsStore = create<SettingsState & SettingsActions>()((set) => {
   const [lng, lat] = readMapCenter();
   return {
-    historyLimit:    readHistoryLimit(),
-    mapCenterLng:    lng,
-    mapCenterLat:    lat,
-    mapZoom:         readMapZoom(),
-    laneHalfWidth:   readLaneHalfWidth(),
+    historyLimit: readHistoryLimit(),
+    mapCenterLng: lng,
+    mapCenterLat: lat,
+    mapZoom: readMapZoom(),
+    laneHalfWidth: readLaneHalfWidth(),
     laneArrowSpacing: readLaneArrowSpacing(),
 
     setHistoryLimit(value) {
@@ -119,7 +137,10 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set) 
       persist(LANE_HALF_WIDTH_KEY, v);
     },
     setLaneArrowSpacing(value) {
-      const v = Math.max(MIN_LANE_ARROW_SPACING, Math.min(MAX_LANE_ARROW_SPACING, Math.round(value)));
+      const v = Math.max(
+        MIN_LANE_ARROW_SPACING,
+        Math.min(MAX_LANE_ARROW_SPACING, Math.round(value)),
+      );
       set({ laneArrowSpacing: v });
       persist(LANE_ARROW_SPACING_KEY, v);
     },

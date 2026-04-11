@@ -1,17 +1,30 @@
 import { useState, useRef, useEffect } from 'react';
-import { getMenuActions, getMenuNames, type ActionDef } from '@/core/actions/registry';
+import {
+  getMenuActions,
+  getMenuNames,
+  type ActionDef,
+  type ActionId,
+} from '@/core/actions/registry';
 import { useUIStore, type AppMode } from '@/store/uiStore';
 
 // ─── Single Menu ───────────────────────────────────────────
 
-function Menu({ label, actions, isOpen, onOpen, onClose, onExecute, getToggleState }: {
+function Menu({
+  label,
+  actions,
+  isOpen,
+  onOpen,
+  onClose,
+  onExecute,
+  getToggleState,
+}: {
   label: string;
   actions: ActionDef[];
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
-  onExecute: (id: string) => void;
-  getToggleState: (id: string) => boolean;
+  onExecute: (id: ActionId) => void;
+  getToggleState: (id: ActionId) => boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -74,7 +87,7 @@ function Menu({ label, actions, isOpen, onOpen, onClose, onExecute, getToggleSta
                   <span className="text-zinc-600 font-mono text-[10px] ml-4">{item.shortcut}</span>
                 )}
               </button>
-            )
+            ),
           )}
         </div>
       )}
@@ -85,8 +98,8 @@ function Menu({ label, actions, isOpen, onOpen, onClose, onExecute, getToggleSta
 // ─── MenuBar ───────────────────────────────────────────────
 
 export interface MenuBarProps {
-  onExecute: (actionId: string) => void;
-  getToggleState: (actionId: string) => boolean;
+  onExecute: (actionId: ActionId) => void;
+  getToggleState: (actionId: ActionId) => boolean;
 }
 
 // ─── Mode Toggle ───────────────────────────────────────────

@@ -13,10 +13,7 @@ function cloneEntities(entities: Map<string, SerializedEntity>): EntitySnapshot 
   return new Map(entities);
 }
 
-function diffEntities(
-  prev: EntitySnapshot,
-  next: Map<string, SerializedEntity>,
-) {
+function diffEntities(prev: EntitySnapshot, next: Map<string, SerializedEntity>) {
   const added: SerializedEntity[] = [];
   const updated: SerializedEntity[] = [];
   const removed: string[] = [];
@@ -85,15 +82,20 @@ export function useColdLayer(
 
       if (!previousSnapshot) {
         prevEntitiesRef.current = snapshot;
-        bridge.send({
-          type: 'SYNC',
-          entities: [...entities.values()],
-        }).then((result) => {
-          if (cancelled || requestVersion !== syncVersionRef.current) return;
-          if (result.type === 'COLD_READY') {
-            src.setData(result.featureCollection);
-          }
-        }).catch(() => { /* Worker unavailable — cold layer stays stale */ });
+        bridge
+          .send({
+            type: 'SYNC',
+            entities: [...entities.values()],
+          })
+          .then((result) => {
+            if (cancelled || requestVersion !== syncVersionRef.current) return;
+            if (result.type === 'COLD_READY') {
+              src.setData(result.featureCollection);
+            }
+          })
+          .catch(() => {
+            /* Worker unavailable — cold layer stays stale */
+          });
         return;
       }
 
@@ -101,17 +103,22 @@ export function useColdLayer(
       prevEntitiesRef.current = snapshot;
       if (!hasEntityChanges(diff)) return;
 
-      bridge.send({
-        type: 'INCREMENTAL',
-        added: diff.added,
-        updated: diff.updated,
-        removed: diff.removed,
-      }).then((result) => {
-        if (cancelled || requestVersion !== syncVersionRef.current) return;
-        if (result.type === 'COLD_READY') {
-          src.setData(result.featureCollection);
-        }
-      }).catch(() => { /* Worker unavailable — cold layer stays stale */ });
+      bridge
+        .send({
+          type: 'INCREMENTAL',
+          added: diff.added,
+          updated: diff.updated,
+          removed: diff.removed,
+        })
+        .then((result) => {
+          if (cancelled || requestVersion !== syncVersionRef.current) return;
+          if (result.type === 'COLD_READY') {
+            src.setData(result.featureCollection);
+          }
+        })
+        .catch(() => {
+          /* Worker unavailable — cold layer stays stale */
+        });
     };
 
     const scheduleSync = () => {
@@ -167,5 +174,7 @@ export function useColdLayer(
         syncFrameRef.current = null;
       }
     };
+    // mapRef / mapLoadedRef / bridgeRef are refs — non-reactive by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 }

@@ -4,7 +4,8 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 
 type EditorActorRef = ActorRefFrom<typeof editorMachine>;
 
-const EditorContext = createContext<EditorActorRef | null>(null);
+// eslint-disable-next-line react-refresh/only-export-components
+export const EditorContext = createContext<EditorActorRef | null>(null);
 
 export function EditorProvider({
   actorRef,
@@ -13,13 +14,10 @@ export function EditorProvider({
   actorRef: EditorActorRef;
   children: React.ReactNode;
 }) {
-  return (
-    <EditorContext.Provider value={actorRef}>
-      {children}
-    </EditorContext.Provider>
-  );
+  return <EditorContext.Provider value={actorRef}>{children}</EditorContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useEditorActor(): EditorActorRef {
   const actorRef = useContext(EditorContext);
   if (!actorRef) {

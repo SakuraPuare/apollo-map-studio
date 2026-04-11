@@ -18,10 +18,7 @@ export class SpatialWorkerBridge {
   private disposed = false;
 
   constructor() {
-    this.worker = new Worker(
-      new URL('./spatial.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    this.worker = new Worker(new URL('./spatial.worker.ts', import.meta.url), { type: 'module' });
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const { requestId } = e.data;
       const entry = this.pending.get(requestId);

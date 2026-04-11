@@ -25,7 +25,10 @@ function distFrom(a: LngLat | { x: number; y: number }, b: LngLat | { x: number;
   return Math.hypot(ax - bx, ay - by);
 }
 
-function offsetFrom(coord: LngLat | { x: number; y: number }, origin: LngLat | { x: number; y: number }) {
+function offsetFrom(
+  coord: LngLat | { x: number; y: number },
+  origin: LngLat | { x: number; y: number },
+) {
   const [x, y] = toM(coord);
   const [ox, oy] = toM(origin);
   return [x - ox, y - oy] as const;
@@ -36,7 +39,9 @@ function makeLane(
   coords: LngLat[],
   widths: { left?: number; right?: number } = {},
 ): LaneEntity {
-  const lane = createApolloEntity('lane', 'drawPolyline', coords, [], { laneHalfWidth: WIDTH }) as LaneEntity;
+  const lane = createApolloEntity('lane', 'drawPolyline', coords, [], {
+    laneHalfWidth: WIDTH,
+  }) as LaneEntity;
   return {
     ...lane,
     id,
@@ -55,13 +60,17 @@ function laneLine(
   id: string,
   role: 'laneEdgeLeft' | 'laneEdgeRight',
 ): GeoJSON.Feature<GeoJSON.LineString> {
-  const feature = features.find((item) => item.properties?.id === id && item.properties?.role === role);
+  const feature = features.find(
+    (item) => item.properties?.id === id && item.properties?.role === role,
+  );
   expect(feature?.geometry.type).toBe('LineString');
   return feature as GeoJSON.Feature<GeoJSON.LineString>;
 }
 
 function lanePolygon(features: GeoJSON.Feature[], id: string): GeoJSON.Feature<GeoJSON.Polygon> {
-  const feature = features.find((item) => item.properties?.id === id && item.geometry.type === 'Polygon');
+  const feature = features.find(
+    (item) => item.properties?.id === id && item.geometry.type === 'Polygon',
+  );
   expect(feature?.geometry.type).toBe('Polygon');
   return feature as GeoJSON.Feature<GeoJSON.Polygon>;
 }
@@ -71,11 +80,13 @@ function laneDecorLines(
   id: string,
   side: 'left' | 'right',
 ): GeoJSON.Feature<GeoJSON.LineString>[] {
-  return features.filter((item) =>
-    item.properties?.id === id
-    && item.properties?.role === 'laneBoundaryDecor'
-    && item.properties?.boundarySide === side
-    && item.geometry.type === 'LineString') as GeoJSON.Feature<GeoJSON.LineString>[];
+  return features.filter(
+    (item) =>
+      item.properties?.id === id &&
+      item.properties?.role === 'laneBoundaryDecor' &&
+      item.properties?.boundarySide === side &&
+      item.geometry.type === 'LineString',
+  ) as GeoJSON.Feature<GeoJSON.LineString>[];
 }
 
 function polygonEndpoint(
@@ -91,9 +102,8 @@ function polygonEndpoint(
   const rightLen = right.geometry.coordinates.length;
   expect(logicalLen).toBe(leftLen + rightLen);
 
-  const index = side === 'left'
-    ? (isStart ? 0 : leftLen - 1)
-    : (isStart ? leftLen + rightLen - 1 : leftLen);
+  const index =
+    side === 'left' ? (isStart ? 0 : leftLen - 1) : isStart ? leftLen + rightLen - 1 : leftLen;
   return ring[index] as LngLat;
 }
 
@@ -122,10 +132,30 @@ describe('applyLaneJunctions', () => {
 
     const polyA = lanePolygon(features, 'laneA');
     const polyB = lanePolygon(features, 'laneB');
-    expect(polygonEndpoint(polyA, laneLine(features, 'laneA', 'laneEdgeLeft'), rightA, 'right', false)[0]).toBeCloseTo(joinA[0], 10);
-    expect(polygonEndpoint(polyA, laneLine(features, 'laneA', 'laneEdgeLeft'), rightA, 'right', false)[1]).toBeCloseTo(joinA[1], 10);
-    expect(polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true)[0]).toBeCloseTo(joinA[0], 10);
-    expect(polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true)[1]).toBeCloseTo(joinA[1], 10);
+    expect(
+      polygonEndpoint(
+        polyA,
+        laneLine(features, 'laneA', 'laneEdgeLeft'),
+        rightA,
+        'right',
+        false,
+      )[0],
+    ).toBeCloseTo(joinA[0], 10);
+    expect(
+      polygonEndpoint(
+        polyA,
+        laneLine(features, 'laneA', 'laneEdgeLeft'),
+        rightA,
+        'right',
+        false,
+      )[1],
+    ).toBeCloseTo(joinA[1], 10);
+    expect(
+      polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true)[0],
+    ).toBeCloseTo(joinA[0], 10);
+    expect(
+      polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true)[1],
+    ).toBeCloseTo(joinA[1], 10);
   });
 
   it('尖锐 V 形连续转向时，内侧 join 保持精确交点，不被 3w 截断', () => {
@@ -159,24 +189,43 @@ describe('applyLaneJunctions', () => {
 
     const polyA = lanePolygon(features, 'laneA');
     const polyB = lanePolygon(features, 'laneB');
-    expect(distFrom(polygonEndpoint(polyA, leftA, rightA, 'right', false), junction)).toBeGreaterThan(3 * WIDTH);
-    expect(distFrom(polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true), junction)).toBeGreaterThan(3 * WIDTH);
+    expect(
+      distFrom(polygonEndpoint(polyA, leftA, rightA, 'right', false), junction),
+    ).toBeGreaterThan(3 * WIDTH);
+    expect(
+      distFrom(
+        polygonEndpoint(polyB, laneLine(features, 'laneB', 'laneEdgeLeft'), rightB, 'right', true),
+        junction,
+      ),
+    ).toBeGreaterThan(3 * WIDTH);
   });
 
   it('不同左右宽度时，左右 join 使用各自边界宽度', () => {
     const junction = pt(116.001, LAT);
-    const laneA = makeLane('laneA', [
-      [116.001 - 100 / mPerLng, LAT],
-      [junction.x, junction.y],
-    ], { left: 2, right: 3 });
-    const laneB = makeLane('laneB', [
-      [junction.x, junction.y],
-      [junction.x, LAT + 100 / mPerLat],
-    ], { left: 4, right: 5 });
+    const laneA = makeLane(
+      'laneA',
+      [
+        [116.001 - 100 / mPerLng, LAT],
+        [junction.x, junction.y],
+      ],
+      { left: 2, right: 3 },
+    );
+    const laneB = makeLane(
+      'laneB',
+      [
+        [junction.x, junction.y],
+        [junction.x, LAT + 100 / mPerLat],
+      ],
+      { left: 4, right: 5 },
+    );
 
     const features = stitch([laneA, laneB]);
-    const leftJoin = laneLine(features, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(-1) as LngLat;
-    const rightJoin = laneLine(features, 'laneA', 'laneEdgeRight').geometry.coordinates.at(-1) as LngLat;
+    const leftJoin = laneLine(features, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const rightJoin = laneLine(features, 'laneA', 'laneEdgeRight').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
     const [leftDx, leftDy] = offsetFrom(leftJoin, junction);
     const [rightDx, rightDy] = offsetFrom(rightJoin, junction);
 
@@ -198,11 +247,19 @@ describe('applyLaneJunctions', () => {
     ]);
 
     const original = compileApolloFeatures(laneA);
-    const originalLeft = laneLine(original, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(-1) as LngLat;
-    const originalRight = laneLine(original, 'laneA', 'laneEdgeRight').geometry.coordinates.at(-1) as LngLat;
+    const originalLeft = laneLine(original, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const originalRight = laneLine(original, 'laneA', 'laneEdgeRight').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
     const features = applyLaneJunctions([...original], [laneA, laneB], laneB.id);
-    const leftAfter = laneLine(features, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(-1) as LngLat;
-    const rightAfter = laneLine(features, 'laneA', 'laneEdgeRight').geometry.coordinates.at(-1) as LngLat;
+    const leftAfter = laneLine(features, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const rightAfter = laneLine(features, 'laneA', 'laneEdgeRight').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
 
     expect(leftAfter[0]).toBeCloseTo(originalLeft[0], 10);
     expect(leftAfter[1]).toBeCloseTo(originalLeft[1], 10);
@@ -212,7 +269,7 @@ describe('applyLaneJunctions', () => {
 
   it('左右边界按各自 boundaryType 渲染，不再共用同一种样式', () => {
     const lane = makeLane('laneA', [
-      [116.000, LAT],
+      [116.0, LAT],
       [116.001, LAT],
     ]);
     lane.leftBoundary.boundaryType = [{ s: 0, types: ['DOUBLE_YELLOW'] }];
@@ -223,7 +280,9 @@ describe('applyLaneJunctions', () => {
     const rightDecor = laneDecorLines(features, lane.id, 'right');
 
     expect(leftDecor).toHaveLength(2);
-    expect(leftDecor.every((feature) => feature.properties?.boundaryType === 'DOUBLE_YELLOW')).toBe(true);
+    expect(leftDecor.every((feature) => feature.properties?.boundaryType === 'DOUBLE_YELLOW')).toBe(
+      true,
+    );
     expect(leftDecor.every((feature) => feature.properties?.color === '#f3d046')).toBe(true);
 
     expect(rightDecor).toHaveLength(1);
@@ -235,8 +294,8 @@ describe('applyLaneJunctions', () => {
 
   it('同一侧 boundaryType 按 s 分段渲染', () => {
     const lane = makeLane('laneA', [
-      [116.000, LAT],
-      [116.000 + 120 / mPerLng, LAT],
+      [116.0, LAT],
+      [116.0 + 120 / mPerLng, LAT],
     ]);
     lane.leftBoundary.boundaryType = [
       { s: 0, types: ['SOLID_YELLOW'] },

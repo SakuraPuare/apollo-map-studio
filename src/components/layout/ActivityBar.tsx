@@ -1,4 +1,4 @@
-import { Layers, Search, Settings, Map, Clock, FolderTree } from 'lucide-react';
+import { Layers, Search, Settings, Clock, FolderTree } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export type ActivityTab = 'explorer' | 'layers' | 'search' | 'timeline' | 'settings';
@@ -30,7 +30,7 @@ export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
               'relative w-10 h-10 flex items-center justify-center rounded transition-colors',
               activeTab === id
                 ? 'text-zinc-200 bg-white/10'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5',
             )}
           >
             {activeTab === id && (
@@ -55,7 +55,7 @@ export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
               'relative w-10 h-10 flex items-center justify-center rounded transition-colors',
               activeTab === id
                 ? 'text-zinc-200 bg-white/10'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5',
             )}
           >
             {activeTab === id && (

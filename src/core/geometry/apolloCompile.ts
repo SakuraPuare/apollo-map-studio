@@ -4,22 +4,43 @@
 import { nanoid } from 'nanoid';
 import {
   DEFAULT_LANE_HALF_WIDTH,
-  LANE_FILL_OPACITY, LANE_EDGE_LINE_WIDTH, LANE_EDGE_LINE_OPACITY,
-  LANE_CENTER_LINE_WIDTH, LANE_CENTER_LINE_OPACITY,
+  LANE_FILL_OPACITY,
+  LANE_EDGE_LINE_WIDTH,
+  LANE_EDGE_LINE_OPACITY,
+  LANE_CENTER_LINE_WIDTH,
+  LANE_CENTER_LINE_OPACITY,
 } from '@/config/mapConstants';
 import type { LngLat, BezierAnchor } from '@/core/geometry/interpolate';
-import { cubicBezier, threePointArc, catmullRom, rectCorners, rotatedRectFromPoints } from '@/core/geometry/interpolate';
+import {
+  cubicBezier,
+  threePointArc,
+  catmullRom,
+  rectCorners,
+  rotatedRectFromPoints,
+} from '@/core/geometry/interpolate';
 import { coordsToPoints, pointsToCoords, toLngLat, toGeoPoint } from '@/core/geometry/coords';
 import { elementColor } from '@/core/elements';
 import type { MapElementType } from '@/core/elements';
 import type {
-  Curve, CurveSegment, LineSegment, ApolloPolygon, SourceDrawInfo,
-  LaneEntity, RoadEntity, JunctionEntity, ParkingSpaceEntity,
-  CrosswalkEntity, SignalEntity, StopSignEntity, SpeedBumpEntity,
-  YieldSignEntity, ClearAreaEntity, BarrierGateEntity, AreaEntity,
+  Curve,
+  CurveSegment,
+  LineSegment,
+  ApolloPolygon,
+  SourceDrawInfo,
+  LaneEntity,
+  JunctionEntity,
+  ParkingSpaceEntity,
+  CrosswalkEntity,
+  SignalEntity,
+  StopSignEntity,
+  SpeedBumpEntity,
+  YieldSignEntity,
+  ClearAreaEntity,
+  BarrierGateEntity,
+  AreaEntity,
   ApolloEntity,
 } from '@/types/apollo';
-import type { GeoPoint, BezierAnchorData } from '@/types/entities';
+import type { GeoPoint } from '@/types/entities';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 
 const DEG_TO_M = 111320;
@@ -29,7 +50,10 @@ const DEG_TO_M = 111320;
 export function pointsToCurve(points: GeoPoint[]): Curve {
   const seg: CurveSegment = {
     lineSegment: { points } as LineSegment,
-    s: 0, startPosition: points[0] ?? { x: 0, y: 0 }, heading: 0, length: 0,
+    s: 0,
+    startPosition: points[0] ?? { x: 0, y: 0 },
+    heading: 0,
+    length: 0,
   };
   return { segments: [seg] };
 }
@@ -47,7 +71,11 @@ export function pointsToPolygon(points: GeoPoint[]): ApolloPolygon {
  *
  * 内侧判定：n1×n2 与 sign 异号（crossN * sign < 0）
  */
-export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side: 'left' | 'right'): GeoPoint[] {
+export function offsetPolylineDeg(
+  points: GeoPoint[],
+  widthMeters: number,
+  side: 'left' | 'right',
+): GeoPoint[] {
   if (points.length < 2 || widthMeters <= 0) return points;
 
   const sign = side === 'left' ? 1 : -1;
@@ -55,7 +83,7 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
 
   // 用中间纬度做统一投影（百米以内误差可忽略）
   const midLat = points.reduce((s, p) => s + p.y, 0) / points.length;
-  const cosLat = Math.cos(midLat * Math.PI / 180);
+  const cosLat = Math.cos((midLat * Math.PI) / 180);
 
   // 投影到平面（米）
   const pts: [number, number][] = points.map((p) => [p.x * cosLat * DEG_TO_M, p.y * DEG_TO_M]);
@@ -68,7 +96,7 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
     const dx = pts[i + 1][0] - pts[i][0];
     const dy = pts[i + 1][1] - pts[i][1];
     const len = Math.hypot(dx, dy);
-    segN.push(len < 1e-10 ? [0, sign] : [-dy / len * sign, dx / len * sign]);
+    segN.push(len < 1e-10 ? [0, sign] : [(-dy / len) * sign, (dx / len) * sign]);
   }
 
   // 将投影米坐标转回经纬度
@@ -115,7 +143,9 @@ export function offsetPolylineDeg(points: GeoPoint[], widthMeters: number, side:
           const avgY = n1y + n2y;
           const avgLen = Math.hypot(avgX, avgY);
           if (avgLen > 1e-10) {
-            result.push(back(px + (avgX / avgLen) * widthMeters, py + (avgY / avgLen) * widthMeters, zi));
+            result.push(
+              back(px + (avgX / avgLen) * widthMeters, py + (avgY / avgLen) * widthMeters, zi),
+            );
           } else {
             result.push(back(px, py, zi)); // 完全对称时汇聚到顶点
           }
@@ -166,11 +196,19 @@ type DenseOffsetSegment = {
 };
 
 function projectPoint(p: GeoPoint, cosLat: number): ProjectedPoint {
-  return { x: p.x * cosLat * DEG_TO_M, y: p.y * DEG_TO_M, ...(p.z !== undefined ? { z: p.z } : {}) };
+  return {
+    x: p.x * cosLat * DEG_TO_M,
+    y: p.y * DEG_TO_M,
+    ...(p.z !== undefined ? { z: p.z } : {}),
+  };
 }
 
 function unprojectPoint(p: ProjectedPoint, cosLat: number): GeoPoint {
-  return { x: p.x / (cosLat * DEG_TO_M), y: p.y / DEG_TO_M, ...(p.z !== undefined ? { z: p.z } : {}) };
+  return {
+    x: p.x / (cosLat * DEG_TO_M),
+    y: p.y / DEG_TO_M,
+    ...(p.z !== undefined ? { z: p.z } : {}),
+  };
 }
 
 function dedupeProjected(points: ProjectedPoint[]): ProjectedPoint[] {
@@ -183,7 +221,12 @@ function dedupeProjected(points: ProjectedPoint[]): ProjectedPoint[] {
   return out;
 }
 
-function segmentIntersection(a1: ProjectedPoint, a2: ProjectedPoint, b1: ProjectedPoint, b2: ProjectedPoint): ProjectedPoint | null {
+function segmentIntersection(
+  a1: ProjectedPoint,
+  a2: ProjectedPoint,
+  b1: ProjectedPoint,
+  b2: ProjectedPoint,
+): ProjectedPoint | null {
   const dax = a2.x - a1.x;
   const day = a2.y - a1.y;
   const dbx = b2.x - b1.x;
@@ -200,7 +243,12 @@ function segmentIntersection(a1: ProjectedPoint, a2: ProjectedPoint, b1: Project
   return { x: a1.x + dax * t, y: a1.y + day * t };
 }
 
-function lineIntersection(a: ProjectedPoint, dirA: Vec2, b: ProjectedPoint, dirB: Vec2): ProjectedPoint | null {
+function lineIntersection(
+  a: ProjectedPoint,
+  dirA: Vec2,
+  b: ProjectedPoint,
+  dirB: Vec2,
+): ProjectedPoint | null {
   const det = dirA[0] * dirB[1] - dirA[1] * dirB[0];
   if (Math.abs(det) < 1e-8) return null;
 
@@ -218,7 +266,11 @@ function projectedLength(a: ProjectedPoint, b: ProjectedPoint, dir: Vec2): numbe
   return (b.x - a.x) * dir[0] + (b.y - a.y) * dir[1];
 }
 
-function hasDenseSegmentCollapse(offsetPoints: GeoPoint[], sourcePts: Vec2[], cosLat: number): boolean {
+function hasDenseSegmentCollapse(
+  offsetPoints: GeoPoint[],
+  sourcePts: Vec2[],
+  cosLat: number,
+): boolean {
   if (offsetPoints.length !== sourcePts.length || offsetPoints.length < 3) return false;
 
   const projected = offsetPoints.map((point) => projectPoint(point, cosLat));
@@ -236,20 +288,31 @@ function hasDenseSegmentCollapse(offsetPoints: GeoPoint[], sourcePts: Vec2[], co
   return false;
 }
 
-function denseJoin(a: DenseOffsetSegment, b: DenseOffsetSegment, widthMeters: number): ProjectedPoint {
+function denseJoin(
+  a: DenseOffsetSegment,
+  b: DenseOffsetSegment,
+  widthMeters: number,
+): ProjectedPoint {
   const aOffset = offsetProjected(a.end, a.normal, widthMeters);
   const bOffset = offsetProjected(b.start, b.normal, widthMeters);
-  return lineIntersection(aOffset, a.dir, bOffset, b.dir) ?? {
-    x: (aOffset.x + bOffset.x) / 2,
-    y: (aOffset.y + bOffset.y) / 2,
-  };
+  return (
+    lineIntersection(aOffset, a.dir, bOffset, b.dir) ?? {
+      x: (aOffset.x + bOffset.x) / 2,
+      y: (aOffset.y + bOffset.y) / 2,
+    }
+  );
 }
 
 /**
  * 对高采样曲线重建偏移边界：若某个内侧偏移段已经变成负长度，
  * 则直接移除该段，并与前后偏移线重求 join。
  */
-function rebuildDenseOffset(sourcePts: Vec2[], segN: Vec2[], widthMeters: number, cosLat: number): GeoPoint[] {
+function rebuildDenseOffset(
+  sourcePts: Vec2[],
+  segN: Vec2[],
+  widthMeters: number,
+  cosLat: number,
+): GeoPoint[] {
   const segments: DenseOffsetSegment[] = [];
 
   for (let i = 0; i < sourcePts.length - 1; i++) {
@@ -269,7 +332,9 @@ function rebuildDenseOffset(sourcePts: Vec2[], segN: Vec2[], widthMeters: number
   if (segments.length === 0) return [];
 
   const active = [segments[0]];
-  const poly: ProjectedPoint[] = [offsetProjected(segments[0].start, segments[0].normal, widthMeters)];
+  const poly: ProjectedPoint[] = [
+    offsetProjected(segments[0].start, segments[0].normal, widthMeters),
+  ];
 
   for (let i = 1; i < segments.length; i++) {
     active.push(segments[i]);
@@ -287,13 +352,22 @@ function rebuildDenseOffset(sourcePts: Vec2[], segN: Vec2[], widthMeters: number
     }
   }
 
-  poly.push(offsetProjected(active[active.length - 1].end, active[active.length - 1].normal, widthMeters));
+  poly.push(
+    offsetProjected(active[active.length - 1].end, active[active.length - 1].normal, widthMeters),
+  );
 
   let changed = true;
   while (changed) {
     changed = false;
 
-    while (active.length >= 2 && projectedLength(poly[poly.length - 2], poly[poly.length - 1], active[active.length - 1].dir) <= 1e-4) {
+    while (
+      active.length >= 2 &&
+      projectedLength(
+        poly[poly.length - 2],
+        poly[poly.length - 1],
+        active[active.length - 1].dir,
+      ) <= 1e-4
+    ) {
       active.pop();
       poly.splice(poly.length - 2, 1);
       changed = true;
@@ -321,17 +395,17 @@ function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
   while (changed && projected.length >= 4) {
     changed = false;
 
-    outer:
-    for (let i = 0; i < projected.length - 1; i++) {
+    outer: for (let i = 0; i < projected.length - 1; i++) {
       for (let j = i + 2; j < projected.length - 1; j++) {
-        const hit = segmentIntersection(projected[i], projected[i + 1], projected[j], projected[j + 1]);
+        const hit = segmentIntersection(
+          projected[i],
+          projected[i + 1],
+          projected[j],
+          projected[j + 1],
+        );
         if (!hit) continue;
 
-        projected = dedupeProjected([
-          ...projected.slice(0, i + 1),
-          hit,
-          ...projected.slice(j + 1),
-        ]);
+        projected = dedupeProjected([...projected.slice(0, i + 1), hit, ...projected.slice(j + 1)]);
         changed = true;
         break outer;
       }
@@ -345,8 +419,12 @@ function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
 
 export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
   switch (entity.entityType) {
-    case 'junction': case 'parkingSpace': case 'crosswalk':
-    case 'clearArea': case 'area': case 'parkingLot':
+    case 'junction':
+    case 'parkingSpace':
+    case 'crosswalk':
+    case 'clearArea':
+    case 'area':
+    case 'parkingLot':
       return entity.polygon.points;
     case 'barrierGate':
       return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? entity.polygon.points;
@@ -360,27 +438,36 @@ export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
       return entity.position[0]?.segments[0]?.lineSegment.points ?? [];
     case 'yieldSign':
       return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? [];
-    default: return [];
+    default:
+      return [];
   }
 }
 
 export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[]): ApolloEntity {
   switch (entity.entityType) {
-    case 'junction': case 'parkingSpace': case 'crosswalk':
-    case 'clearArea': case 'area': case 'parkingLot':
+    case 'junction':
+    case 'parkingSpace':
+    case 'crosswalk':
+    case 'clearArea':
+    case 'area':
+    case 'parkingLot':
       return { ...entity, polygon: { points } } as typeof entity;
     case 'barrierGate': {
       if (entity.stopLines.length > 0) {
-        const l = [...entity.stopLines]; const s = [...l[0].segments];
-        s[0] = { ...s[0], lineSegment: { points } }; l[0] = { ...l[0], segments: s };
+        const l = [...entity.stopLines];
+        const s = [...l[0].segments];
+        s[0] = { ...s[0], lineSegment: { points } };
+        l[0] = { ...l[0], segments: s };
         return { ...entity, stopLines: l };
       }
       return { ...entity, polygon: { points } } as typeof entity;
     }
     case 'signal': {
       if (entity.stopLines.length > 0) {
-        const l = [...entity.stopLines]; const s = [...l[0].segments];
-        s[0] = { ...s[0], lineSegment: { points } }; l[0] = { ...l[0], segments: s };
+        const l = [...entity.stopLines];
+        const s = [...l[0].segments];
+        s[0] = { ...s[0], lineSegment: { points } };
+        l[0] = { ...l[0], segments: s };
         return { ...entity, stopLines: l };
       }
       return { ...entity, boundary: { points } } as typeof entity;
@@ -391,25 +478,36 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
       return { ...entity, centralCurve: { segments: segs } };
     }
     case 'stopSign': {
-      const l = [...entity.stopLines]; const s = [...l[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } }; l[0] = { ...l[0], segments: s };
+      const l = [...entity.stopLines];
+      const s = [...l[0].segments];
+      s[0] = { ...s[0], lineSegment: { points } };
+      l[0] = { ...l[0], segments: s };
       return { ...entity, stopLines: l };
     }
     case 'speedBump': {
-      const p = [...entity.position]; const s = [...p[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } }; p[0] = { ...p[0], segments: s };
+      const p = [...entity.position];
+      const s = [...p[0].segments];
+      s[0] = { ...s[0], lineSegment: { points } };
+      p[0] = { ...p[0], segments: s };
       return { ...entity, position: p };
     }
     case 'yieldSign': {
-      const l = [...entity.stopLines]; const s = [...l[0].segments];
-      s[0] = { ...s[0], lineSegment: { points } }; l[0] = { ...l[0], segments: s };
+      const l = [...entity.stopLines];
+      const s = [...l[0].segments];
+      s[0] = { ...s[0], lineSegment: { points } };
+      l[0] = { ...l[0], segments: s };
       return { ...entity, stopLines: l };
     }
-    default: return entity;
+    default:
+      return entity;
   }
 }
 
-export function setApolloEditPoint(entity: ApolloEntity, index: number, point: GeoPoint): ApolloEntity {
+export function setApolloEditPoint(
+  entity: ApolloEntity,
+  index: number,
+  point: GeoPoint,
+): ApolloEntity {
   const pts = [...getApolloEditPoints(entity)];
   if (index < 0 || index >= pts.length) return entity;
   pts[index] = point;
@@ -419,31 +517,48 @@ export function setApolloEditPoint(entity: ApolloEntity, index: number, point: G
 export function moveApolloEntity(entity: ApolloEntity, dx: number, dy: number): ApolloEntity {
   const pts = getApolloEditPoints(entity);
   if (pts.length === 0) return entity;
-  return setAllApolloEditPoints(entity, pts.map((p) => ({
-    x: p.x + dx, y: p.y + dy, ...(p.z !== undefined ? { z: p.z } : {}),
-  })));
+  return setAllApolloEditPoints(
+    entity,
+    pts.map((p) => ({
+      x: p.x + dx,
+      y: p.y + dy,
+      ...(p.z !== undefined ? { z: p.z } : {}),
+    })),
+  );
 }
 
 export function deleteApolloVertex(entity: ApolloEntity, index: number): ApolloEntity | null {
   const pts = getApolloEditPoints(entity);
   const min = isApolloAreaEntity(entity) ? 3 : 2;
   if (pts.length <= min) return null;
-  return setAllApolloEditPoints(entity, pts.filter((_, i) => i !== index));
+  return setAllApolloEditPoints(
+    entity,
+    pts.filter((_, i) => i !== index),
+  );
 }
 
 // ═══════════ 工厂函数 ════════════════════════════════════════
 
-interface DrawResult { drawTool: string; points: LngLat[]; anchors: BezierAnchor[]; laneHalfWidth?: number; }
+interface DrawResult {
+  drawTool: string;
+  points: LngLat[];
+  anchors: BezierAnchor[];
+  laneHalfWidth?: number;
+}
 
 function extractLinePoints(draw: DrawResult): GeoPoint[] {
-  if (draw.drawTool === 'drawBezier' && draw.anchors.length >= 2) return coordsToPoints(cubicBezier(draw.anchors));
-  if (draw.drawTool === 'drawArc' && draw.points.length >= 3) return coordsToPoints(threePointArc(draw.points[0], draw.points[1], draw.points[2]));
-  if (draw.drawTool === 'drawCatmullRom' && draw.points.length >= 2) return coordsToPoints(catmullRom(draw.points));
+  if (draw.drawTool === 'drawBezier' && draw.anchors.length >= 2)
+    return coordsToPoints(cubicBezier(draw.anchors));
+  if (draw.drawTool === 'drawArc' && draw.points.length >= 3)
+    return coordsToPoints(threePointArc(draw.points[0], draw.points[1], draw.points[2]));
+  if (draw.drawTool === 'drawCatmullRom' && draw.points.length >= 2)
+    return coordsToPoints(catmullRom(draw.points));
   return coordsToPoints(draw.points);
 }
 
 function extractPolygonPoints(draw: DrawResult): GeoPoint[] {
-  if (draw.drawTool === 'drawRect' && draw.points.length >= 2) return coordsToPoints(rectCorners(draw.points[0], draw.points[1], 0));
+  if (draw.drawTool === 'drawRect' && draw.points.length >= 2)
+    return coordsToPoints(rectCorners(draw.points[0], draw.points[1], 0));
   if (draw.drawTool === 'drawRotatedRect' && draw.points.length >= 3) {
     const r = rotatedRectFromPoints(draw.points[0], draw.points[1], draw.points[2]);
     return coordsToPoints(rectCorners(r.p1, r.p2, r.rotation));
@@ -457,7 +572,10 @@ function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
     return { drawTool: d.drawTool, anchors: d.anchors.map(anchorToData) };
   }
   if (d.drawTool === 'drawArc' && d.points.length >= 3) {
-    return { drawTool: d.drawTool, arcPoints: [toGeoPoint(d.points[0]), toGeoPoint(d.points[1]), toGeoPoint(d.points[2])] };
+    return {
+      drawTool: d.drawTool,
+      arcPoints: [toGeoPoint(d.points[0]), toGeoPoint(d.points[1]), toGeoPoint(d.points[2])],
+    };
   }
   return undefined;
 }
@@ -478,80 +596,175 @@ function createLane(d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
   const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
   return {
-    id: `lane_${nanoid(12)}`, entityType: 'lane',
+    id: `lane_${nanoid(12)}`,
+    entityType: 'lane',
     centralCurve: pointsToCurve(extractLinePoints(d)),
     leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
     rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
-    length: 0, type: 'CITY_DRIVING', turn: 'NO_TURN', direction: 'FORWARD', speedLimit: 0,
-    predecessorIds: [], successorIds: [],
-    leftNeighborForwardIds: [], rightNeighborForwardIds: [],
-    leftNeighborReverseIds: [], rightNeighborReverseIds: [],
-    selfReverseLaneIds: [], junctionId: null, overlapIds: [],
+    length: 0,
+    type: 'CITY_DRIVING',
+    turn: 'NO_TURN',
+    direction: 'FORWARD',
+    speedLimit: 0,
+    predecessorIds: [],
+    successorIds: [],
+    leftNeighborForwardIds: [],
+    rightNeighborForwardIds: [],
+    leftNeighborReverseIds: [],
+    rightNeighborReverseIds: [],
+    selfReverseLaneIds: [],
+    junctionId: null,
+    overlapIds: [],
     leftSamples: [{ s: 0, width: hw }],
     rightSamples: [{ s: 0, width: hw }],
-    leftRoadSamples: [], rightRoadSamples: [],
+    leftRoadSamples: [],
+    rightRoadSamples: [],
     ...(source ? { _source: source } : {}),
   };
 }
 
 function createJunction(d: DrawResult): JunctionEntity {
-  return { id: `junction_${nanoid(12)}`, entityType: 'junction', polygon: pointsToPolygon(extractPolygonPoints(d)), type: 'CROSS_ROAD', overlapIds: [] };
+  return {
+    id: `junction_${nanoid(12)}`,
+    entityType: 'junction',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    type: 'CROSS_ROAD',
+    overlapIds: [],
+  };
 }
 function createParkingSpace(d: DrawResult): ParkingSpaceEntity {
   const rect = buildRectInfo(d);
-  return { id: `parkingSpace_${nanoid(12)}`, entityType: 'parkingSpace', polygon: pointsToPolygon(extractPolygonPoints(d)), heading: 0, overlapIds: [], ...(rect ? { _sourceRect: rect } : {}) };
+  return {
+    id: `parkingSpace_${nanoid(12)}`,
+    entityType: 'parkingSpace',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    heading: 0,
+    overlapIds: [],
+    ...(rect ? { _sourceRect: rect } : {}),
+  };
 }
 function createCrosswalk(d: DrawResult): CrosswalkEntity {
   const rect = buildRectInfo(d);
-  return { id: `crosswalk_${nanoid(12)}`, entityType: 'crosswalk', polygon: pointsToPolygon(extractPolygonPoints(d)), overlapIds: [], ...(rect ? { _sourceRect: rect } : {}) };
+  return {
+    id: `crosswalk_${nanoid(12)}`,
+    entityType: 'crosswalk',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    overlapIds: [],
+    ...(rect ? { _sourceRect: rect } : {}),
+  };
 }
 function createSignal(d: DrawResult): SignalEntity {
   const source = buildSourceInfo(d);
-  return { id: `signal_${nanoid(12)}`, entityType: 'signal', boundary: pointsToPolygon([]), subsignals: [], type: 'MIX_3_VERTICAL', overlapIds: [], stopLines: [pointsToCurve(extractLinePoints(d))], signInfo: [], ...(source ? { _source: source } : {}) };
+  return {
+    id: `signal_${nanoid(12)}`,
+    entityType: 'signal',
+    boundary: pointsToPolygon([]),
+    subsignals: [],
+    type: 'MIX_3_VERTICAL',
+    overlapIds: [],
+    stopLines: [pointsToCurve(extractLinePoints(d))],
+    signInfo: [],
+    ...(source ? { _source: source } : {}),
+  };
 }
 function createStopSign(d: DrawResult): StopSignEntity {
   const source = buildSourceInfo(d);
-  return { id: `stopSign_${nanoid(12)}`, entityType: 'stopSign', stopLines: [pointsToCurve(extractLinePoints(d))], type: 'ONE_WAY', overlapIds: [], ...(source ? { _source: source } : {}) };
+  return {
+    id: `stopSign_${nanoid(12)}`,
+    entityType: 'stopSign',
+    stopLines: [pointsToCurve(extractLinePoints(d))],
+    type: 'ONE_WAY',
+    overlapIds: [],
+    ...(source ? { _source: source } : {}),
+  };
 }
 function createSpeedBump(d: DrawResult): SpeedBumpEntity {
   const source = buildSourceInfo(d);
-  return { id: `speedBump_${nanoid(12)}`, entityType: 'speedBump', position: [pointsToCurve(extractLinePoints(d))], overlapIds: [], ...(source ? { _source: source } : {}) };
+  return {
+    id: `speedBump_${nanoid(12)}`,
+    entityType: 'speedBump',
+    position: [pointsToCurve(extractLinePoints(d))],
+    overlapIds: [],
+    ...(source ? { _source: source } : {}),
+  };
 }
 function createYieldSign(d: DrawResult): YieldSignEntity {
   const source = buildSourceInfo(d);
-  return { id: `yieldSign_${nanoid(12)}`, entityType: 'yieldSign', stopLines: [pointsToCurve(extractLinePoints(d))], overlapIds: [], ...(source ? { _source: source } : {}) };
+  return {
+    id: `yieldSign_${nanoid(12)}`,
+    entityType: 'yieldSign',
+    stopLines: [pointsToCurve(extractLinePoints(d))],
+    overlapIds: [],
+    ...(source ? { _source: source } : {}),
+  };
 }
 function createClearArea(d: DrawResult): ClearAreaEntity {
   const rect = buildRectInfo(d);
-  return { id: `clearArea_${nanoid(12)}`, entityType: 'clearArea', polygon: pointsToPolygon(extractPolygonPoints(d)), overlapIds: [], ...(rect ? { _sourceRect: rect } : {}) };
+  return {
+    id: `clearArea_${nanoid(12)}`,
+    entityType: 'clearArea',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    overlapIds: [],
+    ...(rect ? { _sourceRect: rect } : {}),
+  };
 }
 function createBarrierGate(d: DrawResult): BarrierGateEntity {
   const source = buildSourceInfo(d);
-  return { id: `barrierGate_${nanoid(12)}`, entityType: 'barrierGate', type: 'ROD', polygon: pointsToPolygon([]), stopLines: [pointsToCurve(extractLinePoints(d))], overlapIds: [], ...(source ? { _source: source } : {}) };
+  return {
+    id: `barrierGate_${nanoid(12)}`,
+    entityType: 'barrierGate',
+    type: 'ROD',
+    polygon: pointsToPolygon([]),
+    stopLines: [pointsToCurve(extractLinePoints(d))],
+    overlapIds: [],
+    ...(source ? { _source: source } : {}),
+  };
 }
 function createArea(d: DrawResult): AreaEntity {
-  return { id: `area_${nanoid(12)}`, entityType: 'area', type: 'Driveable', polygon: pointsToPolygon(extractPolygonPoints(d)), overlapIds: [] };
+  return {
+    id: `area_${nanoid(12)}`,
+    entityType: 'area',
+    type: 'Driveable',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    overlapIds: [],
+  };
 }
 
 const FACTORY_MAP: Record<MapElementType, (d: DrawResult) => ApolloEntity> = {
-  lane: createLane, junction: createJunction,
-  parkingSpace: createParkingSpace, crosswalk: createCrosswalk, signal: createSignal,
-  stopSign: createStopSign, speedBump: createSpeedBump, yieldSign: createYieldSign,
-  clearArea: createClearArea, barrierGate: createBarrierGate, area: createArea,
+  lane: createLane,
+  junction: createJunction,
+  parkingSpace: createParkingSpace,
+  crosswalk: createCrosswalk,
+  signal: createSignal,
+  stopSign: createStopSign,
+  speedBump: createSpeedBump,
+  yieldSign: createYieldSign,
+  clearArea: createClearArea,
+  barrierGate: createBarrierGate,
+  area: createArea,
 };
 
 export function createApolloEntity(
-  elementType: MapElementType, drawTool: string, points: LngLat[], anchors: BezierAnchor[],
+  elementType: MapElementType,
+  drawTool: string,
+  points: LngLat[],
+  anchors: BezierAnchor[],
   options?: { laneHalfWidth?: number },
 ): ApolloEntity {
-  return FACTORY_MAP[elementType]({ drawTool, points, anchors, laneHalfWidth: options?.laneHalfWidth });
+  return FACTORY_MAP[elementType]({
+    drawTool,
+    points,
+    anchors,
+    laneHalfWidth: options?.laneHalfWidth,
+  });
 }
 
 // ═══════════ 冷层 GeoJSON 编译 ══════════════════════════════
 
 function curveToCoords(curve: Curve): LngLat[] {
   const coords: LngLat[] = [];
-  for (const seg of curve.segments) for (const pt of seg.lineSegment.points) coords.push(toLngLat(pt));
+  for (const seg of curve.segments)
+    for (const pt of seg.lineSegment.points) coords.push(toLngLat(pt));
   return coords;
 }
 
@@ -561,25 +774,38 @@ function polygonToCoords(polygon: ApolloPolygon): LngLat[] {
 
 function centroid(coords: LngLat[]): LngLat {
   if (coords.length === 0) return [0, 0];
-  return [coords.reduce((s, c) => s + c[0], 0) / coords.length, coords.reduce((s, c) => s + c[1], 0) / coords.length];
+  return [
+    coords.reduce((s, c) => s + c[0], 0) / coords.length,
+    coords.reduce((s, c) => s + c[1], 0) / coords.length,
+  ];
 }
 
 /** 线段几何中点（所有点的平均坐标） */
 function lineMid(coords: LngLat[]): LngLat {
   if (coords.length === 0) return [0, 0];
   if (coords.length <= 2) {
-    return [(coords[0][0] + coords[coords.length - 1][0]) / 2, (coords[0][1] + coords[coords.length - 1][1]) / 2];
+    return [
+      (coords[0][0] + coords[coords.length - 1][0]) / 2,
+      (coords[0][1] + coords[coords.length - 1][1]) / 2,
+    ];
   }
   return coords[Math.floor(coords.length / 2)];
 }
 
 function mkLine(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
-  return { type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } };
+  return {
+    type: 'Feature',
+    properties: props,
+    geometry: { type: 'LineString', coordinates: coords },
+  };
 }
 
 function mkPolygon(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
-  const ring = coords.length > 0 && (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-    ? [...coords, coords[0]] : coords;
+  const ring =
+    coords.length > 0 &&
+    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
+      ? [...coords, coords[0]]
+      : coords;
   return { type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [ring] } };
 }
 
@@ -605,34 +831,48 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       // 填充多边形（noStroke 抑制描边，避免首尾端盖闭合问题）
       const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
       if (polyCoords.length >= 4) {
-        features.push(mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }));
+        features.push(
+          mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }),
+        );
       }
       // 左右边界线基线：供 junction 修正和后续按 boundaryType 生成装饰线
-      features.push(mkLine(leftEdge.map(toLngLat), {
-        ...base,
-        role: 'laneEdgeLeft',
-        boundarySide: 'left',
-        boundaryBase: true,
-        noStroke: true,
-        lineWidth: LANE_EDGE_LINE_WIDTH,
-        lineOpacity: LANE_EDGE_LINE_OPACITY,
-      }));
-      features.push(mkLine(rightEdge.map(toLngLat), {
-        ...base,
-        role: 'laneEdgeRight',
-        boundarySide: 'right',
-        boundaryBase: true,
-        noStroke: true,
-        lineWidth: LANE_EDGE_LINE_WIDTH,
-        lineOpacity: LANE_EDGE_LINE_OPACITY,
-      }));
+      features.push(
+        mkLine(leftEdge.map(toLngLat), {
+          ...base,
+          role: 'laneEdgeLeft',
+          boundarySide: 'left',
+          boundaryBase: true,
+          noStroke: true,
+          lineWidth: LANE_EDGE_LINE_WIDTH,
+          lineOpacity: LANE_EDGE_LINE_OPACITY,
+        }),
+      );
+      features.push(
+        mkLine(rightEdge.map(toLngLat), {
+          ...base,
+          role: 'laneEdgeRight',
+          boundarySide: 'right',
+          boundaryBase: true,
+          noStroke: true,
+          lineWidth: LANE_EDGE_LINE_WIDTH,
+          lineOpacity: LANE_EDGE_LINE_OPACITY,
+        }),
+      );
       // 中心虚线 + 方向箭头数据（BACKWARD 翻转坐标使箭头指向行驶方向）
       const centerCoords = pointsToCoords(centerPts);
-      const dirCoords = entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;
-      features.push(mkLine(dirCoords, {
-        color: '#ffffff', id: entity.id, entityType: entity.entityType,
-        lineWidth: LANE_CENTER_LINE_WIDTH, lineOpacity: LANE_CENTER_LINE_OPACITY, dashed: true, role: 'laneCenter',
-      }));
+      const dirCoords =
+        entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;
+      features.push(
+        mkLine(dirCoords, {
+          color: '#ffffff',
+          id: entity.id,
+          entityType: entity.entityType,
+          lineWidth: LANE_CENTER_LINE_WIDTH,
+          lineOpacity: LANE_CENTER_LINE_OPACITY,
+          dashed: true,
+          role: 'laneCenter',
+        }),
+      );
       break;
     }
 
@@ -649,7 +889,9 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const coords = polygonToCoords(entity.polygon);
       if (coords.length < 3) break;
       features.push(mkPolygon(coords, { ...base, fillOpacity: 0.4, lineWidth: 1.5 }));
-      features.push(mkPoint(centroid(coords), { ...base, role: 'label', label: '🅿️', labelSize: 18 }));
+      features.push(
+        mkPoint(centroid(coords), { ...base, role: 'label', label: '🅿️', labelSize: 18 }),
+      );
       break;
     }
 
@@ -668,7 +910,10 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 4 }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🚦', labelSize: 18 }));
+      if (all.length > 0)
+        features.push(
+          mkPoint(lineMid(all), { ...base, role: 'label', label: '🚦', labelSize: 18 }),
+        );
       break;
     }
 
@@ -687,7 +932,10 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 5, dashed: true }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🚧', labelSize: 16 }));
+      if (all.length > 0)
+        features.push(
+          mkPoint(lineMid(all), { ...base, role: 'label', label: '🚧', labelSize: 16 }),
+        );
       break;
     }
 
@@ -706,7 +954,10 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 4 }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🛑', labelSize: 16 }));
+      if (all.length > 0)
+        features.push(
+          mkPoint(lineMid(all), { ...base, role: 'label', label: '🛑', labelSize: 16 }),
+        );
       break;
     }
 
@@ -730,11 +981,15 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 3, dashed: true }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0) features.push(mkPoint(lineMid(all), { ...base, role: 'label', label: '🔻', labelSize: 16 }));
+      if (all.length > 0)
+        features.push(
+          mkPoint(lineMid(all), { ...base, role: 'label', label: '🔻', labelSize: 16 }),
+        );
       break;
     }
 
-    case 'road': break;
+    case 'road':
+      break;
   }
 
   return features;
@@ -756,10 +1011,16 @@ export function apolloEntityCoords(entity: ApolloEntity): LngLat[] {
 
 export function isApolloAreaEntity(entity: ApolloEntity): boolean {
   switch (entity.entityType) {
-    case 'junction': case 'parkingSpace': case 'crosswalk':
-    case 'clearArea': case 'area': case 'parkingLot': case 'pncJunction':
+    case 'junction':
+    case 'parkingSpace':
+    case 'crosswalk':
+    case 'clearArea':
+    case 'area':
+    case 'parkingLot':
+    case 'pncJunction':
     case 'lane': // 车道渲染为多边形，hitTest 也用面检测
       return true;
-    default: return false;
+    default:
+      return false;
   }
 }

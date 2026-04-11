@@ -1,15 +1,22 @@
 import { create } from 'zustand';
-import type { MapEntity } from '@/types/entities';
 
 // ─── Entity type visibility / lock state ────────────────────
 
 const ENTITY_TYPES = [
-  'lane', 'junction', 'parkingSpace', 'signal', 'crosswalk',
-  'stopSign', 'speedBump', 'polyline', 'catmullRom', 'bezier',
-  'arc', 'rect', 'polygon',
+  'lane',
+  'junction',
+  'parkingSpace',
+  'signal',
+  'crosswalk',
+  'stopSign',
+  'speedBump',
+  'polyline',
+  'catmullRom',
+  'bezier',
+  'arc',
+  'rect',
+  'polygon',
 ] as const;
-
-type EntityType = (typeof ENTITY_TYPES)[number];
 
 interface LayerState {
   visible: boolean;
@@ -94,7 +101,7 @@ export const useUIStore = create<UIStore>()((set, get) => ({
     set((s) => ({
       layerStates: {
         ...s.layerStates,
-        [type]: { ...s.layerStates[type] || { visible: true, locked: false }, visible },
+        [type]: { ...(s.layerStates[type] || { visible: true, locked: false }), visible },
       },
     }));
   },
@@ -102,7 +109,7 @@ export const useUIStore = create<UIStore>()((set, get) => ({
     set((s) => ({
       layerStates: {
         ...s.layerStates,
-        [type]: { ...s.layerStates[type] || { visible: true, locked: false }, locked },
+        [type]: { ...(s.layerStates[type] || { visible: true, locked: false }), locked },
       },
     }));
   },
@@ -111,7 +118,10 @@ export const useUIStore = create<UIStore>()((set, get) => ({
     set((s) => ({
       layerStates: {
         ...s.layerStates,
-        [type]: { ...current || { visible: true, locked: false }, visible: !(current?.visible ?? true) },
+        [type]: {
+          ...(current || { visible: true, locked: false }),
+          visible: !(current?.visible ?? true),
+        },
       },
     }));
   },
@@ -120,7 +130,10 @@ export const useUIStore = create<UIStore>()((set, get) => ({
     set((s) => ({
       layerStates: {
         ...s.layerStates,
-        [type]: { ...current || { visible: true, locked: false }, locked: !(current?.locked ?? false) },
+        [type]: {
+          ...(current || { visible: true, locked: false }),
+          locked: !(current?.locked ?? false),
+        },
       },
     }));
   },

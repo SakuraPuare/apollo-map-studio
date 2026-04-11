@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
-import { entityToHotFeatures } from '@/components/map/geoJsonHelpers';
+import { entityToHotFeatures } from '@/lib/geoJsonHelpers';
 import { applyDrag } from '@/components/map/entityMutations';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
@@ -28,14 +28,16 @@ function samePoint(a: LngLat | null, b: LngLat | null) {
 }
 
 function sameHotRenderState(a: HotRenderState | null, b: HotRenderState) {
-  return !!a
-    && a.selectedEntityId === b.selectedEntityId
-    && a.entity === b.entity
-    && a.isEditingPoint === b.isEditingPoint
-    && a.dragPointIndex === b.dragPointIndex
-    && a.dragPointType === b.dragPointType
-    && a.dragAltKey === b.dragAltKey
-    && samePoint(a.dragCurrentPoint, b.dragCurrentPoint);
+  return (
+    !!a &&
+    a.selectedEntityId === b.selectedEntityId &&
+    a.entity === b.entity &&
+    a.isEditingPoint === b.isEditingPoint &&
+    a.dragPointIndex === b.dragPointIndex &&
+    a.dragPointType === b.dragPointType &&
+    a.dragAltKey === b.dragAltKey &&
+    samePoint(a.dragCurrentPoint, b.dragCurrentPoint)
+  );
 }
 
 export function useHotLayer(
@@ -59,7 +61,9 @@ export function useHotLayer(
 
       const snapshot = actorRef.getSnapshot();
       const selectedEntityId = snapshot.context.selectedEntityId;
-      const entity = selectedEntityId ? useMapStore.getState().entities.get(selectedEntityId) ?? null : null;
+      const entity = selectedEntityId
+        ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
+        : null;
       const nextState: HotRenderState = {
         selectedEntityId,
         entity,
@@ -78,11 +82,20 @@ export function useHotLayer(
         return;
       }
 
-      const displayEntity = (nextState.isEditingPoint
-        && nextState.dragCurrentPoint
-        && (nextState.dragPointIndex >= 0 || nextState.dragPointType === 'rotate' || nextState.dragPointType === 'center'))
-        ? applyDrag(entity, nextState.dragPointIndex, nextState.dragPointType, nextState.dragCurrentPoint, nextState.dragAltKey)
-        : entity;
+      const displayEntity =
+        nextState.isEditingPoint &&
+        nextState.dragCurrentPoint &&
+        (nextState.dragPointIndex >= 0 ||
+          nextState.dragPointType === 'rotate' ||
+          nextState.dragPointType === 'center')
+          ? applyDrag(
+              entity,
+              nextState.dragPointIndex,
+              nextState.dragPointType,
+              nextState.dragCurrentPoint,
+              nextState.dragAltKey,
+            )
+          : entity;
 
       src.setData({ type: 'FeatureCollection', features: entityToHotFeatures(displayEntity) });
     };
@@ -113,5 +126,7 @@ export function useHotLayer(
         cancelAnimationFrame(frameId);
       }
     };
+    // mapRef / mapLoadedRef are refs — non-reactive by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 }

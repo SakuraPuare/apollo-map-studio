@@ -15,8 +15,7 @@ export function segmentsIntersect(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat
   const d3 = cross(b1, b2, a1);
   const d4 = cross(b1, b2, a2);
 
-  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
-      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
     return true;
   }
   return false;
