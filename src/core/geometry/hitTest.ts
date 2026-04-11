@@ -120,11 +120,7 @@ function pointToSegmentDistGeo(
  * 点到折线的最近距离（纬度补偿版）。
  * 返回值量纲 = lng 度数，可直接与 pixelToRadius(px) 返回的半径比较。
  */
-export function pointToPolylineDistGeo(
-  point: LngLat,
-  coords: LngLat[],
-  cosLat: number,
-): number {
+export function pointToPolylineDistGeo(point: LngLat, coords: LngLat[], cosLat: number): number {
   // 防御：极端纬度 cosLat 接近 0 时退化回纯欧氏（避免除零）
   const safeCos = Math.max(cosLat, 1e-6);
   const invCosLat = 1 / safeCos;
@@ -148,11 +144,7 @@ export function pointToPolylineDistGeo(
  * 点到多边形的距离（纬度补偿版）。
  * 注：pointInPolygon 只判断拓扑包含，和量纲无关，直接复用欧氏版本。
  */
-export function pointToPolygonDistGeo(
-  point: LngLat,
-  polygon: LngLat[],
-  cosLat: number,
-): number {
+export function pointToPolygonDistGeo(point: LngLat, polygon: LngLat[], cosLat: number): number {
   if (pointInPolygon(point, polygon)) return 0;
   const ring =
     polygon[0][0] === polygon[polygon.length - 1][0] &&
