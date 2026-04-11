@@ -80,14 +80,6 @@ function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[
     } else if (allPts.length === 2) {
       features.push(lineFeature(allPts));
     }
-  } else if (currentState === 'drawRect') {
-    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
-    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
-    if (allPts.length === 2) {
-      features.push(polygonFeature(rectCorners(allPts[0], allPts[1], 0)));
-    } else if (allPts.length === 1 && previewPoint) {
-      features.push(lineFeature([allPts[0], previewPoint]));
-    }
   } else if (currentState === 'drawRotatedRect') {
     const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
     for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));

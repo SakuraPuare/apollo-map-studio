@@ -14,7 +14,7 @@ const MODE_LABELS: Record<string, string> = {
   drawCatmullRom: 'Draw: CatmullRom',
   drawBezier: 'Draw: Bezier',
   drawArc: 'Draw: Arc',
-  drawRect: 'Draw: Rectangle',
+  drawRotatedRect: 'Draw: Rectangle',
   drawPolygon: 'Draw: Polygon',
 };
 

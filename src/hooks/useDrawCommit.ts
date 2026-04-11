@@ -32,7 +32,6 @@ function commitEntity(
     const hasGeometry =
       (state === 'drawBezier' && anchors.length >= 2) ||
       (state === 'drawArc' && points.length >= 3) ||
-      (state === 'drawRect' && points.length >= 2) ||
       (state === 'drawRotatedRect' && points.length >= 3) ||
       (state === 'drawPolygon' && points.length >= 3) ||
       ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2);
@@ -65,14 +64,6 @@ function commitEntity(
       mid: toGeoPoint(points[1]),
       end: toGeoPoint(points[2]),
     } as ArcEntity);
-  } else if (state === 'drawRect' && points.length >= 2) {
-    addEntity({
-      id: `rect_${nanoid(12)}`,
-      entityType: 'rect',
-      p1: toGeoPoint(points[0]),
-      p2: toGeoPoint(points[1]),
-      rotation: 0,
-    } as RectEntity);
   } else if (state === 'drawRotatedRect' && points.length >= 3) {
     const r = rotatedRectFromPoints(points[0], points[1], points[2]);
     addEntity({
@@ -103,7 +94,7 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
         // Read the POST-transition snapshot: transition actions (addPoint on the
         // trigger click, removeLastPoint on dblclick) mutate context as part of
         // the transition. prevSnapshot was captured before the transition, so
-        // it's stale by exactly one action — that's why drawArc/drawRect/drawRotatedRect
+        // it's stale by exactly one action — that's why drawArc/drawRotatedRect
         // wouldn't commit (off-by-one) and dblclick kept the duplicate vertex.
         commitEntity(
           prevState,

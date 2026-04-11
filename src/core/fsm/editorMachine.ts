@@ -13,7 +13,6 @@ export type DrawTool =
   | 'drawCatmullRom'
   | 'drawBezier'
   | 'drawArc'
-  | 'drawRect'
   | 'drawRotatedRect'
   | 'drawPolygon';
 
@@ -22,7 +21,6 @@ const DRAW_STATES: readonly string[] = [
   'drawCatmullRom',
   'drawBezier',
   'drawArc',
-  'drawRect',
   'drawRotatedRect',
   'drawPolygon',
 ];
@@ -56,12 +54,6 @@ const selectToolTransitions = [
     guard: ({ event }: { event: EditorEvent }) =>
       event.type === 'SELECT_TOOL' && event.tool === 'drawArc',
     target: 'drawArc' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawRect',
-    target: 'drawRect' as const,
     actions: ['resetDraw'] as const,
   },
   {
@@ -251,7 +243,6 @@ export const editorMachine = setup({
     bezierMinAnchors: ({ context }) => context.bezierAnchors.length >= 2,
     isDraggingHandle: ({ context }) => context.isDraggingHandle,
     arcComplete: ({ context }) => context.drawPoints.length === 2,
-    rectComplete: ({ context }) => context.drawPoints.length === 1,
     rotatedRectComplete: ({ context }) => context.drawPoints.length === 2,
     polygonNoSelfIntersect: ({ context, event }) => {
       if (event.type !== 'MOUSE_DOWN') return false;
@@ -387,18 +378,6 @@ export const editorMachine = setup({
         SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: [
           { guard: 'arcComplete', target: 'idle', actions: 'addPoint' },
-          { actions: 'addPoint' },
-        ],
-        MOUSE_MOVE: { actions: 'updatePreview' },
-        CANCEL: { target: 'idle', actions: 'resetDraw' },
-      },
-    },
-
-    drawRect: {
-      on: {
-        SELECT_TOOL: selectToolTransitions,
-        MOUSE_DOWN: [
-          { guard: 'rectComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
         ],
         MOUSE_MOVE: { actions: 'updatePreview' },
