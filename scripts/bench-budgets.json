@@ -3,6 +3,11 @@
   "budgets": {
     "10-point polyline, 3.5m offset": { "p99Ms": 1 },
     "100-point polyline, 3.5m offset": { "p99Ms": 3 },
-    "1000-point polyline, 3.5m offset": { "p99Ms": 40 }
+    "1000-point polyline, 3.5m offset": { "p99Ms": 40 },
+    "full stitch — 10-lane linear chain": { "p99Ms": 3 },
+    "full stitch — 100-lane linear chain": { "p99Ms": 6 },
+    "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
+    "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
+    "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 }
   }
 }
