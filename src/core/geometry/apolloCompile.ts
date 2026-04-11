@@ -19,8 +19,9 @@ import {
   rotatedRectFromPoints,
 } from '@/core/geometry/interpolate';
 import { coordsToPoints, pointsToCoords, toLngLat, toGeoPoint } from '@/core/geometry/coords';
-import { elementColor } from '@/core/elements';
+import { elementColor, laneTypeColor } from '@/core/elements';
 import type { MapElementType } from '@/core/elements';
+import { polylineLengthMeters } from '@/lib/geo';
 import type {
   Curve,
   CurveSegment,
@@ -475,7 +476,11 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
     case 'lane': {
       const segs = [...entity.centralCurve.segments];
       segs[0] = { ...segs[0], lineSegment: { points } };
-      return { ...entity, centralCurve: { segments: segs } };
+      return {
+        ...entity,
+        centralCurve: { segments: segs },
+        length: polylineLengthMeters(points),
+      };
     }
     case 'stopSign': {
       const l = [...entity.stopLines];
@@ -595,13 +600,14 @@ function buildRectInfo(d: DrawResult): import('@/types/apollo').SourceRectInfo |
 function createLane(d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
   const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
+  const centerPts = extractLinePoints(d);
   return {
     id: `lane_${nanoid(12)}`,
     entityType: 'lane',
-    centralCurve: pointsToCurve(extractLinePoints(d)),
+    centralCurve: pointsToCurve(centerPts),
     leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
     rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
-    length: 0,
+    length: polylineLengthMeters(centerPts),
     type: 'CITY_DRIVING',
     turn: 'NO_TURN',
     direction: 'FORWARD',
@@ -820,10 +826,13 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
 
   switch (entity.entityType) {
-    // ─── 车道：多边形（宽度） + 中心线（虚线） + 方向标注 ───
+    // ─── 车道：多边形（宽度） + 中心线（虚线） + 方向箭头 ───
     case 'lane': {
       const centerPts = entity.centralCurve.segments[0]?.lineSegment.points ?? [];
       if (centerPts.length < 2) break;
+      // type 分色：用 laneTypeColor 覆盖 base.color（fill + edges + centerline 统一）
+      const laneColor = laneTypeColor(entity.type);
+      const laneBase: Record<string, unknown> = { ...base, color: laneColor };
       const leftW = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
       const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
       const leftEdge = offsetPolylineDeg(centerPts, leftW, 'left');
@@ -832,13 +841,13 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
       if (polyCoords.length >= 4) {
         features.push(
-          mkPolygon(polyCoords, { ...base, fillOpacity: LANE_FILL_OPACITY, noStroke: true }),
+          mkPolygon(polyCoords, { ...laneBase, fillOpacity: LANE_FILL_OPACITY, noStroke: true }),
         );
       }
       // 左右边界线基线：供 junction 修正和后续按 boundaryType 生成装饰线
       features.push(
         mkLine(leftEdge.map(toLngLat), {
-          ...base,
+          ...laneBase,
           role: 'laneEdgeLeft',
           boundarySide: 'left',
           boundaryBase: true,
@@ -849,7 +858,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       );
       features.push(
         mkLine(rightEdge.map(toLngLat), {
-          ...base,
+          ...laneBase,
           role: 'laneEdgeRight',
           boundarySide: 'right',
           boundaryBase: true,
@@ -858,21 +867,34 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
           lineOpacity: LANE_EDGE_LINE_OPACITY,
         }),
       );
-      // 中心虚线 + 方向箭头数据（BACKWARD 翻转坐标使箭头指向行驶方向）
+      // 中心虚线 + 方向箭头数据
+      // 箭头沿 LineString 方向从 cold-lane-arrows symbol 图层贴图发射：
+      //   FORWARD     → 正向坐标（一条 laneCenter）
+      //   BACKWARD    → 反向坐标（一条 laneCenter，箭头从终点指向起点）
+      //   BIDIRECTION → 同时发射两条 laneCenter（正+反），两个方向都有箭头
       const centerCoords = pointsToCoords(centerPts);
-      const dirCoords =
-        entity.direction === 'BACKWARD' ? [...centerCoords].reverse() : centerCoords;
-      features.push(
-        mkLine(dirCoords, {
-          color: '#ffffff',
-          id: entity.id,
-          entityType: entity.entityType,
-          lineWidth: LANE_CENTER_LINE_WIDTH,
-          lineOpacity: LANE_CENTER_LINE_OPACITY,
-          dashed: true,
-          role: 'laneCenter',
-        }),
-      );
+      const reversedCoords = [...centerCoords].reverse();
+      const centerProps = {
+        color: '#ffffff',
+        id: entity.id,
+        entityType: entity.entityType,
+        lineWidth: LANE_CENTER_LINE_WIDTH,
+        lineOpacity: LANE_CENTER_LINE_OPACITY,
+        dashed: true,
+        role: 'laneCenter',
+      };
+      if (entity.direction === 'BIDIRECTION') {
+        features.push(mkLine(centerCoords, { ...centerProps, laneDirection: 'forward' }));
+        features.push(mkLine(reversedCoords, { ...centerProps, laneDirection: 'backward' }));
+      } else {
+        const dirCoords = entity.direction === 'BACKWARD' ? reversedCoords : centerCoords;
+        features.push(
+          mkLine(dirCoords, {
+            ...centerProps,
+            laneDirection: entity.direction === 'BACKWARD' ? 'backward' : 'forward',
+          }),
+        );
+      }
       break;
     }
 

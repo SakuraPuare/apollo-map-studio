@@ -136,3 +136,36 @@ export const ELEMENT_MAP = new Map(MAP_ELEMENTS.map((e) => [e.type, e]));
 export function elementColor(entityType: string): string | undefined {
   return ELEMENT_MAP.get(entityType as MapElementType)?.color;
 }
+
+/**
+ * 车道 type 专属配色（Apollo LaneType 七类）
+ *
+ * 色调取样自现有 elementColor 的 ams-* 调性：
+ *   - 蓝色系（#4a9eff / #66aaff）    机动车/共享等可行驶语义
+ *   - 绿色系（#22cc44）              绿色出行（非机动车）
+ *   - 紫色系（#7c5cbf / #aa66ff）    停车语义
+ *   - 橙红系（#ff6600 / #ffaa00）    路肩/警示语义
+ *   - 灰白系                         人行道/未知
+ *
+ * 如果传入未知的 type，回退到 CITY_DRIVING 的蓝色。
+ */
+export function laneTypeColor(type: string | undefined): string {
+  switch (type) {
+    case 'CITY_DRIVING':
+      return '#4a9eff'; // 机动车主色（与旧硬编码兼容）
+    case 'BIKING':
+      return '#22cc44'; // 绿色出行
+    case 'SIDEWALK':
+      return '#cfd4dc'; // 人行道：中性亮灰
+    case 'PARKING':
+      return '#7c5cbf'; // 停车：紫色（与 parkingSpace 呼应）
+    case 'SHOULDER':
+      return '#ffaa00'; // 路肩：琥珀警示
+    case 'SHARED':
+      return '#66aaff'; // 共享：浅蓝
+    case 'NONE':
+      return '#6b7280'; // 未定义：冷灰
+    default:
+      return '#4a9eff';
+  }
+}
