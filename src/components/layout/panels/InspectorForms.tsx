@@ -222,10 +222,24 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
         </Section>
 
         <Section title="Boundaries">
-          <Input name="leftWidth" label="左宽度 (m)" type="number" min={0.5} max={10} step={0.1} />
-          <Input name="rightWidth" label="右宽度 (m)" type="number" min={0.5} max={10} step={0.1} />
-          <Select name="leftBoundaryType" label="Left" options={boundaryTypeOptions} />
-          <Select name="rightBoundaryType" label="Right" options={boundaryTypeOptions} />
+          <Input
+            name="leftWidth"
+            label="Left Width (m)"
+            type="number"
+            min={0.5}
+            max={10}
+            step={0.1}
+          />
+          <Input
+            name="rightWidth"
+            label="Right Width (m)"
+            type="number"
+            min={0.5}
+            max={10}
+            step={0.1}
+          />
+          <Select name="leftBoundaryType" label="Left Type" options={boundaryTypeOptions} />
+          <Select name="rightBoundaryType" label="Right Type" options={boundaryTypeOptions} />
           <Value label="Length" value={`${entity.length.toFixed(2)} m`} />
         </Section>
 
