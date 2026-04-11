@@ -3,8 +3,15 @@ import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
-import { catmullRom, cubicBezier, threePointArc, rectCorners, rotatedRectFromPoints, type BezierAnchor } from '@/core/geometry/interpolate';
-import { lineFeature, pointFeature, handleLineFeature, polygonFeature } from '@/components/map/geoJsonHelpers';
+import {
+  catmullRom,
+  cubicBezier,
+  threePointArc,
+  rectCorners,
+  rotatedRectFromPoints,
+  type BezierAnchor,
+} from '@/core/geometry/interpolate';
+import { lineFeature, pointFeature, handleLineFeature, polygonFeature } from '@/lib/geoJsonHelpers';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -23,11 +30,13 @@ function samePoint(a: LngLat | null, b: LngLat | null) {
 }
 
 function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayRenderState) {
-  return !!a
-    && a.currentState === b.currentState
-    && a.drawPoints === b.drawPoints
-    && a.bezierAnchors === b.bezierAnchors
-    && samePoint(a.previewPoint, b.previewPoint);
+  return (
+    !!a &&
+    a.currentState === b.currentState &&
+    a.drawPoints === b.drawPoints &&
+    a.bezierAnchors === b.bezierAnchors &&
+    samePoint(a.previewPoint, b.previewPoint)
+  );
 }
 
 function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[] {
@@ -165,5 +174,7 @@ export function useOverlayLayer(
         cancelAnimationFrame(frameId);
       }
     };
+    // mapRef / mapLoadedRef are refs — non-reactive by design.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 }

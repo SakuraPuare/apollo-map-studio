@@ -1,4 +1,4 @@
-import type { MapEntity, BezierEntity, BezierAnchorData, GeoPoint } from '@/types/entities';
+import type { MapEntity, BezierEntity, GeoPoint } from '@/types/entities';
 import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
@@ -7,9 +7,12 @@ import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { polygonSelfIntersects } from '@/core/geometry/validation';
 import { toGeoPoint, toLngLat, pointsToCoords, coordsToPoints } from '@/core/geometry/coords';
 import {
-  getApolloEditPoints, setApolloEditPoint, setAllApolloEditPoints,
-  moveApolloEntity, deleteApolloVertex, isApolloAreaEntity, pointsToCurve,
-} from '@/core/geometry/apolloCompile';
+  getEditPoints as getApolloEditPoints,
+  setEditPoint as setApolloEditPoint,
+  setAllEditPoints as setAllApolloEditPoints,
+  moveEntity as moveApolloEntity,
+  deleteVertex as deleteApolloVertex,
+} from '@/lib/entityOps';
 
 const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
 
@@ -58,7 +61,9 @@ export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity 
     const px = anchor.point.x;
     const py = anchor.point.y;
 
-    let dx = 0, dy = 0, len = 0;
+    let dx = 0,
+      dy = 0,
+      len = 0;
     if (prev && next) {
       dx = next.point.x - prev.point.x;
       dy = next.point.y - prev.point.y;
@@ -72,7 +77,7 @@ export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity 
 
     len = Math.hypot(dx, dy);
     if (len > 0) {
-      const scale = (prev && next) ? len / 6 : len / 3;
+      const scale = prev && next ? len / 6 : len / 3;
       const nx = dx / len;
       const ny = dy / len;
       anchor.handleOut = { x: px + nx * scale, y: py + ny * scale };
@@ -158,7 +163,7 @@ export function applyDrag(
       const cx = (entity.p1.x + entity.p2.x) / 2;
       const cy = (entity.p1.y + entity.p2.y) / 2;
       const refLat = cy;
-      const cosLat = Math.cos(refLat * Math.PI / 180);
+      const cosLat = Math.cos((refLat * Math.PI) / 180);
       const dx = (newPoint[0] - cx) * cosLat;
       const dy = newPoint[1] - cy;
       const angle = Math.atan2(dx, dy);
@@ -166,13 +171,17 @@ export function applyDrag(
     }
 
     // 角点拖拽：对角点固定，拖拽点和对角点重新定义 p1/p2
-    const corners = rectCorners([entity.p1.x, entity.p1.y], [entity.p2.x, entity.p2.y], entity.rotation);
+    const corners = rectCorners(
+      [entity.p1.x, entity.p1.y],
+      [entity.p2.x, entity.p2.y],
+      entity.rotation,
+    );
     const opIdx = (index + 2) % 4;
     const anchor = corners[opIdx];
     const dragged = newPoint;
 
     const refLat = (anchor[1] + dragged[1]) / 2;
-    const cosLat = Math.cos(refLat * Math.PI / 180);
+    const cosLat = Math.cos((refLat * Math.PI) / 180);
     const rot = entity.rotation;
     const cosR = Math.cos(rot);
     const sinR = Math.sin(rot);
@@ -187,10 +196,7 @@ export function applyDrag(
     function unrotate(x: number, y: number): [number, number] {
       const px = x - mcx;
       const py = y - mcy;
-      return [
-        mcx + px * cosR - py * sinR,
-        mcy + px * sinR + py * cosR,
-      ];
+      return [mcx + px * cosR - py * sinR, mcy + px * sinR + py * cosR];
     }
 
     const [ax, ay] = unrotate(anchorX, anchorY);
@@ -214,7 +220,7 @@ export function applyDrag(
       const cy = entity.points.reduce((s, p) => s + p.y, 0) / entity.points.length;
       const dx = newPoint[0] - cx;
       const dy = newPoint[1] - cy;
-      const points = entity.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+      const points = entity.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
       return { ...entity, points };
     }
     const points = [...entity.points];
@@ -226,8 +232,12 @@ export function applyDrag(
   // Apollo 实体
   if (!DRAWING_TYPES.has(entity.entityType)) {
     const apolloEntity = entity as ApolloEntity;
-    const source = (apolloEntity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
-    const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
+    const source = (apolloEntity as unknown as Record<string, unknown>)._source as
+      | SourceDrawInfo
+      | undefined;
+    const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as
+      | SourceRectInfo
+      | undefined;
 
     // ① 贝塞尔源：编辑锚点和控制柄，然后重新采样曲线
     if (source?.drawTool === 'drawBezier' && source.anchors) {
@@ -238,14 +248,24 @@ export function applyDrag(
         const dx = newPoint[0] - anchor.point.x;
         const dy = newPoint[1] - anchor.point.y;
         anchor.point = toGeoPoint(newPoint);
-        if (anchor.handleIn) anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
-        if (anchor.handleOut) anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
+        if (anchor.handleIn)
+          anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
+        if (anchor.handleOut)
+          anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
       } else if (pointType === 'handleOut') {
         anchor.handleOut = toGeoPoint(newPoint);
-        if (!altKey) anchor.handleIn = { x: 2 * anchor.point.x - newPoint[0], y: 2 * anchor.point.y - newPoint[1] };
+        if (!altKey)
+          anchor.handleIn = {
+            x: 2 * anchor.point.x - newPoint[0],
+            y: 2 * anchor.point.y - newPoint[1],
+          };
       } else if (pointType === 'handleIn') {
         anchor.handleIn = toGeoPoint(newPoint);
-        if (!altKey) anchor.handleOut = { x: 2 * anchor.point.x - newPoint[0], y: 2 * anchor.point.y - newPoint[1] };
+        if (!altKey)
+          anchor.handleOut = {
+            x: 2 * anchor.point.x - newPoint[0],
+            y: 2 * anchor.point.y - newPoint[1],
+          };
       }
       anchors[index] = anchor;
 
@@ -273,14 +293,22 @@ export function applyDrag(
       if (pointType === 'rotate') {
         const cx = (sourceRect.p1.x + sourceRect.p2.x) / 2;
         const cy = (sourceRect.p1.y + sourceRect.p2.y) / 2;
-        const cosLat = Math.cos(cy * Math.PI / 180);
+        const cosLat = Math.cos((cy * Math.PI) / 180);
         const dx = (newPoint[0] - cx) * cosLat;
         const dy = newPoint[1] - cy;
         const angle = Math.atan2(dx, dy);
-        const corners = rectCorners([sourceRect.p1.x, sourceRect.p1.y], [sourceRect.p2.x, sourceRect.p2.y], angle);
+        const corners = rectCorners(
+          [sourceRect.p1.x, sourceRect.p1.y],
+          [sourceRect.p2.x, sourceRect.p2.y],
+          angle,
+        );
         const pts = corners.map((c) => ({ x: c[0], y: c[1] }));
         const newRect: SourceRectInfo = { ...sourceRect, rotation: angle };
-        return { ...apolloEntity, polygon: { points: pts }, _sourceRect: newRect } as unknown as MapEntity;
+        return {
+          ...apolloEntity,
+          polygon: { points: pts },
+          _sourceRect: newRect,
+        } as unknown as MapEntity;
       }
       if (pointType === 'vertex') {
         // 角点拖拽：固定对角点，重新计算矩形
@@ -291,15 +319,18 @@ export function applyDrag(
         const anchor = corners[opIdx];
         const dragged = newPoint;
         const refLat = (anchor[1] + dragged[1]) / 2;
-        const cosLat = Math.cos(refLat * Math.PI / 180);
+        const cosLat = Math.cos((refLat * Math.PI) / 180);
         const rot = sourceRect.rotation;
-        const cosR = Math.cos(rot), sinR = Math.sin(rot);
+        const cosR = Math.cos(rot),
+          sinR = Math.sin(rot);
         const project = (pt: LngLat): [number, number] => [pt[0] * cosLat, pt[1]];
         const [anchorX, anchorY] = project(anchor);
         const [draggedX, draggedY] = project(dragged);
-        const mcx = (anchorX + draggedX) / 2, mcy = (anchorY + draggedY) / 2;
+        const mcx = (anchorX + draggedX) / 2,
+          mcy = (anchorY + draggedY) / 2;
         function unrotate(x: number, y: number): [number, number] {
-          const px = x - mcx, py = y - mcy;
+          const px = x - mcx,
+            py = y - mcy;
           return [mcx + px * cosR - py * sinR, mcy + px * sinR + py * cosR];
         }
         const [ax, ay] = unrotate(anchorX, anchorY);
@@ -309,7 +340,11 @@ export function applyDrag(
         const newRect: SourceRectInfo = { p1: newP1, p2: newP2, rotation: sourceRect.rotation };
         const newCorners = rectCorners([newP1.x, newP1.y], [newP2.x, newP2.y], sourceRect.rotation);
         const pts = newCorners.map((c) => ({ x: c[0], y: c[1] }));
-        return { ...apolloEntity, polygon: { points: pts }, _sourceRect: newRect } as unknown as MapEntity;
+        return {
+          ...apolloEntity,
+          polygon: { points: pts },
+          _sourceRect: newRect,
+        } as unknown as MapEntity;
       }
       if (pointType === 'center') {
         // 整体移动：同步 _sourceRect，确保旋转把手随实体一起移动
@@ -322,9 +357,17 @@ export function applyDrag(
           p2: { x: sourceRect.p2.x + dx, y: sourceRect.p2.y + dy },
           rotation: sourceRect.rotation,
         };
-        const corners = rectCorners([newRect.p1.x, newRect.p1.y], [newRect.p2.x, newRect.p2.y], newRect.rotation);
+        const corners = rectCorners(
+          [newRect.p1.x, newRect.p1.y],
+          [newRect.p2.x, newRect.p2.y],
+          newRect.rotation,
+        );
         const pts = corners.map((c) => ({ x: c[0], y: c[1] }));
-        return { ...apolloEntity, polygon: { points: pts }, _sourceRect: newRect } as unknown as MapEntity;
+        return {
+          ...apolloEntity,
+          polygon: { points: pts },
+          _sourceRect: newRect,
+        } as unknown as MapEntity;
       }
     }
 
@@ -344,7 +387,9 @@ export function applyDrag(
 
 /** Alt+点击 Apollo 贝塞尔源实体的锚点：尖角 ↔ 平滑切换 */
 export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloEntity {
-  const source = (entity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+  const source = (entity as unknown as Record<string, unknown>)._source as
+    | SourceDrawInfo
+    | undefined;
   if (!source?.anchors) return entity;
 
   const anchors = source.anchors.map((a) => ({ ...a }));
@@ -357,15 +402,25 @@ export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloE
   } else {
     const prev = index > 0 ? anchors[index - 1] : null;
     const next = index < anchors.length - 1 ? anchors[index + 1] : null;
-    const px = anchor.point.x, py = anchor.point.y;
-    let dx = 0, dy = 0;
-    if (prev && next) { dx = next.point.x - prev.point.x; dy = next.point.y - prev.point.y; }
-    else if (next) { dx = next.point.x - px; dy = next.point.y - py; }
-    else if (prev) { dx = px - prev.point.x; dy = py - prev.point.y; }
+    const px = anchor.point.x,
+      py = anchor.point.y;
+    let dx = 0,
+      dy = 0;
+    if (prev && next) {
+      dx = next.point.x - prev.point.x;
+      dy = next.point.y - prev.point.y;
+    } else if (next) {
+      dx = next.point.x - px;
+      dy = next.point.y - py;
+    } else if (prev) {
+      dx = px - prev.point.x;
+      dy = py - prev.point.y;
+    }
     const len = Math.hypot(dx, dy);
     if (len > 0) {
-      const scale = (prev && next) ? len / 6 : len / 3;
-      const nx = dx / len, ny = dy / len;
+      const scale = prev && next ? len / 6 : len / 3;
+      const nx = dx / len,
+        ny = dy / len;
       anchor.handleOut = { x: px + nx * scale, y: py + ny * scale };
       anchor.handleIn = { x: px - nx * scale, y: py - ny * scale };
     }

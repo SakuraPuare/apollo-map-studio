@@ -1,12 +1,21 @@
 import type { MapEntity } from '@/types/entities';
 import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
-import { catmullRom, cubicBezier, threePointArc, rectCorners, rectRotateHandle } from '@/core/geometry/interpolate';
+import {
+  catmullRom,
+  cubicBezier,
+  threePointArc,
+  rectCorners,
+  rectRotateHandle,
+} from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
-import { getApolloEditPoints, isApolloAreaEntity } from '@/core/geometry/apolloCompile';
+import { getEditPoints, isAreaEntity } from '@/lib/entityOps';
 
-export function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
+export function lineFeature(
+  coords: LngLat[],
+  props: Record<string, unknown> = {},
+): GeoJSON.Feature {
   return {
     type: 'Feature',
     properties: { ...props },
@@ -14,7 +23,11 @@ export function lineFeature(coords: LngLat[], props: Record<string, unknown> = {
   };
 }
 
-export function pointFeature(coord: LngLat, role: string, props: Record<string, unknown> = {}): GeoJSON.Feature {
+export function pointFeature(
+  coord: LngLat,
+  role: string,
+  props: Record<string, unknown> = {},
+): GeoJSON.Feature {
   return {
     type: 'Feature',
     properties: { role, ...props },
@@ -30,10 +43,15 @@ export function handleLineFeature(from: LngLat, to: LngLat): GeoJSON.Feature {
   };
 }
 
-export function polygonFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
-  const ring = coords.length > 0 && (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
-    ? [...coords, coords[0]]
-    : coords;
+export function polygonFeature(
+  coords: LngLat[],
+  props: Record<string, unknown> = {},
+): GeoJSON.Feature {
+  const ring =
+    coords.length > 0 &&
+    (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])
+      ? [...coords, coords[0]]
+      : coords;
   return {
     type: 'Feature',
     properties: { ...props },
@@ -90,11 +108,15 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     const coords = pointsToCoords(entity.points);
     features.push(polygonFeature(coords));
     coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
-    } else {
-      // Apollo 实体
-      const apolloEntity = entity as ApolloEntity;
-      const source = (apolloEntity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
-      const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
+  } else {
+    // Apollo 实体
+    const apolloEntity = entity as ApolloEntity;
+    const source = (apolloEntity as unknown as Record<string, unknown>)._source as
+      | SourceDrawInfo
+      | undefined;
+    const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as
+      | SourceRectInfo
+      | undefined;
 
     // ① 有贝塞尔源：以贝塞尔模式编辑（含控制柄）
     if (source?.drawTool === 'drawBezier' && source.anchors) {
@@ -117,7 +139,9 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     // ② 有圆弧源：三点编辑
     if (source?.drawTool === 'drawArc' && source.arcPoints) {
       const [s, m, e] = source.arcPoints;
-      const p1 = toLngLat(s), p2 = toLngLat(m), p3 = toLngLat(e);
+      const p1 = toLngLat(s),
+        p2 = toLngLat(m),
+        p3 = toLngLat(e);
       features.push(lineFeature(threePointArc(p1, p2, p3)));
       features.push(pointFeature(p1, 'vertex', { index: 0 }));
       features.push(pointFeature(p2, 'vertex', { index: 1 }));
@@ -142,11 +166,11 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     }
 
     // ④ 通用 Apollo 编辑：顶点编辑
-    const editPoints = getApolloEditPoints(apolloEntity);
-    const coords = editPoints.map(toLngLat);
+    const editPoints = getEditPoints(apolloEntity);
+    const coords = editPoints.map((p) => [p.x, p.y] as LngLat);
 
     if (coords.length >= 2) {
-      if (isApolloAreaEntity(apolloEntity)) {
+      if (isAreaEntity(apolloEntity)) {
         features.push(polygonFeature(coords));
       } else {
         features.push(lineFeature(coords));

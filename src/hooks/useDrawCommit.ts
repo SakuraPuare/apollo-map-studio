@@ -3,14 +3,21 @@ import { nanoid } from 'nanoid';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
-import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity, RectEntity, PolygonEntity } from '@/types/entities';
+import type {
+  PolylineEntity,
+  CatmullRomEntity,
+  BezierEntity,
+  ArcEntity,
+  RectEntity,
+  PolygonEntity,
+} from '@/types/entities';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
 import { useMapStore } from '@/store/mapStore';
 import type { MapElementType } from '@/core/elements';
-import { createApolloEntity } from '@/core/geometry/apolloCompile';
+import { createEntity as createApolloEntity } from '@/lib/entityOps';
 import { useSettingsStore } from '@/store/settingsStore';
 
 function commitEntity(
