@@ -1,9 +1,11 @@
 /**
  * Spatial Worker
- * 维护 RBush 空间索引 + GeoJSON 编译缓存，处理 hitTest
+ * 维护 RBush 空间索引 + GeoJSON 编译缓存，处理 hitTest，
+ * 增量重算 lane junction stitching + 缓存 boundary decoration。
  */
 import RBush from 'rbush';
 import type { MapEntity } from '@/types/entities';
+import type { LaneEntity } from '@/types/apollo';
 import type { WorkerRequest, WorkerResponse, HitResult } from './protocol';
 import {
   compileColdFeatures,
@@ -12,6 +14,7 @@ import {
   isAreaEntity,
 } from '@/core/geometry/compile';
 import { applyLaneJunctions } from '@/core/geometry/laneJunctions';
+import { LaneJunctionGraph, laneEndpointKeys } from './laneJunctionGraph';
 import { pointToPolylineDistGeo, pointToPolygonDistGeo } from '@/core/geometry/hitTest';
 import type { LngLat } from '@/core/geometry/interpolate';
 
@@ -28,14 +31,18 @@ interface SpatialItem {
 const tree = new RBush<SpatialItem>();
 const entityMap = new Map<string, MapEntity>();
 const itemMap = new Map<string, SpatialItem>();
-// Per-entity feature cache: compileColdFeatures output is memoized so that
-// changing entity X doesn't re-compile entities Y and Z. Originally added
-// before the Phase 7 audit discovered it — see docs below for the bits still
-// unfinished.
+// Per-entity feature cache: compileColdFeatures output is memoized per ID
+// so editing entity X doesn't recompile Y/Z.
 const featureCache = new Map<string, GeoJSON.Feature[]>();
-// Running count of lane entities so the hot path can short-circuit
-// `applyLaneJunctions` when a scene has none. The stitching call is only
-// useful when 2+ lanes share endpoints.
+// Per-lane decoration cache (Phase E): decorateBoundary is the dominant cost
+// of buildFeatureCollection (~3ms × N), so caching unaffected lanes' decoration
+// turns a 100-lane edit from ~300ms into ~9ms (3 affected × 3ms). Invalidated
+// per-lane in insert/removeEntity, refreshed only for affected lanes in
+// buildFeatureCollection's INCREMENTAL path.
+const decorationCache = new Map<string, GeoJSON.Feature[]>();
+// Endpoint dependency graph for affected-set computation. See laneJunctionGraph.ts.
+const junctionGraph = new LaneJunctionGraph();
+// Running count of lane entities for the no-stitching fast path.
 let laneCount = 0;
 
 // --- 索引操作 ---
@@ -54,7 +61,13 @@ function insertEntity(entity: MapEntity) {
   itemMap.set(entity.id, item);
   tree.insert(item);
   featureCache.set(entity.id, compileColdFeatures(entity));
-  if (entity.entityType === 'lane') laneCount++;
+  if (entity.entityType === 'lane') {
+    laneCount++;
+    const keys = laneEndpointKeys(entity as LaneEntity);
+    if (keys) junctionGraph.addLane(entity.id, keys);
+    // Invalidate cached decoration; will be re-computed on next stitch.
+    decorationCache.delete(entity.id);
+  }
 }
 
 function removeEntity(id: string) {
@@ -66,28 +79,76 @@ function removeEntity(id: string) {
   }
   entityMap.delete(id);
   featureCache.delete(id);
-  if (entity?.entityType === 'lane') laneCount = Math.max(0, laneCount - 1);
+  if (entity?.entityType === 'lane') {
+    laneCount = Math.max(0, laneCount - 1);
+    junctionGraph.removeLane(id);
+    decorationCache.delete(id);
+  }
 }
 
-function buildFeatureCollection(excludeId?: string | null): GeoJSON.FeatureCollection {
-  const features: GeoJSON.Feature[] = [];
+/**
+ * Build the feature collection.
+ *
+ * - SYNC path (affectedLaneIds = null): full rebuild — clears decorationCache,
+ *   re-decorates every lane.
+ * - INCREMENTAL path (affectedLaneIds = non-null): only re-decorates the
+ *   affected lanes; cached decoration for the rest is merged into the result.
+ *
+ * Junction stitching itself always runs over all lanes — it's cheap and
+ * idempotent (non-affected lanes get the same join values back). The savings
+ * is on boundary decoration, which is the dominant cost.
+ */
+function buildFeatureCollection(
+  excludeId?: string | null,
+  affectedLaneIds?: Set<string> | null,
+): GeoJSON.FeatureCollection {
+  const inputFeatures: GeoJSON.Feature[] = [];
   for (const [id, cached] of featureCache) {
     if (id === excludeId) continue;
-    features.push(...cached);
+    inputFeatures.push(...cached);
   }
-  // Fast path: no lanes → no junctions possible → skip the O(lanes) stitch.
-  // This matches the 90% case for scenes made of polylines, polygons, and
-  // signals (non-road-network editing). Future work: partial incremental
-  // stitch when only a single lane changes — left for a follow-up sprint
-  // because it requires tracking a per-lane endpoint dependency graph and
-  // a consistency test against the full-rebuild oracle.
+
+  // Fast path: no lanes → no junctions possible → skip the stitching pass.
   if (laneCount < 2) {
-    return { type: 'FeatureCollection', features };
+    decorationCache.clear();
+    return { type: 'FeatureCollection', features: inputFeatures };
   }
-  return {
-    type: 'FeatureCollection',
-    features: applyLaneJunctions(features, entityMap.values(), excludeId),
-  };
+
+  const isIncremental = affectedLaneIds != null && affectedLaneIds.size > 0;
+  const decorateOnly = isIncremental ? affectedLaneIds : null;
+
+  const stitched = applyLaneJunctions(inputFeatures, entityMap.values(), excludeId, decorateOnly);
+
+  // Refresh decorationCache for the affected lanes.
+  if (isIncremental) {
+    for (const id of affectedLaneIds!) decorationCache.delete(id);
+  } else {
+    decorationCache.clear();
+  }
+  for (const f of stitched) {
+    if (f.properties?.role !== 'laneBoundaryDecor') continue;
+    const id = f.properties?.id;
+    if (typeof id !== 'string') continue;
+    if (isIncremental && !affectedLaneIds!.has(id)) continue;
+    let bucket = decorationCache.get(id);
+    if (!bucket) {
+      bucket = [];
+      decorationCache.set(id, bucket);
+    }
+    bucket.push(f);
+  }
+
+  // For incremental builds, merge in cached decoration for non-affected lanes.
+  // Their edges weren't modified (no junction at their endpoints was touched),
+  // so the cached decoration is still valid.
+  if (isIncremental) {
+    for (const [id, decoration] of decorationCache) {
+      if (affectedLaneIds!.has(id)) continue;
+      stitched.push(...decoration);
+    }
+  }
+
+  return { type: 'FeatureCollection', features: stitched };
 }
 
 // --- hitTest ---
@@ -177,6 +238,8 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
       entityMap.clear();
       itemMap.clear();
       featureCache.clear();
+      decorationCache.clear();
+      junctionGraph.clear();
       laneCount = 0;
       // Phase 8: two-pass SYNC. First pass collects bbox items + compiles
       // features without touching the RBush tree. Second pass uses
@@ -198,7 +261,11 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
         itemMap.set(entity.id, item);
         items.push(item);
         featureCache.set(entity.id, compileColdFeatures(entity));
-        if (entity.entityType === 'lane') laneCount++;
+        if (entity.entityType === 'lane') {
+          laneCount++;
+          const keys = laneEndpointKeys(entity as LaneEntity);
+          if (keys) junctionGraph.addLane(entity.id, keys);
+        }
       }
       tree.load(items);
       respond({
@@ -210,20 +277,58 @@ self.onmessage = (e: MessageEvent<WorkerRequest>) => {
     }
 
     case 'INCREMENTAL': {
+      // Phase E: incremental decoration. Compute the affected lane set as
+      //   pre-update dependents ∪ changed lanes ∪ post-update dependents
+      // and pass it to buildFeatureCollection so only those lanes get their
+      // decoration recomputed; non-affected lanes serve from decorationCache.
+
+      const affected = new Set<string>();
+
+      // Step 1: capture pre-update dependents (lanes that share an endpoint
+      // with a removed/updated lane will see their join positions change).
       for (const id of req.removed) {
-        removeEntity(id);
+        const entity = entityMap.get(id);
+        if (entity?.entityType === 'lane') {
+          affected.add(id);
+          for (const dep of junctionGraph.getDependents(id)) affected.add(dep);
+        }
       }
+      for (const entity of req.updated) {
+        if (entity.entityType === 'lane') {
+          affected.add(entity.id);
+          for (const dep of junctionGraph.getDependents(entity.id)) affected.add(dep);
+        }
+      }
+
+      // Step 2: apply mutations.
+      for (const id of req.removed) removeEntity(id);
       for (const entity of req.updated) {
         removeEntity(entity.id);
         insertEntity(entity);
       }
-      for (const entity of req.added) {
-        insertEntity(entity);
+      for (const entity of req.added) insertEntity(entity);
+
+      // Step 3: capture post-update dependents (newly-formed junctions touch
+      // existing lanes that we now share endpoints with).
+      for (const entity of req.updated) {
+        if (entity.entityType === 'lane') {
+          for (const dep of junctionGraph.getDependents(entity.id)) affected.add(dep);
+        }
       }
+      for (const entity of req.added) {
+        if (entity.entityType === 'lane') {
+          affected.add(entity.id);
+          for (const dep of junctionGraph.getDependents(entity.id)) affected.add(dep);
+        }
+      }
+
       respond({
         type: 'COLD_READY',
         requestId: req.requestId,
-        featureCollection: buildFeatureCollection(req.excludeId),
+        featureCollection: buildFeatureCollection(
+          req.excludeId,
+          affected.size > 0 ? affected : null,
+        ),
       });
       break;
     }
