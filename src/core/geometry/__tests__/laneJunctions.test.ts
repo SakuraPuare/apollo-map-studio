@@ -313,3 +313,60 @@ describe('applyLaneJunctions', () => {
     expect(leftDecor[1].properties?.dotted).toBe(true);
   });
 });
+
+describe('applyLaneJunctions — decorateOnly (incremental cache support)', () => {
+  function makeLanePair(): { laneA: LaneEntity; laneB: LaneEntity } {
+    const junction = pt(116.001, LAT);
+    const laneA = makeLane('laneA', [
+      [116.001 - 100 / mPerLng, LAT],
+      [junction.x, junction.y],
+    ]);
+    const laneB = makeLane('laneB', [
+      [junction.x, junction.y],
+      [junction.x, LAT - 100 / mPerLat],
+    ]);
+    laneA.leftBoundary.boundaryType = [{ s: 0, types: ['SOLID_YELLOW'] }];
+    laneA.rightBoundary.boundaryType = [{ s: 0, types: ['SOLID_WHITE'] }];
+    laneB.leftBoundary.boundaryType = [{ s: 0, types: ['SOLID_YELLOW'] }];
+    laneB.rightBoundary.boundaryType = [{ s: 0, types: ['SOLID_WHITE'] }];
+    return { laneA, laneB };
+  }
+
+  it('decorateOnly=undefined decorates every lane (back-compat)', () => {
+    const { laneA, laneB } = makeLanePair();
+    const features = stitch([laneA, laneB]);
+    expect(laneDecorLines(features, 'laneA', 'left').length).toBeGreaterThan(0);
+    expect(laneDecorLines(features, 'laneB', 'left').length).toBeGreaterThan(0);
+  });
+
+  it('decorateOnly={laneA} decorates only laneA, leaving laneB undecorated', () => {
+    const { laneA, laneB } = makeLanePair();
+    const input = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const result = applyLaneJunctions([...input], [laneA, laneB], null, new Set(['laneA']));
+    expect(laneDecorLines(result, 'laneA', 'left').length).toBeGreaterThan(0);
+    expect(laneDecorLines(result, 'laneA', 'right').length).toBeGreaterThan(0);
+    expect(laneDecorLines(result, 'laneB', 'left').length).toBe(0);
+    expect(laneDecorLines(result, 'laneB', 'right').length).toBe(0);
+  });
+
+  it('decorateOnly=empty set produces zero new decoration', () => {
+    const { laneA, laneB } = makeLanePair();
+    const input = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const result = applyLaneJunctions([...input], [laneA, laneB], null, new Set());
+    expect(laneDecorLines(result, 'laneA', 'left').length).toBe(0);
+    expect(laneDecorLines(result, 'laneB', 'left').length).toBe(0);
+  });
+
+  it('decorateOnly does not affect junction stitching — both edges still join', () => {
+    const { laneA, laneB } = makeLanePair();
+    const input = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const result = applyLaneJunctions([...input], [laneA, laneB], null, new Set(['laneA']));
+    const rightA = laneLine(result, 'laneA', 'laneEdgeRight');
+    const rightB = laneLine(result, 'laneB', 'laneEdgeRight');
+    const joinA = rightA.geometry.coordinates[rightA.geometry.coordinates.length - 1] as LngLat;
+    const joinB = rightB.geometry.coordinates[0] as LngLat;
+    // Junction stitching is global — laneB's edge is still pulled to the join.
+    expect(joinA[0]).toBeCloseTo(joinB[0], 10);
+    expect(joinA[1]).toBeCloseTo(joinB[1], 10);
+  });
+});

@@ -422,6 +422,7 @@ export function applyLaneJunctions(
   features: GeoJSON.Feature[],
   entities: Iterable<MapEntity>,
   excludeId?: string | null,
+  decorateOnly?: Set<string> | null,
 ): GeoJSON.Feature[] {
   const result = features.map(cloneFeature);
   const featureMap = buildLaneFeatureMap(result);
@@ -468,9 +469,16 @@ export function applyLaneJunctions(
 
     const junctions: Array<{ pt: GeoPoint; a: LaneEndpoint; b: LaneEndpoint }> = [];
     for (const endpoints of endpointIndex.values()) {
-      const unique = endpoints.filter(
-        (endpoint, index, arr) => arr.findIndex((item) => item.id === endpoint.id) === index,
-      );
+      // Single-pass dedup: O(K) instead of O(K²) filter+findIndex.
+      // Defensive against pathological junctions where many endpoints share
+      // a key (would have made the original filter quadratic per group).
+      const seen = new Set<string>();
+      const unique: LaneEndpoint[] = [];
+      for (const endpoint of endpoints) {
+        if (seen.has(endpoint.id)) continue;
+        seen.add(endpoint.id);
+        unique.push(endpoint);
+      }
       if (unique.length !== 2) continue;
       const a = unique[0];
       const b = unique[1];
@@ -514,6 +522,11 @@ export function applyLaneJunctions(
   }
 
   for (const [id, refs] of featureMap) {
+    // Incremental cache support: when the worker passes a `decorateOnly` set,
+    // we only re-decorate those lanes. Unaffected lanes' decoration is
+    // preserved in the worker's per-lane decorationCache and merged back into
+    // the response. See spatial.worker.ts.
+    if (decorateOnly && !decorateOnly.has(id)) continue;
     const lane = laneMap.get(id);
     if (!lane) continue;
     result.push(...decorateBoundary(lane, 'left', refs.left));
