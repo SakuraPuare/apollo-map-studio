@@ -12,7 +12,7 @@ import {
   isAreaEntity,
 } from '@/core/geometry/compile';
 import { applyLaneJunctions } from '@/core/geometry/laneJunctions';
-import { pointToPolylineDist, pointToPolygonDist } from '@/core/geometry/hitTest';
+import { pointToPolylineDistGeo, pointToPolygonDistGeo } from '@/core/geometry/hitTest';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 interface SpatialItem {
@@ -92,14 +92,48 @@ function buildFeatureCollection(excludeId?: string | null): GeoJSON.FeatureColle
 
 // --- hitTest ---
 
+/**
+ * R4 fix: 高纬度 + 高 zoom 下 hitTest 选中错误元素的修复。
+ *
+ * 量纲事实（Web Mercator, 方形像素）：
+ *   - 每像素 lng 度数 r_lng = px * 360 / (512 * 2^z)  —— 与 lat 无关
+ *   - 每像素 lat 度数 r_lat = r_lng * cos(lat)        —— 高纬度方向变小
+ *   - 两者对应的物理长度（米）相等 = r_lng * 111320 * cos(lat)
+ *
+ * 根因：旧实现把 (lng,lat) 当同量纲欧氏：
+ *   - RBush bbox 的 minY/maxY 用 r（= lng 度数）当作 lat 方向半径，
+ *     结果 bbox 在 lat 方向被撑得过大 cos(lat) 倍的倒数，误捞候选（不致命）
+ *   - pointToPolylineDist 直接用度数欧氏：一条纯东西向 lane 的 lat 法向
+ *     Δlat 和一条纯南北向 lane 的 lng 法向 Δlng 被当同量纲 —— 同一物理距离下
+ *     Δlat 比 Δlng 小 cos(lat) 倍，导致 EW 被算得比真实 "度数距离" 偏小，
+ *     在高 zoom 局部尺度下 1/cos(lat) 的 ~30% 误差足以翻转排序或让 radius
+ *     阈值过滤失效（点不中）。
+ *
+ * 修复：worker 自己从 point[1] 读 midLat，算 cosLat，做两件事：
+ *   1. RBush bbox 用真实椭圆外接矩形：
+ *        minX/maxX ± r  （lng 方向不变）
+ *        minY/maxY ± r*cosLat  （lat 方向按每像素实际度数收紧）
+ *      这 **收紧** 了旧实现的过宽 bbox，同时在 lng 方向保持全召回
+ *      （半径圆在 Mercator 下的 lat-范围最大值 = r*cosLat）
+ *   2. 距离判定调用 pointToPolyline/PolygonDistGeo，把 Δlat 乘 (1/cosLat)
+ *      转到 "等效 lng 度空间"，返回值量纲 = lng 度数，可直接与 r 比较
+ *
+ * 协议未改动：point[1] 已带 lat，worker 自算 cosLat 比 caller 加字段更干净。
+ */
 function hitTest(point: [number, number], radius: number): HitResult[] {
   const [px, py] = point;
   const r = Math.abs(radius);
+
+  // 纬度补偿因子：在赤道为 1，在 ±90° 为 0。
+  // clamp 到 [1e-6, 1] 避免极地除零。
+  const cosLat = Math.max(Math.cos((py * Math.PI) / 180), 1e-6);
+  const rLat = r * cosLat;
+
   const candidates = tree.search({
     minX: px - r,
-    minY: py - r,
+    minY: py - rLat,
     maxX: px + r,
-    maxY: py + r,
+    maxY: py + rLat,
   });
 
   const results: HitResult[] = [];
@@ -113,9 +147,9 @@ function hitTest(point: [number, number], radius: number): HitResult[] {
     let distance: number;
 
     if (isAreaEntity(entity)) {
-      distance = pointToPolygonDist(lngLat, coords);
+      distance = pointToPolygonDistGeo(lngLat, coords, cosLat);
     } else {
-      distance = pointToPolylineDist(lngLat, coords);
+      distance = pointToPolylineDistGeo(lngLat, coords, cosLat);
     }
 
     if (distance <= r) {
