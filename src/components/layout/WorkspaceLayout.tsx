@@ -17,6 +17,7 @@ import { SettingsPanel } from './panels/SettingsPanel';
 import { EntityForm } from './panels/InspectorForms';
 import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore } from '@/store/mapStore';
+import { useUIStore, type AppMode } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
 import { useActionDispatcher } from '@/core/actions/useActionDispatcher';
 
@@ -105,35 +106,43 @@ const components = {
 
 // ─── Layout Persistence ─────────────────────────────────
 
-const LAYOUT_KEY = 'ams-layout-v2';
+// Per-mode layout keys so drawing and scene layouts don't clobber each other.
+const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
+  drawing: 'ams-layout-v2-drawing',
+  scene: 'ams-layout-v2-scene',
+};
 
-function saveLayout(api: DockviewApi) {
+function saveLayout(api: DockviewApi, mode: AppMode) {
   try {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(api.toJSON()));
+    localStorage.setItem(LAYOUT_KEY_BY_MODE[mode], JSON.stringify(api.toJSON()));
   } catch { /* ignore */ }
 }
 
-function loadLayout(api: DockviewApi): boolean {
+function loadLayout(api: DockviewApi, mode: AppMode): boolean {
   try {
-    const saved = localStorage.getItem(LAYOUT_KEY);
+    const saved = localStorage.getItem(LAYOUT_KEY_BY_MODE[mode]);
     if (saved) {
       api.fromJSON(JSON.parse(saved));
       return true;
     }
   } catch {
-    localStorage.removeItem(LAYOUT_KEY);
+    localStorage.removeItem(LAYOUT_KEY_BY_MODE[mode]);
   }
   return false;
 }
 
-function createDefaultLayout(api: DockviewApi) {
+function createDefaultLayout(api: DockviewApi, mode: AppMode) {
   const mapPanel = api.addPanel({ id: 'map', component: 'map', title: 'Map Editor' });
   api.addPanel({ id: 'layers', component: 'layers', title: 'Layers', position: { referencePanel: mapPanel, direction: 'left' } });
   api.addPanel({ id: 'inspector', component: 'inspector', title: 'Inspector', position: { referencePanel: mapPanel, direction: 'right' } });
-  api.addPanel({ id: 'timeline', component: 'timeline', title: 'Timeline', position: { referencePanel: mapPanel, direction: 'below' } });
   api.getPanel('layers')?.api.setSize({ width: 220 });
   api.getPanel('inspector')?.api.setSize({ width: 280 });
-  api.getPanel('timeline')?.api.setSize({ height: 180 });
+
+  // Timeline only shows in scene mode — drawing mode keeps the map full-height.
+  if (mode === 'scene') {
+    api.addPanel({ id: 'timeline', component: 'timeline', title: 'Timeline', position: { referencePanel: mapPanel, direction: 'below' } });
+    api.getPanel('timeline')?.api.setSize({ height: 180 });
+  }
 }
 
 // ─── Inner Layout ─────────────────────────────────────────
@@ -143,20 +152,21 @@ function WorkspaceLayoutInner() {
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
   const entityCount = useMapStore((s) => s.entities.size);
+  const appMode = useUIStore((s) => s.appMode);
 
   const [activeTab, setActiveTab] = useState<ActivityTab>('layers');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
 
-  // Reset layout handler (needs apiRef)
+  // Reset layout handler (needs apiRef + current mode)
   const handleResetLayout = useCallback(() => {
     if (apiRef.current) {
-      localStorage.removeItem(LAYOUT_KEY);
+      localStorage.removeItem(LAYOUT_KEY_BY_MODE[appMode]);
       apiRef.current.clear();
-      createDefaultLayout(apiRef.current);
+      createDefaultLayout(apiRef.current, appMode);
     }
-  }, []);
+  }, [appMode]);
 
   // Action dispatcher — single source of all action handling + keyboard shortcuts
   const { execute, getToggleState } = useActionDispatcher({
@@ -171,14 +181,15 @@ function WorkspaceLayoutInner() {
     actorRef.send({ type: 'SELECT_TOOL', tool, element });
   }, [actorRef]);
 
-  // Dockview ready
+  // Dockview ready — closure captures the current appMode, and since we key the
+  // Dockview on appMode a new instance re-runs this with the fresh mode.
   const onReady = useCallback((event: DockviewReadyEvent) => {
     apiRef.current = event.api;
-    if (!loadLayout(event.api)) {
-      createDefaultLayout(event.api);
+    if (!loadLayout(event.api, appMode)) {
+      createDefaultLayout(event.api, appMode);
     }
-    event.api.onDidLayoutChange(() => saveLayout(event.api));
-  }, []);
+    event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
+  }, [appMode]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
@@ -198,6 +209,7 @@ function WorkspaceLayoutInner() {
         <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} />
         <div className="flex-1">
           <DockviewReact
+            key={appMode}
             components={components}
             onReady={onReady}
             className="dockview-theme-dark"

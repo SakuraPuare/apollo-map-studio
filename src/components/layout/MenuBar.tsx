@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { getMenuActions, getMenuNames, type ActionDef } from '@/core/actions/registry';
+import { useUIStore, type AppMode } from '@/store/uiStore';
 
 // ─── Single Menu ───────────────────────────────────────────
 
@@ -88,6 +89,42 @@ export interface MenuBarProps {
   getToggleState: (actionId: string) => boolean;
 }
 
+// ─── Mode Toggle ───────────────────────────────────────────
+
+function ModeToggle() {
+  const appMode = useUIStore((s) => s.appMode);
+  const setAppMode = useUIStore((s) => s.setAppMode);
+
+  const makeBtnClass = (mode: AppMode) =>
+    `px-3 py-1 text-[11px] font-medium transition-colors ${
+      appMode === mode
+        ? 'bg-cyan-500/20 text-cyan-300'
+        : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+    }`;
+
+  return (
+    <div className="flex items-center rounded border border-white/10 overflow-hidden mr-2">
+      <button
+        type="button"
+        onClick={() => setAppMode('drawing')}
+        className={makeBtnClass('drawing')}
+        title="绘图模式 — Drawing Mode"
+      >
+        绘图
+      </button>
+      <div className="w-px h-4 bg-white/10" />
+      <button
+        type="button"
+        onClick={() => setAppMode('scene')}
+        className={makeBtnClass('scene')}
+        title="场景模式 — Scene Mode"
+      >
+        场景
+      </button>
+    </div>
+  );
+}
+
 export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
 
@@ -118,6 +155,9 @@ export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
       </div>
 
       <div className="flex-1" />
+
+      {/* App mode segmented toggle */}
+      <ModeToggle />
     </div>
   );
 }

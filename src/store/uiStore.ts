@@ -18,7 +18,12 @@ interface LayerState {
 
 // ─── UI State ───────────────────────────────────────────────
 
+export type AppMode = 'drawing' | 'scene';
+
 interface UIState {
+  // App mode — drawing (绘图模式) vs scene (场景模式)
+  appMode: AppMode;
+
   // Grid & Snap
   gridEnabled: boolean;
   snapEnabled: boolean;
@@ -35,6 +40,9 @@ interface UIState {
 }
 
 interface UIActions {
+  setAppMode(mode: AppMode): void;
+  toggleAppMode(): void;
+
   toggleGrid(): void;
   toggleSnap(): void;
 
@@ -60,12 +68,20 @@ for (const type of ENTITY_TYPES) {
 }
 
 export const useUIStore = create<UIStore>()((set, get) => ({
+  appMode: 'drawing',
   gridEnabled: false,
   snapEnabled: false,
   layerStates: defaultLayerStates,
   cursorLngLat: null,
   currentZoom: 18,
   sidebarVisible: true,
+
+  setAppMode(mode) {
+    set({ appMode: mode });
+  },
+  toggleAppMode() {
+    set((s) => ({ appMode: s.appMode === 'drawing' ? 'scene' : 'drawing' }));
+  },
 
   toggleGrid() {
     set((s) => ({ gridEnabled: !s.gridEnabled }));

@@ -8,9 +8,9 @@ import type { MapElementType } from '@/core/elements';
 
 export type { DragPointType } from '@/types/editor';
 
-export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRect' | 'drawPolygon';
+export type DrawTool = 'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRect' | 'drawRotatedRect' | 'drawPolygon';
 
-const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc', 'drawRect', 'drawPolygon'];
+const DRAW_STATES: readonly string[] = ['drawPolyline', 'drawCatmullRom', 'drawBezier', 'drawArc', 'drawRect', 'drawRotatedRect', 'drawPolygon'];
 
 /** 判断 FSM state value 是否为绘制状态 */
 export function isDrawingState(state: string): boolean {
@@ -24,6 +24,7 @@ const selectToolTransitions = [
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawBezier', target: 'drawBezier' as const, actions: ['resetDraw'] as const },
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawArc', target: 'drawArc' as const, actions: ['resetDraw'] as const },
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawRect', target: 'drawRect' as const, actions: ['resetDraw'] as const },
+  { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawRotatedRect', target: 'drawRotatedRect' as const, actions: ['resetDraw'] as const },
   { guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === 'drawPolygon', target: 'drawPolygon' as const, actions: ['resetDraw'] as const },
 ];
 
@@ -199,6 +200,7 @@ export const editorMachine = setup({
     isDraggingHandle: ({ context }) => context.isDraggingHandle,
     arcComplete: ({ context }) => context.drawPoints.length === 2,
     rectComplete: ({ context }) => context.drawPoints.length === 1,
+    rotatedRectComplete: ({ context }) => context.drawPoints.length === 2,
     polygonNoSelfIntersect: ({ context, event }) => {
       if (event.type !== 'MOUSE_DOWN') return false;
       return !wouldSelfIntersect(context.drawPoints, event.point);
@@ -345,6 +347,22 @@ export const editorMachine = setup({
         SELECT_TOOL: selectToolTransitions,
         MOUSE_DOWN: [
           { guard: 'rectComplete', target: 'idle', actions: 'addPoint' },
+          { actions: 'addPoint' },
+        ],
+        MOUSE_MOVE: { actions: 'updatePreview' },
+        CANCEL: { target: 'idle', actions: 'resetDraw' },
+      },
+    },
+
+    // 旋转矩形：3 次点击
+    //   click1 = 主轴起点
+    //   click2 = 主轴终点（决定长度 + 旋转角度）
+    //   click3 = 垂直方向宽度点（commit）
+    drawRotatedRect: {
+      on: {
+        SELECT_TOOL: selectToolTransitions,
+        MOUSE_DOWN: [
+          { guard: 'rotatedRectComplete', target: 'idle', actions: 'addPoint' },
           { actions: 'addPoint' },
         ],
         MOUSE_MOVE: { actions: 'updatePreview' },

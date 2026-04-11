@@ -257,6 +257,67 @@ export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[] 
 }
 
 /**
+ * 从 3 点计算可旋转矩形（轴起点 + 轴终点 + 垂直宽度点）
+ *  - click1 = 主轴起点
+ *  - click2 = 主轴终点（决定长度 + 旋转角度）
+ *  - click3 = 与主轴垂直方向上的宽度点
+ * 返回兼容 RectEntity (p1/p2/rotation) 以及 rectCorners 的两对角点 + 旋转弧度。
+ */
+export function rotatedRectFromPoints(
+  a: LngLat,
+  b: LngLat,
+  c: LngLat,
+): { p1: LngLat; p2: LngLat; rotation: number } {
+  const refLat = (a[1] + b[1]) / 2;
+  const cosLat = Math.cos(refLat * Math.PI / 180);
+
+  // 投影到近似等距空间
+  const ax = a[0] * cosLat, ay = a[1];
+  const bx = b[0] * cosLat, by = b[1];
+  const cx3 = c[0] * cosLat, cy3 = c[1];
+
+  // 主轴向量
+  const dx = bx - ax;
+  const dy = by - ay;
+  const axisLen = Math.hypot(dx, dy);
+  if (axisLen < 1e-12) {
+    // 退化：退回到 axis-aligned 1-point rect
+    return { p1: a, p2: c, rotation: 0 };
+  }
+  const ux = dx / axisLen;
+  const uy = dy / axisLen;
+  // 垂直单位向量（左手系）
+  const nx = -uy;
+  const ny = ux;
+
+  // 宽度：c 相对轴的垂直分量
+  const vx = cx3 - ax;
+  const vy = cy3 - ay;
+  const halfWidth = Math.abs(vx * nx + vy * ny);
+  const halfLen = axisLen / 2;
+
+  // 投影空间中心
+  const cxp = (ax + bx) / 2;
+  const cyp = (ay + by) / 2;
+
+  // 在「未旋转」局部坐标系中的轴对齐对角点（x 沿主轴、y 沿垂直）
+  // rectCorners 内部：先在投影空间画轴对齐 rect(p1,p2)，再绕中心旋转 -rotation。
+  // 我们希望旋转后主轴对齐于 (ux, uy)，等价于设定 rotation = -atan2(dy, dx)。
+  const rotation = -Math.atan2(dy, dx);
+
+  // 轴对齐空间中的对角点（投影空间）
+  const p1x = cxp - halfLen;
+  const p1y = cyp - halfWidth;
+  const p2x = cxp + halfLen;
+  const p2y = cyp + halfWidth;
+
+  // 反投影回 LngLat
+  const p1: LngLat = [p1x / cosLat, p1y];
+  const p2: LngLat = [p2x / cosLat, p2y];
+  return { p1, p2, rotation };
+}
+
+/**
  * 矩形旋转手柄位置：中心上方偏移一段距离
  */
 export function rectRotateHandle(p1: LngLat, p2: LngLat, rotation: number): LngLat {

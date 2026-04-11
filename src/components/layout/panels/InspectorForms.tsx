@@ -3,6 +3,7 @@ import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMapStore } from '@/store/mapStore';
 import { Input, Select, Section, Value } from '@/components/ui/form-fields';
+import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import {
   laneSchema, type LaneFormValues,
   laneTypeOptions, laneTurnOptions, laneDirectionOptions, boundaryTypeOptions,
@@ -14,8 +15,25 @@ import {
 import type {
   LaneEntity, JunctionEntity, ParkingSpaceEntity,
   SignalEntity, StopSignEntity,
+  LaneSampleAssociation,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
+
+// Apply a uniform width to all lane sample points, preserving existing `s` values.
+// If samples are empty, seed with two anchors at s=0 and s=length.
+function applySampleWidth(
+  samples: LaneSampleAssociation[],
+  width: number,
+  totalLength: number,
+): LaneSampleAssociation[] {
+  if (samples.length === 0) {
+    return [
+      { s: 0, width },
+      { s: Math.max(0, totalLength), width },
+    ];
+  }
+  return samples.map((sample) => ({ s: sample.s, width }));
+}
 
 // ─── Lane Form ─────────────────────────────────────────────
 
@@ -24,6 +42,8 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
 
   const leftType = entity.leftBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
   const rightType = entity.rightBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
+  const leftWidth = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
+  const rightWidth = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
 
   const methods = useForm<LaneFormValues>({
     resolver: zodResolver(laneSchema),
@@ -32,6 +52,8 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
       turn: entity.turn,
       direction: entity.direction,
       speedLimit: entity.speedLimit,
+      leftWidth,
+      rightWidth,
       leftBoundaryType: leftType,
       rightBoundaryType: rightType,
     },
@@ -44,6 +66,8 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
       turn: entity.turn,
       direction: entity.direction,
       speedLimit: entity.speedLimit,
+      leftWidth,
+      rightWidth,
       leftBoundaryType: leftType,
       rightBoundaryType: rightType,
     });
@@ -54,12 +78,18 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
     const subscription = methods.watch((value) => {
       if (!methods.formState.isValid) return;
 
+      const nextLeftWidth = value.leftWidth ?? leftWidth;
+      const nextRightWidth = value.rightWidth ?? rightWidth;
+      const totalLength = entity.length ?? 0;
+
       updateEntity(entity.id, {
         ...entity,
         type: value.type!,
         turn: value.turn!,
         direction: value.direction!,
         speedLimit: value.speedLimit!,
+        leftSamples: applySampleWidth(entity.leftSamples, nextLeftWidth, totalLength),
+        rightSamples: applySampleWidth(entity.rightSamples, nextRightWidth, totalLength),
         leftBoundary: {
           ...entity.leftBoundary,
           boundaryType: [{ s: 0, types: [value.leftBoundaryType!] }],
@@ -71,7 +101,7 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
       });
     });
     return () => subscription.unsubscribe();
-  }, [entity, methods, updateEntity]);
+  }, [entity, methods, updateEntity, leftWidth, rightWidth]);
 
   return (
     <FormProvider {...methods}>
@@ -84,6 +114,8 @@ function LaneForm({ entity }: { entity: LaneEntity }) {
         </Section>
 
         <Section title="Boundaries">
+          <Input name="leftWidth" label="左宽度 (m)" type="number" min={0.5} max={10} step={0.1} />
+          <Input name="rightWidth" label="右宽度 (m)" type="number" min={0.5} max={10} step={0.1} />
           <Select name="leftBoundaryType" label="Left" options={boundaryTypeOptions} />
           <Select name="rightBoundaryType" label="Right" options={boundaryTypeOptions} />
           <Value label="Length" value={`${entity.length.toFixed(2)} m`} />

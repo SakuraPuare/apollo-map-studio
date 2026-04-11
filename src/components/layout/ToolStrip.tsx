@@ -36,7 +36,7 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
       disabled={disabled}
       title={shortcut ? `${label} (${shortcut})` : label}
       className={clsx(
-        'relative h-7 px-2 flex items-center gap-1 rounded text-xs transition-all',
+        'relative h-7 px-2 flex items-center gap-1 rounded text-xs transition-all shrink-0',
         disabled && 'opacity-40 cursor-not-allowed',
         active
           ? 'bg-cyan-500/20 text-cyan-400 shadow-[inset_0_-2px_0_0_theme(colors.cyan.400)]'
@@ -48,46 +48,10 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
   );
 }
 
-// ─── Dropdown ──────────────────────────────────────────────
-
-interface DropdownProps {
-  trigger: React.ReactNode;
-  children: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
-function Dropdown({ trigger, children, open, onOpenChange }: DropdownProps) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOpenChange(false);
-      }
-    };
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open, onOpenChange]);
-
-  return (
-    <div ref={ref} className="relative">
-      <div onClick={() => onOpenChange(!open)}>{trigger}</div>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 py-1 min-w-[180px] bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Divider ───────────────────────────────────────────────
 
 function Divider() {
-  return <div className="w-px h-5 bg-white/10 mx-1" />;
+  return <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />;
 }
 
 // ─── Tool Icon Map ─────────────────────────────────────────
@@ -97,9 +61,74 @@ const TOOL_ICONS: Record<string, React.ElementType> = {
   drawCatmullRom: Spline,
   drawBezier: Spline,
   drawArc: Circle,
-  drawRect: Square,
+  drawRotatedRect: Square,
   drawPolygon: Hexagon,
 };
+
+// ─── Element Dropdown ──────────────────────────────────────
+
+interface ElementDropdownProps {
+  currentElement: MapElementType | null;
+  onSelect: (type: MapElementType) => void;
+}
+
+function ElementDropdown({ currentElement, onSelect }: ElementDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={clsx(
+          'h-7 px-2 flex items-center gap-1.5 rounded text-xs transition-all',
+          currentElement
+            ? 'bg-white/10 text-zinc-100 hover:bg-white/15'
+            : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+        )}
+      >
+        <span
+          className="w-2 h-2 rounded-full shrink-0"
+          style={{ backgroundColor: elementDef?.color ?? '#666' }}
+        />
+        <span className="whitespace-nowrap">{elementDef?.label ?? '选择元素'}</span>
+        <ChevronDown className={clsx('w-3 h-3 opacity-60 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 py-1 min-w-[140px] bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50">
+          {MAP_ELEMENTS.map((el) => (
+            <button
+              key={el.type}
+              onClick={() => {
+                onSelect(el.type);
+                setOpen(false);
+              }}
+              className={clsx(
+                'w-full px-3 py-1.5 flex items-center gap-2 text-xs text-left',
+                currentElement === el.type
+                  ? 'bg-cyan-500/20 text-cyan-400'
+                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
+              )}
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: el.color }} />
+              <span className="whitespace-nowrap">{el.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Main Component ────────────────────────────────────────
 
@@ -114,28 +143,19 @@ export function ToolStrip({
   const toggleGrid = useUIStore((s) => s.toggleGrid);
   const toggleSnap = useUIStore((s) => s.toggleSnap);
 
-  const [elementDropdownOpen, setElementDropdownOpen] = useState(false);
-  const [toolDropdownOpen, setToolDropdownOpen] = useState(false);
-
   const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
   const availableTools = elementDef
     ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool))
-    : ALL_DRAW_TOOLS;
+    : [];
 
-  const isDrawing = currentTool.startsWith('draw');
-  const currentToolDef = ALL_DRAW_TOOLS.find((t) => t.tool === currentTool);
-
-  // Handle element selection
   const handleElementSelect = (type: MapElementType) => {
     const def = ELEMENT_MAP.get(type)!;
     onSelectTool(def.defaultTool, type);
-    setElementDropdownOpen(false);
   };
 
-  // Handle tool selection
   const handleToolSelect = (tool: DrawTool) => {
-    onSelectTool(tool, currentElement ?? undefined);
-    setToolDropdownOpen(false);
+    if (!currentElement) return;
+    onSelectTool(tool, currentElement);
   };
 
   return (
@@ -157,115 +177,29 @@ export function ToolStrip({
 
       <Divider />
 
-      {/* Element Type Dropdown */}
-      <Dropdown
-        open={elementDropdownOpen}
-        onOpenChange={setElementDropdownOpen}
-        trigger={
-          <button
-            className={clsx(
-              'h-7 px-2 flex items-center gap-1.5 rounded text-xs transition-all',
-              currentElement
-                ? 'bg-white/10 text-zinc-200'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
-            )}
-          >
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: elementDef?.color || '#666' }}
-            />
-            <span>{elementDef?.label || 'Element'}</span>
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
-        }
-      >
-        {MAP_ELEMENTS.map((el) => (
-          <button
-            key={el.type}
-            onClick={() => handleElementSelect(el.type)}
-            className={clsx(
-              'w-full px-3 py-1.5 flex items-center gap-2 text-xs text-left',
-              currentElement === el.type
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
-            )}
-          >
-            <span
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: el.color }}
-            />
-            <span>{el.label}</span>
-          </button>
-        ))}
-      </Dropdown>
+      {/* 元素选择器（单个下拉按钮） */}
+      <ElementDropdown currentElement={currentElement} onSelect={handleElementSelect} />
 
       <Divider />
 
-      {/* Tool Dropdown */}
-      <Dropdown
-        open={toolDropdownOpen}
-        onOpenChange={setToolDropdownOpen}
-        trigger={
-          <button
-            className={clsx(
-              'h-7 px-2 flex items-center gap-1.5 rounded text-xs transition-all',
-              isDrawing
-                ? 'bg-cyan-500/20 text-cyan-400'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
-            )}
-          >
-            {currentToolDef ? (
-              <>
-                {(() => {
-                  const Icon = TOOL_ICONS[currentToolDef.tool] || Pencil;
-                  return <Icon className="w-4 h-4" />;
-                })()}
-                <span>{currentToolDef.label}</span>
-              </>
-            ) : (
-              <>
-                <Pencil className="w-4 h-4" />
-                <span>Draw Tool</span>
-              </>
-            )}
-            <ChevronDown className="w-3 h-3 opacity-60" />
-          </button>
-        }
-      >
-        {availableTools.map(({ tool, label }) => {
-          const Icon = TOOL_ICONS[tool] || Pencil;
-          return (
-            <button
-              key={tool}
-              onClick={() => handleToolSelect(tool)}
-              className={clsx(
-                'w-full px-3 py-1.5 flex items-center gap-2 text-xs text-left',
-                currentTool === tool
-                  ? 'bg-cyan-500/20 text-cyan-400'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10'
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{label}</span>
-            </button>
-          );
-        })}
-      </Dropdown>
-
-      {/* Quick tool buttons */}
-      <div className="flex items-center gap-0.5 ml-1">
-        {availableTools.slice(0, 4).map(({ tool, label }) => {
-          const Icon = TOOL_ICONS[tool] || Pencil;
-          return (
-            <ToolButton
-              key={tool}
-              icon={Icon}
-              label={label}
-              active={currentTool === tool}
-              onClick={() => handleToolSelect(tool)}
-            />
-          );
-        })}
+      {/* 当前元素对应的工具按钮（动态更新） */}
+      <div className="flex items-center gap-0.5">
+        {availableTools.length > 0 ? (
+          availableTools.map(({ tool, label }) => {
+            const Icon = TOOL_ICONS[tool] ?? Pencil;
+            return (
+              <ToolButton
+                key={tool}
+                icon={Icon}
+                label={`${elementDef?.label ?? ''} · ${label}`}
+                active={currentTool === tool}
+                onClick={() => handleToolSelect(tool)}
+              />
+            );
+          })
+        ) : (
+          <span className="text-[11px] text-zinc-600 px-1 whitespace-nowrap">先选元素</span>
+        )}
       </div>
 
       {/* Spacer */}
@@ -274,7 +208,7 @@ export function ToolStrip({
       {/* Command Palette */}
       <button
         onClick={onOpenCommandPalette}
-        className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
+        className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/10 shrink-0"
       >
         <Command className="w-3.5 h-3.5" />
         <kbd className="text-[10px] font-mono text-zinc-600">⌘K</kbd>

@@ -8,7 +8,7 @@ import {
   LANE_CENTER_LINE_WIDTH, LANE_CENTER_LINE_OPACITY,
 } from '@/config/mapConstants';
 import type { LngLat, BezierAnchor } from '@/core/geometry/interpolate';
-import { cubicBezier, threePointArc, catmullRom, rectCorners } from '@/core/geometry/interpolate';
+import { cubicBezier, threePointArc, catmullRom, rectCorners, rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { coordsToPoints, pointsToCoords, toLngLat, toGeoPoint } from '@/core/geometry/coords';
 import { elementColor } from '@/core/elements';
 import type { MapElementType } from '@/core/elements';
@@ -444,6 +444,10 @@ function extractLinePoints(draw: DrawResult): GeoPoint[] {
 
 function extractPolygonPoints(draw: DrawResult): GeoPoint[] {
   if (draw.drawTool === 'drawRect' && draw.points.length >= 2) return coordsToPoints(rectCorners(draw.points[0], draw.points[1], 0));
+  if (draw.drawTool === 'drawRotatedRect' && draw.points.length >= 3) {
+    const r = rotatedRectFromPoints(draw.points[0], draw.points[1], draw.points[2]);
+    return coordsToPoints(rectCorners(r.p1, r.p2, r.rotation));
+  }
   return coordsToPoints(draw.points);
 }
 
@@ -462,6 +466,10 @@ function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
 function buildRectInfo(d: DrawResult): import('@/types/apollo').SourceRectInfo | undefined {
   if (d.drawTool === 'drawRect' && d.points.length >= 2) {
     return { p1: toGeoPoint(d.points[0]), p2: toGeoPoint(d.points[1]), rotation: 0 };
+  }
+  if (d.drawTool === 'drawRotatedRect' && d.points.length >= 3) {
+    const r = rotatedRectFromPoints(d.points[0], d.points[1], d.points[2]);
+    return { p1: toGeoPoint(r.p1), p2: toGeoPoint(r.p2), rotation: r.rotation };
   }
   return undefined;
 }

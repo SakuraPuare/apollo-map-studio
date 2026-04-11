@@ -191,14 +191,14 @@ export const ACTION_DEFS: ActionDef[] = [
     drawTool: 'drawArc',
   },
   {
-    id: 'tool:drawRect',
+    id: 'tool:drawRotatedRect',
     label: 'Draw Rectangle',
     category: 'tool',
     shortcut: 'R',
     keybinding: { key: 'r' },
     icon: 'Square',
     inCommandPalette: true,
-    drawTool: 'drawRect',
+    drawTool: 'drawRotatedRect',
   },
   {
     id: 'tool:drawPolygon',

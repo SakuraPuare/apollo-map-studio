@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
-import { catmullRom, cubicBezier, threePointArc, rectCorners, type BezierAnchor } from '@/core/geometry/interpolate';
+import { catmullRom, cubicBezier, threePointArc, rectCorners, rotatedRectFromPoints, type BezierAnchor } from '@/core/geometry/interpolate';
 import { lineFeature, pointFeature, handleLineFeature, polygonFeature } from '@/components/map/geoJsonHelpers';
 import type { LngLat } from '@/core/geometry/interpolate';
 
@@ -76,6 +76,18 @@ function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[
     for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
     if (allPts.length === 2) {
       features.push(polygonFeature(rectCorners(allPts[0], allPts[1], 0)));
+    } else if (allPts.length === 1 && previewPoint) {
+      features.push(lineFeature([allPts[0], previewPoint]));
+    }
+  } else if (currentState === 'drawRotatedRect') {
+    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
+    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
+    if (allPts.length === 3) {
+      const r = rotatedRectFromPoints(allPts[0], allPts[1], allPts[2]);
+      features.push(polygonFeature(rectCorners(r.p1, r.p2, r.rotation)));
+    } else if (allPts.length === 2) {
+      // 显示主轴
+      features.push(lineFeature([allPts[0], allPts[1]]));
     } else if (allPts.length === 1 && previewPoint) {
       features.push(lineFeature([allPts[0], previewPoint]));
     }

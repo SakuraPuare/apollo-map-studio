@@ -159,9 +159,12 @@ describe('Action Registry', () => {
   // ── All draw tools are registered ───────────────────────
 
   it('all DrawTool types have a corresponding action', () => {
+    // drawRect was unified into drawRotatedRect (legacy project only had the
+    // rotatable rect tool); the axis-aligned FSM state still exists but is
+    // no longer user-reachable via action registry.
     const drawTools = [
       'drawPolyline', 'drawCatmullRom', 'drawBezier',
-      'drawArc', 'drawRect', 'drawPolygon',
+      'drawArc', 'drawRotatedRect', 'drawPolygon',
     ];
 
     for (const tool of drawTools) {

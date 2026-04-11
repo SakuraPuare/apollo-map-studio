@@ -78,7 +78,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('tool:drawPolyline', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolyline' as DrawTool }));
     map.set('tool:drawBezier', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawBezier' as DrawTool }));
     map.set('tool:drawArc', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawArc' as DrawTool }));
-    map.set('tool:drawRect', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawRect' as DrawTool }));
+    map.set('tool:drawRotatedRect', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawRotatedRect' as DrawTool }));
     map.set('tool:drawPolygon', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolygon' as DrawTool }));
     map.set('tool:drawCatmullRom', () => actorRef.send({ type: 'SELECT_TOOL', tool: 'drawCatmullRom' as DrawTool }));
 

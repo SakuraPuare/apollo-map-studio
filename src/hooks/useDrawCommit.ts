@@ -6,6 +6,7 @@ import { isDrawingState } from '@/core/fsm/editorMachine';
 import type { PolylineEntity, CatmullRomEntity, BezierEntity, ArcEntity, RectEntity, PolygonEntity } from '@/types/entities';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
+import { rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
 import { useMapStore } from '@/store/mapStore';
 import type { MapElementType } from '@/core/elements';
@@ -25,6 +26,7 @@ function commitEntity(
       (state === 'drawBezier' && anchors.length >= 2) ||
       (state === 'drawArc' && points.length >= 3) ||
       (state === 'drawRect' && points.length >= 2) ||
+      (state === 'drawRotatedRect' && points.length >= 3) ||
       (state === 'drawPolygon' && points.length >= 3) ||
       ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2);
 
@@ -64,6 +66,15 @@ function commitEntity(
       p2: toGeoPoint(points[1]),
       rotation: 0,
     } as RectEntity);
+  } else if (state === 'drawRotatedRect' && points.length >= 3) {
+    const r = rotatedRectFromPoints(points[0], points[1], points[2]);
+    addEntity({
+      id: `rect_${nanoid(12)}`,
+      entityType: 'rect',
+      p1: toGeoPoint(r.p1),
+      p2: toGeoPoint(r.p2),
+      rotation: r.rotation,
+    } as RectEntity);
   } else if (state === 'drawPolygon' && points.length >= 3) {
     addEntity({
       id: `polygon_${nanoid(12)}`,
@@ -82,11 +93,16 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
       const nextState = snapshot.value as string;
 
       if (nextState === 'idle' && isDrawingState(prevState)) {
+        // Read the POST-transition snapshot: transition actions (addPoint on the
+        // trigger click, removeLastPoint on dblclick) mutate context as part of
+        // the transition. prevSnapshot was captured before the transition, so
+        // it's stale by exactly one action — that's why drawArc/drawRect/drawRotatedRect
+        // wouldn't commit (off-by-one) and dblclick kept the duplicate vertex.
         commitEntity(
           prevState,
-          prevSnapshot.context.drawPoints,
-          prevSnapshot.context.bezierAnchors,
-          prevSnapshot.context.activeElement,
+          snapshot.context.drawPoints,
+          snapshot.context.bezierAnchors,
+          snapshot.context.activeElement,
         );
       }
 

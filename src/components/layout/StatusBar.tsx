@@ -23,6 +23,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
   const currentZoom = useUIStore((s) => s.currentZoom);
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
+  const appMode = useUIStore((s) => s.appMode);
 
   const modeLabel = MODE_LABELS[mode] || mode;
   const isDrawing = mode.startsWith('draw');
@@ -31,7 +32,17 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
     <div className="h-6 bg-zinc-950 border-t border-white/[0.07] flex items-center px-2 text-[10px] text-zinc-500 shrink-0">
       {/* Left section */}
       <div className="flex items-center gap-3">
-        {/* Mode indicator */}
+        {/* App mode badge */}
+        <div className="flex items-center gap-1">
+          <span className="text-zinc-600">Mode:</span>
+          <span className="text-cyan-400 font-medium">
+            {appMode === 'drawing' ? '绘图' : '场景'}
+          </span>
+        </div>
+
+        <div className="w-px h-3 bg-white/10" />
+
+        {/* Tool/state indicator */}
         <div className="flex items-center gap-1.5">
           <div className={`w-1.5 h-1.5 rounded-full ${
             isDrawing ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-600'

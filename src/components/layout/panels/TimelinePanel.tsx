@@ -1,9 +1,14 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Play, Pause, Square, SkipBack, SkipForward,
-  Plus, Trash2, ChevronRight
+  Plus, ChevronRight
 } from 'lucide-react';
 import { clsx } from 'clsx';
+
+// Width (px) reserved on the left for the track-header column.
+const TRACK_HEADER_WIDTH = 160;
+// Right-side padding inside the track area so the last label isn't clipped.
+const TRACK_RIGHT_PADDING = 16;
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -26,7 +31,6 @@ interface TimelineState {
   currentTime: number;
   isPlaying: boolean;
   tracks: Track[];
-  zoom: number; // pixels per second
 }
 
 // ─── Playhead ──────────────────────────────────────────────
@@ -46,12 +50,26 @@ function Playhead({ time, zoom }: { time: number; zoom: number }) {
 
 // ─── Time Ruler ────────────────────────────────────────────
 
+/**
+ * Choose a tick step (seconds) so the ruler stays readable at the current
+ * effective zoom. Aims for ~60px between major ticks.
+ */
+function pickRulerStep(duration: number, zoom: number): number {
+  const targetPx = 60;
+  const rawStep = targetPx / Math.max(zoom, 1);
+  const candidates = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60];
+  for (const c of candidates) {
+    if (c >= rawStep) return c;
+  }
+  return Math.max(1, Math.ceil(duration / 10));
+}
+
 function TimeRuler({ duration, zoom }: { duration: number; zoom: number }) {
   const marks: number[] = [];
-  const step = zoom < 50 ? 5 : zoom < 100 ? 1 : 0.5;
+  const step = pickRulerStep(duration, zoom);
 
-  for (let t = 0; t <= duration; t += step) {
-    marks.push(t);
+  for (let t = 0; t <= duration + 1e-9; t += step) {
+    marks.push(Number(t.toFixed(3)));
   }
 
   return (
@@ -72,56 +90,6 @@ function TimeRuler({ duration, zoom }: { duration: number; zoom: number }) {
   );
 }
 
-// ─── Track Row ─────────────────────────────────────────────
-
-function TrackRow({
-  track,
-  zoom,
-  onToggleExpand,
-}: {
-  track: Track;
-  zoom: number;
-  onToggleExpand: () => void;
-}) {
-  return (
-    <div className="flex border-b border-white/[0.05]">
-      {/* Track header */}
-      <div className="w-40 shrink-0 flex items-center gap-1 px-2 py-1 bg-zinc-900/30 border-r border-white/[0.07]">
-        <button onClick={onToggleExpand} className="p-0.5">
-          <ChevronRight
-            className={clsx(
-              'w-3 h-3 text-zinc-600 transition-transform',
-              track.expanded && 'rotate-90'
-            )}
-          />
-        </button>
-        <div
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ backgroundColor: track.color }}
-        />
-        <span className="text-[11px] text-zinc-400 truncate">{track.name}</span>
-      </div>
-
-      {/* Track timeline */}
-      <div className="flex-1 relative h-8">
-        {/* Keyframe markers */}
-        {track.keyframes.map((kf, i) => (
-          <div
-            key={i}
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-sm cursor-pointer hover:scale-125 transition-transform"
-            style={{
-              left: `${kf.time * zoom}px`,
-              backgroundColor: track.color,
-              transform: 'translateX(-50%) translateY(-50%) rotate(45deg)',
-            }}
-            title={`${kf.time.toFixed(2)}s`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Component ────────────────────────────────────────
 
 export function TimelinePanel() {
@@ -129,7 +97,6 @@ export function TimelinePanel() {
     duration: 30,
     currentTime: 0,
     isPlaying: false,
-    zoom: 50, // 50px per second
     tracks: [
       {
         id: 'ego',
@@ -170,8 +137,32 @@ export function TimelinePanel() {
     ],
   });
 
-  const timelineRef = useRef<HTMLDivElement>(null);
+  // Container width → derived effective zoom so the whole duration fits.
+  const trackAreaRef = useRef<HTMLDivElement>(null);
+  const [trackAreaWidth, setTrackAreaWidth] = useState<number>(600);
   const animationRef = useRef<number>();
+
+  useLayoutEffect(() => {
+    const el = trackAreaRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const w = el.clientWidth;
+      if (w > 0) setTrackAreaWidth(w);
+    };
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Effective zoom (px per second). Keep a floor so an extremely tight
+  // panel still renders something sane, and keep it finite when duration=0.
+  const effectiveZoom = Math.max(
+    1,
+    (Math.max(trackAreaWidth - TRACK_RIGHT_PADDING, 60)) / Math.max(state.duration, 0.001)
+  );
 
   // Playback loop
   useEffect(() => {
@@ -270,32 +261,68 @@ export function TimelinePanel() {
         </button>
       </div>
 
-      {/* Timeline area */}
+      {/* Timeline area — fit-to-container, no horizontal scroll */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Track list + Timeline */}
-        <div ref={timelineRef} className="flex-1 overflow-auto">
-          <div className="relative" style={{ width: `${state.duration * state.zoom + 200}px` }}>
-            {/* Time ruler */}
-            <div className="sticky top-0 z-10 ml-40">
-              <TimeRuler duration={state.duration} zoom={state.zoom} />
-            </div>
-
-            {/* Tracks */}
-            <div className="relative">
-              {/* Playhead */}
-              <div className="absolute top-0 bottom-0 left-40 right-0">
-                <Playhead time={state.currentTime} zoom={state.zoom} />
-              </div>
-
-              {state.tracks.map((track) => (
-                <TrackRow
-                  key={track.id}
-                  track={track}
-                  zoom={state.zoom}
-                  onToggleExpand={() => toggleTrackExpand(track.id)}
+        {/* Fixed-width track header column */}
+        <div
+          className="shrink-0 flex flex-col border-r border-white/[0.07] bg-zinc-900/30"
+          style={{ width: `${TRACK_HEADER_WIDTH}px` }}
+        >
+          {/* Ruler spacer so tracks line up with the time ruler */}
+          <div className="h-6 border-b border-white/[0.07]" />
+          {state.tracks.map((track) => (
+            <div
+              key={track.id}
+              className="flex items-center gap-1 px-2 h-8 border-b border-white/[0.05]"
+            >
+              <button onClick={() => toggleTrackExpand(track.id)} className="p-0.5">
+                <ChevronRight
+                  className={clsx(
+                    'w-3 h-3 text-zinc-600 transition-transform',
+                    track.expanded && 'rotate-90'
+                  )}
                 />
-              ))}
+              </button>
+              <div
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: track.color }}
+              />
+              <span className="text-[11px] text-zinc-400 truncate">{track.name}</span>
             </div>
+          ))}
+        </div>
+
+        {/* Flexible track/ruler column — width-measured, no horizontal scrollbar */}
+        <div ref={trackAreaRef} className="flex-1 min-w-0 relative overflow-hidden">
+          {/* Time ruler */}
+          <TimeRuler duration={state.duration} zoom={effectiveZoom} />
+
+          {/* Tracks */}
+          <div className="relative">
+            {state.tracks.map((track) => (
+              <div
+                key={track.id}
+                className="relative h-8 border-b border-white/[0.05]"
+              >
+                {track.keyframes.map((kf, i) => (
+                  <div
+                    key={i}
+                    className="absolute top-1/2 w-3 h-3 rounded-sm cursor-pointer hover:scale-125 transition-transform"
+                    style={{
+                      left: `${kf.time * effectiveZoom}px`,
+                      backgroundColor: track.color,
+                      transform: 'translate(-50%, -50%) rotate(45deg)',
+                    }}
+                    title={`${kf.time.toFixed(2)}s`}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+
+          {/* Playhead — spans the full track area including the ruler */}
+          <div className="absolute top-0 bottom-0 left-0 right-0 pointer-events-none">
+            <Playhead time={state.currentTime} zoom={effectiveZoom} />
           </div>
         </div>
       </div>
