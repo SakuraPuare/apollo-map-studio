@@ -16,6 +16,23 @@ import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
 import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 
+// Browser fires two `click` events for a dblclick (one per mousedown), then a
+// dblclick event. Without dedup, draw states see N+1 vertices and DOUBLE_CLICK's
+// removeLastPoint can only undo one — leaving a duplicate at the dblclick spot.
+// Tracked previous input is "shadowed" if the next input arrives at the same
+// pixel within the dblclick window.
+const DBLCLICK_PX_TOLERANCE = 4;
+const DBLCLICK_MS_WINDOW = 350;
+
+type InputSample = { x: number; y: number; ts: number };
+
+export function isDuplicateInput(prev: InputSample | null, next: InputSample): boolean {
+  if (!prev) return false;
+  const dx = next.x - prev.x;
+  const dy = next.y - prev.y;
+  return Math.hypot(dx, dy) < DBLCLICK_PX_TOLERANCE && next.ts - prev.ts < DBLCLICK_MS_WINDOW;
+}
+
 export function useMapEventRouter(
   mapRef: React.RefObject<maplibregl.Map | null>,
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -27,6 +44,14 @@ export function useMapEventRouter(
 
     const toLngLat = (e: maplibregl.MapMouseEvent): LngLat => [e.lngLat.lng, e.lngLat.lat];
     let mouseDownScreenPos: { x: number; y: number } | null = null;
+
+    // Dblclick dedup: skip the 2nd click of a dblclick before it reaches the FSM.
+    let lastDrawInput: InputSample | null = null;
+    const sampleOf = (e: maplibregl.MapMouseEvent): InputSample => ({
+      x: e.point.x,
+      y: e.point.y,
+      ts: e.originalEvent.timeStamp,
+    });
 
     // P2d cursor throttle: coalesce cursorLngLat writes to one per animation
     // frame. Mousemove fires ~120Hz on modern trackpads — previously every
@@ -137,6 +162,12 @@ export function useMapEventRouter(
       if (state === 'editingPoint') return;
 
       if (state === 'drawBezier') {
+        const sample = sampleOf(e);
+        if (isDuplicateInput(lastDrawInput, sample)) {
+          lastDrawInput = sample;
+          return;
+        }
+        lastDrawInput = sample;
         actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
       }
     };
@@ -181,6 +212,12 @@ export function useMapEventRouter(
       }
 
       if (state !== 'drawBezier') {
+        const sample = sampleOf(e);
+        if (isDuplicateInput(lastDrawInput, sample)) {
+          lastDrawInput = sample;
+          return;
+        }
+        lastDrawInput = sample;
         actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
       }
     };
@@ -234,6 +271,7 @@ export function useMapEventRouter(
 
     const onDblClick = (e: maplibregl.MapMouseEvent) => {
       e.preventDefault();
+      lastDrawInput = null;
       actorRef.send({ type: 'DOUBLE_CLICK', point: toLngLat(e) });
     };
 
