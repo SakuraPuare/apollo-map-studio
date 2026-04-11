@@ -1,48 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
-import {
-  MousePointer2,
-  Pencil,
-  Spline,
-  Circle,
-  Square,
-  Hexagon,
-  Undo2,
-  Redo2,
-  Trash2,
-  Grid3X3,
-  Magnet,
-  Settings,
-  Download,
-  Search,
-  LayoutDashboard,
-  Command as CommandIcon,
-} from 'lucide-react';
+import { Search } from 'lucide-react';
 import { getCommandPaletteActions, type ActionDef, type ActionId } from '@/core/actions/registry';
-
-// ─── Icon Map ──────────────────────────────────────────────
-
-const ICON_MAP: Record<string, React.ElementType> = {
-  MousePointer2,
-  Pencil,
-  Spline,
-  Circle,
-  Square,
-  Hexagon,
-  Undo2,
-  Redo2,
-  Trash2,
-  Grid3X3,
-  Magnet,
-  Settings,
-  Download,
-  LayoutDashboard,
-  Command: CommandIcon,
-};
-
-function getIcon(name?: string): React.ElementType {
-  return (name && ICON_MAP[name]) || Search;
-}
+import { getIcon } from '@/components/ui/icon-registry';
 
 // ─── Main Component ────────────────────────────────────────
 

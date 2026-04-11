@@ -284,6 +284,11 @@ export function getKeyBindingActions(): ActionDef[] {
   return ACTION_DEFS.filter((a) => a.keybinding);
 }
 
+/** Find the action that activates a given draw tool, if any */
+export function getToolAction(drawTool: DrawTool): ActionDef | undefined {
+  return ACTION_DEFS.find((a) => a.drawTool === drawTool);
+}
+
 /** Check if a keyboard event matches a keybinding */
 export function matchesKeybinding(e: KeyboardEvent, kb: KeyBinding): boolean {
   if (e.key.toLowerCase() !== kb.key.toLowerCase()) return false;

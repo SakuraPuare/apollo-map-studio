@@ -1,22 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import {
-  MousePointer2,
-  Hand,
-  Pencil,
-  Spline,
-  Circle,
-  Square,
-  Hexagon,
-  Grid3X3,
-  Magnet,
-  ChevronDown,
-  Command,
-} from 'lucide-react';
+import { Hand, ChevronDown, Command } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import { useUIStore } from '@/store/uiStore';
+import { getToolAction, ACTION_MAP } from '@/core/actions/registry';
+import { getIcon } from '@/components/ui/icon-registry';
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -62,17 +52,6 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
 function Divider() {
   return <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />;
 }
-
-// ─── Tool Icon Map ─────────────────────────────────────────
-
-const TOOL_ICONS: Record<string, React.ElementType> = {
-  drawPolyline: Pencil,
-  drawCatmullRom: Spline,
-  drawBezier: Spline,
-  drawArc: Circle,
-  drawRotatedRect: Square,
-  drawPolygon: Hexagon,
-};
 
 // ─── Element Dropdown ──────────────────────────────────────
 
@@ -172,13 +151,16 @@ export function ToolStrip({
     onSelectTool(tool, currentElement);
   };
 
+  const selectAction = ACTION_MAP.get('tool:select');
+  const SelectIcon = getIcon(selectAction?.icon);
+
   return (
     <div className="h-9 bg-zinc-900/80 border-b border-white/[0.07] flex items-center px-2 gap-1 shrink-0">
       {/* Selection tools */}
       <ToolButton
-        icon={MousePointer2}
-        label="Select"
-        shortcut="V"
+        icon={SelectIcon}
+        label={selectAction?.label ?? 'Select'}
+        shortcut={selectAction?.shortcut ?? 'V'}
         active={currentTool === 'idle' || currentTool === 'selected'}
         onClick={() => onSelectTool('idle' as DrawTool)}
       />
@@ -191,16 +173,18 @@ export function ToolStrip({
 
       <Divider />
 
-      {/* 当前元素对应的工具按钮（动态更新） */}
+      {/* 当前元素对应的工具按钮（动态更新，从 Action Registry 读 icon + label + shortcut） */}
       <div className="flex items-center gap-0.5">
         {availableTools.length > 0 ? (
-          availableTools.map(({ tool, label }) => {
-            const Icon = TOOL_ICONS[tool] ?? Pencil;
+          availableTools.map(({ tool }) => {
+            const action = getToolAction(tool);
+            const Icon = getIcon(action?.icon);
             return (
               <ToolButton
                 key={tool}
                 icon={Icon}
-                label={`${elementDef?.label ?? ''} · ${label}`}
+                label={`${elementDef?.label ?? ''} · ${action?.label ?? tool}`}
+                shortcut={action?.shortcut}
                 active={currentTool === tool}
                 onClick={() => handleToolSelect(tool)}
               />
@@ -225,14 +209,29 @@ export function ToolStrip({
 
       <Divider />
 
-      <ToolButton
-        icon={Grid3X3}
-        label="Toggle Grid"
-        shortcut="⌘G"
-        active={gridEnabled}
-        onClick={toggleGrid}
-      />
-      <ToolButton icon={Magnet} label="Toggle Snap" active={snapEnabled} onClick={toggleSnap} />
+      {(() => {
+        const gridAction = ACTION_MAP.get('toggleGrid');
+        const snapAction = ACTION_MAP.get('toggleSnap');
+        const GridIcon = getIcon(gridAction?.icon);
+        const SnapIcon = getIcon(snapAction?.icon);
+        return (
+          <>
+            <ToolButton
+              icon={GridIcon}
+              label={gridAction?.label ?? 'Toggle Grid'}
+              shortcut={gridAction?.shortcut}
+              active={gridEnabled}
+              onClick={toggleGrid}
+            />
+            <ToolButton
+              icon={SnapIcon}
+              label={snapAction?.label ?? 'Toggle Snap'}
+              active={snapEnabled}
+              onClick={toggleSnap}
+            />
+          </>
+        );
+      })()}
     </div>
   );
 }
