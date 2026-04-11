@@ -1,38 +1,76 @@
-import { useRef, useCallback, useState } from 'react';
-import {
-  DockviewReact,
-  DockviewReadyEvent,
-  DockviewApi,
-} from 'dockview-react';
+import { Suspense, lazy, useRef, useCallback, useEffect, useState } from 'react';
+import { DockviewReact, DockviewReadyEvent, DockviewApi } from 'dockview-react';
 import 'dockview-react/dist/styles/dockview.css';
 
 import { MenuBar } from './MenuBar';
 import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar, type ActivityTab } from './ActivityBar';
-import { LayerTree } from './panels/LayerTree';
-import { TimelinePanel } from './panels/TimelinePanel';
-import { CommandPalette } from './panels/CommandPalette';
-import { SettingsPanel } from './panels/SettingsPanel';
-import { EntityForm } from './panels/InspectorForms';
-import { MapCanvas } from '@/components/map/MapCanvas';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore, type AppMode } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
-import { useActionDispatcher } from '@/core/actions/useActionDispatcher';
+import { useActionDispatcher } from '@/hooks/useActionDispatcher';
 
 import { useActorRef, useSelector } from '@xstate/react';
-import { editorMachine } from '@/core/fsm/editorMachine';
+import { editorMachine, type DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
+
+const LazyMapCanvas = lazy(async () => {
+  const module = await import('@/components/map/MapCanvas');
+  return { default: module.MapCanvas };
+});
+
+const LazyLayerTree = lazy(async () => {
+  const module = await import('./panels/LayerTree');
+  return { default: module.LayerTree };
+});
+
+const LazyTimelinePanel = lazy(async () => {
+  const module = await import('./panels/TimelinePanel');
+  return { default: module.TimelinePanel };
+});
+
+const LazyCommandPalette = lazy(async () => {
+  const module = await import('./panels/CommandPalette');
+  return { default: module.CommandPalette };
+});
+
+const LazySettingsPanel = lazy(async () => {
+  const module = await import('./panels/SettingsPanel');
+  return { default: module.SettingsPanel };
+});
+
+const LazyEntityForm = lazy(async () => {
+  const module = await import('./panels/InspectorForms');
+  return { default: module.EntityForm };
+});
+
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="h-full w-full flex items-center justify-center text-xs text-zinc-500">
+      {label}
+    </div>
+  );
+}
+
+function OverlayFallback({ label }: { label: string }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 text-xs text-zinc-300">
+      {label}
+    </div>
+  );
+}
 
 // ─── Panel Components for Dockview ─────────────────────────
 
 function MapPanelContent() {
   const actorRef = useEditorActor();
   return (
-    <div className="w-full h-full">
-      <MapCanvas actorRef={actorRef} />
-    </div>
+    <Suspense fallback={<PanelFallback label="Loading map..." />}>
+      <div className="w-full h-full">
+        <LazyMapCanvas actorRef={actorRef} />
+      </div>
+    </Suspense>
   );
 }
 
@@ -40,11 +78,14 @@ function LayersPanelContent() {
   const actorRef = useEditorActor();
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
 
-  const handleSelect = useCallback((id: string | null) => {
-    if (id) {
-      actorRef.send({ type: 'SELECT_ENTITY', id });
-    }
-  }, [actorRef]);
+  const handleSelect = useCallback(
+    (id: string | null) => {
+      if (id) {
+        actorRef.send({ type: 'SELECT_ENTITY', id });
+      }
+    },
+    [actorRef],
+  );
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-hidden flex flex-col">
@@ -52,7 +93,9 @@ function LayersPanelContent() {
         <h2 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Layers</h2>
       </div>
       <div className="flex-1 overflow-hidden">
-        <LayerTree onSelect={handleSelect} selectedId={selectedId} />
+        <Suspense fallback={<PanelFallback label="Loading layers..." />}>
+          <LazyLayerTree onSelect={handleSelect} selectedId={selectedId} />
+        </Suspense>
       </div>
     </div>
   );
@@ -61,7 +104,7 @@ function LayersPanelContent() {
 function InspectorPanelContent() {
   const actorRef = useEditorActor();
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
-  const entity = useMapStore((s) => selectedId ? s.entities.get(selectedId) : undefined);
+  const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : undefined));
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-y-auto">
@@ -79,7 +122,9 @@ function InspectorPanelContent() {
                 {entity.id.length > 16 ? `...${entity.id.slice(-12)}` : entity.id}
               </span>
             </div>
-            <EntityForm entity={entity} />
+            <Suspense fallback={<PanelFallback label="Loading inspector..." />}>
+              <LazyEntityForm entity={entity} />
+            </Suspense>
           </>
         ) : (
           <div className="py-8 text-center text-zinc-600 text-xs">
@@ -92,7 +137,11 @@ function InspectorPanelContent() {
 }
 
 function TimelinePanelContent() {
-  return <TimelinePanel />;
+  return (
+    <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
+      <LazyTimelinePanel />
+    </Suspense>
+  );
 }
 
 // ─── Component Registry ─────────────────────────────────
@@ -115,7 +164,9 @@ const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
 function saveLayout(api: DockviewApi, mode: AppMode) {
   try {
     localStorage.setItem(LAYOUT_KEY_BY_MODE[mode], JSON.stringify(api.toJSON()));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function loadLayout(api: DockviewApi, mode: AppMode): boolean {
@@ -133,14 +184,29 @@ function loadLayout(api: DockviewApi, mode: AppMode): boolean {
 
 function createDefaultLayout(api: DockviewApi, mode: AppMode) {
   const mapPanel = api.addPanel({ id: 'map', component: 'map', title: 'Map Editor' });
-  api.addPanel({ id: 'layers', component: 'layers', title: 'Layers', position: { referencePanel: mapPanel, direction: 'left' } });
-  api.addPanel({ id: 'inspector', component: 'inspector', title: 'Inspector', position: { referencePanel: mapPanel, direction: 'right' } });
+  api.addPanel({
+    id: 'layers',
+    component: 'layers',
+    title: 'Layers',
+    position: { referencePanel: mapPanel, direction: 'left' },
+  });
+  api.addPanel({
+    id: 'inspector',
+    component: 'inspector',
+    title: 'Inspector',
+    position: { referencePanel: mapPanel, direction: 'right' },
+  });
   api.getPanel('layers')?.api.setSize({ width: 220 });
   api.getPanel('inspector')?.api.setSize({ width: 280 });
 
   // Timeline only shows in scene mode — drawing mode keeps the map full-height.
   if (mode === 'scene') {
-    api.addPanel({ id: 'timeline', component: 'timeline', title: 'Timeline', position: { referencePanel: mapPanel, direction: 'below' } });
+    api.addPanel({
+      id: 'timeline',
+      component: 'timeline',
+      title: 'Timeline',
+      position: { referencePanel: mapPanel, direction: 'below' },
+    });
     api.getPanel('timeline')?.api.setSize({ height: 180 });
   }
 }
@@ -158,6 +224,22 @@ function WorkspaceLayoutInner() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+
+      if (event.key === 'Escape') {
+        setCommandPaletteOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Reset layout handler (needs apiRef + current mode)
   const handleResetLayout = useCallback(() => {
@@ -177,19 +259,25 @@ function WorkspaceLayoutInner() {
   });
 
   // Tool selection (for ToolStrip which needs element param)
-  const handleSelectTool = useCallback((tool: string, element?: MapElementType) => {
-    actorRef.send({ type: 'SELECT_TOOL', tool, element });
-  }, [actorRef]);
+  const handleSelectTool = useCallback(
+    (tool: string, element?: MapElementType) => {
+      actorRef.send({ type: 'SELECT_TOOL', tool: tool as DrawTool, element });
+    },
+    [actorRef],
+  );
 
   // Dockview ready — closure captures the current appMode, and since we key the
   // Dockview on appMode a new instance re-runs this with the fresh mode.
-  const onReady = useCallback((event: DockviewReadyEvent) => {
-    apiRef.current = event.api;
-    if (!loadLayout(event.api, appMode)) {
-      createDefaultLayout(event.api, appMode);
-    }
-    event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
-  }, [appMode]);
+  const onReady = useCallback(
+    (event: DockviewReadyEvent) => {
+      apiRef.current = event.api;
+      if (!loadLayout(event.api, appMode)) {
+        createDefaultLayout(event.api, appMode);
+      }
+      event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
+    },
+    [appMode],
+  );
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
@@ -221,15 +309,23 @@ function WorkspaceLayoutInner() {
       <StatusBar mode={currentState} entityCount={entityCount} />
 
       {/* Command Palette — reads from Action Registry */}
-      <CommandPalette
-        open={commandPaletteOpen}
-        onOpenChange={setCommandPaletteOpen}
-        onExecute={execute}
-        getToggleState={getToggleState}
-      />
+      {commandPaletteOpen && (
+        <Suspense fallback={<OverlayFallback label="Loading command palette..." />}>
+          <LazyCommandPalette
+            open={commandPaletteOpen}
+            onOpenChange={setCommandPaletteOpen}
+            onExecute={execute}
+            getToggleState={getToggleState}
+          />
+        </Suspense>
+      )}
 
       {/* Settings */}
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {settingsOpen && (
+        <Suspense fallback={<OverlayFallback label="Loading settings..." />}>
+          <LazySettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
