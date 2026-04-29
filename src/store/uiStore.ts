@@ -76,7 +76,7 @@ for (const type of ENTITY_TYPES) {
 
 export const useUIStore = create<UIStore>()((set, get) => ({
   appMode: 'drawing',
-  gridEnabled: false,
+  gridEnabled: true,
   snapEnabled: false,
   layerStates: defaultLayerStates,
   cursorLngLat: null,

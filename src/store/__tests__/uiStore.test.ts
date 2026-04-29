@@ -61,17 +61,18 @@ describe('uiStore — 默认 state', () => {
 
 describe('uiStore — toggle actions', () => {
   it('toggleGrid 翻转 gridEnabled', () => {
-    expect(useUIStore.getState().gridEnabled).toBe(false);
-    useUIStore.getState().toggleGrid();
     expect(useUIStore.getState().gridEnabled).toBe(true);
     useUIStore.getState().toggleGrid();
     expect(useUIStore.getState().gridEnabled).toBe(false);
+    useUIStore.getState().toggleGrid();
+    expect(useUIStore.getState().gridEnabled).toBe(true);
   });
 
   it('toggleSnap 翻转 snapEnabled，且不影响 gridEnabled', () => {
+    const gridBefore = useUIStore.getState().gridEnabled;
     useUIStore.getState().toggleSnap();
     expect(useUIStore.getState().snapEnabled).toBe(true);
-    expect(useUIStore.getState().gridEnabled).toBe(false);
+    expect(useUIStore.getState().gridEnabled).toBe(gridBefore);
   });
 
   it('toggleSidebar 翻转 sidebarVisible', () => {

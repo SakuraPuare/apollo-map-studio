@@ -97,6 +97,24 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true); // 红色斜线（禁停区，细密连续）
       map.addImage('lane-arrow', createArrowSDF(20), { sdf: true }); // 车道方向箭头 SDF 图标
 
+      // ─── 网格层（垫底，受 useGridLayer 控制开关与重算） ───
+      map.addSource('grid', { type: 'geojson', data: EMPTY_FC });
+      map.addLayer({
+        id: 'grid-line',
+        type: 'line',
+        source: 'grid',
+        layout: { visibility: 'none' },
+        paint: {
+          'line-color': [
+            'case',
+            ['==', ['get', 'major'], true],
+            'rgba(255,255,255,0.18)',
+            'rgba(255,255,255,0.07)',
+          ],
+          'line-width': ['case', ['==', ['get', 'major'], true], 1, 0.5],
+        },
+      });
+
       // ─── 冷层 ───
       map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
 
