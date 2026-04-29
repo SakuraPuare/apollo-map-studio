@@ -92,10 +92,10 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
 
       if (nextState === 'idle' && isDrawingState(prevState)) {
         // Read the POST-transition snapshot: transition actions (addPoint on the
-        // trigger click, removeLastPoint on dblclick) mutate context as part of
-        // the transition. prevSnapshot was captured before the transition, so
-        // it's stale by exactly one action — that's why drawArc/drawRotatedRect
-        // wouldn't commit (off-by-one) and dblclick kept the duplicate vertex.
+        // trigger click) mutate context as part of the transition. prevSnapshot
+        // was captured before the transition, so it's stale by exactly one
+        // action — that's why drawArc / drawRotatedRect commit only by reading
+        // the post-snapshot.
         commitEntity(
           prevState,
           snapshot.context.drawPoints,

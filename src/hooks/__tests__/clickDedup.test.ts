@@ -3,11 +3,13 @@
  *
  * Bug: maplibre fires `mousedown` → `click` for every press inside a dblclick
  * gesture, then a final `dblclick`. Without dedup, polyline/catmullrom/polygon/
- * bezier draw states see N+1 vertices and the FSM `removeLastPoint` action only
- * undoes one — leaving a duplicate vertex at the dblclick spot.
+ * bezier draw states see N+1 vertices at the dblclick spot.
  *
  * Fix: useMapEventRouter shadows the 2nd input of any same-pixel + sub-350ms
- * sequence. The pure `isDuplicateInput` predicate is exported for unit testing.
+ * sequence so the FSM sees exactly one MOUSE_DOWN per dblclick gesture. The
+ * FSM does NOT also slice off a point on DOUBLE_CLICK — input-layer dedup is
+ * the single source of truth (otherwise the user loses their actual final
+ * point: regression seen pre-2026-04-29).
  */
 
 import { describe, it, expect } from 'vitest';

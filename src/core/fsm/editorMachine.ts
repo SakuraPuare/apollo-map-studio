@@ -207,10 +207,11 @@ const dragMove = assign<EditorContext, EditorEvent>({
 
 // ─── 共享绘制事件 ──────────────────────────────────────────
 
-/** 双击完成时移除最后一个多余点（双击触发了两次 mousedown） */
-const removeLastPoint = assign<EditorContext, EditorEvent>({
-  drawPoints: ({ context }) => context.drawPoints.slice(0, -1),
-});
+// 历史上这里有 `removeLastPoint`：双击会触发两次 mousedown，FSM 多收一个点，
+// 所以 DOUBLE_CLICK 时削掉一个。但 useMapEventRouter 的 isDuplicateInput
+// 已经在输入层把 dblclick 的第二次 click 吞掉了——FSM 只会收到一次 MOUSE_DOWN。
+// 再 slice(-1) 就是双重补偿，把用户真正的最后一个点削没了（多段线"少最后一个点"）。
+// 单一事实来源：dedup 在输入层；FSM 直接信任 drawPoints。
 
 const sharedDrawEvents = {
   SELECT_TOOL: selectToolTransitions,
@@ -219,7 +220,6 @@ const sharedDrawEvents = {
   DOUBLE_CLICK: {
     guard: 'minPointsReached' as const,
     target: 'idle' as const,
-    actions: 'removeLastPoint' as const,
   },
   CONFIRM: {
     guard: 'minPointsReached' as const,
@@ -249,7 +249,8 @@ export const editorMachine = setup({
       return !wouldSelfIntersect(context.drawPoints, event.point);
     },
     polygonCanClose: ({ context }) => {
-      const pts = context.drawPoints.slice(0, -1);
+      // 输入层已 dedup dblclick 的第二次 click；drawPoints 不再有"多余的最后一点"。
+      const pts = context.drawPoints;
       if (pts.length < 3) return false;
       return !polygonSelfIntersects(pts);
     },
@@ -270,7 +271,6 @@ export const editorMachine = setup({
     deselectEntity,
     startDrag,
     dragMove,
-    removeLastPoint,
   },
 }).createMachine({
   id: 'editor',
@@ -363,8 +363,8 @@ export const editorMachine = setup({
           guard: 'bezierMinAnchors',
           target: 'idle',
           actions: assign<EditorContext, EditorEvent>({
-            // 双击会触发两次 mousedown，移除最后一个多余锚点
-            bezierAnchors: ({ context }) => context.bezierAnchors.slice(0, -1),
+            // dedup 同 sharedDrawEvents：输入层已吞掉 dblclick 的第二次 click，
+            // 不再 slice 锚点，否则会丢最后一个锚点。
             isDraggingHandle: false,
           }),
         },
@@ -410,9 +410,10 @@ export const editorMachine = setup({
         },
         MOUSE_MOVE: { actions: 'updatePreview' },
         DOUBLE_CLICK: {
+          // dedup 同 sharedDrawEvents：输入层已吞掉 dblclick 的第二次 click，
+          // 不再补偿性 slice，否则会丢闭合点。
           guard: 'polygonCanClose',
           target: 'idle',
-          actions: 'removeLastPoint',
         },
         CONFIRM: {
           guard: 'polygonCanConfirm',

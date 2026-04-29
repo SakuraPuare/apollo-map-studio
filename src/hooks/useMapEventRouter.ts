@@ -17,10 +17,11 @@ import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/c
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 
 // Browser fires two `click` events for a dblclick (one per mousedown), then a
-// dblclick event. Without dedup, draw states see N+1 vertices and DOUBLE_CLICK's
-// removeLastPoint can only undo one — leaving a duplicate at the dblclick spot.
-// Tracked previous input is "shadowed" if the next input arrives at the same
-// pixel within the dblclick window.
+// dblclick event. We shadow the 2nd click so the FSM sees exactly one MOUSE_DOWN
+// per dblclick gesture; otherwise drawPoints would carry a duplicate vertex at
+// the dblclick spot. The FSM in turn no longer slices anything off on
+// DOUBLE_CLICK — dedup here is the single source of truth (otherwise the user
+// loses their actual final point).
 const DBLCLICK_PX_TOLERANCE = 4;
 const DBLCLICK_MS_WINDOW = 350;
 
