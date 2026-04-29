@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { setup, assign } from 'xstate';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { mirrorPoint } from '@/core/geometry/interpolate';
@@ -16,7 +15,7 @@ export type DrawTool =
   | 'drawRotatedRect'
   | 'drawPolygon';
 
-const DRAW_STATES: readonly string[] = [
+const DRAW_STATES: readonly DrawTool[] = [
   'drawPolyline',
   'drawCatmullRom',
   'drawBezier',
@@ -27,54 +26,8 @@ const DRAW_STATES: readonly string[] = [
 
 /** 判断 FSM state value 是否为绘制状态 */
 export function isDrawingState(state: string): boolean {
-  return DRAW_STATES.includes(state);
+  return (DRAW_STATES as readonly string[]).includes(state);
 }
-
-/** SELECT_TOOL 转换（idle 用，无需 deselectEntity） */
-const selectToolTransitions = [
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawPolyline',
-    target: 'drawPolyline' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawCatmullRom',
-    target: 'drawCatmullRom' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawBezier',
-    target: 'drawBezier' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawArc',
-    target: 'drawArc' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawRotatedRect',
-    target: 'drawRotatedRect' as const,
-    actions: ['resetDraw'] as const,
-  },
-  {
-    guard: ({ event }: { event: EditorEvent }) =>
-      event.type === 'SELECT_TOOL' && event.tool === 'drawPolygon',
-    target: 'drawPolygon' as const,
-    actions: ['resetDraw'] as const,
-  },
-];
-
-/** SELECT_TOOL 转换（selected 用，需先 deselectEntity） */
-const selectToolFromSelected = selectToolTransitions.map((t) => ({
-  ...t,
-  actions: ['deselectEntity', ...t.actions] as const,
-}));
 
 export interface EditorContext {
   drawPoints: LngLat[];
@@ -107,103 +60,19 @@ export type EditorEvent =
   | { type: 'DELETE_ENTITY' }
   | { type: 'TOGGLE_SMOOTH'; index: number };
 
-// ─── 绘制 actions ──────────────────────────────────────────
+/** SELECT_TOOL 转换：每个 draw state 一条，结构一致只换 target/guard 的 tool。
+ *  从 DRAW_STATES 单一事实源生成，避免 6 条手抄记录漂移。 */
+const selectToolTransitions = DRAW_STATES.map((tool) => ({
+  guard: ({ event }: { event: EditorEvent }) => event.type === 'SELECT_TOOL' && event.tool === tool,
+  target: tool,
+  actions: ['resetDraw'] as const,
+}));
 
-const resetDraw = assign<EditorContext, EditorEvent>({
-  drawPoints: [],
-  previewPoint: null,
-  bezierAnchors: [],
-  isDraggingHandle: false,
-  activeElement: ({ event }) => (event.type === 'SELECT_TOOL' ? (event.element ?? null) : null),
-});
-
-const addPoint = assign<EditorContext, EditorEvent>({
-  drawPoints: ({ context, event }) => {
-    if (event.type !== 'MOUSE_DOWN') return context.drawPoints;
-    return [...context.drawPoints, event.point];
-  },
-});
-
-const updatePreview = assign<EditorContext, EditorEvent>({
-  previewPoint: ({ event }) => {
-    if (event.type !== 'MOUSE_MOVE') return null;
-    return event.point;
-  },
-});
-
-const bezierAddAnchor = assign<EditorContext, EditorEvent>({
-  bezierAnchors: ({ context, event }) => {
-    if (event.type !== 'MOUSE_DOWN') return context.bezierAnchors;
-    const anchor: BezierAnchor = { point: event.point, handleIn: null, handleOut: null };
-    return [...context.bezierAnchors, anchor];
-  },
-  isDraggingHandle: true,
-});
-
-const bezierDragHandle = assign<EditorContext, EditorEvent>({
-  bezierAnchors: ({ context, event }) => {
-    if (event.type !== 'MOUSE_MOVE') return context.bezierAnchors;
-    if (!context.isDraggingHandle || context.bezierAnchors.length === 0)
-      return context.bezierAnchors;
-    const anchors = [...context.bezierAnchors];
-    const last = { ...anchors[anchors.length - 1] };
-    const pt = last.point;
-    last.handleOut = event.point;
-    last.handleIn = mirrorPoint(pt, event.point);
-    anchors[anchors.length - 1] = last;
-    return anchors;
-  },
-  previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
-});
-
-const bezierConfirmHandle = assign<EditorContext, EditorEvent>({
-  isDraggingHandle: false,
-  bezierAnchors: ({ context, event }) => {
-    if (event.type !== 'MOUSE_UP' || context.bezierAnchors.length === 0)
-      return context.bezierAnchors;
-    const anchors = [...context.bezierAnchors];
-    const last = { ...anchors[anchors.length - 1] };
-    const pt = last.point;
-    const dist = Math.hypot(event.point[0] - pt[0], event.point[1] - pt[1]);
-    if (dist < 1e-6) {
-      last.handleIn = null;
-      last.handleOut = null;
-      anchors[anchors.length - 1] = last;
-    }
-    return anchors;
-  },
-});
-
-const bezierPreview = assign<EditorContext, EditorEvent>({
-  previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
-});
-
-// ─── 选中/编辑 actions ─────────────────────────────────────
-
-const selectEntity = assign<EditorContext, EditorEvent>({
-  selectedEntityId: ({ event }) => (event.type === 'SELECT_ENTITY' ? event.id : null),
-  dragPointIndex: -1,
-  dragPointType: 'vertex' as DragPointType,
-  dragCurrentPoint: null,
-});
-
-const deselectEntity = assign<EditorContext, EditorEvent>({
-  selectedEntityId: null,
-  dragPointIndex: -1,
-  dragCurrentPoint: null,
-});
-
-const startDrag = assign<EditorContext, EditorEvent>({
-  dragPointIndex: ({ event }) => (event.type === 'START_DRAG' ? event.index : -1),
-  dragPointType: ({ event }) =>
-    event.type === 'START_DRAG' ? event.pointType : ('vertex' as DragPointType),
-  dragCurrentPoint: null,
-  dragAltKey: ({ event }) => (event.type === 'START_DRAG' ? !!event.altKey : false),
-});
-
-const dragMove = assign<EditorContext, EditorEvent>({
-  dragCurrentPoint: ({ event }) => (event.type === 'DRAG_MOVE' ? event.point : null),
-});
+/** SELECT_TOOL 转换（selected 用，需先 deselectEntity） */
+const selectToolFromSelected = selectToolTransitions.map((t) => ({
+  ...t,
+  actions: ['deselectEntity', ...t.actions] as const,
+}));
 
 // ─── 共享绘制事件 ──────────────────────────────────────────
 
@@ -231,7 +100,28 @@ const sharedDrawEvents = {
   },
 };
 
+/** 三次点击 commit 模式：第三次 MOUSE_DOWN 落点后 → idle。
+ *  drawArc / drawRotatedRect 共享。 */
+const threeClickCommitEvents = {
+  SELECT_TOOL: selectToolTransitions,
+  MOUSE_DOWN: [
+    { guard: 'twoPointsLaid' as const, target: 'idle' as const, actions: 'addPoint' as const },
+    { actions: 'addPoint' as const },
+  ],
+  MOUSE_MOVE: { actions: 'updatePreview' as const },
+  CANCEL: { target: 'idle' as const, actions: 'resetDraw' as const },
+};
+
 // ─── Machine ───────────────────────────────────────────────
+//
+// XState 5 typed pattern: define context/events on `setup({ types })` and
+// declare actions/guards inline so generic inference flows from the typed
+// setup. A previous revision lifted each `assign(...)` to a top-level const
+// with `assign<EditorContext, EditorEvent>(...)`, which fails because XState 5's
+// `assign` signature requires 5 type arguments (TContext, TExpressionEvent,
+// TParams, TEvent, TActor) and the resulting ActionFunction's `_out_TEvent`
+// widens to `EventObject`, breaking the structural match against the
+// `setup.actions` map. Inlining sidesteps that entirely.
 
 export const editorMachine = setup({
   types: {
@@ -242,8 +132,8 @@ export const editorMachine = setup({
     minPointsReached: ({ context }) => context.drawPoints.length >= 2,
     bezierMinAnchors: ({ context }) => context.bezierAnchors.length >= 2,
     isDraggingHandle: ({ context }) => context.isDraggingHandle,
-    arcComplete: ({ context }) => context.drawPoints.length === 2,
-    rotatedRectComplete: ({ context }) => context.drawPoints.length === 2,
+    // drawArc 和 drawRotatedRect 都是"两点已落、第三次点击 commit"的形态
+    twoPointsLaid: ({ context }) => context.drawPoints.length === 2,
     polygonNoSelfIntersect: ({ context, event }) => {
       if (event.type !== 'MOUSE_DOWN') return false;
       return !wouldSelfIntersect(context.drawPoints, event.point);
@@ -260,17 +150,97 @@ export const editorMachine = setup({
     },
   },
   actions: {
-    addPoint,
-    updatePreview,
-    resetDraw,
-    bezierAddAnchor,
-    bezierDragHandle,
-    bezierConfirmHandle,
-    bezierPreview,
-    selectEntity,
-    deselectEntity,
-    startDrag,
-    dragMove,
+    // ─── 绘制 actions ──────────────────────────────────────
+    resetDraw: assign({
+      drawPoints: [],
+      previewPoint: null,
+      bezierAnchors: [],
+      isDraggingHandle: false,
+      activeElement: ({ event }) => (event.type === 'SELECT_TOOL' ? (event.element ?? null) : null),
+    }),
+    addPoint: assign({
+      drawPoints: ({ context, event }) => {
+        if (event.type !== 'MOUSE_DOWN') return context.drawPoints;
+        return [...context.drawPoints, event.point];
+      },
+    }),
+    updatePreview: assign({
+      previewPoint: ({ event }) => {
+        if (event.type !== 'MOUSE_MOVE') return null;
+        return event.point;
+      },
+    }),
+    bezierAddAnchor: assign({
+      bezierAnchors: ({ context, event }) => {
+        if (event.type !== 'MOUSE_DOWN') return context.bezierAnchors;
+        const anchor: BezierAnchor = { point: event.point, handleIn: null, handleOut: null };
+        return [...context.bezierAnchors, anchor];
+      },
+      isDraggingHandle: true,
+    }),
+    bezierDragHandle: assign({
+      bezierAnchors: ({ context, event }) => {
+        if (event.type !== 'MOUSE_MOVE') return context.bezierAnchors;
+        if (!context.isDraggingHandle || context.bezierAnchors.length === 0)
+          return context.bezierAnchors;
+        const anchors = [...context.bezierAnchors];
+        // length > 0 已检查；noUncheckedIndexedAccess 仍把 [n-1] 推为 T|undefined。
+        const tail = anchors[anchors.length - 1];
+        if (!tail) return context.bezierAnchors;
+        const last: BezierAnchor = { ...tail };
+        const pt = last.point;
+        last.handleOut = event.point;
+        last.handleIn = mirrorPoint(pt, event.point);
+        anchors[anchors.length - 1] = last;
+        return anchors;
+      },
+      previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
+    }),
+    bezierConfirmHandle: assign({
+      isDraggingHandle: false,
+      bezierAnchors: ({ context, event }) => {
+        if (event.type !== 'MOUSE_UP' || context.bezierAnchors.length === 0)
+          return context.bezierAnchors;
+        const anchors = [...context.bezierAnchors];
+        // length > 0 已检查；noUncheckedIndexedAccess 仍把 [n-1] 推为 T|undefined。
+        const tail = anchors[anchors.length - 1];
+        if (!tail) return context.bezierAnchors;
+        const last: BezierAnchor = { ...tail };
+        const pt = last.point;
+        const dist = Math.hypot(event.point[0] - pt[0], event.point[1] - pt[1]);
+        if (dist < 1e-6) {
+          last.handleIn = null;
+          last.handleOut = null;
+          anchors[anchors.length - 1] = last;
+        }
+        return anchors;
+      },
+    }),
+    bezierPreview: assign({
+      previewPoint: ({ event }) => (event.type === 'MOUSE_MOVE' ? event.point : null),
+    }),
+    // ─── 选中/编辑 actions ───────────────────────────────
+    selectEntity: assign({
+      selectedEntityId: ({ event }) => (event.type === 'SELECT_ENTITY' ? event.id : null),
+      dragPointIndex: -1,
+      dragPointType: 'vertex' as DragPointType,
+      dragCurrentPoint: null,
+    }),
+    deselectEntity: assign({
+      selectedEntityId: null,
+      dragPointIndex: -1,
+      dragCurrentPoint: null,
+    }),
+    startDrag: assign({
+      dragPointIndex: ({ event }) => (event.type === 'START_DRAG' ? event.index : -1),
+      dragPointType: ({ event }) =>
+        event.type === 'START_DRAG' ? event.pointType : ('vertex' as DragPointType),
+      dragCurrentPoint: null,
+      dragAltKey: ({ event }) => (event.type === 'START_DRAG' ? !!event.altKey : false),
+    }),
+    dragMove: assign({
+      dragCurrentPoint: ({ event }) => (event.type === 'DRAG_MOVE' ? event.point : null),
+    }),
   },
 }).createMachine({
   id: 'editor',
@@ -362,7 +332,7 @@ export const editorMachine = setup({
         DOUBLE_CLICK: {
           guard: 'bezierMinAnchors',
           target: 'idle',
-          actions: assign<EditorContext, EditorEvent>({
+          actions: assign({
             // dedup 同 sharedDrawEvents：输入层已吞掉 dblclick 的第二次 click，
             // 不再 slice 锚点，否则会丢最后一个锚点。
             isDraggingHandle: false,
@@ -373,33 +343,12 @@ export const editorMachine = setup({
       },
     },
 
-    drawArc: {
-      on: {
-        SELECT_TOOL: selectToolTransitions,
-        MOUSE_DOWN: [
-          { guard: 'arcComplete', target: 'idle', actions: 'addPoint' },
-          { actions: 'addPoint' },
-        ],
-        MOUSE_MOVE: { actions: 'updatePreview' },
-        CANCEL: { target: 'idle', actions: 'resetDraw' },
-      },
-    },
-
-    // 旋转矩形：3 次点击
-    //   click1 = 主轴起点
-    //   click2 = 主轴终点（决定长度 + 旋转角度）
-    //   click3 = 垂直方向宽度点（commit）
-    drawRotatedRect: {
-      on: {
-        SELECT_TOOL: selectToolTransitions,
-        MOUSE_DOWN: [
-          { guard: 'rotatedRectComplete', target: 'idle', actions: 'addPoint' },
-          { actions: 'addPoint' },
-        ],
-        MOUSE_MOVE: { actions: 'updatePreview' },
-        CANCEL: { target: 'idle', actions: 'resetDraw' },
-      },
-    },
+    // drawArc + drawRotatedRect 都是"两点已落、第三次点击落点 commit"的形态：
+    //   drawArc:         click1=起点  click2=中点    click3=终点 (commit)
+    //   drawRotatedRect: click1=轴起  click2=轴终    click3=宽度 (commit)
+    // 共享同一份 on-handler，只是出现在 states map 里的两个 key 不同。
+    drawArc: { on: threeClickCommitEvents },
+    drawRotatedRect: { on: threeClickCommitEvents },
 
     drawPolygon: {
       on: {
