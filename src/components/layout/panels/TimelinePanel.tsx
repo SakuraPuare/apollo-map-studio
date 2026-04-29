@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Play, Pause, Square, SkipBack, SkipForward, Plus, ChevronRight } from 'lucide-react';
+import {
+  FaPlay,
+  FaPause,
+  FaStop,
+  FaBackwardStep,
+  FaForwardStep,
+  FaPlus,
+  FaChevronRight,
+} from 'react-icons/fa6';
 import { clsx } from 'clsx';
 
 // Width (px) reserved on the left for the track-header column.
@@ -230,25 +238,25 @@ export function TimelinePanel() {
           onClick={skipBack}
           className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
         >
-          <SkipBack className="w-4 h-4" />
+          <FaBackwardStep className="w-4 h-4" />
         </button>
         <button
           onClick={togglePlay}
           className="p-1.5 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
         >
-          {state.isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {state.isPlaying ? <FaPause className="w-4 h-4" /> : <FaPlay className="w-4 h-4" />}
         </button>
         <button
           onClick={stop}
           className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
         >
-          <Square className="w-4 h-4" />
+          <FaStop className="w-4 h-4" />
         </button>
         <button
           onClick={skipForward}
           className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-zinc-200"
         >
-          <SkipForward className="w-4 h-4" />
+          <FaForwardStep className="w-4 h-4" />
         </button>
 
         <div className="w-px h-4 bg-white/10 mx-1" />
@@ -264,7 +272,7 @@ export function TimelinePanel() {
 
         {/* Add track button */}
         <button className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/10 rounded">
-          <Plus className="w-3 h-3" />
+          <FaPlus className="w-3 h-3" />
           Add Track
         </button>
       </div>
@@ -284,7 +292,7 @@ export function TimelinePanel() {
               className="flex items-center gap-1 px-2 h-8 border-b border-white/[0.05]"
             >
               <button onClick={() => toggleTrackExpand(track.id)} className="p-0.5">
-                <ChevronRight
+                <FaChevronRight
                   className={clsx(
                     'w-3 h-3 text-zinc-600 transition-transform',
                     track.expanded && 'rotate-90',

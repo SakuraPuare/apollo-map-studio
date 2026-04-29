@@ -1,4 +1,4 @@
-import { MapPin, ZoomIn, Grid3X3, Magnet } from 'lucide-react';
+import { FaMapPin, FaMagnifyingGlassPlus, FaTableCells, FaMagnet } from 'react-icons/fa6';
 import { useUIStore } from '@/store/uiStore';
 
 interface StatusBarProps {
@@ -72,7 +72,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
               gridEnabled ? 'text-ams-accent' : 'text-ams-text-disabled'
             }`}
           >
-            <Grid3X3 className="w-3 h-3" />
+            <FaTableCells className="w-3 h-3" />
             <span>Grid</span>
           </div>
           <div
@@ -80,7 +80,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
               snapEnabled ? 'text-ams-accent' : 'text-ams-text-disabled'
             }`}
           >
-            <Magnet className="w-3 h-3" />
+            <FaMagnet className="w-3 h-3" />
             <span>Snap</span>
           </div>
         </div>
@@ -88,7 +88,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
         {/* Cursor position */}
         {cursorLngLat && (
           <div className="flex items-center gap-1">
-            <MapPin className="w-3 h-3 text-ams-text-disabled" />
+            <FaMapPin className="w-3 h-3 text-ams-text-disabled" />
             <span className="font-mono">
               {cursorLngLat[0].toFixed(6)}, {cursorLngLat[1].toFixed(6)}
             </span>
@@ -97,7 +97,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
 
         {/* Zoom level */}
         <div className="flex items-center gap-1">
-          <ZoomIn className="w-3 h-3 text-ams-text-disabled" />
+          <FaMagnifyingGlassPlus className="w-3 h-3 text-ams-text-disabled" />
           <span className="font-mono text-ams-text-secondary">{currentZoom.toFixed(1)}x</span>
         </div>
       </div>

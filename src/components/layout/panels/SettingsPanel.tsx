@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { FaXmark } from 'react-icons/fa6';
 import {
   useSettingsStore,
   MIN_HISTORY_LIMIT,
@@ -108,7 +108,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             onClick={onClose}
             className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
           >
-            <X className="w-4 h-4" />
+            <FaXmark className="w-4 h-4" />
           </button>
         </div>
 

@@ -1,4 +1,4 @@
-import { Layers, Search, Settings, Clock, FolderTree } from 'lucide-react';
+import { FaLayerGroup, FaMagnifyingGlass, FaGear, FaClock, FaFolderTree } from 'react-icons/fa6';
 import { clsx } from 'clsx';
 
 export type ActivityTab = 'explorer' | 'layers' | 'search' | 'timeline' | 'settings';
@@ -9,11 +9,11 @@ interface ActivityBarProps {
 }
 
 const tabs: { id: ActivityTab; icon: React.ElementType; label: string }[] = [
-  { id: 'explorer', icon: FolderTree, label: 'Explorer' },
-  { id: 'layers', icon: Layers, label: 'Layers' },
-  { id: 'search', icon: Search, label: 'Search' },
-  { id: 'timeline', icon: Clock, label: 'Timeline' },
-  { id: 'settings', icon: Settings, label: 'Settings' },
+  { id: 'explorer', icon: FaFolderTree, label: 'Explorer' },
+  { id: 'layers', icon: FaLayerGroup, label: 'Layers' },
+  { id: 'search', icon: FaMagnifyingGlass, label: 'Search' },
+  { id: 'timeline', icon: FaClock, label: 'Timeline' },
+  { id: 'settings', icon: FaGear, label: 'Settings' },
 ];
 
 export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {

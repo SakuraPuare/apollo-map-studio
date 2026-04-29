@@ -1,10 +1,9 @@
-import { Command } from 'lucide-react';
+import { FaTerminal, FaMagnifyingGlass } from 'react-icons/fa6';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import { getToolAction, getToolStripSlotActions, type ActionId } from '@/core/actions/registry';
-import { getIcon } from '@/components/ui/icon-registry';
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ function ElementBar({ currentElement, onSelect }: ElementBarProps) {
   return (
     <div className="flex items-center gap-0.5 shrink-0">
       {MAP_ELEMENTS.map((el) => {
-        const Icon = getIcon(el.icon);
+        const Icon = el.icon;
         const active = currentElement === el.type;
         return (
           <button
@@ -131,7 +130,7 @@ export function ToolStrip({
           <div className="flex items-center gap-0.5">
             {availableTools.map(({ tool }) => {
               const action = getToolAction(tool);
-              const Icon = getIcon(action?.icon);
+              const Icon = action?.icon ?? FaMagnifyingGlass;
               return (
                 <ToolButton
                   key={tool}
@@ -155,7 +154,7 @@ export function ToolStrip({
         onClick={onOpenCommandPalette}
         className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
       >
-        <Command className="w-3.5 h-3.5" />
+        <FaTerminal className="w-3.5 h-3.5" />
         <kbd className="text-[10px] font-mono text-ams-text-disabled">⌘K</kbd>
       </button>
 
@@ -163,7 +162,7 @@ export function ToolStrip({
 
       {/* View slot — fully registry-driven via dispatcher */}
       {viewActions.map((action) => {
-        const Icon = getIcon(action.icon);
+        const Icon = action.icon ?? FaMagnifyingGlass;
         return (
           <ToolButton
             key={action.id}

@@ -2,6 +2,18 @@
  * Apollo 地图元素定义
  * 每个元素映射到一个或多个基础绘制工具
  */
+import type { IconType } from 'react-icons';
+import {
+  FaRoad,
+  FaSquareParking,
+  FaPersonWalking,
+  FaTrafficLight,
+  FaWaveSquare,
+  FaBan,
+  FaRoadBarrier,
+} from 'react-icons/fa6';
+import { BsFillSignIntersectionFill, BsSignStop, BsSignYieldFill } from 'react-icons/bs';
+import { BiShapePolygon } from 'react-icons/bi';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 
 /** 元素类型的 entityType 判别器 */
@@ -29,8 +41,8 @@ export interface MapElementDef {
   color: string;
   /** 几何类型：线还是面 */
   geometry: 'line' | 'polygon';
-  /** ToolStrip 平铺按钮使用的 lucide 图标名（须注册在 icon-registry 中） */
-  icon: string;
+  /** react-icons 图标组件（直接引用，不走字符串注册表） */
+  icon: IconType;
 }
 
 export const MAP_ELEMENTS: MapElementDef[] = [
@@ -41,7 +53,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#4a9eff',
     geometry: 'line',
-    icon: 'Route',
+    icon: FaRoad,
   },
   {
     type: 'junction',
@@ -50,7 +62,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawPolygon',
     color: '#ffcc00',
     geometry: 'polygon',
-    icon: 'Diamond',
+    icon: BsFillSignIntersectionFill,
   },
   {
     type: 'parkingSpace',
@@ -59,7 +71,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#7c5cbf',
     geometry: 'polygon',
-    icon: 'SquareParking',
+    icon: FaSquareParking,
   },
   {
     type: 'crosswalk',
@@ -68,7 +80,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#ffffff',
     geometry: 'polygon',
-    icon: 'Footprints',
+    icon: FaPersonWalking,
   },
   {
     type: 'signal',
@@ -77,7 +89,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#22cc44',
     geometry: 'line',
-    icon: 'TrafficCone',
+    icon: FaTrafficLight,
   },
   {
     type: 'stopSign',
@@ -86,7 +98,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ff0000',
     geometry: 'line',
-    icon: 'Octagon',
+    icon: BsSignStop,
   },
   {
     type: 'speedBump',
@@ -95,7 +107,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ffaa00',
     geometry: 'line',
-    icon: 'Waves',
+    icon: FaWaveSquare,
   },
   {
     type: 'yieldSign',
@@ -104,7 +116,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ff6600',
     geometry: 'line',
-    icon: 'Triangle',
+    icon: BsSignYieldFill,
   },
   {
     type: 'clearArea',
@@ -113,7 +125,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#ff4466',
     geometry: 'polygon',
-    icon: 'Ban',
+    icon: FaBan,
   },
   {
     type: 'barrierGate',
@@ -122,7 +134,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#aa66ff',
     geometry: 'line',
-    icon: 'Construction',
+    icon: FaRoadBarrier,
   },
   {
     type: 'area',
@@ -131,7 +143,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawPolygon',
     color: '#66aaff',
     geometry: 'polygon',
-    icon: 'Shapes',
+    icon: BiShapePolygon,
   },
 ];
 

@@ -8,6 +8,23 @@
  * 4. 类型系统保证不会遗漏任何字段
  */
 
+import type { IconType } from 'react-icons';
+import {
+  FaDownload,
+  FaGear,
+  FaArrowRotateLeft,
+  FaArrowRotateRight,
+  FaTrash,
+  FaTableCells,
+  FaMagnet,
+  FaTableColumns,
+  FaTerminal,
+  FaPencil,
+  FaBezierCurve,
+  FaRegCircle,
+  FaRegSquare,
+  FaDrawPolygon,
+} from 'react-icons/fa6';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 
 // ─── Types ─────────────────────────────────────────────────
@@ -55,8 +72,8 @@ export interface ActionDef {
   shortcut?: string;
   /** Keyboard event matcher */
   keybinding?: KeyBinding;
-  /** Icon component name from lucide-react */
-  icon?: string;
+  /** react-icons 图标组件（直接引用，不走字符串注册表） */
+  icon?: IconType;
   /** Whether this action appears in the command palette */
   inCommandPalette: boolean;
   /** Which menu this appears in (null = not in menu bar) */
@@ -90,7 +107,7 @@ export const ACTION_DEFS: ActionDef[] = [
     id: 'export',
     label: 'Export Apollo Format...',
     category: 'file',
-    icon: 'Download',
+    icon: FaDownload,
     inCommandPalette: true,
     menu: 'File',
     menuOrder: 10,
@@ -101,7 +118,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'file',
     shortcut: '⌘,',
     keybinding: { key: ',', ctrl: true },
-    icon: 'Settings',
+    icon: FaGear,
     inCommandPalette: true,
     menu: 'File',
     menuOrder: 90,
@@ -114,7 +131,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'edit',
     shortcut: '⌘Z',
     keybinding: { key: 'z', ctrl: true, global: true },
-    icon: 'Undo2',
+    icon: FaArrowRotateLeft,
     inCommandPalette: true,
     menu: 'Edit',
     menuOrder: 10,
@@ -125,7 +142,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'edit',
     shortcut: '⇧⌘Z',
     keybinding: { key: 'z', ctrl: true, shift: true, global: true },
-    icon: 'Redo2',
+    icon: FaArrowRotateRight,
     inCommandPalette: true,
     menu: 'Edit',
     menuOrder: 20,
@@ -136,7 +153,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'edit',
     shortcut: '⌫',
     keybinding: { key: 'delete' },
-    icon: 'Trash2',
+    icon: FaTrash,
     inCommandPalette: true,
     menu: 'Edit',
     menuOrder: 40,
@@ -149,7 +166,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'view',
     shortcut: '⌘G',
     keybinding: { key: 'g', ctrl: true, global: true },
-    icon: 'Grid3X3',
+    icon: FaTableCells,
     inCommandPalette: true,
     menu: 'View',
     menuOrder: 20,
@@ -161,7 +178,7 @@ export const ACTION_DEFS: ActionDef[] = [
     id: 'toggleSnap',
     label: 'Toggle Snap',
     category: 'view',
-    icon: 'Magnet',
+    icon: FaMagnet,
     inCommandPalette: true,
     menu: 'View',
     menuOrder: 30,
@@ -173,7 +190,7 @@ export const ACTION_DEFS: ActionDef[] = [
     id: 'resetLayout',
     label: 'Reset Layout',
     category: 'view',
-    icon: 'LayoutDashboard',
+    icon: FaTableColumns,
     inCommandPalette: true,
     menu: 'View',
     menuOrder: 10,
@@ -184,7 +201,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'view',
     shortcut: '⌘K',
     keybinding: { key: 'k', ctrl: true, global: true },
-    icon: 'Command',
+    icon: FaTerminal,
     inCommandPalette: false, // don't show in command palette itself
   },
 
@@ -195,7 +212,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'tool',
     shortcut: 'P',
     keybinding: { key: 'p' },
-    icon: 'Pencil',
+    icon: FaPencil,
     inCommandPalette: true,
     drawTool: 'drawPolyline',
   },
@@ -205,7 +222,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'tool',
     shortcut: 'B',
     keybinding: { key: 'b' },
-    icon: 'Spline',
+    icon: FaBezierCurve,
     inCommandPalette: true,
     drawTool: 'drawBezier',
   },
@@ -215,7 +232,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'tool',
     shortcut: 'A',
     keybinding: { key: 'a' },
-    icon: 'Circle',
+    icon: FaRegCircle,
     inCommandPalette: true,
     drawTool: 'drawArc',
   },
@@ -225,7 +242,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'tool',
     shortcut: 'R',
     keybinding: { key: 'r' },
-    icon: 'Square',
+    icon: FaRegSquare,
     inCommandPalette: true,
     drawTool: 'drawRotatedRect',
   },
@@ -235,7 +252,7 @@ export const ACTION_DEFS: ActionDef[] = [
     category: 'tool',
     shortcut: 'G',
     keybinding: { key: 'g' },
-    icon: 'Hexagon',
+    icon: FaDrawPolygon,
     inCommandPalette: true,
     drawTool: 'drawPolygon',
   },
@@ -243,7 +260,7 @@ export const ACTION_DEFS: ActionDef[] = [
     id: 'tool:drawCatmullRom',
     label: 'Draw CatmullRom',
     category: 'tool',
-    icon: 'Spline',
+    icon: FaBezierCurve,
     inCommandPalette: true,
     drawTool: 'drawCatmullRom',
   },

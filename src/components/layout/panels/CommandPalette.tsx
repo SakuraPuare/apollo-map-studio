@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
-import { Search } from 'lucide-react';
+import { FaMagnifyingGlass } from 'react-icons/fa6';
 import { getCommandPaletteActions, type ActionDef, type ActionId } from '@/core/actions/registry';
-import { getIcon } from '@/components/ui/icon-registry';
 
 // ─── Main Component ────────────────────────────────────────
 
@@ -75,7 +74,7 @@ export function CommandPalette({
         loop
       >
         <div className="flex items-center border-b border-white/10 px-4">
-          <Search className="w-4 h-4 text-zinc-500 mr-3" />
+          <FaMagnifyingGlass className="w-4 h-4 text-zinc-500 mr-3" />
           <Command.Input
             value={search}
             onValueChange={setSearch}
@@ -99,7 +98,7 @@ export function CommandPalette({
               className="mb-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-zinc-600"
             >
               {items.map((action) => {
-                const Icon = getIcon(action.icon);
+                const Icon = action.icon ?? FaMagnifyingGlass;
                 const isChecked = action.isToggle && getToggleState?.(action.id);
 
                 return (
