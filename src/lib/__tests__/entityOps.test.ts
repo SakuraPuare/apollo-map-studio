@@ -23,7 +23,17 @@ import {
   compileEntity,
   createEntity,
   entityCoords,
+  reparent,
+  canReparent,
+  cascadeDeleteRefs,
 } from '../entityOps';
+import type {
+  JunctionEntity,
+  RoadEntity,
+  RSUEntity,
+  LaneEntity as ApolloLaneEntity,
+} from '@/types/apollo';
+import type { MapEntity } from '@/types/entities';
 import type {
   PolylineEntity,
   BezierEntity,
@@ -301,5 +311,233 @@ describe('createEntity', () => {
     expect(lane.id.length).toBeGreaterThan(0);
     expect(getEditPoints(lane).length).toBeGreaterThanOrEqual(2);
     expect(lane.length).toBeGreaterThan(0);
+  });
+});
+
+// ── reparent / canReparent ─────────────────────────────────────
+//
+// 这些测试围绕 LayerTree 的拖拽闭环，把 Apollo 1:N 外键的不变量锁住：
+//   - Lane 同时只能挂一个父（junctionId XOR 唯一一个 RoadSection.laneIds）
+//   - Road/RSU 的 junctionId 是单值，不需要反向清理
+//   - 拒绝跨语义拖拽（如 lane → road（unparent group）以外的非法 target）
+
+function makeJunction(id: string): JunctionEntity {
+  return {
+    id,
+    entityType: 'junction',
+    polygon: { points: [] },
+    type: 'CROSS_ROAD',
+    overlapIds: [],
+  };
+}
+
+function makeRoad(id: string, junctionId: string | null = null): RoadEntity {
+  return {
+    id,
+    entityType: 'road',
+    sections: [{ id: `${id}_s0`, laneIds: [] }],
+    junctionId,
+    type: 'CITY_ROAD',
+  };
+}
+
+function makeRSU(id: string, junctionId: string | null = null): RSUEntity {
+  return { id, entityType: 'rsu', junctionId, overlapIds: [] };
+}
+
+function asMap(...entities: MapEntity[]): Map<string, MapEntity> {
+  return new Map(entities.map((e) => [e.id, e]));
+}
+
+describe('reparent: Lane → Junction', () => {
+  it('设置 junctionId，并把 lane 从所有 RoadSection 中移除', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = null;
+    const j = makeJunction('j_1');
+    const road = makeRoad('r_1');
+    road.sections[0]!.laneIds = [lane.id, 'other_lane'];
+
+    const all = asMap(lane, j, road);
+    const result = reparent(lane, { kind: 'junction', id: 'j_1' }, all);
+
+    expect(result.rejected).toBeUndefined();
+    expect(result.changes.size).toBe(2);
+    const newLane = result.changes.get(lane.id) as ApolloLaneEntity;
+    const newRoad = result.changes.get(road.id) as RoadEntity;
+    expect(newLane.junctionId).toBe('j_1');
+    expect(newRoad.sections[0]!.laneIds).toEqual(['other_lane']);
+  });
+
+  it('已经在目标 junction 下时是 no-op', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = 'j_1';
+    const j = makeJunction('j_1');
+    const result = reparent(lane, { kind: 'junction', id: 'j_1' }, asMap(lane, j));
+    expect(result.changes.size).toBe(0);
+    expect(result.rejected).toBeUndefined();
+  });
+
+  it('target 不存在 / 类型错则拒绝', () => {
+    const lane = makeLane();
+    const result = reparent(lane, { kind: 'junction', id: 'j_missing' }, asMap(lane));
+    expect(result.rejected).toBeTruthy();
+  });
+});
+
+describe('reparent: Lane → RoadSection', () => {
+  it('把 lane 加进目标 section、清空 junctionId、从其它 section 移除', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = 'j_1';
+    const j = makeJunction('j_1');
+    const r1 = makeRoad('r_1');
+    const r2 = makeRoad('r_2');
+    r2.sections[0]!.laneIds = [lane.id]; // 旧归属在 r_2
+
+    const all = asMap(lane, j, r1, r2);
+    const result = reparent(lane, { kind: 'roadSection', roadId: 'r_1', sectionId: 'r_1_s0' }, all);
+
+    expect(result.rejected).toBeUndefined();
+    const newLane = result.changes.get(lane.id) as ApolloLaneEntity;
+    const newR1 = result.changes.get('r_1') as RoadEntity;
+    const newR2 = result.changes.get('r_2') as RoadEntity;
+    expect(newLane.junctionId).toBeNull();
+    expect(newR1.sections[0]!.laneIds).toContain(lane.id);
+    expect(newR2.sections[0]!.laneIds).not.toContain(lane.id);
+  });
+
+  it('section 不存在则自动创建一个', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = null;
+    const r = makeRoad('r_1');
+    r.sections = []; // 没 section
+    const all = asMap(lane, r);
+    const result = reparent(
+      lane,
+      { kind: 'roadSection', roadId: 'r_1', sectionId: 'auto_s0' },
+      all,
+    );
+    expect(result.rejected).toBeUndefined();
+    const newR = result.changes.get('r_1') as RoadEntity;
+    expect(newR.sections.length).toBe(1);
+    expect(newR.sections[0]!.id).toBe('auto_s0');
+    expect(newR.sections[0]!.laneIds).toEqual([lane.id]);
+  });
+});
+
+describe('reparent: Lane → Road（自动取首个 section）', () => {
+  it('委派到 roadSection 落到 road.sections[0]', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = null;
+    const r = makeRoad('r_1');
+    const result = reparent(lane, { kind: 'road', id: 'r_1' }, asMap(lane, r));
+    expect(result.rejected).toBeUndefined();
+    const newR = result.changes.get('r_1') as RoadEntity;
+    expect(newR.sections[0]!.laneIds).toEqual([lane.id]);
+  });
+});
+
+describe('reparent: Lane → none（解除归属）', () => {
+  it('清空 junctionId 并从所有 section 移除', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = 'j_1';
+    const r = makeRoad('r_1');
+    r.sections[0]!.laneIds = [lane.id];
+    const all = asMap(lane, r);
+    const result = reparent(lane, { kind: 'none' }, all);
+    expect(result.rejected).toBeUndefined();
+    const newLane = result.changes.get(lane.id) as ApolloLaneEntity;
+    const newR = result.changes.get('r_1') as RoadEntity;
+    expect(newLane.junctionId).toBeNull();
+    expect(newR.sections[0]!.laneIds).not.toContain(lane.id);
+  });
+});
+
+describe('reparent: Road / RSU → Junction', () => {
+  it('Road.junctionId 单字段更新', () => {
+    const r = makeRoad('r_1', null);
+    const j = makeJunction('j_1');
+    const result = reparent(r, { kind: 'junction', id: 'j_1' }, asMap(r, j));
+    expect((result.changes.get('r_1') as RoadEntity).junctionId).toBe('j_1');
+  });
+
+  it('RSU.junctionId 单字段更新', () => {
+    const rsu = makeRSU('rsu_1', null);
+    const j = makeJunction('j_1');
+    const result = reparent(rsu, { kind: 'junction', id: 'j_1' }, asMap(rsu, j));
+    expect((result.changes.get('rsu_1') as RSUEntity).junctionId).toBe('j_1');
+  });
+});
+
+describe('reparent: 非法路径', () => {
+  it('drawing primitive 不能 reparent', () => {
+    const r = reparent(polyline(), { kind: 'junction', id: 'j_1' }, asMap(polyline()));
+    expect(r.rejected).toBeTruthy();
+  });
+
+  it('canReparent 是 reparent 的 boolean shim', () => {
+    const lane = makeLane();
+    const j = makeJunction('j_1');
+    expect(canReparent(lane, { kind: 'junction', id: 'j_1' }, asMap(lane, j))).toBe(true);
+    expect(canReparent(lane, { kind: 'junction', id: 'j_X' }, asMap(lane))).toBe(false);
+  });
+});
+
+// ── cascadeDeleteRefs ──────────────────────────────────────────
+//
+// 删除一个对象时，所有指向它的外键都要被清掉，否则导出 map.bin
+// 加载就 NPE。这里覆盖最常见的 5 条路径。
+
+describe('cascadeDeleteRefs', () => {
+  it('removedIds 为空时直接 no-op', () => {
+    const lane = makeLane();
+    const result = cascadeDeleteRefs(new Set(), asMap(lane));
+    expect(result.size).toBe(0);
+  });
+
+  it('删除 Junction 时，所有指向它的 lane.junctionId / road.junctionId / rsu.junctionId 被置空', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = 'j_1';
+    const road = makeRoad('r_1', 'j_1');
+    const rsu = makeRSU('rsu_1', 'j_1');
+    const j = makeJunction('j_1');
+    const result = cascadeDeleteRefs(new Set(['j_1']), asMap(lane, road, rsu, j));
+    expect((result.get(lane.id) as ApolloLaneEntity).junctionId).toBeNull();
+    expect((result.get('r_1') as RoadEntity).junctionId).toBeNull();
+    expect((result.get('rsu_1') as RSUEntity).junctionId).toBeNull();
+    // junction itself shouldn't appear in changes (it's the deletion target)
+    expect(result.has('j_1')).toBe(false);
+  });
+
+  it('删除 Lane 时，所有 RoadSection.laneIds 中移除', () => {
+    const lane = makeLane();
+    const r1 = makeRoad('r_1');
+    r1.sections[0]!.laneIds = [lane.id, 'other'];
+    const r2 = makeRoad('r_2');
+    r2.sections[0]!.laneIds = [lane.id];
+    const result = cascadeDeleteRefs(new Set([lane.id]), asMap(lane, r1, r2));
+    expect((result.get('r_1') as RoadEntity).sections[0]!.laneIds).toEqual(['other']);
+    expect((result.get('r_2') as RoadEntity).sections[0]!.laneIds).toEqual([]);
+  });
+
+  it('删除 Lane 时，其它 Lane 的 topology 数组也被清理', () => {
+    const target = makeLane();
+    const other = makeLane();
+    (other as ApolloLaneEntity).id = 'lane_other';
+    (other as ApolloLaneEntity).predecessorIds = [target.id, 'keep'];
+    (other as ApolloLaneEntity).successorIds = [target.id];
+    const result = cascadeDeleteRefs(new Set([target.id]), asMap(target, other));
+    const updated = result.get('lane_other') as ApolloLaneEntity;
+    expect(updated.predecessorIds).toEqual(['keep']);
+    expect(updated.successorIds).toEqual([]);
+  });
+
+  it('删除 Overlap 时，所有 entity.overlapIds 被清理', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).overlapIds = ['ov_1', 'ov_2'];
+    const j = makeJunction('j_1');
+    j.overlapIds = ['ov_1'];
+    const result = cascadeDeleteRefs(new Set(['ov_1']), asMap(lane, j));
+    expect((result.get(lane.id) as ApolloLaneEntity).overlapIds).toEqual(['ov_2']);
+    expect((result.get('j_1') as JunctionEntity).overlapIds).toEqual([]);
   });
 });

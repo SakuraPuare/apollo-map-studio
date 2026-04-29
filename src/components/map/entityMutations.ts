@@ -13,12 +13,16 @@ import {
   moveEntity as moveApolloEntity,
   deleteVertex as deleteApolloVertex,
 } from '@/lib/entityOps';
+import { applyDerive } from '@/core/elements/derive';
 
 const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
 
 /**
  * 删除实体的第 index 个顶点。
  * 返回新实体，如果删除后顶点不足最小数量则返回 null（表示应删除整个实体）。
+ *
+ * Apollo 路径委托给 `@/lib/entityOps.deleteVertex`，已自带 `applyDerive`；
+ * 绘制原语（polyline/bezier/polygon）的几何变更不挂派生规则，无需补。
  */
 export function deleteVertex(entity: MapEntity, index: number): MapEntity | null {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
@@ -89,8 +93,27 @@ export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity 
   return { ...entity, anchors };
 }
 
-/** 对实体应用拖拽偏移，返回新实体（不修改原实体） */
+/**
+ * 对实体应用拖拽偏移，返回新实体（不修改原实体）。
+ *
+ * 公开函数会再走一次 `applyDerive(editGeometry)`，覆盖那些不经
+ * `entityOps` setter 直接构造 entity 的源信息分支（贝塞尔/圆弧/
+ * 矩形 source 编辑），保证 lane.turn / lane.length / parkingSpace.heading
+ * 等派生字段在拖动后立即同步。
+ */
 export function applyDrag(
+  entity: MapEntity,
+  index: number,
+  pointType: DragPointType,
+  newPoint: LngLat,
+  altKey = false,
+): MapEntity {
+  const next = applyDragRaw(entity, index, pointType, newPoint, altKey);
+  if (next === entity) return entity;
+  return applyDerive(next, { cause: 'editGeometry', prev: entity });
+}
+
+function applyDragRaw(
   entity: MapEntity,
   index: number,
   pointType: DragPointType,

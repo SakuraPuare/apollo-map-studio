@@ -140,6 +140,15 @@ export interface LaneEntity {
 
   /** 编辑器扩展：保存原始绘制信息以支持曲线编辑 */
   _source?: SourceDrawInfo;
+  /**
+   * Field paths the user has manually overridden — derive rules whose
+   * `owns` overlap this list will skip on geometry edits, so manual
+   * inspector values are not clobbered by auto-recomputation. Treat
+   * as immutable at the application level (the engine clones rather
+   * than mutating); the array is typed as mutable only because immer
+   * draft types reject `readonly`.
+   */
+  _userOverrides?: string[];
 }
 
 // ─── map_junction.proto ──────────────────────────────────────────────
@@ -169,6 +178,8 @@ export interface ParkingSpaceEntity {
   heading: number;
   overlapIds: string[];
   _sourceRect?: SourceRectInfo;
+  /** see LaneEntity._userOverrides */
+  _userOverrides?: string[];
 }
 
 export interface ParkingLotEntity {
