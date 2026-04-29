@@ -326,6 +326,50 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         filter: ['==', 'role', 'handleLine'],
         paint: { 'line-color': '#ff66cc', 'line-width': 1, 'line-opacity': 0.6 },
       });
+
+      // Snap indicator — separate source so it can render outside draw
+      // states (e.g. while dragging an existing entity's vertex).
+      map.addSource('snap', { type: 'geojson', data: EMPTY_FC });
+      map.addLayer({
+        id: 'snap-ring',
+        type: 'circle',
+        source: 'snap',
+        filter: ['==', '$type', 'Point'],
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#000000',
+          'circle-opacity': 0,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': [
+            'match',
+            ['get', 'kind'],
+            'vertex',
+            '#00d4ff',
+            'edge',
+            '#00a8cc',
+            '#00d4ff',
+          ],
+          'circle-stroke-opacity': 0.95,
+        },
+      });
+      map.addLayer({
+        id: 'snap-dot',
+        type: 'circle',
+        source: 'snap',
+        filter: ['==', '$type', 'Point'],
+        paint: {
+          'circle-radius': 2.5,
+          'circle-color': [
+            'match',
+            ['get', 'kind'],
+            'vertex',
+            '#00d4ff',
+            'edge',
+            '#00a8cc',
+            '#00d4ff',
+          ],
+        },
+      });
     });
 
     mapRef.current = map;

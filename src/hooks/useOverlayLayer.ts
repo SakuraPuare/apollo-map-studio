@@ -13,6 +13,8 @@ import {
 } from '@/core/geometry/interpolate';
 import { lineFeature, pointFeature, handleLineFeature, polygonFeature } from '@/lib/geoJsonHelpers';
 import type { LngLat } from '@/core/geometry/interpolate';
+import { useUIStore } from '@/store/uiStore';
+import type { SnapTarget } from '@/core/geometry/snap';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
@@ -169,4 +171,47 @@ export function useOverlayLayer(
     // mapRef / mapLoadedRef are refs — non-reactive by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
+
+  // Snap indicator — independent source so it can render outside draw
+  // states (e.g. during vertex drag). Subscribes to `currentSnapTarget`
+  // from the UI store; the store's setter dedupes identity churn so this
+  // effect only runs on real snap state changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = (target: SnapTarget | null) => {
+      if (!mapLoadedRef.current) return;
+      const src = map.getSource('snap') as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      if (!target) {
+        src.setData(EMPTY_FC);
+        return;
+      }
+      src.setData({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: {
+              kind: target.kind,
+              entityId: target.entityId,
+              entityType: target.entityType,
+            },
+            geometry: { type: 'Point', coordinates: [target.point.x, target.point.y] },
+          },
+        ],
+      });
+    };
+
+    apply(useUIStore.getState().currentSnapTarget);
+    const unsub = useUIStore.subscribe((s, prev) => {
+      if (s.currentSnapTarget !== prev.currentSnapTarget) {
+        apply(s.currentSnapTarget);
+      }
+    });
+
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }

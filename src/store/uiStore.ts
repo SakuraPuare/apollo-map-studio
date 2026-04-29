@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { SnapTarget } from '@/core/geometry/snap';
 
 // ─── Entity type visibility / lock state ────────────────────
 
@@ -44,6 +45,9 @@ interface UIState {
 
   // Sidebar
   sidebarVisible: boolean;
+
+  // Active snap indicator (live during drawing/dragging — null = no snap)
+  currentSnapTarget: SnapTarget | null;
 }
 
 interface UIActions {
@@ -64,6 +68,8 @@ interface UIActions {
   setCurrentZoom(zoom: number): void;
 
   toggleSidebar(): void;
+
+  setSnapTarget(target: SnapTarget | null): void;
 }
 
 type UIStore = UIState & UIActions;
@@ -82,6 +88,7 @@ export const useUIStore = create<UIStore>()((set, get) => ({
   cursorLngLat: null,
   currentZoom: 18,
   sidebarVisible: true,
+  currentSnapTarget: null,
 
   setAppMode(mode) {
     set({ appMode: mode });
@@ -153,5 +160,23 @@ export const useUIStore = create<UIStore>()((set, get) => ({
 
   toggleSidebar() {
     set((s) => ({ sidebarVisible: !s.sidebarVisible }));
+  },
+
+  setSnapTarget(target) {
+    // Avoid identity churn when nothing is changing — overlay layer
+    // subscribes to this and we don't want a render every mousemove.
+    const prev = get().currentSnapTarget;
+    if (prev === target) return;
+    if (
+      prev &&
+      target &&
+      prev.kind === target.kind &&
+      prev.entityId === target.entityId &&
+      prev.point.x === target.point.x &&
+      prev.point.y === target.point.y
+    ) {
+      return;
+    }
+    set({ currentSnapTarget: target });
   },
 }));

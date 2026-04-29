@@ -13,8 +13,15 @@ import {
   deleteVertex,
 } from '@/components/map/entityMutations';
 import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
-import { CLICK_THRESHOLD_PX, HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
+import {
+  CLICK_THRESHOLD_PX,
+  HIT_BBOX_PADDING_PX,
+  HIT_TEST_RADIUS_PX,
+  SNAP_RADIUS_PX,
+} from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
+import { findSnapTarget, pixelsToMeters } from '@/core/geometry/snap';
+import type { SnapTarget } from '@/core/geometry/snap';
 
 // Browser fires two `click` events for a dblclick (one per mousedown), then a
 // dblclick event. We shadow the 2nd click so the FSM sees exactly one MOUSE_DOWN
@@ -86,6 +93,34 @@ export function useMapEventRouter(
     const pixelToRadius = (px: number): number => {
       const zoom = map.getZoom();
       return (px * 360) / (512 * Math.pow(2, zoom));
+    };
+
+    /**
+     * Apply snap when enabled. Returns the (possibly adjusted) lng/lat
+     * and updates the UI store's `currentSnapTarget` so the overlay
+     * indicator matches what was actually consumed by the FSM.
+     *
+     * `excludeId` lets a vertex drag skip its own entity so the cursor
+     * doesn't snap onto the dragged point itself.
+     */
+    const applySnap = (lngLat: LngLat, excludeId: string | null = null): LngLat => {
+      const ui = useUIStore.getState();
+      if (!ui.snapEnabled) {
+        if (ui.currentSnapTarget) ui.setSnapTarget(null);
+        return lngLat;
+      }
+      const zoom = map.getZoom();
+      const radiusM = pixelsToMeters(SNAP_RADIUS_PX, lngLat[1], zoom);
+      const entities = useMapStore.getState().entities;
+      const target: SnapTarget | null = findSnapTarget(
+        { x: lngLat[0], y: lngLat[1] },
+        entities.values(),
+        radiusM,
+        excludeId,
+      );
+      ui.setSnapTarget(target);
+      if (!target) return lngLat;
+      return [target.point.x, target.point.y];
     };
 
     const workerHitTest = (e: maplibregl.MapMouseEvent): Promise<string | null> => {
@@ -169,7 +204,7 @@ export function useMapEventRouter(
           return;
         }
         lastDrawInput = sample;
-        actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
+        actorRef.send({ type: 'MOUSE_DOWN', point: applySnap(toLngLat(e)) });
       }
     };
 
@@ -219,7 +254,7 @@ export function useMapEventRouter(
           return;
         }
         lastDrawInput = sample;
-        actorRef.send({ type: 'MOUSE_DOWN', point: toLngLat(e) });
+        actorRef.send({ type: 'MOUSE_DOWN', point: applySnap(toLngLat(e)) });
       }
     };
 
@@ -231,19 +266,30 @@ export function useMapEventRouter(
       const state = snap.value as string;
 
       if (state === 'editingPoint') {
-        actorRef.send({ type: 'DRAG_MOVE', point: toLngLat(e) });
+        // Don't snap to the entity being dragged.
+        const excludeId = snap.context.selectedEntityId ?? null;
+        actorRef.send({ type: 'DRAG_MOVE', point: applySnap(toLngLat(e), excludeId) });
         return;
       }
 
       if (state === 'selected') {
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         map.getCanvas().style.cursor = hotHits.length > 0 ? 'grab' : '';
+        // Clear any leftover indicator from a previous draw/edit.
+        if (useUIStore.getState().currentSnapTarget) {
+          useUIStore.getState().setSnapTarget(null);
+        }
         return;
       }
 
-      if (state === 'idle') return;
+      if (state === 'idle') {
+        if (useUIStore.getState().currentSnapTarget) {
+          useUIStore.getState().setSnapTarget(null);
+        }
+        return;
+      }
 
-      actorRef.send({ type: 'MOUSE_MOVE', point: toLngLat(e) });
+      actorRef.send({ type: 'MOUSE_MOVE', point: applySnap(toLngLat(e)) });
     };
 
     const onMouseUp = (e: maplibregl.MapMouseEvent) => {
@@ -252,8 +298,8 @@ export function useMapEventRouter(
 
       if (state === 'editingPoint') {
         map.dragPan.enable();
-        const pt = toLngLat(e);
         const entityId = snap.context.selectedEntityId;
+        const pt = applySnap(toLngLat(e), entityId ?? null);
         const idx = snap.context.dragPointIndex;
         const pType = snap.context.dragPointType;
         const alt = snap.context.dragAltKey;
@@ -264,16 +310,18 @@ export function useMapEventRouter(
           }
         }
         actorRef.send({ type: 'DRAG_END', point: pt });
+        // Drag is over — clear indicator.
+        useUIStore.getState().setSnapTarget(null);
         return;
       }
 
-      actorRef.send({ type: 'MOUSE_UP', point: toLngLat(e) });
+      actorRef.send({ type: 'MOUSE_UP', point: applySnap(toLngLat(e)) });
     };
 
     const onDblClick = (e: maplibregl.MapMouseEvent) => {
       e.preventDefault();
       lastDrawInput = null;
-      actorRef.send({ type: 'DOUBLE_CLICK', point: toLngLat(e) });
+      actorRef.send({ type: 'DOUBLE_CLICK', point: applySnap(toLngLat(e)) });
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -319,6 +367,14 @@ export function useMapEventRouter(
     map.on('zoomend', onZoomEnd);
     window.addEventListener('keydown', onKeyDown);
 
+    // Clear the snap indicator the instant the user toggles snap off
+    // (otherwise the last ring lingers until the next mousemove).
+    const unsubSnap = useUIStore.subscribe((s, prev) => {
+      if (prev.snapEnabled && !s.snapEnabled && s.currentSnapTarget) {
+        useUIStore.getState().setSnapTarget(null);
+      }
+    });
+
     return () => {
       map.off('mousedown', onMouseDown);
       map.off('click', onClick);
@@ -327,6 +383,7 @@ export function useMapEventRouter(
       map.off('dblclick', onDblClick);
       map.off('zoomend', onZoomEnd);
       window.removeEventListener('keydown', onKeyDown);
+      unsubSnap();
       if (cursorRafId !== null) {
         cancelAnimationFrame(cursorRafId);
         cursorRafId = null;

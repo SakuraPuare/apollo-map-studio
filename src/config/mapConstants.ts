@@ -75,3 +75,14 @@ export const HIT_BBOX_PADDING_PX = 8;
 
 /** 实体 hitTest 半径（像素），转换为经纬度后传入 Worker */
 export const HIT_TEST_RADIUS_PX = 10;
+
+// ─── Snap (吸附) ───────────────────────────────────────────────────────────────
+
+/** 吸附触发阈值（像素），按当前 zoom 实时换算为米 */
+export const SNAP_RADIUS_PX = 12;
+
+/** 顶点吸附指示器颜色（青） */
+export const SNAP_VERTEX_COLOR = '#00d4ff';
+
+/** 边缘吸附指示器颜色（暗青，与顶点区分） */
+export const SNAP_EDGE_COLOR = '#00a8cc';
