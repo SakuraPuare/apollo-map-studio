@@ -127,8 +127,12 @@ function buildFeatureCollection(
     inputFeatures.push(...cached);
   }
 
-  // Fast path: no lanes → no junctions possible → skip the stitching pass.
-  if (laneCount < 2) {
+  // Fast path: zero lanes → no boundary decoration needed at all.
+  // 注意 `< 2` 不行：单根车道也需要 decorateBoundary 生成 laneBoundaryDecor
+  // 才能出可见边界（compileApolloFeatures 只发 noStroke 基线，被 cold-line 过滤）。
+  // 之前的 `< 2` 让"第一根车道没有边界"成为已知 bug。junction stitching
+  // 自身不需要这层守护——applyLaneJunctions 内部已经按 endpoints>=4 跳过。
+  if (laneCount < 1) {
     decorationCache.clear();
     return { type: 'FeatureCollection', features: inputFeatures };
   }
