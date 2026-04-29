@@ -22,6 +22,9 @@ import {
   stopSignSchema,
   type StopSignFormValues,
   stopSignTypeOptions,
+  roadSchema,
+  type RoadFormValues,
+  roadTypeOptions,
   type LaneFormValues,
 } from '@/lib/schemas';
 import type {
@@ -30,6 +33,7 @@ import type {
   ParkingSpaceEntity,
   SignalEntity,
   StopSignEntity,
+  RoadEntity,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 import {
@@ -129,8 +133,14 @@ function JunctionForm({ entity }: { entity: JunctionEntity }) {
     <FormProvider {...methods}>
       <form>
         <Section title="Attributes">
-          <Select name="type" label="Type" options={junctionTypeOptions} />
-          <Value label="Vertices" value={entity.polygon.points.length} />
+          <Value label="ID" value={entity.id} />
+          <Select
+            name="type"
+            label="Type"
+            options={junctionTypeOptions}
+            enumCategory="junctionType"
+          />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
         </Section>
       </form>
     </FormProvider>
@@ -185,7 +195,9 @@ function ParkingSpaceForm({ entity }: { entity: ParkingSpaceEntity }) {
     <FormProvider {...methods}>
       <form>
         <Section title="Attributes">
+          <Value label="ID" value={entity.id} />
           <Input name="heading" label="Heading (°)" type="number" min={-180} max={180} step={1} />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
         </Section>
       </form>
     </FormProvider>
@@ -234,8 +246,12 @@ function SignalForm({ entity }: { entity: SignalEntity }) {
     <FormProvider {...methods}>
       <form>
         <Section title="Attributes">
-          <Select name="type" label="Type" options={signalTypeOptions} />
+          <Value label="ID" value={entity.id} />
+          <Select name="type" label="Type" options={signalTypeOptions} enumCategory="signalType" />
           <Value label="Subsignals" value={entity.subsignals.length} />
+          <Value label="Stop Lines" value={entity.stopLines.length || '—'} />
+          <Value label="Sign Info" value={entity.signInfo.length || '—'} />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
         </Section>
       </form>
     </FormProvider>
@@ -284,7 +300,78 @@ function StopSignForm({ entity }: { entity: StopSignEntity }) {
     <FormProvider {...methods}>
       <form>
         <Section title="Attributes">
-          <Select name="type" label="Type" options={stopSignTypeOptions} />
+          <Value label="ID" value={entity.id} />
+          <Select
+            name="type"
+            label="Type"
+            options={stopSignTypeOptions}
+            enumCategory="stopSignType"
+          />
+          <Value label="Stop Lines" value={entity.stopLines.length || '—'} />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+        </Section>
+      </form>
+    </FormProvider>
+  );
+}
+
+// ─── Road Form ─────────────────────────────────────────────
+//
+// Mirrors the Apollo `Road` proto: id + type (editable) + sections
+// summary + junction reference. Sections list is read-only here —
+// per-lane editing happens through the Lane inspector itself.
+
+function RoadForm({ entity }: { entity: RoadEntity }) {
+  const updateEntity = useMapStore((s) => s.updateEntity);
+  const entityRef = useRef(entity);
+  entityRef.current = entity;
+
+  const methods = useForm<RoadFormValues>({
+    resolver: zodResolverZ4<RoadFormValues>(roadSchema),
+    mode: 'onChange',
+    defaultValues: { type: entity.type },
+  });
+
+  useEffect(() => {
+    methods.reset({ type: entity.type });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.id]);
+
+  useEffect(() => {
+    if (methods.getValues('type') !== entity.type) {
+      methods.setValue('type', entity.type, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity]);
+
+  useEffect(() => {
+    const subscription = methods.watch((value) => {
+      const liveEntity = entityRef.current;
+      if (value.type === liveEntity.type) return;
+      updateEntity(liveEntity.id, { ...liveEntity, type: value.type! });
+    });
+    return () => subscription.unsubscribe();
+  }, [methods, updateEntity]);
+
+  const totalLaneCount = entity.sections.reduce((sum, s) => sum + s.laneIds.length, 0);
+
+  return (
+    <FormProvider {...methods}>
+      <form>
+        <Section title="Attributes">
+          <Value label="ID" value={entity.id} />
+          <Select name="type" label="Type" options={roadTypeOptions} enumCategory="roadType" />
+        </Section>
+        <Section title="Sections">
+          <Value label="Sections" value={entity.sections.length || '—'} />
+          <Value label="Total Lanes" value={totalLaneCount || '—'} />
+        </Section>
+        <Section title="Topology">
+          <Value label="Junction" value={entity.junctionId ?? '—'} />
         </Section>
       </form>
     </FormProvider>
@@ -292,16 +379,31 @@ function StopSignForm({ entity }: { entity: StopSignEntity }) {
 }
 
 // ─── Generic Drawing Form ──────────────────────────────────
+//
+// Fallback for entity types that don't have a dedicated form yet
+// (crosswalk, parkingLot, speedBump, yieldSign, clearArea,
+// barrierGate, area, speedControl, polyline/bezier/arc/rect/...).
+// Shows ID + a vertex/anchor count derived from whichever geometry
+// shape the entity carries. Returning `null` here would silently
+// hide the property panel for ~half of the entity catalog.
 
 function DrawingForm({ entity }: { entity: MapEntity }) {
   const pointCount = (() => {
-    if ('points' in entity) return (entity as { points: unknown[] }).points.length;
-    if ('anchors' in entity) return (entity as { anchors: unknown[] }).anchors.length;
+    if ('points' in entity && Array.isArray((entity as { points: unknown[] }).points)) {
+      return (entity as { points: unknown[] }).points.length;
+    }
+    if ('anchors' in entity && Array.isArray((entity as { anchors: unknown[] }).anchors)) {
+      return (entity as { anchors: unknown[] }).anchors.length;
+    }
+    if ('polygon' in entity && (entity as { polygon: { points: unknown[] } }).polygon?.points) {
+      return (entity as { polygon: { points: unknown[] } }).polygon.points.length;
+    }
     return '—';
   })();
 
   return (
     <Section title="Geometry">
+      <Value label="ID" value={entity.id} />
       <Value label="Vertices" value={pointCount} />
     </Section>
   );
@@ -321,6 +423,8 @@ export function EntityForm({ entity }: { entity: MapEntity }) {
       return <SignalForm entity={entity as SignalEntity} />;
     case 'stopSign':
       return <StopSignForm entity={entity as StopSignEntity} />;
+    case 'road':
+      return <RoadForm entity={entity as RoadEntity} />;
     default:
       return <DrawingForm entity={entity} />;
   }

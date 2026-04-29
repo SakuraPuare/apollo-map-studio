@@ -169,6 +169,7 @@ function renderField<TEntity, TFormValues extends Record<string, unknown>>(
       name={field.name as string}
       label={field.label}
       options={field.options}
+      enumCategory={field.enumCategory}
     />
   );
 }

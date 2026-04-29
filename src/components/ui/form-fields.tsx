@@ -1,5 +1,6 @@
 import { useFormContext, Controller } from 'react-hook-form';
 import { clsx } from 'clsx';
+import { getEnumLabel, type EnumCategory } from '@/lib/enumLabels';
 
 // ─── Form Field Wrapper ────────────────────────────────────
 
@@ -66,9 +67,16 @@ interface SelectProps {
   name: string;
   label: string;
   options: readonly string[];
+  /**
+   * Optional enum category for label lookup. When provided, option
+   * text is resolved via `getEnumLabel(enumCategory, value)` so the
+   * raw proto enum string (kept as the `value`) is shown to the user
+   * as a localized label. Missing entries fall back to the value.
+   */
+  enumCategory?: EnumCategory;
 }
 
-export function Select({ name, label, options }: SelectProps) {
+export function Select({ name, label, options, enumCategory }: SelectProps) {
   const { control } = useFormContext();
 
   return (
@@ -89,7 +97,7 @@ export function Select({ name, label, options }: SelectProps) {
           >
             {options.map((opt) => (
               <option key={opt} value={opt} className="bg-zinc-900">
-                {opt}
+                {enumCategory ? getEnumLabel(enumCategory, opt) : opt}
               </option>
             ))}
           </select>

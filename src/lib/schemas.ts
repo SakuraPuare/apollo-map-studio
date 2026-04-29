@@ -105,3 +105,13 @@ export const stopSignSchema = z.object({
 });
 
 export type StopSignFormValues = z.infer<typeof stopSignSchema>;
+
+// ─── Road Schemas ──────────────────────────────────────────
+
+export const roadTypeOptions = ['UNKNOWN_ROAD', 'HIGHWAY', 'CITY_ROAD', 'PARK'] as const;
+
+export const roadSchema = z.object({
+  type: z.enum(roadTypeOptions),
+});
+
+export type RoadFormValues = z.infer<typeof roadSchema>;

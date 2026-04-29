@@ -42,6 +42,7 @@ import type {
   BoundaryLineType,
   LaneSampleAssociation,
 } from '@/types/apollo';
+import type { MapEntity } from '@/types/entities';
 import {
   laneSchema,
   laneTypeOptions,
@@ -50,7 +51,11 @@ import {
   boundaryTypeOptions,
   type LaneFormValues,
 } from '@/lib/schemas';
+import type { EnumCategory } from '@/lib/enumLabels';
 import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
+import { markUserOverride } from '@/core/elements/derive';
+import { createElement } from 'react';
+import { LaneRef, LaneRefList } from '@/components/layout/panels/LaneRefList';
 
 // ─── FieldDef ──────────────────────────────────────────────
 
@@ -67,6 +72,13 @@ export interface NumberFieldDef<TEntity, TFormValues, TKey extends keyof TFormVa
   read: (entity: TEntity) => TFormValues[TKey];
   /** Apply the form-side value back into the entity (with derivations). */
   write: (entity: TEntity, value: TFormValues[TKey]) => TEntity;
+  /**
+   * Entity field paths this form field "owns". Tagged into
+   * `_userOverrides` after a write so derive rules whose `owns`
+   * overlap will skip on subsequent geometry edits. Defaults to
+   * `[name]` when unset.
+   */
+  overridesPaths?: readonly string[];
 }
 
 /** Enumerated select rendered as `<Select>`. */
@@ -76,8 +88,16 @@ export interface EnumFieldDef<TEntity, TFormValues, TKey extends keyof TFormValu
   label: string;
   section: string;
   options: readonly string[];
+  /**
+   * Display-label dictionary key. The Select shows
+   * `getEnumLabel(enumCategory, value)` while keeping the raw enum
+   * value on the wire — single hook for future i18n.
+   */
+  enumCategory?: EnumCategory;
   read: (entity: TEntity) => TFormValues[TKey];
   write: (entity: TEntity, value: TFormValues[TKey]) => TEntity;
+  /** See NumberFieldDef.overridesPaths. */
+  overridesPaths?: readonly string[];
 }
 
 export type FieldDef<TEntity, TFormValues, TKey extends keyof TFormValues = keyof TFormValues> =
@@ -237,6 +257,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       label: 'Type',
       section: 'Attributes',
       options: laneTypeOptions,
+      enumCategory: 'laneType',
       read: (e) => e.type,
       write: (e, v) => ({ ...e, type: v as LaneType }),
     }),
@@ -246,6 +267,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       label: 'Turn',
       section: 'Attributes',
       options: laneTurnOptions,
+      enumCategory: 'laneTurn',
       read: (e) => e.turn,
       write: (e, v) => ({ ...e, turn: v as LaneTurn }),
     }),
@@ -255,13 +277,14 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       label: 'Direction',
       section: 'Attributes',
       options: laneDirectionOptions,
+      enumCategory: 'laneDirection',
       read: (e) => e.direction,
       write: (e, v) => ({ ...e, direction: v as LaneDirection }),
     }),
     LaneField.field({
       kind: 'number',
       name: 'speedLimit',
-      label: 'Speed (m/s)',
+      label: 'Speed Limit (m/s)',
       section: 'Attributes',
       min: 0,
       max: 50,
@@ -294,23 +317,33 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
     LaneField.field({
       kind: 'enum',
       name: 'leftBoundaryType',
-      label: 'Left Type',
+      label: 'L Boundary',
       section: 'Boundaries',
       options: boundaryTypeOptions,
+      enumCategory: 'boundaryType',
       read: readLeftBoundary,
       write: (e, v) => writeLeftBoundary(e, v as BoundaryLineType),
     }),
     LaneField.field({
       kind: 'enum',
       name: 'rightBoundaryType',
-      label: 'Right Type',
+      label: 'R Boundary',
       section: 'Boundaries',
       options: boundaryTypeOptions,
+      enumCategory: 'boundaryType',
       read: readRightBoundary,
       write: (e, v) => writeRightBoundary(e, v as BoundaryLineType),
     }),
   ],
   readonly: [
+    // ── Attributes ──
+    {
+      kind: 'readonly',
+      label: 'ID',
+      section: 'Attributes',
+      compute: (e) => e.id,
+    },
+    // ── Boundaries ──
     {
       kind: 'readonly',
       label: 'Length',
@@ -319,21 +352,70 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
     },
     {
       kind: 'readonly',
+      label: 'L Virtual',
+      section: 'Boundaries',
+      compute: (e) => (e.leftBoundary.virtual ? 'Yes' : 'No'),
+    },
+    {
+      kind: 'readonly',
+      label: 'R Virtual',
+      section: 'Boundaries',
+      compute: (e) => (e.rightBoundary.virtual ? 'Yes' : 'No'),
+    },
+    // ── Topology ──
+    {
+      kind: 'readonly',
+      label: 'Junction',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRef, { id: e.junctionId }),
+    },
+    {
+      kind: 'readonly',
       label: 'Predecessors',
       section: 'Topology',
-      compute: (e) => e.predecessorIds.length || '—',
+      compute: (e) => createElement(LaneRefList, { ids: e.predecessorIds }),
     },
     {
       kind: 'readonly',
       label: 'Successors',
       section: 'Topology',
-      compute: (e) => e.successorIds.length || '—',
+      compute: (e) => createElement(LaneRefList, { ids: e.successorIds }),
     },
     {
       kind: 'readonly',
-      label: 'Junction',
+      label: 'L Neighbors (fwd)',
       section: 'Topology',
-      compute: (e) => e.junctionId ?? '—',
+      compute: (e) => createElement(LaneRefList, { ids: e.leftNeighborForwardIds }),
+    },
+    {
+      kind: 'readonly',
+      label: 'R Neighbors (fwd)',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRefList, { ids: e.rightNeighborForwardIds }),
+    },
+    {
+      kind: 'readonly',
+      label: 'L Neighbors (rev)',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRefList, { ids: e.leftNeighborReverseIds }),
+    },
+    {
+      kind: 'readonly',
+      label: 'R Neighbors (rev)',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRefList, { ids: e.rightNeighborReverseIds }),
+    },
+    {
+      kind: 'readonly',
+      label: 'Self-Reverse',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRefList, { ids: e.selfReverseLaneIds }),
+    },
+    {
+      kind: 'readonly',
+      label: 'Overlaps',
+      section: 'Topology',
+      compute: (e) => createElement(LaneRefList, { ids: e.overlapIds }),
     },
   ],
 };
@@ -392,9 +474,15 @@ export function shouldPersistForm<TEntity, TFormValues extends Record<string, un
 
 /**
  * Apply every form value through the schema's `write` adapters,
- * folding them into a single updated entity. Order does not matter
- * for Lane (each adapter touches disjoint fields), but the contract
- * is explicit so future schemas can rely on left-to-right reduction.
+ * folding them into a single updated entity. For each field whose
+ * value differs from the previous entity reading, the field's
+ * `overridesPaths` (default: `[name]`) are tagged into
+ * `_userOverrides` — derive rules whose `owns` intersect that set
+ * are skipped on subsequent geometry edits, so manual values are
+ * not clobbered by auto-recomputation.
+ *
+ * Order: writes apply left-to-right; override tagging is appended
+ * after each write so the next field sees the updated entity.
  */
 export function applyFormValuesToEntity<TEntity, TFormValues extends Record<string, unknown>>(
   schema: EntitySchema<TEntity, TFormValues>,
@@ -406,11 +494,23 @@ export function applyFormValuesToEntity<TEntity, TFormValues extends Record<stri
     const key = field.name as keyof TFormValues;
     if (key in values) {
       const v = values[key];
+      const prevValue = (field.read as (e: TEntity) => unknown)(next);
       // The write adapter is the per-key union; we have already
       // checked `key in values`, so call through after a cast that
       // matches the union's call signature shape.
       const writer = field.write as (e: TEntity, value: unknown) => TEntity;
       next = writer(next, v);
+
+      // Tag override only if the value actually changed; redundant
+      // writes (e.g. re-seeding from formValuesFromEntity) must not
+      // promote auto-derived values into manual overrides.
+      const newValue = (field.read as (e: TEntity) => unknown)(next);
+      if (prevValue !== newValue) {
+        const paths = field.overridesPaths ?? [String(field.name)];
+        for (const path of paths) {
+          next = markUserOverride(next as unknown as MapEntity, path) as unknown as TEntity;
+        }
+      }
     }
   }
   return next;
