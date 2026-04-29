@@ -290,6 +290,8 @@ function WorkspaceLayoutInner() {
         currentElement={activeElement as MapElementType | null}
         onSelectTool={handleSelectTool}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onExecuteAction={execute}
+        getToggleState={getToggleState}
       />
 
       {/* Main content */}
