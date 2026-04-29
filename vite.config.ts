@@ -22,7 +22,7 @@ const VENDOR_CHUNK_GROUPS: Record<string, string[]> = {
   'vendor-state': ['zustand', 'zundo', 'immer', 'xstate', '@xstate/react'],
   'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
   'vendor-tree': ['react-arborist'],
-  'vendor-ui': ['@radix-ui/', 'cmdk', 'react-icons', 'lucide-react'],
+  'vendor-ui': ['@radix-ui/', 'cmdk', 'react-icons'],
 };
 
 function getNodeModulePackageName(id: string) {

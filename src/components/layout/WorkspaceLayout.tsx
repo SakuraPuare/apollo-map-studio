@@ -5,10 +5,11 @@ import 'dockview-react/dist/styles/dockview.css';
 import { MenuBar } from './MenuBar';
 import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
-import { ActivityBar, type ActivityTab } from './ActivityBar';
+import { ActivityBar } from './ActivityBar';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore, type AppMode } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
+import { SidebarProvider, useSidebar } from '@/context/SidebarContext';
 import { useActionDispatcher } from '@/hooks/useActionDispatcher';
 
 import { useActorRef, useSelector } from '@xstate/react';
@@ -20,9 +21,9 @@ const LazyMapCanvas = lazy(async () => {
   return { default: module.MapCanvas };
 });
 
-const LazyLayerTree = lazy(async () => {
-  const module = await import('./panels/LayerTree');
-  return { default: module.LayerTree };
+const LazySidebarPanel = lazy(async () => {
+  const module = await import('./panels/SidebarPanel');
+  return { default: module.SidebarPanelContent };
 });
 
 const LazyTimelinePanel = lazy(async () => {
@@ -74,31 +75,20 @@ function MapPanelContent() {
   );
 }
 
-function LayersPanelContent() {
-  const actorRef = useEditorActor();
-  const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
-
-  const handleSelect = useCallback(
-    (id: string | null) => {
-      if (id) {
-        actorRef.send({ type: 'SELECT_ENTITY', id });
-      }
-    },
-    [actorRef],
-  );
-
-  return (
-    <div className="h-full bg-zinc-900/50 overflow-hidden flex flex-col">
-      <div className="px-3 py-2 border-b border-white/[0.07] shrink-0">
-        <h2 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Layers</h2>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <Suspense fallback={<PanelFallback label="Loading layers..." />}>
-          <LazyLayerTree onSelect={handleSelect} selectedId={selectedId} />
-        </Suspense>
-      </div>
-    </div>
-  );
+/**
+ * The left side panel is a single Dockview slot whose content swaps based
+ * on the ActivityBar tab (read from SidebarContext). The actual switch
+ * logic lives in `SidebarPanelContent`; the parent wires it up by passing
+ * a ref to the Settings modal opener.
+ */
+function makeSidebarPanel(onOpenSettings: () => void) {
+  return function SidebarSlot() {
+    return (
+      <Suspense fallback={<PanelFallback label="Loading sidebar..." />}>
+        <LazySidebarPanel onOpenSettings={onOpenSettings} />
+      </Suspense>
+    );
+  };
 }
 
 function InspectorPanelContent() {
@@ -144,21 +134,13 @@ function TimelinePanelContent() {
   );
 }
 
-// ─── Component Registry ─────────────────────────────────
-
-const components = {
-  map: MapPanelContent,
-  layers: LayersPanelContent,
-  inspector: InspectorPanelContent,
-  timeline: TimelinePanelContent,
-};
-
 // ─── Layout Persistence ─────────────────────────────────
 
 // Per-mode layout keys so drawing and scene layouts don't clobber each other.
+// Bumped to v3 because the left-panel id moved from `layers` → `sidebar`.
 const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
-  drawing: 'ams-layout-v2-drawing',
-  scene: 'ams-layout-v2-scene',
+  drawing: 'ams-layout-v3-drawing',
+  scene: 'ams-layout-v3-scene',
 };
 
 function saveLayout(api: DockviewApi, mode: AppMode) {
@@ -185,9 +167,9 @@ function loadLayout(api: DockviewApi, mode: AppMode): boolean {
 function createDefaultLayout(api: DockviewApi, mode: AppMode) {
   const mapPanel = api.addPanel({ id: 'map', component: 'map', title: 'Map Editor' });
   api.addPanel({
-    id: 'layers',
-    component: 'layers',
-    title: 'Layers',
+    id: 'sidebar',
+    component: 'sidebar',
+    title: 'Sidebar',
     position: { referencePanel: mapPanel, direction: 'left' },
   });
   api.addPanel({
@@ -196,7 +178,7 @@ function createDefaultLayout(api: DockviewApi, mode: AppMode) {
     title: 'Inspector',
     position: { referencePanel: mapPanel, direction: 'right' },
   });
-  api.getPanel('layers')?.api.setSize({ width: 220 });
+  api.getPanel('sidebar')?.api.setSize({ width: 240 });
   api.getPanel('inspector')?.api.setSize({ width: 280 });
 
   // Timeline only shows in scene mode — drawing mode keeps the map full-height.
@@ -220,10 +202,19 @@ function WorkspaceLayoutInner() {
   const entityCount = useMapStore((s) => s.entities.size);
   const appMode = useUIStore((s) => s.appMode);
 
-  const [activeTab, setActiveTab] = useState<ActivityTab>('layers');
+  const { activeTab, setActiveTab } = useSidebar();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
+
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  // Dockview component map needs to be stable; rebuild only when openSettings changes.
+  const components = useRef({
+    map: MapPanelContent,
+    sidebar: makeSidebarPanel(openSettings),
+    inspector: InspectorPanelContent,
+    timeline: TimelinePanelContent,
+  }).current;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -338,7 +329,9 @@ export function WorkspaceLayout() {
   const actorRef = useActorRef(editorMachine);
   return (
     <EditorProvider actorRef={actorRef}>
-      <WorkspaceLayoutInner />
+      <SidebarProvider>
+        <WorkspaceLayoutInner />
+      </SidebarProvider>
     </EditorProvider>
   );
 }
