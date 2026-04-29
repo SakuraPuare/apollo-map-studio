@@ -3,6 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { LANE_ARROW_TEXT_SIZE, LANE_ARROW_COLOR, LANE_ARROW_OPACITY } from '@/config/mapConstants';
 import { readMapCenter, readMapZoom, useSettingsStore } from '@/store/settingsStore';
 import { COLD_LAYER_FILTERS } from '@/components/map/coldLayerConfig';
+import { registerMapIcons, MAP_ICON_PX } from '@/lib/mapIcons';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = {
   type: 'FeatureCollection',
@@ -96,6 +97,8 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false); // 白色水平条纹（斑马线，细密）
       addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true); // 红色斜线（禁停区，细密连续）
       map.addImage('lane-arrow', createArrowSDF(20), { sdf: true }); // 车道方向箭头 SDF 图标
+      // react-icons 栅格化注册（车位/信号/道闸/停车/让行）— 异步，注册完后 maplibre 自动重绘
+      void registerMapIcons(map);
 
       // ─── 网格层（垫底，受 useGridLayer 控制开关与重算） ───
       map.addSource('grid', { type: 'geojson', data: EMPTY_FC });
@@ -193,26 +196,24 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
         },
       });
 
-      // 冷层 z4：标注符号
+      // 冷层 z4：标注图标（react-icons 栅格化注册，按 feature.properties.icon 取）
+      // 注：从 emoji text-field 切到 icon-image，避免 emoji 字体基线偏移导致的视觉离心
       map.addLayer({
         id: 'cold-labels',
         type: 'symbol',
         source: 'cold',
         filter: COLD_LAYER_FILTERS['cold-labels'],
         layout: {
-          'text-field': ['get', 'label'],
-          'text-size': ['coalesce', ['get', 'labelSize'], 14],
-          'text-font': ['Open Sans Regular'],
-          'text-anchor': 'center',
-          'text-allow-overlap': true,
-          'text-ignore-placement': true,
-          'text-padding': 2,
+          'icon-image': ['get', 'icon'],
+          // labelSize 是期望的屏幕像素；位图分辨率 = MAP_ICON_PX
+          'icon-size': ['/', ['coalesce', ['get', 'labelSize'], 16], MAP_ICON_PX],
+          'icon-anchor': 'center',
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-padding': 2,
         },
         paint: {
-          'text-color': '#ffffff',
-          'text-halo-color': '#000000',
-          'text-halo-width': 2,
-          'text-opacity': 0.95,
+          'icon-opacity': 0.95,
         },
       });
 

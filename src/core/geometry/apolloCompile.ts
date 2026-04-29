@@ -911,7 +911,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       if (coords.length < 3) break;
       features.push(mkPolygon(coords, { ...base, fillOpacity: 0.4, lineWidth: 1.5 }));
       features.push(
-        mkPoint(centroid(coords), { ...base, role: 'label', label: '🅿️', labelSize: 18 }),
+        mkPoint(centroid(coords), { ...base, role: 'label', icon: 'icon-parking', labelSize: 22 }),
       );
       break;
     }
@@ -933,7 +933,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const all = entity.stopLines.flatMap(curveToCoords);
       if (all.length > 0)
         features.push(
-          mkPoint(lineMid(all), { ...base, role: 'label', label: '🚦', labelSize: 18 }),
+          mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-signal', labelSize: 22 }),
         );
       break;
     }
@@ -955,7 +955,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const all = entity.stopLines.flatMap(curveToCoords);
       if (all.length > 0)
         features.push(
-          mkPoint(lineMid(all), { ...base, role: 'label', label: '🚧', labelSize: 16 }),
+          mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-barrier', labelSize: 20 }),
         );
       break;
     }
@@ -977,7 +977,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const all = entity.stopLines.flatMap(curveToCoords);
       if (all.length > 0)
         features.push(
-          mkPoint(lineMid(all), { ...base, role: 'label', label: '🛑', labelSize: 16 }),
+          mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-stop', labelSize: 20 }),
         );
       break;
     }
@@ -1004,7 +1004,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const all = entity.stopLines.flatMap(curveToCoords);
       if (all.length > 0)
         features.push(
-          mkPoint(lineMid(all), { ...base, role: 'label', label: '🔻', labelSize: 16 }),
+          mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-yield', labelSize: 20 }),
         );
       break;
     }
