@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ActorRefFrom } from 'xstate';
-import type { editorMachine, DrawTool } from '@/core/fsm/editorMachine';
+import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
@@ -89,24 +89,14 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('commandPalette', onOpenCommandPalette);
 
     // Tools — Select/Pan are gone; ESC + maplibre's native drag handle exit/pan.
-    map.set('tool:drawPolyline', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolyline' as DrawTool }),
-    );
-    map.set('tool:drawBezier', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawBezier' as DrawTool }),
-    );
-    map.set('tool:drawArc', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawArc' as DrawTool }),
-    );
-    map.set('tool:drawRotatedRect', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawRotatedRect' as DrawTool }),
-    );
-    map.set('tool:drawPolygon', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolygon' as DrawTool }),
-    );
-    map.set('tool:drawCatmullRom', () =>
-      actorRef.send({ type: 'SELECT_TOOL', tool: 'drawCatmullRom' as DrawTool }),
-    );
+    // Registry-driven: every ACTION_DEF carrying a `drawTool` field becomes a
+    // SELECT_TOOL dispatch. Adding a new tool is now a single registry record.
+    for (const action of ACTION_DEFS) {
+      if (action.drawTool) {
+        const tool = action.drawTool;
+        map.set(action.id, () => actorRef.send({ type: 'SELECT_TOOL', tool }));
+      }
+    }
 
     return map;
   }, [actorRef, onOpenCommandPalette, onOpenSettings, onResetLayout]);
