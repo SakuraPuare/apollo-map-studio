@@ -18,7 +18,7 @@ const tabs: { id: ActivityTab; icon: React.ElementType; label: string }[] = [
 
 export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
   return (
-    <div className="w-12 bg-zinc-950 border-r border-white/[0.07] flex flex-col items-center py-2 shrink-0">
+    <div className="w-12 bg-ams-bg-base border-r border-ams-border-subtle flex flex-col items-center py-2 shrink-0">
       {/* Top tabs */}
       <div className="flex flex-col items-center gap-1">
         {tabs.slice(0, 4).map(({ id, icon: Icon, label }) => (
@@ -29,12 +29,12 @@ export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
             className={clsx(
               'relative w-10 h-10 flex items-center justify-center rounded transition-colors',
               activeTab === id
-                ? 'text-zinc-200 bg-white/10'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5',
+                ? 'text-ams-text-primary bg-ams-surface-active'
+                : 'text-ams-text-muted hover:text-ams-text-primary hover:bg-ams-surface-hover',
             )}
           >
             {activeTab === id && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-cyan-400 rounded-r" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-ams-accent rounded-r" />
             )}
             <Icon className="w-5 h-5" />
           </button>
@@ -54,12 +54,12 @@ export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
             className={clsx(
               'relative w-10 h-10 flex items-center justify-center rounded transition-colors',
               activeTab === id
-                ? 'text-zinc-200 bg-white/10'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5',
+                ? 'text-ams-text-primary bg-ams-surface-active'
+                : 'text-ams-text-muted hover:text-ams-text-primary hover:bg-ams-surface-hover',
             )}
           >
             {activeTab === id && (
-              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-cyan-400 rounded-r" />
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-ams-accent rounded-r" />
             )}
             <Icon className="w-5 h-5" />
           </button>

@@ -29,33 +29,35 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
   const isDrawing = mode.startsWith('draw');
 
   return (
-    <div className="h-6 bg-zinc-950 border-t border-white/[0.07] flex items-center px-2 text-[10px] text-zinc-500 shrink-0">
+    <div className="h-6 bg-ams-bg-base border-t border-ams-border-subtle flex items-center px-2 text-[10px] text-ams-text-muted shrink-0">
       {/* Left section */}
       <div className="flex items-center gap-3">
         {/* App mode badge */}
         <div className="flex items-center gap-1">
-          <span className="text-zinc-600">Mode:</span>
-          <span className="text-cyan-400 font-medium">
+          <span className="text-ams-text-disabled">Mode:</span>
+          <span className="text-ams-accent font-medium">
             {appMode === 'drawing' ? '绘图' : '场景'}
           </span>
         </div>
 
-        <div className="w-px h-3 bg-white/10" />
+        <div className="w-px h-3 bg-ams-border-strong" />
 
         {/* Tool/state indicator */}
         <div className="flex items-center gap-1.5">
           <div
             className={`w-1.5 h-1.5 rounded-full ${
-              isDrawing ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-600'
+              isDrawing ? 'bg-ams-accent animate-pulse' : 'bg-ams-text-disabled'
             }`}
           />
-          <span className={isDrawing ? 'text-cyan-400' : 'text-zinc-400'}>{modeLabel}</span>
+          <span className={isDrawing ? 'text-ams-accent' : 'text-ams-text-secondary'}>
+            {modeLabel}
+          </span>
         </div>
 
         {/* Entity count */}
         <div className="flex items-center gap-1">
-          <span className="text-zinc-600">Entities:</span>
-          <span className="font-mono text-zinc-400">{entityCount}</span>
+          <span className="text-ams-text-disabled">Entities:</span>
+          <span className="font-mono text-ams-text-secondary">{entityCount}</span>
         </div>
       </div>
 
@@ -66,13 +68,17 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
         {/* Grid / Snap indicators */}
         <div className="flex items-center gap-2">
           <div
-            className={`flex items-center gap-1 ${gridEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}
+            className={`flex items-center gap-1 ${
+              gridEnabled ? 'text-ams-accent' : 'text-ams-text-disabled'
+            }`}
           >
             <Grid3X3 className="w-3 h-3" />
             <span>Grid</span>
           </div>
           <div
-            className={`flex items-center gap-1 ${snapEnabled ? 'text-cyan-400' : 'text-zinc-600'}`}
+            className={`flex items-center gap-1 ${
+              snapEnabled ? 'text-ams-accent' : 'text-ams-text-disabled'
+            }`}
           >
             <Magnet className="w-3 h-3" />
             <span>Snap</span>
@@ -82,7 +88,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
         {/* Cursor position */}
         {cursorLngLat && (
           <div className="flex items-center gap-1">
-            <MapPin className="w-3 h-3 text-zinc-600" />
+            <MapPin className="w-3 h-3 text-ams-text-disabled" />
             <span className="font-mono">
               {cursorLngLat[0].toFixed(6)}, {cursorLngLat[1].toFixed(6)}
             </span>
@@ -91,8 +97,8 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
 
         {/* Zoom level */}
         <div className="flex items-center gap-1">
-          <ZoomIn className="w-3 h-3 text-zinc-600" />
-          <span className="font-mono text-zinc-400">{currentZoom.toFixed(1)}x</span>
+          <ZoomIn className="w-3 h-3 text-ams-text-disabled" />
+          <span className="font-mono text-ams-text-secondary">{currentZoom.toFixed(1)}x</span>
         </div>
       </div>
     </div>

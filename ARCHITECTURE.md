@@ -205,3 +205,37 @@ prettier --write on changed files).
 | ToolStrip            | `src/components/layout/ToolStrip.tsx`                 |
 | Perf budget script   | `scripts/check-bench-budget.mjs`                      |
 | CI workflow          | `.github/workflows/ci.yml`                            |
+
+## Design tokens (ams-\*)
+
+Visual styling routes through semantic Tailwind 4 tokens defined in
+`src/index.css` under `@theme`. The PoC catalogue (11 tokens) covers
+backgrounds, surfaces, borders, four text tiers, and the cyan accent.
+Tokens are emitted as `--color-ams-{semantic}`, which Tailwind 4
+automatically exposes as utility classes — `bg-ams-bg-base`,
+`text-ams-text-primary`, `border-ams-border-subtle`, etc.
+
+**Add a token**: append a `--color-ams-{semantic}: <value>;` line inside
+the `@theme` block in `src/index.css`. Update the catalogue comment at
+the top of that file with the new entry. Keep names _semantic_
+(`surface-hover`, `text-muted`) rather than _hue-based_ (`zinc-700`,
+`gray-400`) so future palette swaps don't ripple into component code.
+
+**Use a token**: replace raw Tailwind colour classes with their `ams-*`
+equivalent — `bg-zinc-950` → `bg-ams-bg-base`, `text-cyan-400` →
+`text-ams-accent`. When in doubt, prefer the closest semantic match
+(e.g. inactive icons → `text-ams-text-disabled`). Reach for a new token
+only when an existing one cannot honestly describe the intent.
+
+**Migration policy**: tokens are introduced incrementally. New
+components SHOULD use `ams-*` classes from day one. Existing components
+get migrated opportunistically (when otherwise touched) or via dedicated
+PRs — `StatusBar` and `ActivityBar` are the reference migrations. Avoid
+bulk grep-and-replace passes that touch hundreds of files in one go;
+prefer one component family at a time so visual review stays tractable.
+
+**Out of scope (future work)**: typography tokens (`font-heading`,
+`font-mono` overrides), elevation/shadow tokens, motion tokens, and
+the long-promised oklch palette swap. None of these are needed for the
+current PoC; introduce them when a real component requires the
+distinction.

@@ -1,6 +1,56 @@
 @import 'tailwindcss';
 @import 'maplibre-gl/dist/maplibre-gl.css';
 
+/* ─── AMS Design Tokens ─────────────────────────────────────────────
+ * Semantic color tokens for the "Precision Cartography Lab" aesthetic.
+ * Tailwind 4 picks these up from `@theme` and auto-generates utility
+ * classes: `bg-ams-*`, `text-ams-*`, `border-ams-*`, `ring-ams-*`, etc.
+ *
+ * Token catalogue (PoC scope — extend as components migrate):
+ *
+ *   bg-ams-bg-base          #09090b  (zinc-950)   app/chrome backdrop
+ *   bg-ams-bg-elevated      #18181b  (zinc-900)   raised panels/cards
+ *   bg-ams-surface-hover    white/5             non-destructive hover
+ *   bg-ams-surface-active   white/10            selected / active item
+ *
+ *   border-ams-border-subtle  white/[.07]        default separators
+ *   border-ams-border-strong  white/10           emphasised dividers
+ *
+ *   text-ams-text-primary    #e4e4e7  (zinc-200)  body / values
+ *   text-ams-text-secondary  #a1a1aa  (zinc-400)  data labels
+ *   text-ams-text-muted      #71717a  (zinc-500)  captions
+ *   text-ams-text-disabled   #52525b  (zinc-600)  inactive icons / hint
+ *
+ *   *-ams-accent             #22d3ee  (cyan-400)  primary highlight,
+ *                                                 active indicators
+ *
+ * Usage:
+ *   <div className="bg-ams-bg-base text-ams-text-primary border-ams-border-subtle" />
+ *   <span className="text-ams-accent">drawing…</span>
+ *
+ * Adding a token: append to `@theme` below as `--color-ams-{semantic}: <value>;`.
+ * Prefer semantic names (surface/border/text/accent) over hue names (zinc/cyan)
+ * so future palette swaps don't ripple through component code. See
+ * ARCHITECTURE.md → "Design tokens (ams-*)" for the full SOP.
+ * ─────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-ams-bg-base: #09090b;
+  --color-ams-bg-elevated: #18181b;
+  --color-ams-surface-hover: rgb(255 255 255 / 0.05);
+  --color-ams-surface-active: rgb(255 255 255 / 0.1);
+
+  --color-ams-border-subtle: rgb(255 255 255 / 0.07);
+  --color-ams-border-strong: rgb(255 255 255 / 0.1);
+
+  --color-ams-text-primary: #e4e4e7;
+  --color-ams-text-secondary: #a1a1aa;
+  --color-ams-text-muted: #71717a;
+  --color-ams-text-disabled: #52525b;
+
+  --color-ams-accent: #22d3ee;
+}
+
 html,
 body,
 #root {
