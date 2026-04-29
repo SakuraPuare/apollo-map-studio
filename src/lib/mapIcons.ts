@@ -11,6 +11,7 @@
  *   icon-barrier  → FaRoadBarrier     （道闸 🚧）
  *   icon-stop     → BsSignStop        （停车标志 🛑）
  *   icon-yield    → BsSignYieldFill   （让行标志 🔻）
+ *   icon-speed-bump → PiWarningDiamondFill （减速带 ⚠️）
  */
 import type { ComponentType, ReactElement } from 'react';
 import { createElement } from 'react';
@@ -18,6 +19,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import maplibregl from 'maplibre-gl';
 import { FaSquareParking, FaTrafficLight, FaRoadBarrier } from 'react-icons/fa6';
 import { BsSignStop, BsSignYieldFill } from 'react-icons/bs';
+import { PiWarningDiamondFill } from 'react-icons/pi';
 
 const ICON_PX = 64;
 const ICON_COLOR = '#ffffff';
@@ -30,6 +32,7 @@ const REGISTRY: Record<string, ComponentType<IconProps>> = {
   'icon-barrier': FaRoadBarrier,
   'icon-stop': BsSignStop,
   'icon-yield': BsSignYieldFill,
+  'icon-speed-bump': PiWarningDiamondFill,
 };
 
 export const MAP_ICON_PX = ICON_PX;

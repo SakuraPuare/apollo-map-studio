@@ -8,12 +8,12 @@ import {
   FaSquareParking,
   FaPersonWalking,
   FaTrafficLight,
-  FaWaveSquare,
   FaBan,
   FaRoadBarrier,
 } from 'react-icons/fa6';
 import { BsFillSignIntersectionFill, BsSignStop, BsSignYieldFill } from 'react-icons/bs';
 import { BiShapePolygon } from 'react-icons/bi';
+import { PiWarningDiamondFill } from 'react-icons/pi';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 
 /** 元素类型的 entityType 判别器 */
@@ -107,7 +107,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ffaa00',
     geometry: 'line',
-    icon: FaWaveSquare,
+    icon: PiWarningDiamondFill,
   },
   {
     type: 'yieldSign',
