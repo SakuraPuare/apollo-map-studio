@@ -1,5 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Command } from 'lucide-react';
+import { Command } from 'lucide-react';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
@@ -55,72 +54,34 @@ function Divider() {
   return <div className="w-px h-5 bg-white/10 mx-1 shrink-0" />;
 }
 
-// ─── Element Dropdown ──────────────────────────────────────
+// ─── Element Bar (flat, icon-only) ─────────────────────────
 
-interface ElementDropdownProps {
+interface ElementBarProps {
   currentElement: MapElementType | null;
   onSelect: (type: MapElementType) => void;
 }
 
-function ElementDropdown({ currentElement, onSelect }: ElementDropdownProps) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
-
+function ElementBar({ currentElement, onSelect }: ElementBarProps) {
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className={clsx(
-          'h-7 px-2 flex items-center gap-1.5 rounded text-xs transition-all',
-          currentElement
-            ? 'bg-white/10 text-zinc-100 hover:bg-white/15'
-            : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
-        )}
-      >
-        <span
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ backgroundColor: elementDef?.color ?? '#666' }}
-        />
-        <span className="whitespace-nowrap">{elementDef?.label ?? '选择元素'}</span>
-        <ChevronDown
-          className={clsx('w-3 h-3 opacity-60 transition-transform', open && 'rotate-180')}
-        />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 py-1 min-w-[140px] bg-zinc-900 border border-white/10 rounded-lg shadow-xl z-50">
-          {MAP_ELEMENTS.map((el) => (
-            <button
-              key={el.type}
-              onClick={() => {
-                onSelect(el.type);
-                setOpen(false);
-              }}
-              className={clsx(
-                'w-full px-3 py-1.5 flex items-center gap-2 text-xs text-left',
-                currentElement === el.type
-                  ? 'bg-cyan-500/20 text-cyan-400'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
-              )}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: el.color }}
-              />
-              <span className="whitespace-nowrap">{el.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="flex items-center gap-0.5 shrink-0">
+      {MAP_ELEMENTS.map((el) => {
+        const Icon = getIcon(el.icon);
+        const active = currentElement === el.type;
+        return (
+          <button
+            key={el.type}
+            onClick={() => onSelect(el.type)}
+            title={el.label}
+            className={clsx(
+              'h-7 w-7 flex items-center justify-center rounded text-xs transition-all shrink-0',
+              active ? 'bg-white/10' : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/10',
+            )}
+            style={active ? { color: el.color } : undefined}
+          >
+            <Icon className="w-4 h-4" />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -154,26 +115,9 @@ export function ToolStrip({
     onSelectTool(tool, currentElement);
   };
 
-  // P1: ToolStrip is now driven entirely by the Action Registry's uiSlot field.
-  // Adding a new selection or view tool means dropping a single ACTION_DEFS entry
-  // — no JSX edit required.
-  const selectionActions = getToolStripSlotActions('selection');
+  // ToolStrip view slot stays registry-driven (grid/snap). Selection slot is gone:
+  // ESC cancels drawing and maplibre handles canvas pan natively.
   const viewActions = getToolStripSlotActions('view');
-
-  const isSelectionActive = (id: ActionId): boolean => {
-    if (id === 'tool:select') return currentTool === 'idle' || currentTool === 'selected';
-    if (id === 'tool:pan') return currentTool === 'panning';
-    return false;
-  };
-
-  const handleSelectionClick = (id: ActionId) => {
-    if (onExecuteAction) {
-      onExecuteAction(id);
-      return;
-    }
-    // Fallback for hosts that don't pass a dispatcher (preserves prior behavior).
-    if (id === 'tool:select') onSelectTool('idle' as DrawTool);
-  };
 
   const isViewActive = (id: ActionId): boolean => {
     if (id === 'toggleGrid') return gridEnabled;
@@ -193,49 +137,31 @@ export function ToolStrip({
 
   return (
     <div className="h-9 bg-zinc-900/80 border-b border-white/[0.07] flex items-center px-2 gap-1 shrink-0">
-      {/* Selection slot — registry-driven */}
-      {selectionActions.map((action) => {
-        const Icon = getIcon(action.icon);
-        return (
-          <ToolButton
-            key={action.id}
-            icon={Icon}
-            label={action.label}
-            shortcut={action.shortcut}
-            active={isSelectionActive(action.id)}
-            onClick={() => handleSelectionClick(action.id)}
-          />
-        );
-      })}
+      {/* 元素选择器（11 个图标平铺） */}
+      <ElementBar currentElement={currentElement} onSelect={handleElementSelect} />
 
-      <Divider />
-
-      {/* 元素选择器（单个下拉按钮） */}
-      <ElementDropdown currentElement={currentElement} onSelect={handleElementSelect} />
-
-      <Divider />
-
-      {/* 当前元素对应的工具按钮（动态更新，从 Action Registry 读 icon + label + shortcut） */}
-      <div className="flex items-center gap-0.5">
-        {availableTools.length > 0 ? (
-          availableTools.map(({ tool }) => {
-            const action = getToolAction(tool);
-            const Icon = getIcon(action?.icon);
-            return (
-              <ToolButton
-                key={tool}
-                icon={Icon}
-                label={`${elementDef?.label ?? ''} · ${action?.label ?? tool}`}
-                shortcut={action?.shortcut}
-                active={currentTool === tool}
-                onClick={() => handleToolSelect(tool)}
-              />
-            );
-          })
-        ) : (
-          <span className="text-[11px] text-zinc-600 px-1 whitespace-nowrap">先选元素</span>
-        )}
-      </div>
+      {/* 选中后显示 Divider + 该元素允许的绘制工具；未选中则隐藏整段 */}
+      {availableTools.length > 0 && (
+        <>
+          <Divider />
+          <div className="flex items-center gap-0.5">
+            {availableTools.map(({ tool }) => {
+              const action = getToolAction(tool);
+              const Icon = getIcon(action?.icon);
+              return (
+                <ToolButton
+                  key={tool}
+                  icon={Icon}
+                  label={`${elementDef?.label ?? ''} · ${action?.label ?? tool}`}
+                  shortcut={action?.shortcut}
+                  active={currentTool === tool}
+                  onClick={() => handleToolSelect(tool)}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

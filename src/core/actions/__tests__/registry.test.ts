@@ -36,10 +36,9 @@ describe('Action Registry', () => {
 
   // ── Coverage checks ─────────────────────────────────────
 
-  it('all tool actions define a drawTool or are select/pan', () => {
+  it('all tool actions define a drawTool', () => {
     const toolActions = ACTION_DEFS.filter((a) => a.category === 'tool');
     for (const a of toolActions) {
-      if (a.id === 'tool:select' || a.id === 'tool:pan') continue;
       expect(a.drawTool, `${a.id} missing drawTool`).toBeDefined();
     }
   });

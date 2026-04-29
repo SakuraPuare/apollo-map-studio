@@ -34,8 +34,6 @@ export type ActionId =
   | 'toggleSnap'
   | 'resetLayout'
   | 'commandPalette'
-  | 'tool:select'
-  | 'tool:pan'
   | 'tool:drawPolyline'
   | 'tool:drawBezier'
   | 'tool:drawArc'
@@ -191,28 +189,6 @@ export const ACTION_DEFS: ActionDef[] = [
   },
 
   // ── Tools ─────────────────────────────────────────────
-  {
-    id: 'tool:select',
-    label: 'Select Tool',
-    category: 'tool',
-    shortcut: 'V',
-    keybinding: { key: 'v' },
-    icon: 'MousePointer2',
-    inCommandPalette: true,
-    uiSlot: 'selection',
-    uiOrder: 10,
-  },
-  {
-    id: 'tool:pan',
-    label: 'Pan',
-    category: 'tool',
-    shortcut: 'H',
-    keybinding: { key: 'h' },
-    icon: 'Hand',
-    inCommandPalette: true,
-    uiSlot: 'selection',
-    uiOrder: 20,
-  },
   {
     id: 'tool:drawPolyline',
     label: 'Draw Polyline',

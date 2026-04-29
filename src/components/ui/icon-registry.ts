@@ -16,6 +16,17 @@ import {
   LayoutDashboard,
   Command,
   Search,
+  Route,
+  Diamond,
+  SquareParking,
+  Footprints,
+  TrafficCone,
+  Octagon,
+  Waves,
+  Triangle,
+  Ban,
+  Construction,
+  Shapes,
 } from 'lucide-react';
 
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -35,6 +46,17 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Download,
   LayoutDashboard,
   Command,
+  Route,
+  Diamond,
+  SquareParking,
+  Footprints,
+  TrafficCone,
+  Octagon,
+  Waves,
+  Triangle,
+  Ban,
+  Construction,
+  Shapes,
 };
 
 export function getIcon(name?: string): React.ElementType {

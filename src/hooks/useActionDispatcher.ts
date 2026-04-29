@@ -88,10 +88,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('resetLayout', onResetLayout);
     map.set('commandPalette', onOpenCommandPalette);
 
-    // Tools
-    map.set('tool:select', () => actorRef.send({ type: 'CANCEL' }));
-    // Pan is the implicit default — selecting it just exits any active draw mode.
-    map.set('tool:pan', () => actorRef.send({ type: 'CANCEL' }));
+    // Tools — Select/Pan are gone; ESC + maplibre's native drag handle exit/pan.
     map.set('tool:drawPolyline', () =>
       actorRef.send({ type: 'SELECT_TOOL', tool: 'drawPolyline' as DrawTool }),
     );

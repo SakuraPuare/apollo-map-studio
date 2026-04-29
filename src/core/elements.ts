@@ -29,6 +29,8 @@ export interface MapElementDef {
   color: string;
   /** 几何类型：线还是面 */
   geometry: 'line' | 'polygon';
+  /** ToolStrip 平铺按钮使用的 lucide 图标名（须注册在 icon-registry 中） */
+  icon: string;
 }
 
 export const MAP_ELEMENTS: MapElementDef[] = [
@@ -39,6 +41,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#4a9eff',
     geometry: 'line',
+    icon: 'Route',
   },
   {
     type: 'junction',
@@ -47,6 +50,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawPolygon',
     color: '#ffcc00',
     geometry: 'polygon',
+    icon: 'Diamond',
   },
   {
     type: 'parkingSpace',
@@ -55,6 +59,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#7c5cbf',
     geometry: 'polygon',
+    icon: 'SquareParking',
   },
   {
     type: 'crosswalk',
@@ -63,6 +68,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#ffffff',
     geometry: 'polygon',
+    icon: 'Footprints',
   },
   {
     type: 'signal',
@@ -71,6 +77,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#22cc44',
     geometry: 'line',
+    icon: 'TrafficCone',
   },
   {
     type: 'stopSign',
@@ -79,6 +86,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ff0000',
     geometry: 'line',
+    icon: 'Octagon',
   },
   {
     type: 'speedBump',
@@ -87,6 +95,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ffaa00',
     geometry: 'line',
+    icon: 'Waves',
   },
   {
     type: 'yieldSign',
@@ -95,6 +104,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#ff6600',
     geometry: 'line',
+    icon: 'Triangle',
   },
   {
     type: 'clearArea',
@@ -103,6 +113,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawRotatedRect',
     color: '#ff4466',
     geometry: 'polygon',
+    icon: 'Ban',
   },
   {
     type: 'barrierGate',
@@ -111,6 +122,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawBezier',
     color: '#aa66ff',
     geometry: 'line',
+    icon: 'Construction',
   },
   {
     type: 'area',
@@ -119,6 +131,7 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     defaultTool: 'drawPolygon',
     color: '#66aaff',
     geometry: 'polygon',
+    icon: 'Shapes',
   },
 ];
 
