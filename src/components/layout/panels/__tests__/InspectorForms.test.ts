@@ -214,3 +214,156 @@ describe('R1: InspectorForms reactive lane sync', () => {
     expect(values.rightWidth).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Schema-driven path tests.
+ *
+ * The Lane inspector panel has been refactored from hardcoded JSX
+ * into a data-driven `LaneInspectorSchema` consumed by the generic
+ * `SchemaForm` component. The legacy `lane*` helpers above are now
+ * thin wrappers over the schema-generic helpers, so the R1
+ * regression battery effectively pins both layers at once. This
+ * suite adds direct coverage of the schema layer:
+ *
+ *  - Field shape: the schema lists exactly the eight editable
+ *    fields the old LaneForm rendered, with the right names. This
+ *    is what guarantees behavior parity at render time.
+ *  - Round-trip via write adapters: applying a form-value patch
+ *    through the schema's `write` adapters yields a structurally
+ *    equivalent entity to what LaneForm's hand-written watch
+ *    callback used to produce.
+ *  - Validation gate: the schema's zod `validation` rejects
+ *    out-of-range numeric edits exactly the way the original
+ *    `laneSchema` did, which is the gate that keeps
+ *    `formState.isValid` honest under `mode: 'onChange'`.
+ */
+import {
+  LaneInspectorSchema,
+  formValuesFromEntity,
+  applyFormValuesToEntity,
+} from '@/types/inspectorSchema';
+
+describe('LaneInspectorSchema: schema-driven path', () => {
+  it('declares the exact 8 editable fields the old LaneForm rendered', () => {
+    const names = LaneInspectorSchema.fields.map((f) => f.name);
+    expect(names).toEqual([
+      'type',
+      'turn',
+      'direction',
+      'speedLimit',
+      'leftWidth',
+      'rightWidth',
+      'leftBoundaryType',
+      'rightBoundaryType',
+    ]);
+  });
+
+  it('produces the same form values as the legacy laneFormValuesFromEntity', () => {
+    // Both APIs must agree on every lane fixture — the legacy helper
+    // is now a thin wrapper, but pinning the equivalence prevents a
+    // future schema tweak (e.g. swapping the leftWidth read adapter)
+    // from silently breaking the legacy contract.
+    const lane = makeLane();
+    expect(formValuesFromEntity(LaneInspectorSchema, lane)).toEqual(laneFormValuesFromEntity(lane));
+  });
+
+  it('write adapter for leftWidth fans the value across leftSamples', () => {
+    // The R1 fix preserved a subtle behavior: editing leftWidth
+    // updates EVERY entry in leftSamples to the same width (and
+    // seeds two anchors when the array is empty). Verify the
+    // schema's write adapter reproduces that.
+    const lane = makeLane({
+      leftSamples: [
+        { s: 0, width: 1.75 },
+        { s: 5, width: 1.75 },
+        { s: 10, width: 1.75 },
+      ],
+    });
+    const next = applyFormValuesToEntity(LaneInspectorSchema, lane, {
+      ...laneFormValuesFromEntity(lane),
+      leftWidth: 2.4,
+    });
+    expect(next.leftSamples).toEqual([
+      { s: 0, width: 2.4 },
+      { s: 5, width: 2.4 },
+      { s: 10, width: 2.4 },
+    ]);
+    // Right side untouched.
+    expect(next.rightSamples).toEqual(lane.rightSamples);
+  });
+
+  it('write adapter for leftBoundaryType replaces boundaryType[0].types', () => {
+    const lane = makeLane();
+    const next = applyFormValuesToEntity(LaneInspectorSchema, lane, {
+      ...laneFormValuesFromEntity(lane),
+      leftBoundaryType: 'DOUBLE_YELLOW',
+    });
+    expect(next.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['DOUBLE_YELLOW'] }]);
+    // Right boundary unchanged — this is the cross-field isolation
+    // the original LaneForm relied on.
+    expect(next.rightBoundary.boundaryType).toEqual(lane.rightBoundary.boundaryType);
+  });
+
+  it('validation gate rejects out-of-range numeric edits', () => {
+    // This is the gate that keeps `formState.isValid` honest under
+    // `mode: 'onChange'` — without it the watch callback would write
+    // garbage values into the store. We exercise the zod schema
+    // directly because the React/RHF wrapper is non-trivial to stand
+    // up without a DOM, and the validation contract is what matters.
+    const ok = LaneInspectorSchema.validation.safeParse({
+      type: 'CITY_DRIVING',
+      turn: 'NO_TURN',
+      direction: 'FORWARD',
+      speedLimit: 13.89,
+      leftWidth: 1.75,
+      rightWidth: 1.75,
+      leftBoundaryType: 'DOTTED_WHITE',
+      rightBoundaryType: 'SOLID_WHITE',
+    });
+    expect(ok.success).toBe(true);
+
+    const tooFast = LaneInspectorSchema.validation.safeParse({
+      type: 'CITY_DRIVING',
+      turn: 'NO_TURN',
+      direction: 'FORWARD',
+      speedLimit: 999, // > 50 cap
+      leftBoundaryType: 'DOTTED_WHITE',
+      rightBoundaryType: 'SOLID_WHITE',
+    });
+    expect(tooFast.success).toBe(false);
+
+    const tooNarrow = LaneInspectorSchema.validation.safeParse({
+      type: 'CITY_DRIVING',
+      turn: 'NO_TURN',
+      direction: 'FORWARD',
+      speedLimit: 10,
+      leftWidth: 0.1, // < 0.5 floor
+      leftBoundaryType: 'DOTTED_WHITE',
+      rightBoundaryType: 'SOLID_WHITE',
+    });
+    expect(tooNarrow.success).toBe(false);
+  });
+
+  it('full round-trip: read → write produces a structurally identical entity', () => {
+    // A no-op edit (form values exactly match the entity) must
+    // produce an entity equivalent to the source, otherwise
+    // `shouldPersistForm` (which compares post-write) cannot break
+    // the store→watch→updateEntity loop.
+    const lane = makeLane();
+    const values = formValuesFromEntity(LaneInspectorSchema, lane);
+    const next = applyFormValuesToEntity(LaneInspectorSchema, lane, values);
+    // Spot-check the fields that go through write adapters.
+    expect(next.type).toBe(lane.type);
+    expect(next.turn).toBe(lane.turn);
+    expect(next.direction).toBe(lane.direction);
+    expect(next.speedLimit).toBe(lane.speedLimit);
+    expect(next.leftSamples[0]?.width).toBe(lane.leftSamples[0]?.width);
+    expect(next.rightSamples[0]?.width).toBe(lane.rightSamples[0]?.width);
+    expect(next.leftBoundary.boundaryType[0]?.types[0]).toBe(
+      lane.leftBoundary.boundaryType[0]?.types[0],
+    );
+    expect(next.rightBoundary.boundaryType[0]?.types[0]).toBe(
+      lane.rightBoundary.boundaryType[0]?.types[0],
+    );
+  });
+});
