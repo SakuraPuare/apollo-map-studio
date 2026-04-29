@@ -370,3 +370,88 @@ describe('applyLaneJunctions — decorateOnly (incremental cache support)', () =
     expect(joinA[1]).toBeCloseTo(joinB[1], 10);
   });
 });
+
+// ─── Snap-connected lane boundary regression ──────────────
+//
+// Bug context: at near-180° head-to-head turns the analytic miter
+// intersection blew up (40m+) because the inner branch of
+// `sideJoinOffset` returned `exact` without a magnitude cap. Fix:
+// universal cap-by-midpoint when |exact| > MAX_OUTER_MITER * width.
+//
+// This block sweeps practical turn angles 30°…160° to pin geometric
+// invariants. The U-turn region (|angle| ≥ 165°) is excluded — those
+// connections require a junction entity, not a continuous lane link;
+// see the design note in `sideJoinOffset`.
+
+describe('Snap-connected lane boundaries (regression sweep)', () => {
+  function segmentsCross(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat): boolean {
+    const A1 = toM(a1);
+    const A2 = toM(a2);
+    const B1 = toM(b1);
+    const B2 = toM(b2);
+    const d1x = A2[0] - A1[0];
+    const d1y = A2[1] - A1[1];
+    const d2x = B2[0] - B1[0];
+    const d2y = B2[1] - B1[1];
+    const denom = d1x * d2y - d1y * d2x;
+    if (Math.abs(denom) < 1e-12) return false;
+    const dx = B1[0] - A1[0];
+    const dy = B1[1] - A1[1];
+    const t = (dx * d2y - dy * d2x) / denom;
+    const u = (dx * d1y - dy * d1x) / denom;
+    return t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6;
+  }
+  function selfCrosses(coords: LngLat[]): boolean {
+    for (let i = 0; i < coords.length - 1; i++) {
+      for (let j = i + 2; j < coords.length - 1; j++) {
+        if (segmentsCross(coords[i]!, coords[i + 1]!, coords[j]!, coords[j + 1]!)) return true;
+      }
+    }
+    return false;
+  }
+  function pairCrosses(a: LngLat[], b: LngLat[]): boolean {
+    for (let i = 0; i < a.length - 1; i++) {
+      for (let j = 0; j < b.length - 1; j++) {
+        if (segmentsCross(a[i]!, a[i + 1]!, b[j]!, b[j + 1]!)) return true;
+      }
+    }
+    return false;
+  }
+
+  const STEP_M = 30;
+  const stepLng = STEP_M / mPerLng;
+  const stepLat = STEP_M / mPerLat;
+
+  for (const turnDeg of [30, 60, 90, 120, 140, 160, -30, -60, -90, -120, -140, -160]) {
+    it(`turn ${turnDeg}° produces non-crossing boundary geometry`, () => {
+      const rad = (turnDeg * Math.PI) / 180;
+      const a = makeLane('A', [
+        [-stepLng * 2, LAT],
+        [-stepLng, LAT],
+        [0, LAT],
+      ]);
+      const dirX = Math.cos(rad);
+      const dirY = Math.sin(rad);
+      const b = makeLane('B', [
+        [0, LAT],
+        [stepLng * dirX, LAT + stepLat * dirY],
+        [stepLng * 2 * dirX, LAT + stepLat * 2 * dirY],
+      ]);
+
+      const features = stitch([a, b]);
+      const aLeft = laneLine(features, 'A', 'laneEdgeLeft').geometry.coordinates as LngLat[];
+      const aRight = laneLine(features, 'A', 'laneEdgeRight').geometry.coordinates as LngLat[];
+      const bLeft = laneLine(features, 'B', 'laneEdgeLeft').geometry.coordinates as LngLat[];
+      const bRight = laneLine(features, 'B', 'laneEdgeRight').geometry.coordinates as LngLat[];
+
+      const failures: string[] = [];
+      if (selfCrosses(aLeft)) failures.push('A.left self');
+      if (selfCrosses(aRight)) failures.push('A.right self');
+      if (selfCrosses(bLeft)) failures.push('B.left self');
+      if (selfCrosses(bRight)) failures.push('B.right self');
+      if (pairCrosses(aLeft, bLeft)) failures.push('A.left × B.left');
+      if (pairCrosses(aRight, bRight)) failures.push('A.right × B.right');
+      expect(failures).toEqual([]);
+    });
+  }
+});

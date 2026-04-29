@@ -14,7 +14,7 @@
 export const MAP_DEFAULT_CENTER: [number, number] = [116.4, 39.9];
 
 /** 初始缩放级别 */
-export const MAP_DEFAULT_ZOOM = 15;
+export const MAP_DEFAULT_ZOOM = 18;
 
 // ─── 车道几何 ──────────────────────────────────────────────────────────────────
 
