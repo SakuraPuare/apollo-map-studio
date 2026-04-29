@@ -826,12 +826,47 @@ function polygonToCoords(polygon: ApolloPolygon): LngLat[] {
   return pointsToCoords(polygon.points);
 }
 
+/**
+ * 多边形面积加权重心（Shoelace）
+ *
+ * 注意不能用顶点算术平均：
+ *   1) `rectCorners` 等会把首点重复一遍做闭合，平均会被偏向那一角；
+ *   2) 不规则多边形顶点稀密不均时，平均偏向密集一侧。
+ *
+ * Shoelace 公式天然处理闭合（重复点对应零面积边）和分布不均。
+ *
+ * 数值稳定性：经纬度坐标常远离原点（lng≈116, lat≈39），直接套
+ * Shoelace 会让 cx/cy 累加里出现互相抵消的大数（O(coord²)），
+ * 浮点尾数被抵消掉。先减掉首点再做累加，把数值压回小范围，
+ * 最后再补偿回去。退化（面积≈0）时回退到顶点平均。
+ */
 function centroid(coords: LngLat[]): LngLat {
-  if (coords.length === 0) return [0, 0];
-  return [
-    coords.reduce((s, c) => s + c[0], 0) / coords.length,
-    coords.reduce((s, c) => s + c[1], 0) / coords.length,
-  ];
+  const n = coords.length;
+  if (n === 0) return [0, 0];
+  if (n < 3) {
+    return [coords.reduce((s, c) => s + c[0], 0) / n, coords.reduce((s, c) => s + c[1], 0) / n];
+  }
+  const ox = coords[0]![0];
+  const oy = coords[0]![1];
+  let area2 = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < n; i++) {
+    const x0 = coords[i]![0] - ox;
+    const y0 = coords[i]![1] - oy;
+    const next = coords[(i + 1) % n]!;
+    const x1 = next[0] - ox;
+    const y1 = next[1] - oy;
+    const cross = x0 * y1 - x1 * y0;
+    area2 += cross;
+    cx += (x0 + x1) * cross;
+    cy += (y0 + y1) * cross;
+  }
+  if (Math.abs(area2) < 1e-18) {
+    return [coords.reduce((s, c) => s + c[0], 0) / n, coords.reduce((s, c) => s + c[1], 0) / n];
+  }
+  const factor = 1 / (3 * area2);
+  return [cx * factor + ox, cy * factor + oy];
 }
 
 /** 线段几何中点（所有点的平均坐标） */
