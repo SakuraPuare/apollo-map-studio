@@ -4,6 +4,10 @@
 import { nanoid } from 'nanoid';
 import {
   DEFAULT_LANE_HALF_WIDTH,
+  DEFAULT_LANE_SPEED_LIMIT_MPS,
+  DEFAULT_LANE_BOUNDARY_TYPE,
+  TURN_INFER_NO_TURN_RAD,
+  TURN_INFER_U_TURN_RAD,
   LANE_FILL_OPACITY,
   LANE_EDGE_LINE_WIDTH,
   LANE_EDGE_LINE_OPACITY,
@@ -40,6 +44,7 @@ import type {
   BarrierGateEntity,
   AreaEntity,
   ApolloEntity,
+  LaneTurn,
 } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
 import { anchorToData } from '@/core/geometry/anchorConvert';
@@ -598,21 +603,63 @@ function buildRectInfo(d: DrawResult): import('@/types/apollo').SourceRectInfo |
   return undefined;
 }
 
+/**
+ * 由车道中心线起终点切线夹角推断 turn 类型。
+ *
+ * 约定：投影到本地 ENU 平面（x=东、y=北）后取 `atan2(dy, dx)` 作为 heading。
+ * 起点 heading 来自第 1→2 个点，终点 heading 来自倒数第 2→1 个点；
+ * 增量 Δ ∈ (-π, π]，正值代表 CCW（左转），负值代表 CW（右转）。
+ *
+ *   |Δ| < TURN_INFER_NO_TURN_RAD               → NO_TURN
+ *   |Δ| ≥ TURN_INFER_U_TURN_RAD                → U_TURN
+ *   Δ > 0（位于上述两阈值之间）                → LEFT_TURN
+ *   Δ < 0                                      → RIGHT_TURN
+ *
+ * 不足 2 个点（无法确定方向）时回退 NO_TURN。
+ */
+export function inferLaneTurn(centerPts: GeoPoint[]): LaneTurn {
+  if (centerPts.length < 2) return 'NO_TURN';
+  const midLat = centerPts.reduce((sum, p) => sum + p.y, 0) / centerPts.length;
+  const cosLat = Math.cos((midLat * Math.PI) / 180);
+  const proj = centerPts.map((p) => projectPoint(p, cosLat));
+
+  const start = proj[0]!;
+  const afterStart = proj[1]!;
+  const end = proj[proj.length - 1]!;
+  const beforeEnd = proj[proj.length - 2]!;
+
+  const startHeading = Math.atan2(afterStart.y - start.y, afterStart.x - start.x);
+  const endHeading = Math.atan2(end.y - beforeEnd.y, end.x - beforeEnd.x);
+
+  // Wrap delta into (-π, π].
+  let delta = endHeading - startHeading;
+  while (delta > Math.PI) delta -= 2 * Math.PI;
+  while (delta <= -Math.PI) delta += 2 * Math.PI;
+
+  const absDelta = Math.abs(delta);
+  if (absDelta < TURN_INFER_NO_TURN_RAD) return 'NO_TURN';
+  if (absDelta >= TURN_INFER_U_TURN_RAD) return 'U_TURN';
+  return delta > 0 ? 'LEFT_TURN' : 'RIGHT_TURN';
+}
+
 function createLane(d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
   const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
   const centerPts = extractLinePoints(d);
+  // Seed boundary type at s=0 so inspector reads the default instead
+  // of the 'UNKNOWN' fallback for an empty boundaryType array.
+  const seedBoundaryType = [{ s: 0, types: [DEFAULT_LANE_BOUNDARY_TYPE] }];
   return {
     id: `lane_${nanoid(12)}`,
     entityType: 'lane',
     centralCurve: pointsToCurve(centerPts),
-    leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
-    rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+    leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: seedBoundaryType },
+    rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: seedBoundaryType },
     length: polylineLengthMeters(centerPts),
     type: 'CITY_DRIVING',
-    turn: 'NO_TURN',
+    turn: inferLaneTurn(centerPts),
     direction: 'FORWARD',
-    speedLimit: 0,
+    speedLimit: DEFAULT_LANE_SPEED_LIMIT_MPS,
     predecessorIds: [],
     successorIds: [],
     leftNeighborForwardIds: [],
@@ -982,7 +1029,7 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       break;
     }
 
-    // ─── 减速带：黄色粗线 + 条纹虚线 ───
+    // ─── 减速带：黄色粗线 + 条纹虚线 + 警示图标 ───
     case 'speedBump': {
       for (const curve of entity.position) {
         const c = curveToCoords(curve);
@@ -992,6 +1039,11 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         // 顶层虚线（黄色条纹）
         features.push(mkLine(c, { ...base, lineWidth: 10, lineOpacity: 0.8, dashed: true }));
       }
+      const all = entity.position.flatMap(curveToCoords);
+      if (all.length > 0)
+        features.push(
+          mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-speed-bump', labelSize: 20 }),
+        );
       break;
     }
 

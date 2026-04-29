@@ -21,6 +21,18 @@ export const MAP_DEFAULT_ZOOM = 15;
 /** 车道中心线到左/右边界的默认半宽（米） */
 export const DEFAULT_LANE_HALF_WIDTH = 1.75;
 
+/** 新建车道默认限速（米/秒）— 60 km/h 对齐城市道路常规限值 */
+export const DEFAULT_LANE_SPEED_LIMIT_MPS = 60 / 3.6;
+
+/** 新建车道默认边界线型 — 虚白线（可跨越） */
+export const DEFAULT_LANE_BOUNDARY_TYPE = 'DOTTED_WHITE' as const;
+
+/** Turn 自动识别阈值（弧度） */
+/** 起终点方向夹角 < 此值 → NO_TURN（约 25°） */
+export const TURN_INFER_NO_TURN_RAD = (25 * Math.PI) / 180;
+/** 起终点方向夹角 ≥ 此值 → U_TURN（约 150°） */
+export const TURN_INFER_U_TURN_RAD = (150 * Math.PI) / 180;
+
 /** 车道填充多边形透明度 */
 export const LANE_FILL_OPACITY = 0.3;
 
