@@ -189,10 +189,50 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
         if (c.length >= 2) features.push(mkLine(c, { ...base, lineWidth: 4 }));
       }
       const all = entity.stopLines.flatMap(curveToCoords);
-      if (all.length > 0)
+      if (all.length > 0) {
         features.push(
           mkPoint(lineMid(all), { ...base, role: 'label', icon: 'icon-signal', labelSize: 22 }),
         );
+      } else {
+        // Imported signals sometimes ship only `boundary` (the 3D signal-head
+        // hardware) with no stopLines. boundary is a 3D shape and meaningless
+        // to render in 2D, but the entity must still be visible & selectable
+        // — drop a label icon at the boundary centroid.
+        const boundaryCoords = polygonToCoords(entity.boundary);
+        if (boundaryCoords.length > 0) {
+          features.push(
+            mkPoint(centroid(boundaryCoords), {
+              ...base,
+              role: 'label',
+              icon: 'icon-signal',
+              labelSize: 22,
+            }),
+          );
+        }
+      }
+      // Subsignal bulbs — render each bulb as a small colored dot at its
+      // xy projection. For vertical layouts the bulbs share xy and stack
+      // visually as a single dot (which is fine, the icon already conveys
+      // the signal location); for horizontal layouts they spread along
+      // the box width so the user can see the actual layout. Color by
+      // row position so red/yellow/green visually matches the 3-light
+      // convention.
+      const SUBSIGNAL_COLORS = ['#ff3b30', '#ffcc00', '#34c759']; // top → bottom
+      const sortedByZ = [...entity.subsignals].sort(
+        (a, b) => (b.location.z ?? 0) - (a.location.z ?? 0),
+      );
+      for (let i = 0; i < sortedByZ.length; i++) {
+        const sub = sortedByZ[i]!;
+        features.push(
+          mkPoint([sub.location.x, sub.location.y], {
+            ...base,
+            role: 'subsignal',
+            color: SUBSIGNAL_COLORS[i] ?? base.color,
+            subsignalType: sub.type,
+            radius: 3,
+          }),
+        );
+      }
       break;
     }
 
@@ -264,8 +304,34 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       break;
     }
 
-    case 'road':
+    case 'road': {
+      // Road geometry = section[].boundary.outer_polygon.edge[].curve, i.e.
+      // the left/right shoulders of the asphalt. Lanes inside the road are
+      // already drawn as their own LaneEntity, so the road only contributes
+      // the outer boundary edges. Render as polylines (not fill) so they
+      // don't compete visually with lanes; subtle dashed grey reads as
+      // "context, not editable centerline".
+      for (const section of entity.sections) {
+        const outer = section.boundary?.outerPolygon;
+        if (!outer) continue;
+        for (const edge of outer.edges) {
+          const c = curveToCoords(edge.curve);
+          if (c.length < 2) continue;
+          features.push(
+            mkLine(c, {
+              ...base,
+              color: '#888888',
+              lineWidth: 1.5,
+              lineOpacity: 0.7,
+              dashed: true,
+              role: 'roadBoundary',
+              boundaryType: edge.type,
+            }),
+          );
+        }
+      }
       break;
+    }
   }
 
   return features;

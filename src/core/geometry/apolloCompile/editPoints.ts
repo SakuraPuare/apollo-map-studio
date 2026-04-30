@@ -28,6 +28,15 @@ export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
       return entity.position[0]?.segments[0]?.lineSegment.points ?? [];
     case 'yieldSign':
       return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? [];
+    case 'road':
+      // Road geometry lives in section[].boundary.outer_polygon.edge[].curve.
+      // For now we expose the first section's first outer edge as the
+      // editable polyline — enough to make road selectable + draggable. A
+      // multi-edge editor is future work.
+      return (
+        entity.sections[0]?.boundary?.outerPolygon.edges[0]?.curve.segments[0]?.lineSegment
+          .points ?? []
+      );
     default:
       return [];
   }
@@ -92,6 +101,23 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
       s[0] = { ...s[0]!, lineSegment: { points } };
       l[0] = { ...l[0]!, segments: s };
       return { ...entity, stopLines: l };
+    }
+    case 'road': {
+      const sections = [...entity.sections];
+      const sec0 = sections[0];
+      if (!sec0?.boundary) return entity;
+      const outer = sec0.boundary.outerPolygon;
+      const edges = [...outer.edges];
+      const edge0 = edges[0];
+      if (!edge0) return entity;
+      const segs = [...edge0.curve.segments];
+      segs[0] = { ...segs[0]!, lineSegment: { points } };
+      edges[0] = { ...edge0, curve: { segments: segs } };
+      sections[0] = {
+        ...sec0,
+        boundary: { ...sec0.boundary, outerPolygon: { ...outer, edges } },
+      };
+      return { ...entity, sections };
     }
     default:
       return entity;
