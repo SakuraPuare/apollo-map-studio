@@ -13,7 +13,7 @@ type EntitySnapshot = Map<string, SerializedEntity>;
  * Group a flat feature collection into per-entity buckets keyed by
  * `properties.id`. Used to seed the entity feature cache from a SYNC response.
  */
-function groupFeaturesByEntity(features: GeoJSON.Feature[]): Map<string, GeoJSON.Feature[]> {
+export function groupFeaturesByEntity(features: GeoJSON.Feature[]): Map<string, GeoJSON.Feature[]> {
   const buckets = new Map<string, GeoJSON.Feature[]>();
   for (const f of features) {
     const id = typeof f.properties?.id === 'string' ? (f.properties.id as string) : '__unkeyed';
@@ -27,7 +27,9 @@ function groupFeaturesByEntity(features: GeoJSON.Feature[]): Map<string, GeoJSON
   return buckets;
 }
 
-function flattenEntityFeatures(cache: Map<string, GeoJSON.Feature[]>): GeoJSON.FeatureCollection {
+export function flattenEntityFeatures(
+  cache: Map<string, GeoJSON.Feature[]>,
+): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (const bucket of cache.values()) features.push(...bucket);
   return { type: 'FeatureCollection', features };
@@ -37,7 +39,7 @@ function cloneEntities(entities: Map<string, SerializedEntity>): EntitySnapshot 
   return new Map(entities);
 }
 
-function diffEntities(prev: EntitySnapshot, next: Map<string, SerializedEntity>) {
+export function diffEntities(prev: EntitySnapshot, next: Map<string, SerializedEntity>) {
   const added: SerializedEntity[] = [];
   const updated: SerializedEntity[] = [];
   const removed: string[] = [];
@@ -62,7 +64,7 @@ function diffEntities(prev: EntitySnapshot, next: Map<string, SerializedEntity>)
   return { added, updated, removed };
 }
 
-function hasEntityChanges(diff: ReturnType<typeof diffEntities>) {
+export function hasEntityChanges(diff: ReturnType<typeof diffEntities>) {
   return diff.added.length > 0 || diff.updated.length > 0 || diff.removed.length > 0;
 }
 

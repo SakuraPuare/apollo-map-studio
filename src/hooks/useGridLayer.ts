@@ -6,7 +6,7 @@ import { useUIStore } from '@/store/uiStore';
  * 根据当前 zoom 选定网格间距（米）。颗粒度对齐 Photoshop / QGIS：
  * 地图越近间距越小，远了就稀疏，避免高密度线条撑爆 GPU。
  */
-function metersForZoom(zoom: number): { step: number; majorEvery: number } {
+export function metersForZoom(zoom: number): { step: number; majorEvery: number } {
   if (zoom >= 20) return { step: 0.5, majorEvery: 10 }; // 0.5m / 5m major
   if (zoom >= 19) return { step: 1, majorEvery: 10 };
   if (zoom >= 18) return { step: 2, majorEvery: 5 };
@@ -22,7 +22,7 @@ function metersForZoom(zoom: number): { step: number; majorEvery: number } {
 
 const METERS_PER_DEG_LAT = 111320;
 /** 安全上限：避免极端 zoom-out + step 错配时生成几万条线。 */
-const MAX_LINES_PER_AXIS = 240;
+export const MAX_LINES_PER_AXIS = 240;
 
 function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
   const bounds = map.getBounds();

@@ -20,6 +20,20 @@ import type { MapElementType } from '@/core/elements';
 import { createEntity as createApolloEntity } from '@/lib/entityOps';
 import { useSettingsStore } from '@/store/settingsStore';
 
+export function hasGeometryForState(
+  state: string,
+  points: LngLat[],
+  anchors: BezierAnchor[],
+): boolean {
+  return (
+    (state === 'drawBezier' && anchors.length >= 2) ||
+    (state === 'drawArc' && points.length >= 3) ||
+    (state === 'drawRotatedRect' && points.length >= 3) ||
+    (state === 'drawPolygon' && points.length >= 3) ||
+    ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2)
+  );
+}
+
 function commitEntity(
   state: string,
   points: LngLat[],
@@ -29,14 +43,7 @@ function commitEntity(
   const addEntity = useMapStore.getState().addEntity;
 
   if (element) {
-    const hasGeometry =
-      (state === 'drawBezier' && anchors.length >= 2) ||
-      (state === 'drawArc' && points.length >= 3) ||
-      (state === 'drawRotatedRect' && points.length >= 3) ||
-      (state === 'drawPolygon' && points.length >= 3) ||
-      ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2);
-
-    if (hasGeometry) {
+    if (hasGeometryForState(state, points, anchors)) {
       const { laneHalfWidth } = useSettingsStore.getState();
       addEntity(createApolloEntity(element, state, points, anchors, { laneHalfWidth }));
     }
@@ -102,6 +109,10 @@ export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {
           snapshot.context.bezierAnchors,
           snapshot.context.activeElement,
         );
+        // commit 转移没带 resetDraw（否则 post-snapshot 就读不到 drawPoints 了），
+        // 提交完后由这里发 RESET 把 activeElement / drawPoints / bezierAnchors
+        // 清掉，避免 ToolStrip 元素高亮残留。
+        actorRef.send({ type: 'RESET' });
       }
 
       prevSnapshot = snapshot;

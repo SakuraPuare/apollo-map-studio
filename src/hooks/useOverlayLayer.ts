@@ -18,20 +18,20 @@ import type { SnapTarget } from '@/core/geometry/snap';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-type OverlayRenderState = {
+export type OverlayRenderState = {
   currentState: string;
   drawPoints: LngLat[];
   previewPoint: LngLat | null;
   bezierAnchors: BezierAnchor[];
 };
 
-function samePoint(a: LngLat | null, b: LngLat | null) {
+export function samePoint(a: LngLat | null, b: LngLat | null) {
   if (a === b) return true;
   if (!a || !b) return false;
   return a[0] === b[0] && a[1] === b[1];
 }
 
-function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayRenderState) {
+export function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayRenderState) {
   return (
     !!a &&
     a.currentState === b.currentState &&
@@ -41,7 +41,7 @@ function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayRenderSt
   );
 }
 
-function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[] {
+export function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[] {
   const { currentState, drawPoints, previewPoint, bezierAnchors } = renderState;
   const features: GeoJSON.Feature[] = [];
 

@@ -3,6 +3,10 @@ import type maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 
+export function shouldDisableDragPan(currentState: string, isDraggingHandle: boolean): boolean {
+  return isDraggingHandle || currentState === 'editingPoint' || currentState === 'drawBezier';
+}
+
 export function useDragPan(
   mapRef: React.RefObject<maplibregl.Map | null>,
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -15,11 +19,10 @@ export function useDragPan(
 
     const syncDragPan = () => {
       const snapshot = actorRef.getSnapshot();
-      const currentState = snapshot.value as string;
-      const shouldDisable =
-        snapshot.context.isDraggingHandle ||
-        currentState === 'editingPoint' ||
-        currentState === 'drawBezier';
+      const shouldDisable = shouldDisableDragPan(
+        snapshot.value as string,
+        snapshot.context.isDraggingHandle,
+      );
 
       if (shouldDisable === dragPanDisabledRef.current) return;
       dragPanDisabledRef.current = shouldDisable;

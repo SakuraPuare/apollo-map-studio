@@ -11,7 +11,7 @@ import type { MapEntity } from '@/types/entities';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-type HotRenderState = {
+export type HotRenderState = {
   selectedEntityId: string | null;
   entity: MapEntity | null;
   isEditingPoint: boolean;
@@ -21,13 +21,13 @@ type HotRenderState = {
   dragAltKey: boolean;
 };
 
-function samePoint(a: LngLat | null, b: LngLat | null) {
+export function samePoint(a: LngLat | null, b: LngLat | null) {
   if (a === b) return true;
   if (!a || !b) return false;
   return a[0] === b[0] && a[1] === b[1];
 }
 
-function sameHotRenderState(a: HotRenderState | null, b: HotRenderState) {
+export function sameHotRenderState(a: HotRenderState | null, b: HotRenderState) {
   return (
     !!a &&
     a.selectedEntityId === b.selectedEntityId &&

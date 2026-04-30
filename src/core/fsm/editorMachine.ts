@@ -51,6 +51,10 @@ export type EditorEvent =
   | { type: 'DOUBLE_CLICK'; point: LngLat }
   | { type: 'CONFIRM' }
   | { type: 'CANCEL' }
+  // 提交完成后清空 draw context（activeElement / drawPoints / bezierAnchors）。
+  // 与 CANCEL 区别：CANCEL 是用户主动取消，可能在 drawing 态触发；
+  // RESET 由 useDrawCommit 在 idle 态收到 commit 之后发，专做收尾清理。
+  | { type: 'RESET' }
   // 选中 + 编辑
   | { type: 'SELECT_ENTITY'; id: string }
   | { type: 'DESELECT' }
@@ -265,6 +269,11 @@ export const editorMachine = setup({
           target: 'selected',
           actions: 'selectEntity',
         },
+        // commit transitions（DOUBLE_CLICK / CONFIRM / 三点 commit）只 target idle
+        // 不带 actions——必须保留 drawPoints/bezierAnchors 让 useDrawCommit 读取
+        // post-snapshot 完成 commit。useDrawCommit commit 后再发 RESET 收尾，
+        // 否则 activeElement 残留导致 ToolStrip 元素高亮不会清。
+        RESET: { actions: 'resetDraw' },
       },
     },
 

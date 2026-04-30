@@ -4,6 +4,12 @@ import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 
+export function cursorForState(currentState: string): string {
+  if (currentState === 'editingPoint') return 'grabbing';
+  if (isDrawingState(currentState)) return 'crosshair';
+  return '';
+}
+
 export function useCursorManager(
   mapRef: React.RefObject<maplibregl.Map | null>,
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -13,14 +19,7 @@ export function useCursorManager(
     if (!canvas) return;
 
     const applyCursor = () => {
-      const currentState = actorRef.getSnapshot().value as string;
-      if (currentState === 'editingPoint') {
-        canvas.style.cursor = 'grabbing';
-      } else if (isDrawingState(currentState)) {
-        canvas.style.cursor = 'crosshair';
-      } else {
-        canvas.style.cursor = '';
-      }
+      canvas.style.cursor = cursorForState(actorRef.getSnapshot().value as string);
     };
 
     applyCursor();
