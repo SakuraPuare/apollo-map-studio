@@ -10,7 +10,12 @@ import {
   type ReparentResult,
 } from '@/lib/entityOps';
 import { reconcileLaneTopology } from '@/core/geometry/laneTopology';
-import { reconcileOverlaps, invalidateLaneCaches } from '@/core/elements/overlap';
+import {
+  reconcileOverlaps,
+  invalidateLaneCaches,
+  resetSharedSpatialIndex,
+} from '@/core/elements/overlap';
+import { OverlapWorkerBridge } from '@/core/workers/overlapBridge';
 import { readHistoryLimit } from './settingsStore';
 
 enableMapSet();
@@ -29,6 +34,18 @@ interface MapActions {
    * or empty changes) so callers can surface UX feedback.
    */
   reparentEntity(childId: string, target: ParentTarget): ReparentResult;
+  /**
+   * Full overlap recompute via Web Worker —— 主线程不被阻塞。
+   * 用法：导入完成 / 用户手动 "Recompute overlaps" / 导出前。
+   * Returns stats for telemetry; resolves after patch applied.
+   */
+  recomputeOverlapsAsync(): Promise<{
+    pairsTested: number;
+    pairsMatched: number;
+    overlapsCreated: number;
+    overlapsRemoved: number;
+    durationMs: number;
+  } | null>;
 }
 
 type MapStore = MapState & MapActions;
@@ -115,6 +132,29 @@ export const useMapStore = create<MapStore>()(
           }
         });
         return result;
+      },
+
+      async recomputeOverlapsAsync() {
+        const entities = get().entities;
+        if (entities.size === 0) return null;
+        const bridge = new OverlapWorkerBridge();
+        try {
+          const patch = await bridge.reconcileFull(entities);
+          // 主线程一次性 apply（zundo 单事务），与 incremental 路径走同一通道。
+          // worker 持有的是 entities snapshot，apply 期间主线程可能已经接受了
+          // 别的 mutation；此处仅写入 worker patch 计算出的 changes，依赖
+          // syncDirty 在下一次增量编辑时纠正任何 drift。
+          set((state) => {
+            for (const id of patch.removedOverlapIds) state.entities.delete(id);
+            for (const [id, e] of patch.changes) state.entities.set(id, e);
+          });
+          // worker 在自己的 V8 isolate 里跑过 reconcile，主线程 singleton
+          // 现在落后了；下次增量编辑前重置一次，让 stale-guard 走全量重建。
+          resetSharedSpatialIndex();
+          return patch.stats;
+        } finally {
+          bridge.dispose();
+        }
       },
     })),
     {

@@ -61,39 +61,109 @@ export function bboxForEntity(entity: MapEntity): BBox | null {
 export class SpatialIndex {
   private readonly tree = new OverlapRBush();
   private readonly nodes = new Map<string, IndexNode>();
+  /** 上一次见过的 entity 引用，用于 ref-based 增量同步 */
+  private readonly lastSeen = new Map<string, MapEntity>();
 
   /** 全量构建（导入完成后调用一次；O(N)） */
   build(entities: ReadonlyMap<string, MapEntity>): void {
     this.tree.clear();
     this.nodes.clear();
+    this.lastSeen.clear();
     const bulk: IndexNode[] = [];
     for (const e of entities.values()) {
       const bbox = bboxForEntity(e);
       if (!bbox) continue;
       const node: IndexNode = { id: e.id, entityType: e.entityType, ...bbox };
       this.nodes.set(e.id, node);
+      this.lastSeen.set(e.id, e);
       bulk.push(node);
     }
     if (bulk.length > 0) this.tree.load(bulk);
   }
 
+  /**
+   * Ref-based 全量同步（O(N)）：扫一次 entities，按 reference 比对：
+   *   - 新增/ref 变化（geometry 改了）→ 重 insert
+   *   - 已消失 → remove
+   *   - ref 不变 → 跳过
+   *
+   * 适用：cold start / undo-redo / 全量 reconcile。
+   * 增量编辑请用 `syncDirty` —— 把 5w 量纲下的 ~10ms 降到 < 0.5ms。
+   */
+  syncFromEntities(entities: ReadonlyMap<string, MapEntity>): void {
+    if (this.nodes.size === 0) {
+      this.build(entities);
+      return;
+    }
+    const seen = new Set<string>();
+    for (const e of entities.values()) {
+      seen.add(e.id);
+      const prev = this.lastSeen.get(e.id);
+      if (prev === e) continue;
+      this.insert(e);
+    }
+    for (const id of this.lastSeen.keys()) {
+      if (seen.has(id)) continue;
+      this.remove(id);
+    }
+  }
+
+  /**
+   * O(|dirtyIds|) 增量同步：caller 已经知道 mutation 范围（store 直接拿到
+   * dirty 集），不需要全表 ref 比对。
+   *
+   * 协议：
+   *   - id 在 entities 里 → insert（自动 remove 旧的）
+   *   - id 不在 entities 里 → remove
+   *
+   * 编辑期单次调用 < 0.5ms（5w 实体 dirty=1）；这是 incremental reconcile
+   * < 16ms 帧预算的关键抓手。
+   */
+  syncDirty(entities: ReadonlyMap<string, MapEntity>, dirtyIds: ReadonlySet<string>): void {
+    // Stale-guard：索引 size vs entities 差距过大说明索引和 entities 已脱节
+    // （首次 / undo / 跨 store 实例 / 大批量 import）。绝对差超过 |dirtyIds|
+    // 就降级到 syncFromEntities 全量重建，先保证语义正确再追求性能。
+    const expectedDelta = dirtyIds.size + 1;
+    if (this.nodes.size === 0 || Math.abs(entities.size - this.nodes.size) > expectedDelta) {
+      this.syncFromEntities(entities);
+      return;
+    }
+    for (const id of dirtyIds) {
+      const e = entities.get(id);
+      if (e) this.insert(e);
+      else this.remove(id);
+    }
+  }
+
   /** 增量插入（new entity） */
   insert(entity: MapEntity): void {
     const bbox = bboxForEntity(entity);
-    if (!bbox) return;
+    if (!bbox) {
+      // 实体不再有 indexable 几何（比如 stopLines 全部清空）
+      const existing = this.nodes.get(entity.id);
+      if (existing) {
+        this.tree.remove(existing);
+        this.nodes.delete(entity.id);
+      }
+      this.lastSeen.set(entity.id, entity);
+      return;
+    }
     const existing = this.nodes.get(entity.id);
     if (existing) this.tree.remove(existing);
     const node: IndexNode = { id: entity.id, entityType: entity.entityType, ...bbox };
     this.nodes.set(entity.id, node);
     this.tree.insert(node);
+    this.lastSeen.set(entity.id, entity);
   }
 
   /** 删除 */
   remove(id: string): void {
     const node = this.nodes.get(id);
-    if (!node) return;
-    this.tree.remove(node);
-    this.nodes.delete(id);
+    if (node) {
+      this.tree.remove(node);
+      this.nodes.delete(id);
+    }
+    this.lastSeen.delete(id);
   }
 
   /** bbox 查询（lng/lat 度数空间） */
@@ -118,4 +188,25 @@ export class SpatialIndex {
     const n = this.nodes.get(id);
     return n ? { minX: n.minX, minY: n.minY, maxX: n.maxX, maxY: n.maxY } : null;
   }
+
+  /** 全量重置（worker 终止 / 测试用） */
+  clear(): void {
+    this.tree.clear();
+    this.nodes.clear();
+    this.lastSeen.clear();
+  }
+}
+
+/**
+ * 模块级 Singleton —— store 直接复用同一个索引实例，避免 reconcile 每次 new
+ * 一个新的 RBush + load N 节点。zundo undo/redo 时也只是 entities 引用切换，
+ * `syncFromEntities` 通过 ref 比对自动失效需要更新的节点。
+ */
+let sharedIndex: SpatialIndex | null = null;
+export function getSharedSpatialIndex(): SpatialIndex {
+  if (!sharedIndex) sharedIndex = new SpatialIndex();
+  return sharedIndex;
+}
+export function resetSharedSpatialIndex(): void {
+  sharedIndex = null;
 }

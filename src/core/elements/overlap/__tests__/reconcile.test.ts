@@ -10,6 +10,7 @@ import type { MapEntity } from '@/types/entities';
 import { reconcileOverlaps } from '../reconcile';
 import { clearLaneArcLengthCache } from '../computeLaneS';
 import { isDerivedOverlapId, makeOverlapId } from '../overlapId';
+import { resetSharedSpatialIndex } from '../spatialIndex';
 
 function curve(points: { x: number; y: number }[]): Curve {
   return {
@@ -79,7 +80,10 @@ function buildMap(...entities: MapEntity[]): Map<string, MapEntity> {
 }
 
 describe('reconcileOverlaps', () => {
-  beforeEach(() => clearLaneArcLengthCache());
+  beforeEach(() => {
+    clearLaneArcLengthCache();
+    resetSharedSpatialIndex();
+  });
 
   it('creates an overlap when a lane crosses a junction', () => {
     const lane = makeLane('Lane_1', [
@@ -271,6 +275,120 @@ describe('reconcileOverlaps', () => {
     if (aAfter?.objectType === 'lane') {
       expect(aAfter.laneOverlapInfo.isMerge).toBe(false); // pinned value held
     }
+  });
+
+  it('emits lane×lane overlap when centerlines cross outside any junction (GAP-2)', () => {
+    // Two lanes physically cross (e.g. ramp / overpass scenario) but neither
+    // belongs to a junction. Old gate `if (!laneA.junctionId || ...) return`
+    // dropped this entirely; new rule keeps the cross-detection branch.
+    const horizontal = makeLane('Lane_H', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    const vertical = makeLane('Lane_V', [
+      { x: 116.0005, y: 39.8995 },
+      { x: 116.0005, y: 39.9005 },
+    ]);
+    // junctionId left null on both
+    const entities = buildMap(horizontal, vertical);
+    const patch = reconcileOverlaps(entities, { mode: 'full' });
+    const overlapId = makeOverlapId(['Lane_H', 'Lane_V']);
+    expect(patch.changes.has(overlapId)).toBe(true);
+    const ov = patch.changes.get(overlapId) as OverlapEntity;
+    // Pure crossing, no merging endpoints → isMerge=false
+    const hInfo = ov.objects.find((o) => o.objectType === 'lane' && o.objectId === 'Lane_H');
+    if (hInfo?.objectType === 'lane') {
+      expect(hInfo.laneOverlapInfo.isMerge ?? false).toBe(false);
+    }
+  });
+
+  it('does NOT emit lane×lane overlap when only START endpoints coincide outside junction (GAP-7 / pred-succ semantics)', () => {
+    // Two lanes diverging from the same point (a fork) — outside any junction
+    // this is a successor/predecessor relationship, NOT an overlap. The pure
+    // lane graph topology already expresses this; emitting an Overlap here
+    // would double-count the relationship.
+    const a = makeLane('Lane_A', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    const b = makeLane('Lane_B', [
+      { x: 116.0, y: 39.9 }, // same start as A
+      { x: 116.001, y: 39.901 }, // diverging
+    ]);
+    const entities = buildMap(a, b);
+    const patch = reconcileOverlaps(entities, { mode: 'full' });
+    const overlapId = makeOverlapId(['Lane_A', 'Lane_B']);
+    expect(patch.changes.has(overlapId)).toBe(false);
+  });
+
+  it('mergeAtStart inside junction still emits overlap, but isMerge stays false (GAP-7)', () => {
+    // Inside a junction, two lanes sharing a START point is a split/fork — it
+    // IS a trajectory conflict, so emit overlap. But Apollo `is_merge` means
+    // "merging into" — start-fork is not a merge. isMerge must be false.
+    const a = makeLane('Lane_A', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    const b = makeLane('Lane_B', [
+      { x: 116.0, y: 39.9 }, // same start as A
+      { x: 116.001, y: 39.901 },
+    ]);
+    a.junctionId = 'J';
+    b.junctionId = 'J';
+    const j = makeJunction('J', [
+      { x: 115.999, y: 39.899 },
+      { x: 116.002, y: 39.899 },
+      { x: 116.002, y: 39.902 },
+      { x: 115.999, y: 39.902 },
+    ]);
+    const entities = buildMap(a, b, j);
+    const patch = reconcileOverlaps(entities, { mode: 'full' });
+    const overlapId = makeOverlapId(['Lane_A', 'Lane_B']);
+    const ov = patch.changes.get(overlapId) as OverlapEntity | undefined;
+    expect(ov).toBeDefined();
+    const aInfo = ov!.objects.find((o) => o.objectType === 'lane' && o.objectId === 'Lane_A');
+    if (aInfo?.objectType === 'lane') {
+      expect(aInfo.laneOverlapInfo.isMerge ?? false).toBe(false);
+    }
+  });
+
+  it('incremental mode emits a lane×other pair regardless of which side is dirty (GAP-3)', () => {
+    // Regression: the old `lane.id < lo.id` ordering gate silently dropped
+    // pairs whose dirty side had the lex-larger id. With makeOverlapId-based
+    // dedup, marking either lane dirty must yield the same overlap.
+    const laneSmall = makeLane('Lane_AAA', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ]);
+    const laneLarge = makeLane('Lane_ZZZ', [
+      { x: 116.00025, y: 39.8999 },
+      { x: 116.00025, y: 39.9001 },
+    ]);
+    laneSmall.junctionId = 'J1';
+    laneLarge.junctionId = 'J1';
+    const junction = makeJunction('J1', [
+      { x: 115.9999, y: 39.8998 },
+      { x: 116.0006, y: 39.8998 },
+      { x: 116.0006, y: 39.9002 },
+      { x: 115.9999, y: 39.9002 },
+    ]);
+    const entities = buildMap(laneSmall, laneLarge, junction);
+    const expectedId = makeOverlapId(['Lane_AAA', 'Lane_ZZZ']);
+
+    // Mark only the lex-larger lane as dirty — old code would skip this pair
+    // (because Lane_ZZZ < Lane_AAA is false).
+    const patchLarge = reconcileOverlaps(entities, {
+      mode: 'incremental',
+      dirtyIds: new Set(['Lane_ZZZ']),
+    });
+    expect(patchLarge.changes.has(expectedId)).toBe(true);
+
+    // And reverse: marking only the lex-smaller side must also emit.
+    const patchSmall = reconcileOverlaps(entities, {
+      mode: 'incremental',
+      dirtyIds: new Set(['Lane_AAA']),
+    });
+    expect(patchSmall.changes.has(expectedId)).toBe(true);
   });
 
   it('full mode is idempotent on a stable map', () => {

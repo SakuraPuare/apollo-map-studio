@@ -9,12 +9,18 @@
  *   - 自动派生（id 形如 Overlap_<hex16>）：每次 reconcile 全量替换
  *   - 导入或手工新建（id 形如 overlap_N / Overlap_N 等数字后缀）：保留对象集合，
  *     仅在参与实体被删除时清理；reconcile 不主动添加/删除这些 overlap
+ *
+ * region_overlap（GAP-5 显式延后）：Apollo proto 的 RegionOverlapInfo 用来
+ * 表达 crosswalk×lane 等场景下的精确多边形相交区域。此处**不**自动生成 ——
+ * 自动派生需要 polygon clipping（仓库未引入对应库），且产品定义里 region
+ * 是给用户「钉」语义信息的扩展点（参见 _userPinned 设计），自动覆盖会和这
+ * 个交互模型打架。需要时单独走 region 维护抓手，不进 reconcile 主循环。
  */
 import type { MapEntity } from '@/types/entities';
 import type { LaneEntity, ObjectOverlapInfo, OverlapEntity } from '@/types/apollo';
 import { getCenterline, isOverlapParticipant } from './geometryAdapters';
 import { bboxOfPoints } from './intersect';
-import { SpatialIndex, bboxForEntity } from './spatialIndex';
+import { type SpatialIndex, bboxForEntity, getSharedSpatialIndex } from './spatialIndex';
 import {
   PAIR_RULES,
   detectPair,
@@ -50,8 +56,15 @@ export function reconcileOverlaps(
 ): ReconcilePatch {
   const startTime = performance.now();
 
-  const idx = index ?? new SpatialIndex();
-  if (!index) idx.build(entities);
+  // 优先使用 caller 注入的索引；否则用模块级 singleton：
+  //   - full mode：syncFromEntities 全量 ref 比对（cold start / undo / 大改）
+  //   - incremental：syncDirty 仅刷 dirtyIds，O(dirty) 不是 O(N)。这是
+  //     编辑期 < 16ms 帧预算的关键抓手。
+  const idx = index ?? getSharedSpatialIndex();
+  if (!index) {
+    if (mode.mode === 'full') idx.syncFromEntities(entities);
+    else idx.syncDirty(entities, mode.dirtyIds);
+  }
 
   // GAP-8: cosLat 改为 detectLaneLanePair 内部按 laneA 起点纬度局部计算，
   // 不再走全图均值（跨纬度多度地图全局均值会产生米空间偏差）。
