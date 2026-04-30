@@ -11,13 +11,17 @@ function makeLane(id: string, points: GeoPoint[]): LaneEntity {
       segments: [
         {
           lineSegment: { points },
+          s: 0,
+          startPosition: points[0] ?? { x: 0, y: 0 },
+          heading: 0,
+          length: 0,
         },
       ],
     },
     leftSamples: [],
     rightSamples: [],
-    leftBoundary: { boundaryType: [] },
-    rightBoundary: { boundaryType: [] },
+    leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+    rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
     type: 'CITY_DRIVING',
     turn: 'NO_TURN',
     direction: 'FORWARD',
@@ -25,8 +29,16 @@ function makeLane(id: string, points: GeoPoint[]): LaneEntity {
     length: 0,
     predecessorIds: [],
     successorIds: [],
+    leftNeighborForwardIds: [],
+    rightNeighborForwardIds: [],
+    leftNeighborReverseIds: [],
+    rightNeighborReverseIds: [],
+    selfReverseLaneIds: [],
     junctionId: null,
-  } as unknown as LaneEntity;
+    overlapIds: [],
+    leftRoadSamples: [],
+    rightRoadSamples: [],
+  };
 }
 
 describe('endpointKeyOf', () => {

@@ -40,10 +40,10 @@ export const useMapStore = create<MapStore>()(
       addEntity(entity) {
         set((state) => {
           state.entities.set(entity.id, entity);
-          if (entity.entityType === 'lane') {
-            // Reconcile predecessor/successor across all lanes — coordinate
-            // matching at the new lane's endpoints may have created or
-            // dissolved connections elsewhere too.
+          if (entity.entityType === 'lane' || entity.entityType === 'junction') {
+            // Lane geometry changes may form/dissolve pred/succ/neighbors;
+            // junction polygon changes may flip lane.junctionId membership.
+            // Either way, reconcile rebuilds all derived topology fields.
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }
@@ -54,7 +54,7 @@ export const useMapStore = create<MapStore>()(
         set((state) => {
           if (!state.entities.has(id)) return;
           state.entities.set(id, entity);
-          if (entity.entityType === 'lane') {
+          if (entity.entityType === 'lane' || entity.entityType === 'junction') {
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }
@@ -71,10 +71,11 @@ export const useMapStore = create<MapStore>()(
             state.entities.set(cid, entity);
           }
           state.entities.delete(id);
-          if (removed && removed.entityType === 'lane') {
-            // Pred/succ on the deleted lane's neighbors must drop now that
-            // the geometry is gone (cascadeDeleteRefs already strips by id,
-            // but reconcile is the single source of truth for derivations).
+          if (removed && (removed.entityType === 'lane' || removed.entityType === 'junction')) {
+            // Topology on neighbors must drop now that the geometry is gone.
+            // cascadeDeleteRefs already strips dangling ids; reconcile is the
+            // single source of truth for derivations and also rebuilds
+            // junctionId for lanes when a junction polygon disappears.
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }

@@ -90,14 +90,18 @@ function makeLane(
 }
 
 function makeJunction(id: string): JunctionEntity {
+  // Polygon strictly contains the typical (0,0)→(1,0) and (1,0)→(2,0) test lanes,
+  // so reconcileLaneTopology can derive lane.junctionId for tests that exercise
+  // the cascade/reparent paths against a junction.
   return {
     id,
     entityType: 'junction',
     polygon: {
       points: [
-        { x: 0, y: 0 },
-        { x: 1, y: 0 },
-        { x: 1, y: 1 },
+        { x: -1, y: -1 },
+        { x: 5, y: -1 },
+        { x: 5, y: 5 },
+        { x: -1, y: 5 },
       ],
     },
     type: 'CROSS_ROAD',
