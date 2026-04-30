@@ -20,6 +20,7 @@ import {
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
+import { pickAndImportBin, pickAndImportText, exportApolloBin, exportApolloText } from '@/io/mapIO';
 
 export interface ActionDispatcher {
   /**
@@ -46,6 +47,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
 
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
+  const connectModeActive = useUIStore((s) => s.connectMode.active);
 
   // ── Handler map ────────────────────────────────────────
 
@@ -63,6 +65,36 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
       a.download = `apollo-map-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
+    });
+    map.set('importApolloBin', () => {
+      void pickAndImportBin().then((info) => {
+        if (info) {
+          // eslint-disable-next-line no-console
+          console.info(
+            `[Apollo IO] imported ${info.filename}:`,
+            info.counts,
+            `proj=${info.projString}`,
+          );
+        }
+      });
+    });
+    map.set('importApolloTxt', () => {
+      void pickAndImportText().then((info) => {
+        if (info) {
+          // eslint-disable-next-line no-console
+          console.info(
+            `[Apollo IO] imported ${info.filename}:`,
+            info.counts,
+            `proj=${info.projString}`,
+          );
+        }
+      });
+    });
+    map.set('exportApolloBin', () => {
+      void exportApolloBin();
+    });
+    map.set('exportApolloTxt', () => {
+      void exportApolloText();
     });
     map.set('settings', onOpenSettings);
 
@@ -87,6 +119,14 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
     map.set('resetLayout', onResetLayout);
     map.set('commandPalette', onOpenCommandPalette);
+
+    // Connect-lanes mode — non-FSM UI mode. Click a lane to record as
+    // first selection; click another to commit the join. ESC cancels.
+    map.set('connectLanes', () => {
+      // If user is in any active edit/draw flow, bail out cleanly first.
+      actorRef.send({ type: 'CANCEL' });
+      useUIStore.getState().toggleConnectMode();
+    });
 
     // Tools — Select/Pan are gone; ESC + maplibre's native drag handle exit/pan.
     // Registry-driven: every ACTION_DEF carrying a `drawTool` field becomes a
@@ -124,11 +164,13 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
           return gridEnabled;
         case 'toggleSnap':
           return snapEnabled;
+        case 'connectLanes':
+          return connectModeActive;
         default:
           return false;
       }
     },
-    [gridEnabled, snapEnabled],
+    [gridEnabled, snapEnabled, connectModeActive],
   );
 
   // ── Keyboard shortcuts ─────────────────────────────────

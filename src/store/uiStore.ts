@@ -48,6 +48,13 @@ interface UIState {
 
   // Active snap indicator (live during drawing/dragging — null = no snap)
   currentSnapTarget: SnapTarget | null;
+
+  // Connect mode — wait for two lane clicks then join their endpoints.
+  connectMode: {
+    active: boolean;
+    /** First lane id, or null when waiting for the first click. */
+    firstLaneId: string | null;
+  };
 }
 
 interface UIActions {
@@ -70,6 +77,13 @@ interface UIActions {
   toggleSidebar(): void;
 
   setSnapTarget(target: SnapTarget | null): void;
+
+  /** Toggle connect-mode on/off. Auto-resets `firstLaneId` on disable. */
+  toggleConnectMode(): void;
+  /** Force-disable connect mode (e.g. on ESC, after second click commits). */
+  exitConnectMode(): void;
+  /** Record the first picked lane while in connect mode. */
+  setConnectFirstLane(id: string | null): void;
 }
 
 type UIStore = UIState & UIActions;
@@ -89,6 +103,7 @@ export const useUIStore = create<UIStore>()((set, get) => ({
   currentZoom: 18,
   sidebarVisible: true,
   currentSnapTarget: null,
+  connectMode: { active: false, firstLaneId: null },
 
   setAppMode(mode) {
     set({ appMode: mode });
@@ -178,5 +193,19 @@ export const useUIStore = create<UIStore>()((set, get) => ({
       return;
     }
     set({ currentSnapTarget: target });
+  },
+
+  toggleConnectMode() {
+    set((s) => ({
+      connectMode: s.connectMode.active
+        ? { active: false, firstLaneId: null }
+        : { active: true, firstLaneId: null },
+    }));
+  },
+  exitConnectMode() {
+    set({ connectMode: { active: false, firstLaneId: null } });
+  },
+  setConnectFirstLane(id) {
+    set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
   },
 }));

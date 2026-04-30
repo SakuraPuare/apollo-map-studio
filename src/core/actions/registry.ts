@@ -11,6 +11,9 @@
 import type { IconType } from 'react-icons';
 import {
   FaDownload,
+  FaUpload,
+  FaFileLines,
+  FaFileCode,
   FaGear,
   FaArrowRotateLeft,
   FaArrowRotateRight,
@@ -24,6 +27,7 @@ import {
   FaRegCircle,
   FaRegSquare,
   FaDrawPolygon,
+  FaLink,
 } from 'react-icons/fa6';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 
@@ -43,6 +47,10 @@ export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
  */
 export type ActionId =
   | 'export'
+  | 'importApolloBin'
+  | 'importApolloTxt'
+  | 'exportApolloBin'
+  | 'exportApolloTxt'
   | 'settings'
   | 'undo'
   | 'redo'
@@ -51,6 +59,7 @@ export type ActionId =
   | 'toggleSnap'
   | 'resetLayout'
   | 'commandPalette'
+  | 'connectLanes'
   | 'tool:drawPolyline'
   | 'tool:drawBezier'
   | 'tool:drawArc'
@@ -104,13 +113,49 @@ export interface KeyBinding {
 export const ACTION_DEFS: ActionDef[] = [
   // ── File ──────────────────────────────────────────────
   {
-    id: 'export',
-    label: 'Export Apollo Format...',
+    id: 'importApolloBin',
+    label: 'Import Apollo Map (.bin)...',
+    category: 'file',
+    icon: FaUpload,
+    inCommandPalette: true,
+    menu: 'File',
+    menuOrder: 1,
+  },
+  {
+    id: 'importApolloTxt',
+    label: 'Import Apollo Map (.txt)...',
+    category: 'file',
+    icon: FaFileCode,
+    inCommandPalette: true,
+    menu: 'File',
+    menuOrder: 2,
+  },
+  {
+    id: 'exportApolloBin',
+    label: 'Export Apollo Map (.bin)',
     category: 'file',
     icon: FaDownload,
     inCommandPalette: true,
     menu: 'File',
-    menuOrder: 10,
+    menuOrder: 11,
+  },
+  {
+    id: 'exportApolloTxt',
+    label: 'Export Apollo Map (.txt)',
+    category: 'file',
+    icon: FaFileLines,
+    inCommandPalette: true,
+    menu: 'File',
+    menuOrder: 12,
+  },
+  {
+    id: 'export',
+    label: 'Dump Editor JSON...',
+    category: 'file',
+    icon: FaDownload,
+    inCommandPalette: true,
+    menu: 'File',
+    menuOrder: 20,
   },
   {
     id: 'settings',
@@ -203,6 +248,20 @@ export const ACTION_DEFS: ActionDef[] = [
     keybinding: { key: 'k', ctrl: true, global: true },
     icon: FaTerminal,
     inCommandPalette: false, // don't show in command palette itself
+  },
+
+  // ── Selection / Topology ──────────────────────────────
+  {
+    id: 'connectLanes',
+    label: 'Connect Lanes',
+    category: 'edit',
+    shortcut: 'C',
+    keybinding: { key: 'c' },
+    icon: FaLink,
+    inCommandPalette: true,
+    menu: 'Edit',
+    menuOrder: 50,
+    isToggle: true, // visually toggled while waiting for two lane picks
   },
 
   // ── Tools ─────────────────────────────────────────────

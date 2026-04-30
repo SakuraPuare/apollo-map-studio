@@ -18,6 +18,41 @@ import { applyDerive } from '@/core/elements/derive';
 const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
 
 /**
+ * 获取实体的几何中心（lng/lat）。
+ *
+ * 用于 center 拖拽（拖动整个元素）：mousedown 时计算
+ * `cursor − center` 偏移并锁定，整段拖拽都按这个偏移修正
+ * 鼠标位置，避免元素中心瞬间飞到鼠标下。
+ *
+ * 与 applyDrag 内 center 分支的中心算法一一对应。
+ */
+export function getDragCenter(entity: MapEntity): LngLat | null {
+  if (entity.entityType === 'rect') {
+    return [(entity.p1.x + entity.p2.x) / 2, (entity.p1.y + entity.p2.y) / 2];
+  }
+  if (entity.entityType === 'polygon') {
+    if (entity.points.length === 0) return null;
+    const cx = entity.points.reduce((s, p) => s + p.x, 0) / entity.points.length;
+    const cy = entity.points.reduce((s, p) => s + p.y, 0) / entity.points.length;
+    return [cx, cy];
+  }
+  if (DRAWING_TYPES.has(entity.entityType)) return null;
+
+  const apolloEntity = entity as ApolloEntity;
+  const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as
+    | SourceRectInfo
+    | undefined;
+  if (sourceRect) {
+    return [(sourceRect.p1.x + sourceRect.p2.x) / 2, (sourceRect.p1.y + sourceRect.p2.y) / 2];
+  }
+  const pts = getApolloEditPoints(apolloEntity);
+  if (pts.length === 0) return null;
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  return [cx, cy];
+}
+
+/**
  * 删除实体的第 index 个顶点。
  * 返回新实体，如果删除后顶点不足最小数量则返回 null（表示应删除整个实体）。
  *

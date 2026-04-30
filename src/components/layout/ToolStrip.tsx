@@ -3,7 +3,12 @@ import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
-import { getToolAction, getToolStripSlotActions, type ActionId } from '@/core/actions/registry';
+import {
+  ACTION_DEFS,
+  getToolAction,
+  getToolStripSlotActions,
+  type ActionId,
+} from '@/core/actions/registry';
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -120,6 +125,26 @@ export function ToolStrip({
 
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
+      {/* Connect Lanes — left of ElementBar so it's visually separated
+          from the drawing tools (it's a topology operator, not a tool). */}
+      {(() => {
+        const connectAction = ACTION_DEFS.find((a) => a.id === 'connectLanes');
+        if (!connectAction) return null;
+        const Icon = connectAction.icon ?? FaMagnifyingGlass;
+        return (
+          <>
+            <ToolButton
+              icon={Icon}
+              label={connectAction.label}
+              shortcut={connectAction.shortcut}
+              active={getToggleState('connectLanes')}
+              onClick={() => onExecuteAction('connectLanes')}
+            />
+            <Divider />
+          </>
+        );
+      })()}
+
       {/* 元素选择器（11 个图标平铺） */}
       <ElementBar currentElement={currentElement} onSelect={handleElementSelect} />
 

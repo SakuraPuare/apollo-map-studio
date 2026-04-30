@@ -2,12 +2,14 @@ import { useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
+import { isDrawingState } from '@/core/fsm/editorMachine';
 import type { DragPointType } from '@/types/editor';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
   applyDrag,
+  getDragCenter,
   toggleSmooth,
   toggleSmoothApollo,
   deleteVertex,
@@ -22,6 +24,8 @@ import {
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 import { findSnapTarget, pixelsToMeters } from '@/core/geometry/snap';
 import type { SnapTarget } from '@/core/geometry/snap';
+import { planConnection } from '@/core/geometry/connectLanes';
+import type { LaneEntity } from '@/types/apollo';
 
 // Browser fires two `click` events for a dblclick (one per mousedown), then a
 // dblclick event. We shadow the 2nd click so the FSM sees exactly one MOUSE_DOWN
@@ -52,6 +56,10 @@ export function useMapEventRouter(
 
     const toLngLat = (e: maplibregl.MapMouseEvent): LngLat => [e.lngLat.lng, e.lngLat.lat];
     let mouseDownScreenPos: { x: number; y: number } | null = null;
+    // Center-drag: lng/lat offset between cursor at mousedown and entity
+    // center. Locked at drag start so the grabbed point follows the cursor
+    // instead of the center snapping under the pointer.
+    let centerGrabOffset: [number, number] | null = null;
 
     // Dblclick dedup: skip the 2nd click of a dblclick before it reaches the FSM.
     let lastDrawInput: InputSample | null = null;
@@ -96,16 +104,33 @@ export function useMapEventRouter(
     };
 
     /**
-     * Apply snap when enabled. Returns the (possibly adjusted) lng/lat
-     * and updates the UI store's `currentSnapTarget` so the overlay
-     * indicator matches what was actually consumed by the FSM.
+     * Snap is only allowed in active-edit FSM states:
+     *   - any drawing state (drawBezier, drawPolyline, …) — placing new
+     *     vertices should latch onto existing geometry
+     *   - editingPoint — vertex drag should latch onto neighbors
+     *
+     * In idle / selected states the user is browsing or selecting, and
+     * snapping the cursor would interfere with hit-testing (the click's
+     * lng/lat would jump under their pointer). Gate is centralized here
+     * so every call site is automatically correct.
+     */
+    const isSnapApplicable = (state: string): boolean => {
+      return state === 'editingPoint' || isDrawingState(state);
+    };
+
+    /**
+     * Apply snap when enabled AND the FSM state allows it. Returns the
+     * (possibly adjusted) lng/lat and updates the UI store's
+     * `currentSnapTarget` so the overlay indicator matches what was
+     * actually consumed by the FSM.
      *
      * `excludeId` lets a vertex drag skip its own entity so the cursor
      * doesn't snap onto the dragged point itself.
      */
     const applySnap = (lngLat: LngLat, excludeId: string | null = null): LngLat => {
       const ui = useUIStore.getState();
-      if (!ui.snapEnabled) {
+      const state = actorRef.getSnapshot().value as string;
+      if (!ui.snapEnabled || !isSnapApplicable(state)) {
         if (ui.currentSnapTarget) ui.setSnapTarget(null);
         return lngLat;
       }
@@ -185,6 +210,18 @@ export function useMapEventRouter(
         const fillHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-fill'] });
         if (fillHits.length > 0) {
           map.dragPan.disable();
+          const entityId = snap.context.selectedEntityId;
+          centerGrabOffset = null;
+          if (entityId) {
+            const entity = useMapStore.getState().entities.get(entityId);
+            if (entity) {
+              const center = getDragCenter(entity);
+              if (center) {
+                const m = toLngLat(e);
+                centerGrabOffset = [m[0] - center[0], m[1] - center[1]];
+              }
+            }
+          }
           actorRef.send({
             type: 'START_DRAG',
             index: -2,
@@ -213,6 +250,52 @@ export function useMapEventRouter(
         const dx = e.point.x - mouseDownScreenPos.x;
         const dy = e.point.y - mouseDownScreenPos.y;
         if (Math.hypot(dx, dy) > CLICK_THRESHOLD_PX) return;
+      }
+
+      // Connect-lanes mode intercepts every click — first picks the
+      // source lane, second picks the target and commits the join.
+      // Non-lane clicks are ignored (with a no-op visual reset).
+      const ui = useUIStore.getState();
+      if (ui.connectMode.active) {
+        workerHitTest(e).then((hitId) => {
+          const current = useUIStore.getState();
+          if (!current.connectMode.active) return;
+          if (!hitId) return;
+          const entity = useMapStore.getState().entities.get(hitId);
+          if (!entity || entity.entityType !== 'lane') return;
+          if (!current.connectMode.firstLaneId) {
+            useUIStore.getState().setConnectFirstLane(hitId);
+            return;
+          }
+          if (current.connectMode.firstLaneId === hitId) return; // same lane
+          const a = useMapStore.getState().entities.get(current.connectMode.firstLaneId);
+          if (!a || a.entityType !== 'lane') {
+            useUIStore.getState().exitConnectMode();
+            return;
+          }
+          const plan = planConnection(a as LaneEntity, entity as LaneEntity);
+          if (plan) {
+            // Use the source-aware drag pipeline so bezier/arc-drawn
+            // lanes also rebuild `_source.anchors` / `_source.arcPoints`.
+            // A naive centerline-points overwrite would be silently
+            // reverted on the next worker re-sample.
+            const next = applyDrag(
+              a,
+              plan.indexToMove,
+              'vertex' as DragPointType,
+              [plan.target.x, plan.target.y],
+              false,
+            );
+            useMapStore.getState().updateEntity(a.id, next);
+            // reconcileLaneTopology runs inside updateEntity for lanes,
+            // so pred/succ are written into the store before we exit.
+          }
+          useUIStore.getState().exitConnectMode();
+          // Surface the joined lane so user can immediately see the
+          // result in Inspector.
+          actorRef.send({ type: 'SELECT_ENTITY', id: a.id });
+        });
+        return;
       }
 
       const snap = actorRef.getSnapshot();
@@ -268,7 +351,11 @@ export function useMapEventRouter(
       if (state === 'editingPoint') {
         // Don't snap to the entity being dragged.
         const excludeId = snap.context.selectedEntityId ?? null;
-        actorRef.send({ type: 'DRAG_MOVE', point: applySnap(toLngLat(e), excludeId) });
+        let pt = applySnap(toLngLat(e), excludeId);
+        if (snap.context.dragPointType === 'center' && centerGrabOffset) {
+          pt = [pt[0] - centerGrabOffset[0], pt[1] - centerGrabOffset[1]];
+        }
+        actorRef.send({ type: 'DRAG_MOVE', point: pt });
         return;
       }
 
@@ -299,10 +386,13 @@ export function useMapEventRouter(
       if (state === 'editingPoint') {
         map.dragPan.enable();
         const entityId = snap.context.selectedEntityId;
-        const pt = applySnap(toLngLat(e), entityId ?? null);
+        let pt = applySnap(toLngLat(e), entityId ?? null);
         const idx = snap.context.dragPointIndex;
         const pType = snap.context.dragPointType;
         const alt = snap.context.dragAltKey;
+        if (pType === 'center' && centerGrabOffset) {
+          pt = [pt[0] - centerGrabOffset[0], pt[1] - centerGrabOffset[1]];
+        }
         if (entityId) {
           const entity = useMapStore.getState().entities.get(entityId);
           if (entity) {
@@ -312,9 +402,11 @@ export function useMapEventRouter(
         actorRef.send({ type: 'DRAG_END', point: pt });
         // Drag is over — clear indicator.
         useUIStore.getState().setSnapTarget(null);
+        centerGrabOffset = null;
         return;
       }
 
+      centerGrabOffset = null;
       actorRef.send({ type: 'MOUSE_UP', point: applySnap(toLngLat(e)) });
     };
 
@@ -325,7 +417,15 @@ export function useMapEventRouter(
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') actorRef.send({ type: 'CANCEL' });
+      if (e.key === 'Escape') {
+        centerGrabOffset = null;
+        // ESC also cancels connect-mode so the user can bail without
+        // committing a join.
+        if (useUIStore.getState().connectMode.active) {
+          useUIStore.getState().exitConnectMode();
+        }
+        actorRef.send({ type: 'CANCEL' });
+      }
       if (e.key === 'Enter') actorRef.send({ type: 'CONFIRM' });
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const snap = actorRef.getSnapshot();
