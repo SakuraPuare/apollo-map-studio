@@ -16,7 +16,7 @@
  *   - excludeId 在 SYNC 路径生效
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { LaneEntity } from '@/types/apollo';
+import type { LaneEntity, JunctionEntity, SignalEntity } from '@/types/apollo';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { createApolloEntity } from '@/core/geometry/apolloCompile';
 import type { WorkerRequest, WorkerResponse, HitResult, EntityFeatureGroup } from '../protocol';
@@ -80,6 +80,16 @@ beforeEach(() => {
 function makeLane(id: string, points: LngLat[]): LaneEntity {
   const entity = createApolloEntity('lane', 'drawPolyline', points, []) as LaneEntity;
   // 工厂会随机生成 id，这里固定下来便于断言
+  return { ...entity, id };
+}
+
+function makeJunction(id: string, points: LngLat[]): JunctionEntity {
+  const entity = createApolloEntity('junction', 'drawPolygon', points, []) as JunctionEntity;
+  return { ...entity, id };
+}
+
+function makeSignal(id: string, points: LngLat[]): SignalEntity {
+  const entity = createApolloEntity('signal', 'drawPolyline', points, []) as SignalEntity;
   return { ...entity, id };
 }
 
@@ -330,6 +340,62 @@ describe('spatial.worker — HIT_TEST', () => {
     if (resp.hits.length >= 2) {
       // close lane 应排在 far 前面
       expect(resp.hits[0]!.id).toBe('close');
+    }
+  });
+
+  it('signal 的 tier 优先级高于覆盖它的 junction（即使 junction 距离更近）', async () => {
+    const w = await loadWorker();
+    // 大 junction 多边形覆盖整个测试区域，pointInPolygon = true → distance = 0
+    const junction = makeJunction('big-junction', [
+      [116.0, 30.0],
+      [116.001, 30.0],
+      [116.001, 30.001],
+      [116.0, 30.001],
+    ]);
+    // signal stop_line 在多边形内部，distance > 0（点线距离）
+    const signal = makeSignal('overlay-signal', [
+      [116.00045, 30.0005],
+      [116.00055, 30.0005],
+    ]);
+    w.send({ type: 'SYNC', requestId: rid(), entities: [junction, signal] });
+
+    const resp = w.send({
+      type: 'HIT_TEST',
+      requestId: rid(),
+      point: [116.0005, 30.0005],
+      radius: 0.0005,
+    });
+    if (resp.type !== 'HIT_RESULT') throw new Error('expected HIT_RESULT');
+    // 两者都进了候选
+    const ids = resp.hits.map((h) => h.id);
+    expect(ids).toContain('big-junction');
+    expect(ids).toContain('overlay-signal');
+    // signal 必须排第一（tier 0 < junction tier 3），即使 junction.distance === 0
+    expect(resp.hits[0]!.id).toBe('overlay-signal');
+  });
+
+  it('同 tier 内仍按 distance 排序（lane vs road tier 都是 2）', async () => {
+    const w = await loadWorker();
+    const closeLane = makeLane('lane-close', [
+      [116.0, 30.0],
+      [116.0001, 30.0],
+    ]);
+    const farLane = makeLane('lane-far', [
+      [116.0, 30.0005],
+      [116.0001, 30.0005],
+    ]);
+    w.send({ type: 'SYNC', requestId: rid(), entities: [closeLane, farLane] });
+
+    const resp = w.send({
+      type: 'HIT_TEST',
+      requestId: rid(),
+      point: [116.00005, 30.0],
+      radius: 0.01,
+    });
+    if (resp.type !== 'HIT_RESULT') throw new Error('expected HIT_RESULT');
+    if (resp.hits.length >= 2) {
+      expect(resp.hits[0]!.id).toBe('lane-close');
+      expect(resp.hits[1]!.id).toBe('lane-far');
     }
   });
 });
