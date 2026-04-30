@@ -43,6 +43,7 @@ import type {
   ClearAreaEntity,
   BarrierGateEntity,
   AreaEntity,
+  PNCJunctionEntity,
   ApolloEntity,
   LaneTurn,
 } from '@/types/apollo';
@@ -432,6 +433,7 @@ function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
 export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
   switch (entity.entityType) {
     case 'junction':
+    case 'pncJunction':
     case 'parkingSpace':
     case 'crosswalk':
     case 'clearArea':
@@ -458,6 +460,7 @@ export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
 export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[]): ApolloEntity {
   switch (entity.entityType) {
     case 'junction':
+    case 'pncJunction':
     case 'parkingSpace':
     case 'crosswalk':
     case 'clearArea':
@@ -686,6 +689,15 @@ function createJunction(d: DrawResult): JunctionEntity {
     overlapIds: [],
   };
 }
+function createPNCJunction(d: DrawResult): PNCJunctionEntity {
+  return {
+    id: `pncJunction_${nanoid(12)}`,
+    entityType: 'pncJunction',
+    polygon: pointsToPolygon(extractPolygonPoints(d)),
+    overlapIds: [],
+    passageGroups: [],
+  };
+}
 function createParkingSpace(d: DrawResult): ParkingSpaceEntity {
   const rect = buildRectInfo(d);
   return {
@@ -787,6 +799,7 @@ function createArea(d: DrawResult): AreaEntity {
 const FACTORY_MAP: Record<MapElementType, (d: DrawResult) => ApolloEntity> = {
   lane: createLane,
   junction: createJunction,
+  pncJunction: createPNCJunction,
   parkingSpace: createParkingSpace,
   crosswalk: createCrosswalk,
   signal: createSignal,
@@ -984,6 +997,14 @@ export function compileApolloFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
       const coords = polygonToCoords(entity.polygon);
       if (coords.length < 3) break;
       features.push(mkPolygon(coords, { ...base, fillOpacity: 0.35, lineWidth: 2 }));
+      break;
+    }
+
+    // ─── PNC 路口：多边形填充（虚线边框区分常规路口） ───
+    case 'pncJunction': {
+      const coords = polygonToCoords(entity.polygon);
+      if (coords.length < 3) break;
+      features.push(mkPolygon(coords, { ...base, fillOpacity: 0.2, lineWidth: 2, dashed: true }));
       break;
     }
 

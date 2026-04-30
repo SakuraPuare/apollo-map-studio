@@ -20,6 +20,7 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 export type MapElementType =
   | 'lane'
   | 'junction'
+  | 'pncJunction'
   | 'parkingSpace'
   | 'crosswalk'
   | 'signal'
@@ -61,6 +62,15 @@ export const MAP_ELEMENTS: MapElementDef[] = [
     tools: ['drawPolygon'],
     defaultTool: 'drawPolygon',
     color: '#ffcc00',
+    geometry: 'polygon',
+    icon: BsFillSignIntersectionFill,
+  },
+  {
+    type: 'pncJunction',
+    label: 'PNC 路口',
+    tools: ['drawPolygon'],
+    defaultTool: 'drawPolygon',
+    color: '#ff9933',
     geometry: 'polygon',
     icon: BsFillSignIntersectionFill,
   },

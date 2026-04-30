@@ -20,6 +20,7 @@ import type {
   SignalType,
   StopSignType,
   RoadType,
+  PassageType,
 } from '@/types/apollo';
 
 export type EnumCategory =
@@ -30,7 +31,8 @@ export type EnumCategory =
   | 'junctionType'
   | 'signalType'
   | 'stopSignType'
-  | 'roadType';
+  | 'roadType'
+  | 'passageType';
 
 type Dict<V extends string> = Readonly<Record<V, string>>;
 
@@ -101,6 +103,12 @@ const roadType: Dict<RoadType> = {
   PARK: 'Park',
 };
 
+const passageType: Dict<PassageType> = {
+  UNKNOWN_PASSAGE: 'Unknown',
+  ENTRANCE: 'Entrance',
+  EXIT: 'Exit',
+};
+
 const REGISTRY: Record<EnumCategory, Readonly<Record<string, string>>> = {
   laneType,
   laneTurn,
@@ -110,6 +118,7 @@ const REGISTRY: Record<EnumCategory, Readonly<Record<string, string>>> = {
   signalType,
   stopSignType,
   roadType,
+  passageType,
 };
 
 /**
