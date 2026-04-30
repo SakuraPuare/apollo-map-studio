@@ -5,19 +5,25 @@
  *   mode = 'incremental': 只处理 dirtyIds 影响的 lane × neighbors 配对
  *   mode = 'full':        全图重建（导入完成 / 用户手动重算 / 导出前校验）
  *
- * 三档语义保留（决策见 v1 doc）：
- *   - 自动派生（id 形如 Overlap_<hex16>）：每次 reconcile 全量替换
- *   - 导入或手工新建（id 形如 overlap_N / Overlap_N 等数字后缀）：保留对象集合，
- *     仅在参与实体被删除时清理；reconcile 不主动添加/删除这些 overlap
+ * 单一 id 体系（B.3 重构后）：
+ *   - 所有 overlap 都用语义化派生 id：`overlap_<sortedParticipants...>`
+ *   - 导入的 Apollo 数据上来后，第一次 reconcile 会把原 id 顺序统一到本地
+ *     sorted 形式（破坏性，不保留 Apollo 的原 id 顺序），之后 set-diff 一致
+ *   - 没有「imported preserve」分支；overlap = 几何派生事实，由 reconcile
+ *     全权管理。手工修改 isMerge / region polygon 通过 `_userOverrides` 钉位
+ *     保护（mergeWithOverrides 处理）
  *
- * region_overlap（GAP-5 显式延后）：Apollo proto 的 RegionOverlapInfo 用来
- * 表达 crosswalk×lane 等场景下的精确多边形相交区域。此处**不**自动生成 ——
- * 自动派生需要 polygon clipping（仓库未引入对应库），且产品定义里 region
- * 是给用户「钉」语义信息的扩展点（参见 _userPinned 设计），自动覆盖会和这
- * 个交互模型打架。需要时单独走 region 维护抓手，不进 reconcile 主循环。
+ * region_overlap：lane × crosswalk 自动派生 RegionOverlapInfo（精确相交区域）；
+ * 用户可通过 inspector 「pin」按钮锁住 polygon 不被几何重算覆盖
+ * （`_userOverrides: ['regionOverlaps']`）.
  */
 import type { MapEntity } from '@/types/entities';
-import type { LaneEntity, ObjectOverlapInfo, OverlapEntity } from '@/types/apollo';
+import type {
+  LaneEntity,
+  ObjectOverlapInfo,
+  OverlapEntity,
+  RegionOverlapInfo,
+} from '@/types/apollo';
 import { getCenterline, isOverlapParticipant } from './geometryAdapters';
 import { bboxOfPoints } from './intersect';
 import { type SpatialIndex, bboxForEntity, getSharedSpatialIndex } from './spatialIndex';
@@ -29,6 +35,7 @@ import {
   findPairRule,
 } from './pairTable';
 import { makeOverlapId, isDerivedOverlapId } from './overlapId';
+import { makeRegionId } from './regionId';
 import { invalidateLaneArcLength } from './computeLaneS';
 import type { BBox, ReconcileMode, ReconcilePatch } from './types';
 
@@ -38,14 +45,17 @@ interface DerivedOverlap {
   id: string;
   participantIds: string[];
   objects: ObjectOverlapInfo[];
+  /** GAP-5 Sprint 2: 自动派生的 region 多边形集合（lane corridor × secondary） */
+  regions: RegionOverlapInfo[];
 }
 
 function buildDerivedOverlap(
   participantIds: string[],
   objects: ObjectOverlapInfo[],
+  regions: RegionOverlapInfo[] = [],
 ): DerivedOverlap {
   const id = makeOverlapId(participantIds);
-  return { id, participantIds, objects };
+  return { id, participantIds, objects, regions };
 }
 
 /** 主入口 */
@@ -71,9 +81,9 @@ export function reconcileOverlaps(
 
   const dirtyLanes = collectDirtyLanes(entities, mode);
   const derived = new Map<string, DerivedOverlap>();
-  // Set-based dedup keyed on the derived overlap id (sorted-participant FNV
-  // hash) — symmetric in (A,B), so it does not depend on which side of an
-  // incremental edit happened to land in dirtyLanes. Replaces the old
+  // Set-based dedup keyed on the derived overlap id (sorted-participant
+  // semantic id) — symmetric in (A,B), so it does not depend on which side
+  // of an incremental edit happened to land in dirtyLanes. Replaces the old
   // `lane.id < lo.id` ordering gate, which silently dropped pairs whose
   // dirty side had the lexicographically larger id (GAP-3).
   let pairsTested = 0;
@@ -111,8 +121,21 @@ export function reconcileOverlaps(
       if (derived.has(dedupId)) continue;
       const hit = detectPair(lane, other, rule);
       if (!hit.intersects) continue;
-      const objects = rule.emitObjects(lane, other, hit);
-      const ov = buildDerivedOverlap([lane.id, other.id], objects);
+      // GAP-5 Sprint 2: hit.regionPolygon 存在 → 派生 RegionOverlapInfo +
+      // 把 region id 嵌进 lane 和 secondary 的 ObjectOverlapInfo 槽位.
+      let regions: RegionOverlapInfo[] | undefined;
+      let regionId: string | undefined;
+      if (hit.regionPolygon && hit.regionPolygon.length >= 3) {
+        regionId = makeRegionId([lane.id, other.id], 0);
+        regions = [
+          {
+            id: regionId,
+            polygons: [{ points: hit.regionPolygon }],
+          },
+        ];
+      }
+      const objects = rule.emitObjects(lane, other, hit, regionId ? { regionId } : undefined);
+      const ov = buildDerivedOverlap([lane.id, other.id], objects, regions ?? []);
       derived.set(ov.id, ov);
       pairsMatched++;
     }
@@ -207,14 +230,15 @@ function diffWithExisting(
   for (const e of entities.values()) {
     if (e.entityType !== 'overlap') continue;
     const ov = e as OverlapEntity;
-    if (!isDerivedOverlapId(ov.id)) {
-      // 保留导入/手工新建的 overlap，仅在参与实体不存在时清理
-      const stillValid = ov.objects.every((o) => entities.has(o.objectId));
-      if (!stillValid) removedOverlapIds.add(ov.id);
-      continue;
+    // B.3 重构：所有 overlap 都视为 derived（无 imported-preserve 分支）。
+    // 增量模式下只清理「与 dirty 集相关」的 overlap：参与者集合里至少一个
+    // 在 dirtyIds 中，否则不归本轮的几何重算管 —— 不能误删未在 derived 里
+    // 的远端 overlap。
+    if (mode.mode === 'incremental') {
+      const anyParticipantDirty = ov.objects.some((o) => mode.dirtyIds.has(o.objectId));
+      if (!anyParticipantDirty) continue;
     }
     if (!derived.has(ov.id)) {
-      // 自动派生但本轮没命中 → 删除
       removedOverlapIds.add(ov.id);
     }
   }
@@ -224,15 +248,21 @@ function diffWithExisting(
     if (existing && existing.entityType === 'overlap') {
       const e = existing as OverlapEntity;
       const merged = mergeWithOverrides(e, ov.objects);
-      if (objectsExactlyEqual(e.objects, merged)) continue;
-      changes.set(id, { ...e, objects: merged });
+      // GAP-5 Sprint 2: regionOverlaps 钉位（_userOverrides 含 'regionOverlaps'）
+      // → 保留 existing.regionOverlaps；否则用 derived.regions 替换。
+      const pinned = isRegionOverlapsPinned(e);
+      const nextRegions = pinned ? e.regionOverlaps : ov.regions;
+      const objectsSame = objectsExactlyEqual(e.objects, merged);
+      const regionsSame = regionOverlapsEqual(e.regionOverlaps, nextRegions);
+      if (objectsSame && regionsSame) continue;
+      changes.set(id, { ...e, objects: merged, regionOverlaps: nextRegions });
       continue;
     }
     const next: OverlapEntity = {
       id,
       entityType: 'overlap',
       objects: ov.objects,
-      regionOverlaps: [],
+      regionOverlaps: ov.regions,
     };
     changes.set(id, next);
     overlapsCreated++;
@@ -247,7 +277,10 @@ function diffWithExisting(
 /**
  * 把派生出的 objects 与 existing._userOverrides 合并：
  *   - `objects.<i>.laneOverlapInfo.isMerge` 路径在 overrides 里 → 保留旧值
- * 其它字段（startS/endS/regionOverlapId）跟随几何派生。
+ *   - `regionOverlaps` 路径在 overrides 里 → 同时把所有 ObjectOverlapInfo 的
+ *     regionOverlapId 也保留（保证 lane/crosswalk 一侧的引用与钉住的 region
+ *     id 一致），由 mergeRegionOverlapIds 处理。
+ * 其它字段（startS/endS）跟随几何派生。
  */
 function mergeWithOverrides(
   existing: OverlapEntity,
@@ -256,20 +289,97 @@ function mergeWithOverrides(
   const overrides = existing._userOverrides;
   if (!overrides || overrides.length === 0) return derivedObjects;
   const overrideSet = new Set(overrides);
-  return derivedObjects.map((newObj, i) => {
-    if (newObj.objectType !== 'lane') return newObj;
-    const path = `objects.${i}.laneOverlapInfo.isMerge`;
-    if (!overrideSet.has(path)) return newObj;
+  const regionPinned = overrideSet.has('regionOverlaps');
+  return derivedObjects.map((newObj, i) =>
+    mergeOneObject(newObj, i, existing, overrideSet, regionPinned),
+  );
+}
+
+/**
+ * 单条 ObjectOverlapInfo 的 override 合并。拆出独立函数让每个 union 分支能
+ * 各自做窄化（直接在 union 类型上 spread laneOverlapInfo 会触发 TS2322）.
+ */
+function mergeOneObject(
+  newObj: ObjectOverlapInfo,
+  i: number,
+  existing: OverlapEntity,
+  overrideSet: ReadonlySet<string>,
+  regionPinned: boolean,
+): ObjectOverlapInfo {
+  if (newObj.objectType === 'lane') {
+    const isMergePath = `objects.${i}.laneOverlapInfo.isMerge`;
+    let lane = newObj;
+    if (overrideSet.has(isMergePath)) {
+      const oldObj = existing.objects[i];
+      if (oldObj?.objectType === 'lane') {
+        lane = {
+          ...lane,
+          laneOverlapInfo: {
+            ...lane.laneOverlapInfo,
+            isMerge: oldObj.laneOverlapInfo.isMerge,
+          },
+        };
+      }
+    }
+    if (regionPinned) {
+      const oldObj = existing.objects[i];
+      if (oldObj?.objectType === 'lane' && oldObj.objectId === lane.objectId) {
+        lane = {
+          ...lane,
+          laneOverlapInfo: {
+            ...lane.laneOverlapInfo,
+            regionOverlapId: oldObj.laneOverlapInfo.regionOverlapId,
+          },
+        };
+      }
+    }
+    return lane;
+  }
+
+  if (newObj.objectType === 'crosswalk' && regionPinned) {
     const oldObj = existing.objects[i];
-    if (!oldObj || oldObj.objectType !== 'lane') return newObj;
-    return {
-      ...newObj,
-      laneOverlapInfo: {
-        ...newObj.laneOverlapInfo,
-        isMerge: oldObj.laneOverlapInfo.isMerge,
-      },
-    };
-  });
+    if (oldObj?.objectType === 'crosswalk' && oldObj.objectId === newObj.objectId) {
+      const next: typeof newObj = { ...newObj };
+      if (oldObj.regionOverlapId !== undefined) {
+        next.regionOverlapId = oldObj.regionOverlapId;
+      } else {
+        delete next.regionOverlapId;
+      }
+      return next;
+    }
+  }
+
+  return newObj;
+}
+
+/** 是否钉住了 regionOverlaps 这条路径（GAP-5 Sprint 2 / Sprint 3 钉位机制）. */
+function isRegionOverlapsPinned(e: OverlapEntity): boolean {
+  const overrides = e._userOverrides;
+  if (!overrides || overrides.length === 0) return false;
+  return overrides.includes('regionOverlaps');
+}
+
+/** RegionOverlapInfo[] 深比较（id + 多边形点序列）. */
+function regionOverlapsEqual(
+  a: readonly RegionOverlapInfo[],
+  b: readonly RegionOverlapInfo[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.id !== y.id) return false;
+    if (x.polygons.length !== y.polygons.length) return false;
+    for (let j = 0; j < x.polygons.length; j++) {
+      const px = x.polygons[j]!.points;
+      const py = y.polygons[j]!.points;
+      if (px.length !== py.length) return false;
+      for (let k = 0; k < px.length; k++) {
+        if (px[k]!.x !== py[k]!.x || px[k]!.y !== py[k]!.y) return false;
+      }
+    }
+  }
+  return true;
 }
 
 function objectsEqual(a: ObjectOverlapInfo[], b: ObjectOverlapInfo[]): boolean {

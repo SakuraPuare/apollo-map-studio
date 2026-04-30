@@ -1,32 +1,47 @@
 import type { MapEntity } from '@/types/entities';
 
+/**
+ * Entity id prefixes — aligned with Apollo HD Map official conventions.
+ *
+ * 底层逻辑：源自 Apollo 官方样例数据（borregas_ave/base_map.bin）实测：
+ *   lane_N        / road_N       / signal_N   / stopsign_N    （lowercase）
+ *   J_N           / CW_N         / RSU_N                       （abbreviation）
+ *   overlap_<participantA>_<participantB>                       （semantic id）
+ *
+ * 编辑器内部形状类型（polyline / bezier / arc / rect / polygon / catmullRom）
+ * 不是 Apollo 实体，沿用 lowercase 但不参与 Apollo round-trip。
+ */
 const ENTITY_PREFIX: Record<string, string> = {
-  lane: 'Lane',
-  junction: 'Junction',
-  pncJunction: 'PNCJunction',
-  parkingSpace: 'ParkingSpace',
-  crosswalk: 'Crosswalk',
-  signal: 'Signal',
-  stopSign: 'StopSign',
-  speedBump: 'SpeedBump',
-  yieldSign: 'YieldSign',
-  clearArea: 'ClearArea',
-  barrierGate: 'BarrierGate',
-  area: 'Area',
-  road: 'Road',
+  lane: 'lane',
+  junction: 'J',
+  pncJunction: 'PNCJ',
+  parkingSpace: 'parkingspace',
+  crosswalk: 'CW',
+  signal: 'signal',
+  stopSign: 'stopsign',
+  speedBump: 'speedbump',
+  yieldSign: 'yieldsign',
+  clearArea: 'cleararea',
+  barrierGate: 'barriergate',
+  area: 'area',
+  road: 'road',
   rsu: 'RSU',
-  polyline: 'Polyline',
-  catmullRom: 'CatmullRom',
-  bezier: 'Bezier',
-  arc: 'Arc',
-  rect: 'Rect',
-  polygon: 'Polygon',
+  // Overlap / RegionOverlap auto-derive from participants via makeOverlapId /
+  // makeRegionId; nextEntityId is here only for explicit manual creation paths.
+  overlap: 'overlap',
+  region: 'region',
+  polyline: 'polyline',
+  catmullRom: 'catmullrom',
+  bezier: 'bezier',
+  arc: 'arc',
+  rect: 'rect',
+  polygon: 'polygon',
 };
 
 export const SUB_PREFIX = {
-  section: 'Section',
-  passage: 'Passage',
-  passageGroup: 'PassageGroup',
+  section: 'section',
+  passage: 'passage',
+  passageGroup: 'passagegroup',
 } as const;
 
 export function entityIdPrefix(entityType: string): string {

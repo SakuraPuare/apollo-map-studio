@@ -1,39 +1,27 @@
 /**
- * Overlap pipeline — 稳定 id 派生.
+ * Overlap pipeline — Apollo 官方风格的语义化 id 派生.
  *
- * 设计目标：同一组参与实体（无序）→ 同一个 overlap id，便于 reconcile 做 set diff。
+ * 底层逻辑：Apollo HD Map 真实数据里 overlap id 是参与实体 id 的拼接，
+ * 例如 `overlap_signal_0_lane_35`。本编辑器派生 id 严格对齐这一约定，
+ * 只是把参与者按字典序排序保证「同一组参与者 → 同一个 id」（顺序无关），
+ * 给 reconcile set-diff 用。
  *
- * 格式：`Overlap_<hex16>`，hex 长度 16 (64-bit FNV1a)。
- *   不与 nextEntityId('overlap', ...) 用的 `^Overlap_(\\d+)$` 正则冲突，
- *   因此「自动派生」与「手工新建」的 id 空间天然不重叠。
+ * 格式：`overlap_<sortedIds.join('_')>`
+ *   例：sorted([CW_2, lane_3]) → "overlap_CW_2_lane_3"
+ *       sorted([lane_3, signal_0]) → "overlap_lane_3_signal_0"
+ *
+ * isDerivedOverlapId：所有 `overlap_*` 都视为派生（包括从 Apollo 导入的 ——
+ * 它们本来就是同一种语义形式）。第一次 reconcile 会把 Apollo 数据的原始
+ * id 顺序统一成本地的字典序顺序（破坏性重构，不保留旧 id 形式）。
  */
 
-const FNV_OFFSET = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const MASK_64 = 0xffffffffffffffffn;
-
-function fnv1a64(str: string): bigint {
-  let h = FNV_OFFSET;
-  for (let i = 0; i < str.length; i++) {
-    h = (h ^ BigInt(str.charCodeAt(i))) & MASK_64;
-    h = (h * FNV_PRIME) & MASK_64;
-  }
-  return h;
-}
-
-/**
- * 计算 overlap id。participantIds 在内部排序 → 顺序无关。
- *
- * 用 `` 作为分隔符，避免 id 内容碰撞（实体 id 都是 ASCII 字母数字下划线）。
- */
+/** 计算 overlap id. participantIds 在内部排序 → 顺序无关. */
 export function makeOverlapId(participantIds: readonly string[]): string {
   const sorted = [...participantIds].sort();
-  const key = sorted.join('');
-  const h = fnv1a64(key);
-  return `Overlap_${h.toString(16).padStart(16, '0')}`;
+  return `overlap_${sorted.join('_')}`;
 }
 
-/** 判断 id 是否由 makeOverlapId 派生（用于区分「自动 vs 手工」） */
+/** 判断 id 是否由本派生体系产出（任何 `overlap_*` 都算 derived）. */
 export function isDerivedOverlapId(id: string): boolean {
-  return /^Overlap_[0-9a-f]{16}$/.test(id);
+  return id.startsWith('overlap_');
 }

@@ -20,6 +20,8 @@ import {
   type SegmentParam,
 } from './intersect';
 import { laneArcLength, projectSegmentParam } from './computeLaneS';
+import { intersectPolygons, largestRing } from './polyClip';
+import { laneCorridorPolygon } from './laneCorridor';
 
 /** 几何相交检测的结果（带可选的 lane 上的弧长区间） */
 export interface PairGeoHit {
@@ -28,22 +30,44 @@ export interface PairGeoHit {
   laneInterval?: { startS: number; endS: number };
   /** lane×lane 时的端点重合标记（合流 / 分流） */
   isMerge?: boolean;
+  /**
+   * GAP-5: lane corridor 与对手多边形的精确相交区域（lng/lat 闭合环，最大块）.
+   * 仅在 PairRule.computeRegion 标记的对子上生成（当前 = crosswalk）.
+   * 由 reconcile 主流程消费 → 派生 RegionOverlapInfo + 双向 regionOverlapId.
+   */
+  regionPolygon?: GeoPoint[];
 }
 
 /**
  * 与 lane 配对的次实体类型 → 几何检测策略.
  * geometry 决定走哪个相交分支；emitObjects 输出 ObjectOverlapInfo[].
+ *
+ * emitObjects 的 opts.regionId（GAP-5 Sprint 2）：当 hit.regionPolygon 存在时
+ * reconcile 会基于 overlap 派生 id 算出稳定的 region id 传入；emitter 把它
+ * 嵌到 lane.laneOverlapInfo.regionOverlapId（任何对子）和 crosswalk
+ * 一侧的 ObjectOverlapInfo.regionOverlapId（仅 crosswalk 对子）。
  */
 export interface PairRule {
   secondaryType: MapEntity['entityType'];
   /** 'polygon' | 'stopLines' | 'polylines' | 'lane' */
   geometry: 'polygon' | 'stopLines' | 'polylines' | 'lane';
-  emitObjects(lane: LaneEntity, other: MapEntity, hit: PairGeoHit): ObjectOverlapInfo[];
+  /** 是否为该对子计算 lane corridor × secondary.polygon 的精确相交区域 */
+  computeRegion?: boolean;
+  emitObjects(
+    lane: LaneEntity,
+    other: MapEntity,
+    hit: PairGeoHit,
+    opts?: { regionId?: string },
+  ): ObjectOverlapInfo[];
 }
 
-function laneOverlapInfo(lane: LaneEntity, hit: PairGeoHit): ObjectOverlapInfo {
+function laneOverlapInfo(
+  lane: LaneEntity,
+  hit: PairGeoHit,
+  opts?: { regionId?: string },
+): ObjectOverlapInfo {
   const interval = hit.laneInterval ?? { startS: 0, endS: laneArcLength(lane) };
-  return {
+  const info: ObjectOverlapInfo = {
     objectType: 'lane',
     objectId: lane.id,
     laneOverlapInfo: {
@@ -52,6 +76,8 @@ function laneOverlapInfo(lane: LaneEntity, hit: PairGeoHit): ObjectOverlapInfo {
       isMerge: hit.isMerge,
     },
   };
+  if (opts?.regionId) info.laneOverlapInfo.regionOverlapId = opts.regionId;
+  return info;
 }
 
 export const PAIR_RULES: readonly PairRule[] = [
@@ -66,10 +92,12 @@ export const PAIR_RULES: readonly PairRule[] = [
   {
     secondaryType: 'crosswalk',
     geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'crosswalk', objectId: other.id },
-    ],
+    computeRegion: true,
+    emitObjects: (lane, other, hit, opts) => {
+      const cw: ObjectOverlapInfo = { objectType: 'crosswalk', objectId: other.id };
+      if (opts?.regionId) cw.regionOverlapId = opts.regionId;
+      return [laneOverlapInfo(lane, hit, opts), cw];
+    },
   },
   {
     secondaryType: 'clearArea',
@@ -171,6 +199,22 @@ function detectPolygonHit(lane: LaneEntity, centerline: GeoPoint[], other: MapEn
   return { intersects: true, laneInterval: laneIntervalFromCrossings(lane, crossings) };
 }
 
+/**
+ * GAP-5 Sprint 2: lane corridor × secondary.polygon → 精确相交区域.
+ *
+ * 取面积最大的那一块（多块时；对正常 crosswalk × lane 几乎都是单块）。
+ * 任一退化输入或求交失败 → 返回 undefined（hit.regionPolygon 不写）。
+ */
+function computeRegionPolygon(lane: LaneEntity, other: MapEntity): GeoPoint[] | undefined {
+  const poly = getPolygon(other);
+  if (!poly || poly.length < 3) return undefined;
+  const corridor = laneCorridorPolygon(lane);
+  if (corridor.length < 3) return undefined;
+  const pieces = intersectPolygons(corridor, poly);
+  const ring = largestRing(pieces);
+  return ring ?? undefined;
+}
+
 function detectLineGroupHit(
   lane: LaneEntity,
   centerline: GeoPoint[],
@@ -191,7 +235,14 @@ function detectLineGroupHit(
 export function detectPair(lane: LaneEntity, other: MapEntity, rule: PairRule): PairGeoHit {
   const centerline = getCenterline(lane);
   if (centerline.length < 2) return { intersects: false };
-  if (rule.geometry === 'polygon') return detectPolygonHit(lane, centerline, other);
+  if (rule.geometry === 'polygon') {
+    const hit = detectPolygonHit(lane, centerline, other);
+    if (hit.intersects && rule.computeRegion) {
+      const region = computeRegionPolygon(lane, other);
+      if (region) return { ...hit, regionPolygon: region };
+    }
+    return hit;
+  }
   if (rule.geometry === 'stopLines')
     return detectLineGroupHit(lane, centerline, getStopLines(other));
   return detectLineGroupHit(lane, centerline, getPolylines(other));
