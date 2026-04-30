@@ -53,15 +53,8 @@ export function buildColdLayerFilter(
 ): maplibregl.FilterSpecification {
   const baseFilter = COLD_LAYER_FILTERS[layerId];
   if (!hiddenEntityId) return baseFilter;
-  // The base filters above use legacy-filter syntax (`['==', '$type', ...]`,
-  // `['has', ...]`). Mixing an expression-style operand (`['get', 'id']`)
-  // inside a legacy `['all', …]` chain trips MapLibre's validator with
-  // `filter[2][1]: string expected, array found`. Stay in legacy syntax —
-  // features are tagged with `properties.id = entity.id` (apolloCompile/
-  // features.ts), so the property-name form works.
-  return [
-    'all',
-    baseFilter,
-    ['!=', 'id', hiddenEntityId],
-  ] as unknown as maplibregl.FilterSpecification;
+  // Keep the selected entity in the cold layers. The hot layer only adds
+  // editable geometry and handles, while cold layers own shadows, lane
+  // boundaries, arrows, labels, and patterned fills.
+  return baseFilter;
 }
