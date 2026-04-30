@@ -17,6 +17,7 @@ import {
   entityToHotFeatures,
 } from '../geoJsonHelpers';
 import type {
+  MapEntity,
   PolylineEntity,
   BezierEntity,
   ArcEntity,
@@ -196,5 +197,144 @@ describe('entityToHotFeatures — drawing entities', () => {
     // ring 自闭合
     const ring = (polygons[0]!.geometry as GeoJSON.Polygon).coordinates[0]!;
     expect(ring[0]).toEqual(ring[ring.length - 1]);
+  });
+
+  // ── 回归：导入态实体不应被闭合 ──────────────────────────────────
+  // import 路径不写 _source，热层走分支 ④。lane / signal 的 editPoints 是
+  // 中心线 / stopLines（开放折线），曾经被 isAreaEntity(lane)=true 错误地
+  // 闭合成 Polygon——导致"导入的车道首尾闭合，自己画的不闭合"的体感差。
+
+  it('imported lane (no _source) → 走 LineString，不被闭合', () => {
+    const lane = {
+      id: 'lane_imported',
+      entityType: 'lane' as const,
+      centralCurve: {
+        segments: [
+          {
+            lineSegment: {
+              points: [
+                { x: 0, y: 0 },
+                { x: 1, y: 0 },
+                { x: 2, y: 1 },
+              ],
+            },
+            s: 0,
+            startPosition: { x: 0, y: 0 },
+            heading: 0,
+            length: 0,
+          },
+        ],
+      },
+      leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+      rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+      length: 0,
+      type: 'CITY_DRIVING' as const,
+      turn: 'NO_TURN' as const,
+      direction: 'FORWARD' as const,
+      speedLimit: 0,
+      predecessorIds: [],
+      successorIds: [],
+      leftNeighborForwardIds: [],
+      rightNeighborForwardIds: [],
+      leftNeighborReverseIds: [],
+      rightNeighborReverseIds: [],
+      selfReverseLaneIds: [],
+      junctionId: null,
+      overlapIds: [],
+      leftSamples: [{ s: 0, width: 1.5 }],
+      rightSamples: [{ s: 0, width: 1.5 }],
+      leftRoadSamples: [],
+      rightRoadSamples: [],
+    };
+    const features = entityToHotFeatures(lane as unknown as MapEntity);
+    const polygons = features.filter((f) => f.geometry.type === 'Polygon');
+    const lines = features.filter((f) => f.geometry.type === 'LineString');
+    expect(polygons.length).toBe(0);
+    expect(lines.length).toBe(1);
+    const ls = lines[0]!.geometry as GeoJSON.LineString;
+    // 中心线 3 点，开放——首尾不重合
+    expect(ls.coordinates).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 1],
+    ]);
+  });
+
+  it('imported signal (no _source, stopLines 非空) → 走 LineString，不被闭合', () => {
+    const signal = {
+      id: 'signal_imported',
+      entityType: 'signal' as const,
+      boundary: {
+        points: [
+          { x: 10, y: 10 },
+          { x: 11, y: 10 },
+          { x: 11, y: 11 },
+          { x: 10, y: 11 },
+        ],
+      },
+      subsignals: [],
+      type: 'MIX_3_VERTICAL' as const,
+      overlapIds: [],
+      stopLines: [
+        {
+          segments: [
+            {
+              lineSegment: {
+                points: [
+                  { x: 0, y: 0 },
+                  { x: 1, y: 0 },
+                ],
+              },
+              s: 0,
+              startPosition: { x: 0, y: 0 },
+              heading: 0,
+              length: 0,
+            },
+          ],
+        },
+      ],
+      signInfo: [],
+    };
+    const features = entityToHotFeatures(signal as unknown as MapEntity);
+    const polygons = features.filter((f) => f.geometry.type === 'Polygon');
+    const lines = features.filter((f) => f.geometry.type === 'LineString');
+    expect(polygons.length).toBe(0);
+    expect(lines.length).toBe(1);
+  });
+});
+
+// ── isPolygonEditEntity 直接测 ─────────────────────────────────────
+
+import { isPolygonEditEntity } from '../entityOps';
+
+describe('isPolygonEditEntity', () => {
+  it('lane 是 area（hitTest 用）但 editPoints 是折线 → false', () => {
+    expect(isPolygonEditEntity({ entityType: 'lane' } as unknown as MapEntity)).toBe(false);
+  });
+
+  it.each(['signal', 'stopSign', 'yieldSign', 'speedBump', 'barrierGate'] as const)(
+    '%s 的 editPoints 来自 stop_line / position 折线 → false',
+    (t) => {
+      expect(isPolygonEditEntity({ entityType: t } as unknown as MapEntity)).toBe(false);
+    },
+  );
+
+  it.each(['junction', 'pncJunction', 'parkingSpace', 'crosswalk', 'clearArea', 'area'] as const)(
+    '%s 的 editPoints 是多边形环 → true',
+    (t) => {
+      expect(isPolygonEditEntity({ entityType: t } as unknown as MapEntity)).toBe(true);
+    },
+  );
+
+  it('drawing rect / polygon → true', () => {
+    expect(isPolygonEditEntity({ entityType: 'rect' } as unknown as MapEntity)).toBe(true);
+    expect(isPolygonEditEntity({ entityType: 'polygon' } as unknown as MapEntity)).toBe(true);
+  });
+
+  it('drawing polyline / catmullRom / bezier / arc → false', () => {
+    expect(isPolygonEditEntity({ entityType: 'polyline' } as unknown as MapEntity)).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'catmullRom' } as unknown as MapEntity)).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'bezier' } as unknown as MapEntity)).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'arc' } as unknown as MapEntity)).toBe(false);
   });
 });

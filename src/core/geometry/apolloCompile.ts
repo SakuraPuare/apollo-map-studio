@@ -11,6 +11,7 @@ export {
   deleteApolloVertex,
   getApolloEditPoints,
   isApolloAreaEntity,
+  isApolloPolygonEditPoints,
   moveApolloEntity,
   setAllApolloEditPoints,
   setApolloEditPoint,

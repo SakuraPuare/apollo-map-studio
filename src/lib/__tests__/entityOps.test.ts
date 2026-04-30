@@ -237,7 +237,7 @@ describe('Apollo entity 编辑代理', () => {
   });
 
   it('deleteVertex 对 lane：超过最小点数时删除（4 → 3 点）', () => {
-    // lane 在 isAreaEntity 下 min=3。需要 4 个起始点才能走删除分支
+    // lane 的 editPoints 是中心线（折线），min=2。4 点 → 删一个 → 3 点
     const lane = createEntity(
       'lane',
       'drawPolyline',
@@ -255,10 +255,26 @@ describe('Apollo entity 编辑代理', () => {
     expect(getEditPoints(next!).length).toBe(before.length - 1);
   });
 
-  it('deleteVertex 对 lane 在最小点数时返回 null', () => {
-    // makeLane 默认 3 点（== min for area），删任意一个都应回 null
-    const lane = makeLane();
-    expect(deleteVertex(lane, 1)).toBeNull();
+  it('deleteVertex 对 lane：3 → 2 点允许（lane 是折线，min=2 不是 3）', () => {
+    // 旧行为把 lane 当 area，min=3；2026-04 修复后 lane 的 editPoints
+    // 是 centralCurve 折线，min=2 才是正确语义。
+    const lane = makeLane(); // 3 点
+    const next = deleteVertex(lane, 1);
+    expect(next).not.toBeNull();
+    expect(getEditPoints(next!).length).toBe(2);
+  });
+
+  it('deleteVertex 对 lane 在最小点数时返回 null（2 点不能再删）', () => {
+    const lane = createEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [116.0, 30.0],
+        [116.001, 30.0],
+      ],
+      [],
+    ) as LaneEntity;
+    expect(deleteVertex(lane, 0)).toBeNull();
   });
 });
 

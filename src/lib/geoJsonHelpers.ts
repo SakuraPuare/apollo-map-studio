@@ -1,5 +1,6 @@
 import type { MapEntity } from '@/types/entities';
-import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
+import type { ApolloEntity } from '@/types/apollo';
+import { getSource, getSourceRect } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import {
   catmullRom,
@@ -10,7 +11,7 @@ import {
 } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
-import { getEditPoints, isAreaEntity } from '@/lib/entityOps';
+import { getEditPoints, isPolygonEditEntity } from '@/lib/entityOps';
 
 export function lineFeature(
   coords: LngLat[],
@@ -110,12 +111,8 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
   } else {
     // Apollo 实体
     const apolloEntity = entity as ApolloEntity;
-    const source = (apolloEntity as unknown as Record<string, unknown>)._source as
-      | SourceDrawInfo
-      | undefined;
-    const sourceRect = (apolloEntity as unknown as Record<string, unknown>)._sourceRect as
-      | SourceRectInfo
-      | undefined;
+    const source = getSource(apolloEntity);
+    const sourceRect = getSourceRect(apolloEntity);
 
     // ① 有贝塞尔源：以贝塞尔模式编辑（含控制柄）
     if (source?.drawTool === 'drawBezier' && source.anchors) {
@@ -165,11 +162,16 @@ export function entityToHotFeatures(entity: MapEntity): GeoJSON.Feature[] {
     }
 
     // ④ 通用 Apollo 编辑：顶点编辑
+    //
+    // 用 isPolygonEditEntity 而不是 isAreaEntity——后者把 lane 算作 area（hitTest
+    // 需要保留），但 lane 的 editPoints 是中心线（折线），polygonFeature 会把首尾
+    // 闭合成多边形，让导入的 lane 在选中时画成"首尾闭合"的橡皮筋。signal/stopSign
+    // 等同理：editPoints 来自 stopLines 是开放折线。
     const editPoints = getEditPoints(apolloEntity);
     const coords = editPoints.map((p) => [p.x, p.y] as LngLat);
 
     if (coords.length >= 2) {
-      if (isAreaEntity(apolloEntity)) {
+      if (isPolygonEditEntity(apolloEntity)) {
         features.push(polygonFeature(coords));
       } else {
         features.push(lineFeature(coords));

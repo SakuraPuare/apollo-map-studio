@@ -124,7 +124,10 @@ export function moveApolloEntity(entity: ApolloEntity, dx: number, dy: number): 
 
 export function deleteApolloVertex(entity: ApolloEntity, index: number): ApolloEntity | null {
   const pts = getApolloEditPoints(entity);
-  const min = isApolloAreaEntity(entity) ? 3 : 2;
+  // lane 的 editPoints 是中心线（折线），最小 2 点；其他面元素的 editPoints 是
+  // 多边形环，最小 3 点。用 isApolloPolygonEditPoints 而非 isApolloAreaEntity——
+  // 后者把 lane 也算 area（hitTest 需要），但删点要看的是 editPoints 本身的拓扑。
+  const min = isApolloPolygonEditPoints(entity) ? 3 : 2;
   if (pts.length <= min) return null;
   return setAllApolloEditPoints(
     entity,
@@ -157,6 +160,32 @@ export function isApolloAreaEntity(entity: ApolloEntity): boolean {
     case 'parkingLot':
     case 'pncJunction':
     case 'lane':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Whether this entity's `getApolloEditPoints` output is a closed polygon ring
+ * (true) or an open polyline (false).
+ *
+ * Distinct from `isApolloAreaEntity`:
+ *   - lane is "area" (hitTest treats fill interior as a hit) but its editPoints
+ *     are the central curve — a polyline. Using `isApolloAreaEntity` for hot
+ *     layer rendering would close the central curve into a polygon.
+ *   - signal/stopSign/yieldSign/barrierGate/speedBump edit on stop_line /
+ *     position curves — polyline.
+ */
+export function isApolloPolygonEditPoints(entity: ApolloEntity): boolean {
+  switch (entity.entityType) {
+    case 'junction':
+    case 'parkingSpace':
+    case 'crosswalk':
+    case 'clearArea':
+    case 'area':
+    case 'parkingLot':
+    case 'pncJunction':
       return true;
     default:
       return false;

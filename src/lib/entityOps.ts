@@ -26,4 +26,9 @@ export {
   type ParentTarget,
   type ReparentResult,
 } from './entityOps/reparent';
-export { isApolloEntityType, isAreaEntity, isDrawingEntity } from './entityOps/typeGuards';
+export {
+  isApolloEntityType,
+  isAreaEntity,
+  isDrawingEntity,
+  isPolygonEditEntity,
+} from './entityOps/typeGuards';
