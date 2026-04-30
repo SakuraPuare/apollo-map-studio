@@ -21,6 +21,8 @@ const PROTO_SOURCES = import.meta.glob('/src/proto/**/*.proto', {
   eager: true,
 }) as Record<string, string>;
 
+type NullableFetchCallback = (error: Error | null, contents?: string) => void;
+
 export function loadApolloProtoRoot(): Promise<protobuf.Root> {
   if (cached) return cached;
   const root = new protobuf.Root();
@@ -30,19 +32,19 @@ export function loadApolloProtoRoot(): Promise<protobuf.Root> {
   // which would yield `map_msgs/map_msgs/map_lane.proto`. Override
   // resolvePath to treat every target as a root-relative key.
   root.resolvePath = (_origin: string, target: string) => target;
-  // protobufjs's FetchCallback types `error` as `Error` (non-null), but the
-  // success path needs to signal "no error" — pass `null as unknown as Error`
-  // and rely on the source-arg sentinel that protobufjs already supports.
   root.fetch = (filename: string, callback) => {
-    const key = '/src/proto/' + filename.replace(/^\/+/, '');
+    // protobufjs's FetchCallback types `error` as `Error` (non-null), but its
+    // own success path uses null. Keep that mismatch contained at the boundary.
+    const done = callback as NullableFetchCallback;
+    const key = `/src/proto/${filename.replace(/^\/+/, '')}`;
     const text = PROTO_SOURCES[key];
     // Must be deferred: protobufjs counts pending fetches with a `queued`
     // counter; if the callback fires synchronously the counter dips to 0
     // mid-import-tree-walk, which triggers resolveAll() before all imports
     // are loaded → "no such Type" errors during type resolution.
     Promise.resolve().then(() => {
-      if (text !== undefined) callback(null as unknown as Error, text);
-      else callback(new Error(`Proto file not found in bundle: ${filename} (key=${key})`));
+      if (text !== undefined) done(null, text);
+      else done(new Error(`Proto file not found in bundle: ${filename} (key=${key})`));
     });
   };
   cached = root.load('map_msgs/map.proto', { keepCase: true });

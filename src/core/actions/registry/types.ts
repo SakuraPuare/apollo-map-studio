@@ -9,8 +9,6 @@ export type ActionId =
   | 'importApolloTxt'
   | 'exportApolloBin'
   | 'exportApolloTxt'
-  | 'saveAmsProject'
-  | 'openAmsProject'
   | 'settings'
   | 'undo'
   | 'redo'

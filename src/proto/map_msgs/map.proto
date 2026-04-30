@@ -17,6 +17,7 @@ import "map_msgs/map_stop_sign.proto";
 import "map_msgs/map_yield_sign.proto";
 import "map_msgs/map_area.proto";
 import "map_msgs/map_barrier_gate.proto";
+import "editor/editor_meta.proto";
 
 // This message defines how we project the ellipsoidal Earth surface to a plane.
 message Projection {
@@ -59,4 +60,9 @@ message Map {
   repeated RSU rsu = 14;
   repeated Area ad_area = 15;
   repeated BarrierGate barrier_gate = 16;
+
+  // Apollo Map Studio editor metadata. Apollo runtime ignores this field;
+  // proto2 unknown-field retention keeps it intact on round-trip. See
+  // editor/editor_meta.proto for the schema.
+  optional apollo.hdmap.editor.EditorMeta editor_meta = 1000;
 }

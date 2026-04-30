@@ -14,6 +14,15 @@ const APOLLO_BORREGAS_BIN = path.resolve(
   '../../__fixtures__/apollo/borregas_ave/base_map.bin',
 );
 
+type DecodedLaneMap = {
+  lane: Array<{
+    id: { id: string };
+    central_curve: {
+      segment: Array<{ line_segment: { point: Array<{ x: number; y: number }> } }>;
+    };
+  }>;
+};
+
 describe('adapter — apolloMapToLonLat / fromLonLat', () => {
   it.runIf(existsSync(APOLLO_BORREGAS_BIN))(
     'projects every PointENU through the header PROJ string and round-trips',
@@ -39,31 +48,13 @@ describe('adapter — apolloMapToLonLat / fromLonLat', () => {
       // Round-trip back to ENU and re-encode; lane ids must match.
       const { map: backMap } = await apolloMapFromLonLat(lonLatMap, projection.projString);
       const reBytes = await encodeMapBin(backMap);
-      const reDecoded = (await decodeMapBin(reBytes)) as {
-        lane: Array<{ id: { id: string } }>;
-      };
-      const original = map as { lane: Array<{ id: { id: string } }> };
+      const reDecoded = (await decodeMapBin(reBytes)) as DecodedLaneMap;
+      const original = map as DecodedLaneMap;
       expect(reDecoded.lane.map((l) => l.id.id)).toEqual(original.lane.map((l) => l.id.id));
 
       // Coordinate values must round-trip within a tight tolerance (cm-scale).
-      const seg0Back = (
-        reDecoded as unknown as {
-          lane: Array<{
-            central_curve: {
-              segment: Array<{ line_segment: { point: Array<{ x: number; y: number }> } }>;
-            };
-          }>;
-        }
-      ).lane[0]!.central_curve.segment[0]!.line_segment.point[0]!;
-      const seg0Original = (
-        original as unknown as {
-          lane: Array<{
-            central_curve: {
-              segment: Array<{ line_segment: { point: Array<{ x: number; y: number }> } }>;
-            };
-          }>;
-        }
-      ).lane[0]!.central_curve.segment[0]!.line_segment.point[0]!;
+      const seg0Back = reDecoded.lane[0]!.central_curve.segment[0]!.line_segment.point[0]!;
+      const seg0Original = original.lane[0]!.central_curve.segment[0]!.line_segment.point[0]!;
       expect(seg0Back.x).toBeCloseTo(seg0Original.x, 2);
       expect(seg0Back.y).toBeCloseTo(seg0Original.y, 2);
     },

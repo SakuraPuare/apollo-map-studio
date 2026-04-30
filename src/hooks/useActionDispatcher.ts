@@ -21,14 +21,7 @@ import {
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
-import {
-  pickAndImportBin,
-  pickAndImportText,
-  exportApolloBin,
-  exportApolloText,
-  saveAmsProject,
-  pickAndOpenAmsProject,
-} from '@/io/mapIO';
+import { pickAndImportBin, pickAndImportText, exportApolloBin, exportApolloText } from '@/io/mapIO';
 
 export interface ActionDispatcher {
   /**
@@ -107,17 +100,6 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     });
     map.set('exportApolloTxt', () => {
       void exportApolloText();
-    });
-    map.set('saveAmsProject', () => {
-      void saveAmsProject();
-    });
-    map.set('openAmsProject', () => {
-      void pickAndOpenAmsProject().then((info) => {
-        if (info) {
-          // eslint-disable-next-line no-console
-          console.info(`[Apollo IO] opened project ${info.filename}:`, info.counts);
-        }
-      });
     });
     map.set('settings', onOpenSettings);
 

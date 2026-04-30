@@ -1,0 +1,38 @@
+syntax = "proto2";
+
+package apollo.hdmap.editor;
+
+// Apollo Map Studio editor-only metadata. Serialized inside the standard
+// Apollo `.bin` under `Map.editor_meta` (field 1000). Apollo runtime
+// tooling treats this field as unknown and (per proto2 default) preserves
+// it on round-trip, so the same `.bin` is consumed by both the editor and
+// production Apollo without a sidecar file.
+//
+// Schema rules:
+//   - Additive only. Removed fields must be `reserved`.
+//   - Field numbers are stable across editor versions.
+//   - Anything in this file is purely editor concern; do not depend on it
+//     from production Apollo code.
+
+message EditorMeta {
+  // Schema revision. Bumped on non-additive changes for forward-compat
+  // warnings; readers accept any version <= their own.
+  optional uint32 version = 1;
+
+  // Per-entity overrides keyed by `<entityType>:<id>` (e.g. `lane:lane_1`,
+  // `signal:signal_3`). Entities not present here use default rendering.
+  map<string, EntityMeta> entity = 2;
+}
+
+message EntityMeta {
+  // Forces the editor to treat this entity's points as a polyline rather
+  // than a closed polygon. Set after `.bin` import for entities (lanes,
+  // signals) whose proto carries polygon-shaped points but should be
+  // edited as multi-segment lines.
+  enum GeometryKind {
+    GEOMETRY_KIND_UNSPECIFIED = 0;
+    LINESTRING = 1;
+    POLYGON = 2;
+  }
+  optional GeometryKind geometry_kind = 1;
+}

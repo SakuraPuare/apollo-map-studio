@@ -11,7 +11,6 @@ import { useApolloMapStore, type ApolloMapImportInfo } from '@/store/apolloMapSt
 import { useMapStore } from '@/store/mapStore';
 import { useProjDialogStore } from '@/store/projDialogStore';
 import { pickFile, readFileAsBytes, readFileAsText, downloadBlob } from './fileIO';
-import { packAms, unpackAms } from './projectFile';
 import { apolloMapToEntities, entitiesToApolloMap } from './proto/entityBridge';
 
 /**
@@ -165,52 +164,4 @@ export async function exportApolloText(): Promise<void> {
   const text = await encodeMapText(enuMap);
   const blob = new Blob([text], { type: 'text/plain' });
   downloadBlob(blob, suggestedFilename(info.filename, 'txt'));
-}
-
-// ──────────────────────────────────────────────────────────────────────
-// Project file (.ams) — Apollo bin + sidecar manifest in a single zip
-// ──────────────────────────────────────────────────────────────────────
-
-function suggestedAmsFilename(info: ApolloMapImportInfo): string {
-  const base = info.filename.replace(/\.(bin|txt|pb\.txt|ams)$/i, '') || 'apollo-project';
-  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-  return `${base}-${stamp}.ams`;
-}
-
-export async function saveAmsProject(): Promise<void> {
-  const { rawMap, info } = useApolloMapStore.getState();
-  if (!rawMap || !info) {
-    useApolloMapStore.getState().setError('Nothing to save — import a map first.');
-    return;
-  }
-  const enuMap = await buildExportPayload(rawMap, info.projString);
-  const blob = await packAms(enuMap, info);
-  downloadBlob(blob, suggestedAmsFilename(info));
-}
-
-export async function pickAndOpenAmsProject(): Promise<ApolloMapImportInfo | null> {
-  const file = await pickFile('.ams,application/zip');
-  if (!file) return null;
-  const store = useApolloMapStore.getState();
-  try {
-    const { rawEnuMap, manifest } = await unpackAms(file);
-    const { map: lonLatMap, projString: usedProj } = await apolloMapToLonLat(
-      rawEnuMap,
-      manifest.projString,
-    );
-    const info: ApolloMapImportInfo = {
-      filename: manifest.filename || file.name,
-      counts: entityCounts(lonLatMap),
-      projString: usedProj,
-      importedAt: Date.now(),
-    };
-    store.setMap(lonLatMap, info);
-    return info;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    store.setError(`Open project failed: ${msg}`);
-
-    console.error('[mapIO] open project failed', e);
-    return null;
-  }
 }
