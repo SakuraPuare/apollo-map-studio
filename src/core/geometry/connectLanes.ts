@@ -16,6 +16,7 @@
  * 提示用户（例如对 fork/merge 弹确认对话框）。
  */
 import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
+import { getSource } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
 import { polylineLengthMeters } from '@/lib/geo';
 import { anchorToRuntime } from './anchorConvert';
@@ -164,7 +165,7 @@ function writeCenterline(
 }
 
 export function applyLaneConnection(lane: LaneEntity, plan: ConnectionPlan): LaneEntity {
-  const source = (lane as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+  const source = getSource(lane);
 
   // Bezier source: shift first/last anchor (and its handles), re-sample.
   if (source?.drawTool === 'drawBezier' && source.anchors && source.anchors.length > 0) {

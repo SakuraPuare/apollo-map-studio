@@ -1,5 +1,6 @@
 import type { DragPointType } from '@/types/editor';
 import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
+import { getSource, getSourceRect } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { cubicBezier, threePointArc } from '@/core/geometry/interpolate';
@@ -13,14 +14,6 @@ import {
   setEditPoint as setApolloEditPoint,
 } from '@/lib/entityOps';
 import { rectCenter, rectPolygonPoints, rectRotationFromHandle, resizeRotatedRect } from './rect';
-
-function getSource(entity: ApolloEntity): SourceDrawInfo | undefined {
-  return (entity as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
-}
-
-function getSourceRect(entity: ApolloEntity): SourceRectInfo | undefined {
-  return (entity as unknown as Record<string, unknown>)._sourceRect as SourceRectInfo | undefined;
-}
 
 export function getApolloDragCenter(entity: ApolloEntity): LngLat | null {
   const sourceRect = getSourceRect(entity);

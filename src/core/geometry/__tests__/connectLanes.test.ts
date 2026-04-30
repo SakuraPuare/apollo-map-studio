@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyLaneConnection, planConnection } from '../connectLanes';
 import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
+import { getSource } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
 
 function laneAt(id: string, start: [number, number], end: [number, number]): LaneEntity {
@@ -236,7 +237,7 @@ describe('applyLaneConnection — bezier source', () => {
       isContinuous: true,
     });
 
-    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    const newSource = getSource(out)!;
     const lastAnchor = newSource.anchors![1]!;
     expect(lastAnchor.point).toEqual(expect.objectContaining(target));
     // handleIn shifted by the same dx/dy (0.0001, 0.00005)
@@ -271,7 +272,7 @@ describe('applyLaneConnection — bezier source', () => {
       isContinuous: true,
     });
 
-    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    const newSource = getSource(out)!;
     expect(newSource.anchors![0]!.point).toEqual(expect.objectContaining(target));
     // handleOut shifted by dx = -0.0001, dy = 0
     expect(newSource.anchors![0]!.handleOut!.x).toBeCloseTo(0.0001 - 0.0001, 12);
@@ -303,7 +304,7 @@ describe('applyLaneConnection — arc source', () => {
       isContinuous: true,
     });
 
-    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    const newSource = getSource(out)!;
     expect(newSource.arcPoints![2]).toEqual(expect.objectContaining(target));
     expect(newSource.arcPoints![0]).toEqual({ x: 0, y: 0 });
   });
@@ -331,7 +332,7 @@ describe('applyLaneConnection — arc source', () => {
       isContinuous: true,
     });
 
-    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    const newSource = getSource(out)!;
     expect(newSource.arcPoints![0]).toEqual(expect.objectContaining(target));
     expect(newSource.arcPoints![2]).toEqual({ x: 0.001, y: 0 });
   });

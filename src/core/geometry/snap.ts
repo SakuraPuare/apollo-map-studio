@@ -236,15 +236,13 @@ export function collectCandidates(
       }
       default: {
         // Generic geometry entities (polyline / bezier / polygon / rect / arc).
-        // Best-effort: anything with a `points: GeoPoint[]` exposes vertices.
-        const candidate = e as unknown as {
-          points?: GeoPoint[];
-          anchors?: { point: GeoPoint }[];
-        };
-        if (Array.isArray(candidate.points)) {
-          pushPolylineVertices(vertices, edges, candidate.points, e.id, e.entityType);
-        } else if (Array.isArray(candidate.anchors)) {
-          const anchorPts = candidate.anchors.map((a) => a.point);
+        // Best-effort: anything with a `points: GeoPoint[]` exposes vertices,
+        // bezier exposes `anchors`. Use `in` narrowing rather than a blanket
+        // unknown cast so the property types come from the union, not a fiction.
+        if ('points' in e && Array.isArray(e.points)) {
+          pushPolylineVertices(vertices, edges, e.points, e.id, e.entityType);
+        } else if ('anchors' in e && Array.isArray(e.anchors)) {
+          const anchorPts = e.anchors.map((a) => a.point);
           pushPolylineVertices(vertices, edges, anchorPts, e.id, e.entityType);
         }
         break;

@@ -499,3 +499,23 @@ export interface ApolloMapProto {
   areas: AreaEntity[];
   barrierGates: BarrierGateEntity[];
 }
+
+// ─── Editor source-info accessors ────────────────────────────────────
+//
+// `_source` / `_sourceRect` are optional editor-only fields that live on
+// a subset of ApolloEntity variants (see LaneEntity/SignalEntity/...
+// definitions above). Because `MapEntity` is a discriminated union and
+// these fields don't appear on every variant, accessing them at the
+// union level requires a single typed cast — these helpers centralise
+// it so callers don't sprinkle `as unknown as Record<string, unknown>`
+// throughout the codebase.
+
+/** Read `_source` off any MapEntity-like value; returns `undefined` when absent. */
+export function getSource(entity: { entityType: string }): SourceDrawInfo | undefined {
+  return (entity as { _source?: SourceDrawInfo })._source;
+}
+
+/** Read `_sourceRect` off any MapEntity-like value; returns `undefined` when absent. */
+export function getSourceRect(entity: { entityType: string }): SourceRectInfo | undefined {
+  return (entity as { _sourceRect?: SourceRectInfo })._sourceRect;
+}
