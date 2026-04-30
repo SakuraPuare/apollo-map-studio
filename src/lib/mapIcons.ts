@@ -16,7 +16,7 @@
 import type { ComponentType, ReactElement } from 'react';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import maplibregl from 'maplibre-gl';
+import type maplibregl from 'maplibre-gl';
 import { FaSquareParking, FaTrafficLight, FaRoadBarrier } from 'react-icons/fa6';
 import { BsSignStop, BsSignYieldFill } from 'react-icons/bs';
 import { PiWarningDiamondFill } from 'react-icons/pi';
@@ -36,6 +36,7 @@ const REGISTRY: Record<string, ComponentType<IconProps>> = {
 };
 
 export const MAP_ICON_PX = ICON_PX;
+type MapIconRegistry = Pick<maplibregl.Map, 'hasImage' | 'addImage'>;
 
 /**
  * 把 react-icons 组件渲染成 ImageData。
@@ -76,7 +77,7 @@ async function rasterize(Icon: ComponentType<IconProps>): Promise<ImageData> {
  * 批量把 REGISTRY 里的 icon 注册到 map。已存在的会跳过。
  * 失败的图标不阻塞其他图标注册（错误打到 console）。
  */
-export async function registerMapIcons(map: maplibregl.Map): Promise<void> {
+export async function registerMapIcons(map: MapIconRegistry): Promise<void> {
   const tasks = Object.entries(REGISTRY).map(async ([id, Icon]) => {
     if (map.hasImage(id)) return;
     try {

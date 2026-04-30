@@ -1,5 +1,5 @@
 import { Suspense, useRef, useCallback, useEffect, useState } from 'react';
-import { DockviewReact, DockviewReadyEvent, DockviewApi } from 'dockview-react';
+import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockview-react';
 import 'dockview-react/dist/styles/dockview.css';
 
 import { MenuBar } from './MenuBar';

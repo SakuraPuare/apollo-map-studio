@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl';
+import type maplibregl from 'maplibre-gl';
 import { LANE_ARROW_COLOR, LANE_ARROW_OPACITY, LANE_ARROW_TEXT_SIZE } from '@/config/mapConstants';
 import { COLD_LAYER_FILTERS } from '@/components/map/coldLayerConfig';
 import { MAP_ICON_PX } from '@/lib/mapIcons';

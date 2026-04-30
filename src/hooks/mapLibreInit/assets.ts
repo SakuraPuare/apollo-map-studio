@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl';
+import type maplibregl from 'maplibre-gl';
 import { registerMapIcons } from '@/lib/mapIcons';
 
 export const EMPTY_FC: GeoJSON.FeatureCollection = {

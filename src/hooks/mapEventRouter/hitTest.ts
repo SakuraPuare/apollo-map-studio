@@ -1,4 +1,4 @@
-import maplibregl from 'maplibre-gl';
+import type maplibregl from 'maplibre-gl';
 import { HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';

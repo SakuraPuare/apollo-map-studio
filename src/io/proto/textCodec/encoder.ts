@@ -91,8 +91,8 @@ function encodeQuoted(s: string): string {
     else if (c === 0x0d) out += '\\r';
     else if (c === 0x09) out += '\\t';
     else if (c >= 0x20 && c < 0x7f) out += String.fromCharCode(c);
-    else if (c < 0x100) out += '\\' + c.toString(8).padStart(3, '0');
+    else if (c < 0x100) out += `\\${c.toString(8).padStart(3, '0')}`;
     else out += String.fromCharCode(c);
   }
-  return out + '"';
+  return `${out}"`;
 }
