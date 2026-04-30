@@ -92,7 +92,7 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
     <form>
       <Section title="Overlap">
         <Value label="ID" value={entity.id} />
-        <Value label="Objects" value={entity.objects.length} />
+        <Value label="Objects" value={entity.objects.length || '—'} />
         <Value label="Regions" value={entity.regionOverlaps.length || '—'} />
       </Section>
 

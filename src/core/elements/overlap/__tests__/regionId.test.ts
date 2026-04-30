@@ -43,6 +43,26 @@ describe('makeRegionId', () => {
   it('default slot is 0', () => {
     expect(makeRegionId(['A', 'B'])).toBe(makeRegionId(['A', 'B'], 0));
   });
+
+  it('throws on empty participants array', () => {
+    expect(() => makeRegionId([])).toThrow(/non-empty/);
+    expect(() => makeRegionId([], 2)).toThrow(/non-empty/);
+  });
+
+  it('dedupes duplicate participants before sorting', () => {
+    expect(makeRegionId(['A', 'A', 'B'])).toBe('region_A_B');
+    expect(makeRegionId(['B', 'A', 'B', 'A'])).toBe('region_A_B');
+  });
+
+  it('throws on negative slot', () => {
+    expect(() => makeRegionId(['A', 'B'], -1)).toThrow(/non-negative integer/);
+  });
+
+  it('throws on non-integer slot', () => {
+    expect(() => makeRegionId(['A', 'B'], 1.5)).toThrow(/non-negative integer/);
+    expect(() => makeRegionId(['A', 'B'], NaN)).toThrow(/non-negative integer/);
+    expect(() => makeRegionId(['A', 'B'], Infinity)).toThrow(/non-negative integer/);
+  });
 });
 
 describe('isDerivedRegionId', () => {

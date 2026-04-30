@@ -100,11 +100,13 @@ async function runImport(fn: () => Promise<ImportResult>): Promise<ApolloMapImpo
     // raw map into the editor's mapStore so cold-/hot-layer + selection
     // work on them. Anything not bridged stays in apolloMapStore.rawMap
     // untouched and is round-tripped on export.
+    //
+    // 走 batchImport：一次 zundo 事务 + 一次 full overlap reconcile，避免
+    // 逐实体 addEntity 把 history 打爆（5w 实体 == 5w 步 undo，limit 500
+    // 瞬间溢出）+ 累积漂移（每步只看增量 dirty 集，一致性靠累加）.
     const mapStore = useMapStore.getState();
     const entities = apolloMapToEntities(rawMap as Parameters<typeof apolloMapToEntities>[0]);
-    for (const entity of entities) {
-      mapStore.addEntity(entity);
-    }
+    mapStore.batchImport(entities);
 
     return info;
   } catch (e) {
@@ -156,32 +158,51 @@ function suggestedFilename(originalName: string, ext: 'bin' | 'txt'): string {
 }
 
 /**
- * Export the current map in whichever Apollo format matches the imported
- * file's suffix (`.txt`/`.pb.txt` → text protobuf, anything else → binary).
- * Round-trip fidelity is the goal: a `.bin` in stays a `.bin` out, a
- * `.txt` in stays a `.txt` out. Users who need to convert formats can
- * re-import the exported file in the desired flavour.
+ * Read the current edit state, run the export pipeline (overlap reconcile +
+ * lon/lat → ENU reproject), and return the ENU-space Apollo map ready to be
+ * encoded by either codec. Returns null if there is nothing to export and
+ * surfaces the error to the apolloMapStore for the UI to display.
  */
-export async function exportApollo(): Promise<void> {
+async function prepareExport(): Promise<{
+  enuMap: Record<string, unknown>;
+  info: ApolloMapImportInfo;
+} | null> {
   const { rawMap, info } = useApolloMapStore.getState();
   if (!rawMap || !info) {
     useApolloMapStore.getState().setError('Nothing to export — import a map first.');
-    return;
+    return null;
   }
   const enuMap = await buildExportPayload(rawMap, info.projString);
-  const isText = /\.(pb\.txt|txt)$/i.test(info.filename);
-  if (isText) {
-    const text = await encodeMapText(enuMap);
-    const blob = new Blob([text], { type: 'text/plain' });
-    downloadBlob(blob, suggestedFilename(info.filename, 'txt'));
-  } else {
-    const bytes = await encodeMapBin(enuMap);
-    // Copy into a fresh ArrayBuffer so Blob constructor accepts it cleanly
-    // regardless of whether the underlying buffer is ArrayBuffer or
-    // SharedArrayBuffer (TS narrows the BlobPart type to ArrayBuffer only).
-    const copy = new Uint8Array(bytes.byteLength);
-    copy.set(bytes);
-    const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
-    downloadBlob(blob, suggestedFilename(info.filename, 'bin'));
-  }
+  return { enuMap, info };
+}
+
+/**
+ * Export the current map as Apollo binary protobuf (`base_map.bin`). This
+ * is the canonical runtime format consumed by Apollo's map loader and the
+ * default `Save` action.
+ */
+export async function exportApolloBin(): Promise<void> {
+  const prepared = await prepareExport();
+  if (!prepared) return;
+  const bytes = await encodeMapBin(prepared.enuMap);
+  // Copy into a fresh ArrayBuffer so Blob accepts it regardless of whether
+  // the underlying buffer is ArrayBuffer or SharedArrayBuffer (TS narrows
+  // the BlobPart type to ArrayBuffer only).
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
+  downloadBlob(blob, suggestedFilename(prepared.info.filename, 'bin'));
+}
+
+/**
+ * Export the current map as Apollo text protobuf (`base_map.txt`). Useful
+ * for human inspection, diffing, and debugging — Apollo runtime can also
+ * load it but binary is preferred for size.
+ */
+export async function exportApolloText(): Promise<void> {
+  const prepared = await prepareExport();
+  if (!prepared) return;
+  const text = await encodeMapText(prepared.enuMap);
+  const blob = new Blob([text], { type: 'text/plain' });
+  downloadBlob(blob, suggestedFilename(prepared.info.filename, 'txt'));
 }

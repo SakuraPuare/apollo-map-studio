@@ -30,8 +30,8 @@ export const ACTION_DEFS: ActionDef[] = [
     menuOrder: 1,
   },
   {
-    id: 'exportApollo',
-    label: 'Export Apollo Map',
+    id: 'exportApolloBin',
+    label: 'Export Apollo Map (.bin)',
     category: 'file',
     shortcut: '⌘S',
     keybinding: { key: 's', ctrl: true, global: true },
@@ -39,6 +39,17 @@ export const ACTION_DEFS: ActionDef[] = [
     inCommandPalette: true,
     menu: 'File',
     menuOrder: 11,
+  },
+  {
+    id: 'exportApolloText',
+    label: 'Export Apollo Map (.txt)',
+    category: 'file',
+    shortcut: '⇧⌘S',
+    keybinding: { key: 's', ctrl: true, shift: true, global: true },
+    icon: FaDownload,
+    inCommandPalette: true,
+    menu: 'File',
+    menuOrder: 12,
   },
   {
     id: 'settings',

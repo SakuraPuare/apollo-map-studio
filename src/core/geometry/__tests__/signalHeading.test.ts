@@ -83,6 +83,82 @@ describe('computeSignalHeading — Dreamview port', () => {
     const sig = makeSignal([], []);
     expect(computeSignalHeading(sig)).toBeNull();
   });
+
+  it('applies cosLat scaling: tilted plane at lat=39.9° differs from deg-space math', () => {
+    // Boundary plane tilted in lng (asymmetric x vs y differential)
+    // at Beijing latitude. The 4 corners aren't all at the same lng,
+    // so the cross product picks up cosLat. With deg-space math the
+    // returned heading would be wrong by the cosLat factor; with
+    // metric-space math it is the true bearing.
+    const lat = 39.9;
+    const cosLat = Math.cos(lat * (Math.PI / 180));
+    const sig = makeSignal(
+      [
+        { x: 116.0, y: 39.9, z: 6 },
+        { x: 116.0001, y: 39.9001, z: 6 },
+        { x: 116.0001, y: 39.9001, z: 4 },
+        { x: 116.0, y: 39.9, z: 4 },
+      ],
+      [
+        { x: 116.00005, y: 39.91 },
+        { x: 116.00015, y: 39.91 },
+      ],
+    );
+
+    const h = computeSignalHeading(sig);
+    expect(h).not.toBeNull();
+
+    // Reproduce the buggy (deg-space) computation by hand to ensure
+    // the fix actually changed behavior at this latitude.
+    const b1 = { x: 116.0, y: 39.9, z: 6 };
+    const b2 = { x: 116.0001, y: 39.9001, z: 6 };
+    const b3 = { x: 116.0001, y: 39.9001, z: 4 };
+    const orthoX_deg = (b2.x - b1.x) * (b3.z - b1.z) - (b3.x - b1.x) * (b2.z - b1.z);
+    const orthoY_deg = (b2.y - b1.y) * (b3.z - b1.z) - (b3.y - b1.y) * (b2.z - b1.z);
+    const buggyDirection = Math.atan2(-orthoX_deg, orthoY_deg);
+
+    // Same computation with cosLat applied — what the fix should yield
+    // (modulo the π flip from stop-line disambiguation).
+    const orthoX_metric =
+      (b2.x - b1.x) * cosLat * (b3.z - b1.z) - (b3.x - b1.x) * cosLat * (b2.z - b1.z);
+    const fixedDirection = Math.atan2(-orthoX_metric, orthoY_deg);
+
+    // The buggy and fixed bearings differ noticeably at lat=39.9°
+    // (cosLat ≈ 0.768).
+    expect(Math.abs(buggyDirection - fixedDirection)).toBeGreaterThan(0.1);
+
+    // The actual heading must match the metric-space direction
+    // (modulo π from stop-line disambiguation).
+    const dHeading = (((h! - fixedDirection) % Math.PI) + Math.PI) % Math.PI;
+    expect(Math.min(dHeading, Math.PI - dHeading)).toBeLessThan(1e-6);
+
+    // And it must NOT match the buggy deg-space direction.
+    const dBug = (((h! - buggyDirection) % Math.PI) + Math.PI) % Math.PI;
+    expect(Math.min(dBug, Math.PI - dBug)).toBeGreaterThan(0.05);
+  });
+
+  it('axis-aligned plane at lat=39.9° still yields metric north/south bearing', () => {
+    // Vertical plane along constant lat (varying lng): plane normal
+    // points along ±lat, i.e. north or south. cosLat only scales lng,
+    // so axis-aligned cases are invariant under the fix. Bearing must
+    // still be ±π/2.
+    const sig = makeSignal(
+      [
+        { x: 116.0, y: 39.9, z: 6 },
+        { x: 116.0001, y: 39.9, z: 6 },
+        { x: 116.0001, y: 39.9, z: 4 },
+        { x: 116.0, y: 39.9, z: 4 },
+      ],
+      [
+        { x: 116.00005, y: 39.901 },
+        { x: 116.00015, y: 39.901 },
+      ],
+    );
+    const h = computeSignalHeading(sig);
+    expect(h).not.toBeNull();
+    // |cos(h)| close to 0 means h ≈ ±π/2 (pure north or south).
+    expect(Math.abs(Math.cos(h!))).toBeLessThan(1e-6);
+  });
 });
 
 describe('headingToIconRotate — math CCW/east → maplibre CW/north', () => {

@@ -13,7 +13,13 @@
  */
 
 export function makeRegionId(participantIds: readonly string[], slot: number = 0): string {
-  const sorted = [...participantIds].sort();
+  if (participantIds.length === 0) {
+    throw new Error('[regionId] participantIds must be non-empty');
+  }
+  if (!Number.isInteger(slot) || slot < 0) {
+    throw new Error('[regionId] slot must be a non-negative integer');
+  }
+  const sorted = [...new Set(participantIds)].sort();
   const base = `region_${sorted.join('_')}`;
   return slot === 0 ? base : `${base}__${slot}`;
 }

@@ -99,7 +99,7 @@ export function largestRing(rings: readonly GeoPoint[][]): GeoPoint[] | null {
   let bestIdx = 0;
   let bestArea = -1;
   for (let i = 0; i < rings.length; i++) {
-    const a = signedAreaApproxM2(rings[i]!);
+    const a = absAreaApproxM2(rings[i]!);
     if (a > bestArea) {
       bestArea = a;
       bestIdx = i;
@@ -109,7 +109,7 @@ export function largestRing(rings: readonly GeoPoint[][]): GeoPoint[] | null {
 }
 
 /** 米空间近似面积（绝对值）；用 ring 中点纬度的 cosLat 修正 lng 方向. */
-function signedAreaApproxM2(ring: readonly GeoPoint[]): number {
+function absAreaApproxM2(ring: readonly GeoPoint[]): number {
   if (ring.length < 3) return 0;
   let latSum = 0;
   for (const p of ring) latSum += p.y;

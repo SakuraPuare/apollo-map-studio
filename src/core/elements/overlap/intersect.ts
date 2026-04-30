@@ -13,11 +13,12 @@ import type { BBox } from './types';
 
 const EPS = 1e-12;
 
-/** 折线 bbox（GeoPoint[] 退化兼容空数组） */
-export function bboxOfPoints(points: readonly GeoPoint[], pad = 0): BBox {
-  if (points.length === 0) {
-    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  }
+/**
+ * 折线 bbox。空数组返回 null —— 历史上的「零 bbox 退化」会在 (0,0) 凭空命中
+ * 任何包含原点的查询，不能再当真值用。caller 自行 null-guard。
+ */
+export function bboxOfPoints(points: readonly GeoPoint[], pad = 0): BBox | null {
+  if (points.length === 0) return null;
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -31,9 +32,12 @@ export function bboxOfPoints(points: readonly GeoPoint[], pad = 0): BBox {
   return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
 
-/** 多组折线的 bbox 并集（stopLines / speedBump.position 用） */
-export function bboxUnion(boxes: readonly BBox[]): BBox {
-  if (boxes.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+/**
+ * 多组 bbox 的并集（stopLines / speedBump.position 用）。空数组返回 null，
+ * 同 bboxOfPoints 的契约。
+ */
+export function bboxUnion(boxes: readonly BBox[]): BBox | null {
+  if (boxes.length === 0) return null;
   let { minX, minY, maxX, maxY } = boxes[0]!;
   for (let i = 1; i < boxes.length; i++) {
     const b = boxes[i]!;
@@ -68,7 +72,14 @@ export function segmentsIntersect(
   return { x: a1.x + t * r.x, y: a1.y + t * r.y };
 }
 
-/** 射线法点在多边形内 */
+/**
+ * 半开射线法判定点是否在多边形内。
+ *
+ * 通过 `(pi.y > py) !== (pj.y > py)` 显式跳过水平边 —— 因为该判别式只在
+ * 两端点跨越扫描线时为真，必然蕴含 `pi.y !== pj.y`，所以分母安全，
+ * 不需要 EPS bias（旧版 `+ EPS` 会把水平边的交叉点算成一个微小但非零
+ * 的偏置，反而引入 false-positive）。
+ */
 export function pointInPolygon(point: GeoPoint, polygon: readonly GeoPoint[]): boolean {
   if (polygon.length < 3) return false;
   const px = point.x;
@@ -77,11 +88,11 @@ export function pointInPolygon(point: GeoPoint, polygon: readonly GeoPoint[]): b
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
     const pi = polygon[i]!;
     const pj = polygon[j]!;
-    if (
-      pi.y > py !== pj.y > py &&
-      px < ((pj.x - pi.x) * (py - pi.y)) / (pj.y - pi.y + EPS) + pi.x
-    ) {
-      inside = !inside;
+    // 水平边在半开约定下不会切换 inside；该断言同时保证 pi.y !== pj.y，
+    // 后续除法不会触发 0/0。
+    if (pi.y > py !== pj.y > py) {
+      const xCross = ((pj.x - pi.x) * (py - pi.y)) / (pj.y - pi.y) + pi.x;
+      if (px < xCross) inside = !inside;
     }
   }
   return inside;

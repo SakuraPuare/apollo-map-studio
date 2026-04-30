@@ -76,19 +76,17 @@ function Menu({
                   onExecute(item.id);
                   onClose();
                 }}
-                className="w-full px-3 py-1.5 text-xs flex items-center justify-between text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
+                className="w-full px-3 py-1.5 text-xs flex items-center gap-4 text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
               >
-                <span className="flex items-center gap-2">
-                  {item.isToggle && (
-                    <span className="w-4 text-center">{getToggleState(item.id) ? '✓' : ''}</span>
-                  )}
+                <span className="flex items-center gap-2 flex-1">
+                  <span className="w-4 text-center shrink-0">
+                    {item.isToggle && getToggleState(item.id) ? '✓' : ''}
+                  </span>
                   <span>{item.label}</span>
                 </span>
-                {item.shortcut && (
-                  <span className="text-zinc-600 font-mono text-[10px] ml-4">
-                    {formatShortcut(item.shortcut)}
-                  </span>
-                )}
+                <span className="text-zinc-600 font-mono text-[10px] min-w-[3.5rem] text-right shrink-0">
+                  {item.shortcut ? formatShortcut(item.shortcut) : ''}
+                </span>
               </button>
             ),
           )}

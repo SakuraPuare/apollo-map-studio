@@ -45,45 +45,62 @@ export function bboxForEntity(entity: MapEntity): BBox | null {
 
   const stopLines = getStopLines(entity);
   if (stopLines.length > 0) {
-    const boxes = stopLines.map((p) => bboxOfPoints(p, OVERLAP_STOPLINE_PROBE_DEG));
+    const boxes = stopLines
+      .map((p) => bboxOfPoints(p, OVERLAP_STOPLINE_PROBE_DEG))
+      .filter((b): b is BBox => b !== null);
     return bboxUnion(boxes);
   }
 
   const polylines = getPolylines(entity);
   if (polylines.length > 0) {
-    return bboxUnion(polylines.map((p) => bboxOfPoints(p)));
+    const boxes = polylines.map((p) => bboxOfPoints(p)).filter((b): b is BBox => b !== null);
+    return bboxUnion(boxes);
   }
   return null;
+}
+
+function bboxSignature(b: BBox): string {
+  return `${b.minX}|${b.minY}|${b.maxX}|${b.maxY}`;
 }
 
 export class SpatialIndex {
   private readonly tree = new OverlapRBush();
   private readonly nodes = new Map<string, IndexNode>();
-  /** 上一次见过的 entity 引用，用于 ref-based 增量同步 */
-  private readonly lastSeen = new Map<string, MapEntity>();
+  /**
+   * 上一次见过的 bbox 签名（"minX|minY|maxX|maxY"），不缓存 entity ref 本身.
+   *
+   * 早期版本缓存 entity reference 做 `prev === e` 比对，但当 entities 由 immer
+   * producer 内部 reconcile 喂进来时，draft proxy 在 producer 退出时被 freeze
+   * 替换 → 后续 syncFromEntities 永远 ref-miss → 全图 cold-rebuild。改为 bbox
+   * 签名后：
+   *   - lane.junctionId 这种非几何字段变更不会触发 re-insert（节省 tree mutation）
+   *   - centerline / polygon 内容变了立刻触发（几何就是签名的来源）
+   *   - immer freeze 切换 ref 时签名不变 → 跳过
+   */
+  private readonly bboxSig = new Map<string, string>();
 
   /** 全量构建（导入完成后调用一次；O(N)） */
   build(entities: ReadonlyMap<string, MapEntity>): void {
     this.tree.clear();
     this.nodes.clear();
-    this.lastSeen.clear();
+    this.bboxSig.clear();
     const bulk: IndexNode[] = [];
     for (const e of entities.values()) {
       const bbox = bboxForEntity(e);
       if (!bbox) continue;
       const node: IndexNode = { id: e.id, entityType: e.entityType, ...bbox };
       this.nodes.set(e.id, node);
-      this.lastSeen.set(e.id, e);
+      this.bboxSig.set(e.id, bboxSignature(bbox));
       bulk.push(node);
     }
     if (bulk.length > 0) this.tree.load(bulk);
   }
 
   /**
-   * Ref-based 全量同步（O(N)）：扫一次 entities，按 reference 比对：
-   *   - 新增/ref 变化（geometry 改了）→ 重 insert
+   * 全量同步（O(N)）：扫一次 entities，按 bbox 签名比对：
+   *   - 新增 / 几何变化 → 重 insert
    *   - 已消失 → remove
-   *   - ref 不变 → 跳过
+   *   - 签名一致 → 跳过
    *
    * 适用：cold start / undo-redo / 全量 reconcile。
    * 增量编辑请用 `syncDirty` —— 把 5w 量纲下的 ~10ms 降到 < 0.5ms。
@@ -96,13 +113,10 @@ export class SpatialIndex {
     const seen = new Set<string>();
     for (const e of entities.values()) {
       seen.add(e.id);
-      const prev = this.lastSeen.get(e.id);
-      if (prev === e) continue;
       this.insert(e);
     }
-    for (const id of this.lastSeen.keys()) {
-      if (seen.has(id)) continue;
-      this.remove(id);
+    for (const id of [...this.bboxSig.keys()]) {
+      if (!seen.has(id)) this.remove(id);
     }
   }
 
@@ -131,25 +145,21 @@ export class SpatialIndex {
     }
   }
 
-  /** 增量插入（new entity） */
+  /** 增量插入 / 更新；bbox 签名一致时直接跳过，避免无意义的 tree mutation */
   insert(entity: MapEntity): void {
     const bbox = bboxForEntity(entity);
     if (!bbox) {
-      // 实体不再有 indexable 几何（比如 stopLines 全部清空）
-      const existing = this.nodes.get(entity.id);
-      if (existing) {
-        this.tree.remove(existing);
-        this.nodes.delete(entity.id);
-      }
-      this.lastSeen.set(entity.id, entity);
+      if (this.bboxSig.has(entity.id)) this.remove(entity.id);
       return;
     }
+    const sig = bboxSignature(bbox);
+    if (this.bboxSig.get(entity.id) === sig) return;
     const existing = this.nodes.get(entity.id);
     if (existing) this.tree.remove(existing);
     const node: IndexNode = { id: entity.id, entityType: entity.entityType, ...bbox };
     this.nodes.set(entity.id, node);
+    this.bboxSig.set(entity.id, sig);
     this.tree.insert(node);
-    this.lastSeen.set(entity.id, entity);
   }
 
   /** 删除 */
@@ -159,7 +169,7 @@ export class SpatialIndex {
       this.tree.remove(node);
       this.nodes.delete(id);
     }
-    this.lastSeen.delete(id);
+    this.bboxSig.delete(id);
   }
 
   /** bbox 查询（lng/lat 度数空间） */
@@ -189,14 +199,14 @@ export class SpatialIndex {
   clear(): void {
     this.tree.clear();
     this.nodes.clear();
-    this.lastSeen.clear();
+    this.bboxSig.clear();
   }
 }
 
 /**
  * 模块级 Singleton —— store 直接复用同一个索引实例，避免 reconcile 每次 new
  * 一个新的 RBush + load N 节点。zundo undo/redo 时也只是 entities 引用切换，
- * `syncFromEntities` 通过 ref 比对自动失效需要更新的节点。
+ * `syncFromEntities` 通过 bbox 签名比对自动失效需要更新的节点。
  */
 let sharedIndex: SpatialIndex | null = null;
 export function getSharedSpatialIndex(): SpatialIndex {

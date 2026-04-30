@@ -15,9 +15,12 @@
  * id 顺序统一成本地的字典序顺序（破坏性重构，不保留旧 id 形式）。
  */
 
-/** 计算 overlap id. participantIds 在内部排序 → 顺序无关. */
+/** 计算 overlap id. participantIds 在内部去重 + 排序 → 顺序无关 + 重复无关. */
 export function makeOverlapId(participantIds: readonly string[]): string {
-  const sorted = [...participantIds].sort();
+  if (participantIds.length === 0) {
+    throw new Error('[overlapId] participantIds must be non-empty');
+  }
+  const sorted = [...new Set(participantIds)].sort();
   return `overlap_${sorted.join('_')}`;
 }
 

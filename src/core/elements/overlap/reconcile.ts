@@ -25,7 +25,7 @@ import type {
   RegionOverlapInfo,
 } from '@/types/apollo';
 import { getCenterline, isOverlapParticipant } from './geometryAdapters';
-import { bboxOfPoints, bboxOverlap } from './intersect';
+import { bboxOfPoints } from './intersect';
 import { type SpatialIndex, bboxForEntity, getSharedSpatialIndex } from './spatialIndex';
 import { detectPair, detectLaneLanePair, emitLaneLaneObjects, findPairRule } from './pairTable';
 import { makeOverlapId, isDerivedOverlapId } from './overlapId';
@@ -74,7 +74,7 @@ export function reconcileOverlaps(
   // GAP-8: cosLat 改为 detectLaneLanePair 内部按 laneA 起点纬度局部计算，
   // 不再走全图均值（跨纬度多度地图全局均值会产生米空间偏差）。
 
-  const dirtyLanes = collectDirtyLanes(entities, mode);
+  const dirtyLanes = collectDirtyLanes(entities, mode, idx);
   const derived = new Map<string, DerivedOverlap>();
   // Set-based dedup keyed on the derived overlap id (sorted-participant
   // semantic id) — symmetric in (A,B), so it does not depend on which side
@@ -88,6 +88,8 @@ export function reconcileOverlaps(
     const centerline = getCenterline(lane);
     if (centerline.length < 2) continue;
     const bbox = bboxOfPoints(centerline);
+    // centerline.length >= 2 guarantees bboxOfPoints is non-null.
+    if (!bbox) continue;
 
     const neighbors = idx.queryBBox(bbox).filter((n) => n.id !== lane.id);
 
@@ -152,22 +154,30 @@ export function reconcileOverlaps(
   };
 }
 
+/**
+ * 用 R-tree O(log N + k) 邻居查询代替全表 O(N) 扫描.
+ *
+ * 假设：`idx` 在调用前已经被 reconcile 主流程 syncDirty / syncFromEntities
+ * 同步过 —— 所以 query 命中的 bbox 反映的是当前几何（modulo 刚 mutate 但
+ * 不在 dirtyIds 里的违约场景，那是 caller 的合同问题，不该索引兜底）.
+ */
 function expandLanesNearBBox(
   entities: ReadonlyMap<string, MapEntity>,
+  idx: SpatialIndex,
   bbox: BBox,
   acc: Map<string, LaneEntity>,
 ): void {
-  for (const other of entities.values()) {
-    if (other.entityType !== 'lane') continue;
-    if (acc.has(other.id)) continue;
-    const lb = bboxForEntity(other);
-    if (lb && bboxOverlap(lb, bbox)) acc.set(other.id, other);
+  for (const n of idx.queryBBox(bbox)) {
+    if (n.entityType !== 'lane' || acc.has(n.id)) continue;
+    const lane = entities.get(n.id);
+    if (lane && lane.entityType === 'lane') acc.set(n.id, lane);
   }
 }
 
 function collectDirtyLanes(
   entities: ReadonlyMap<string, MapEntity>,
   mode: ReconcileMode,
+  idx: SpatialIndex,
 ): LaneEntity[] {
   if (mode.mode === 'full') {
     const out: LaneEntity[] = [];
@@ -185,7 +195,7 @@ function collectDirtyLanes(
     }
     if (!isOverlapParticipant(e)) continue;
     const bbox = bboxForEntity(e);
-    if (bbox) expandLanesNearBBox(entities, bbox, lanes);
+    if (bbox) expandLanesNearBBox(entities, idx, bbox, lanes);
   }
   return Array.from(lanes.values());
 }

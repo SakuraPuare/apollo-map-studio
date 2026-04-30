@@ -76,7 +76,8 @@ describe('Action Registry', () => {
     const fileActions = getMenuActions('File');
     const ids = fileActions.map((a) => a.id);
     expect(ids).toContain('importApollo');
-    expect(ids).toContain('exportApollo');
+    expect(ids).toContain('exportApolloBin');
+    expect(ids).toContain('exportApolloText');
     expect(ids).toContain('settings');
   });
 

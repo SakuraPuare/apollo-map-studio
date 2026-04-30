@@ -14,6 +14,8 @@ import {
   reconcileOverlaps,
   invalidateLaneCaches,
   resetSharedSpatialIndex,
+  bboxForEntity,
+  getSharedSpatialIndex,
 } from '@/core/elements/overlap';
 import { OverlapWorkerBridge } from '@/core/workers/overlapBridge';
 import { readHistoryLimit } from './settingsStore';
@@ -34,6 +36,12 @@ interface MapActions {
    * or empty changes) so callers can surface UX feedback.
    */
   reparentEntity(childId: string, target: ParentTarget): ReparentResult;
+  /**
+   * 批量导入：一次性写入所有实体 → 一次拓扑重算 → 一次 full overlap reconcile，
+   * 全部收口到单个 zundo 事务，避免逐实体 addEntity 把 history 打爆 + 每步
+   * incremental reconcile 的累积漂移。导入路径专用。
+   */
+  batchImport(entities: MapEntity[]): void;
   /**
    * Full overlap recompute via Web Worker —— 主线程不被阻塞。
    * 用法：导入完成 / 用户手动 "Recompute overlaps" / 导出前。
@@ -77,11 +85,19 @@ export const useMapStore = create<MapStore>()(
       addEntity(entity) {
         set((state) => {
           state.entities.set(entity.id, entity);
+          // dirty 集要包含所有引用变化的实体 id —— 仅放新加 entity 会让
+          // topology 改写过 junctionId 的 lane 漏进 spatialIndex 同步与
+          // overlap reconcile 闭包，下一次 mutation 才能纠回，期间 overlap
+          // 一致性裂缝.
+          const dirty = new Set<string>([entity.id]);
           if (topologyAffectingType(entity.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
-            for (const [cid, c] of changes) state.entities.set(cid, c);
+            for (const [cid, c] of changes) {
+              state.entities.set(cid, c);
+              dirty.add(cid);
+            }
           }
-          applyOverlapPatch(state, new Set([entity.id]));
+          applyOverlapPatch(state, dirty);
         });
       },
 
@@ -89,11 +105,15 @@ export const useMapStore = create<MapStore>()(
         set((state) => {
           if (!state.entities.has(id)) return;
           state.entities.set(id, entity);
+          const dirty = new Set<string>([id]);
           if (topologyAffectingType(entity.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
-            for (const [cid, c] of changes) state.entities.set(cid, c);
+            for (const [cid, c] of changes) {
+              state.entities.set(cid, c);
+              dirty.add(cid);
+            }
           }
-          applyOverlapPatch(state, new Set([id]));
+          applyOverlapPatch(state, dirty);
         });
       },
 
@@ -101,6 +121,25 @@ export const useMapStore = create<MapStore>()(
         const all = get().entities;
         if (!all.has(id)) return;
         const removed = all.get(id);
+
+        // 删除前先用 spatialIndex 收一遍空间邻居 lane —— delete 之后
+        // bboxForEntity 拿不到 removed 的几何，cleanups（cascade-by-ref）
+        // 也只覆盖直接持有 overlapIds 的实体，不覆盖纯几何邻居（例如删
+        // crosswalk 时和它共享一段 lane corridor 但本身没引用它的其它
+        // crosswalk / signal 周围的 lane）.
+        const spatialNeighborLanes = new Set<string>();
+        if (removed) {
+          const bbox = bboxForEntity(removed);
+          if (bbox) {
+            const idx = getSharedSpatialIndex();
+            // 冷启状态（worker 跑完 reset / 测试 reset 之后）先暖一次
+            if (idx.size() === 0) idx.syncFromEntities(all);
+            for (const n of idx.queryBBox(bbox)) {
+              if (n.id !== id && n.entityType === 'lane') spatialNeighborLanes.add(n.id);
+            }
+          }
+        }
+
         const { changes: cleanups, cascadeRemoved } = cascadeDeleteRefsFull(new Set([id]), all);
         set((state) => {
           for (const [cid, entity] of cleanups) {
@@ -108,15 +147,33 @@ export const useMapStore = create<MapStore>()(
           }
           for (const cid of cascadeRemoved) state.entities.delete(cid);
           state.entities.delete(id);
+          const dirty = new Set<string>([...cleanups.keys(), ...spatialNeighborLanes]);
           if (removed && topologyAffectingType(removed.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
-            for (const [cid, c] of changes) state.entities.set(cid, c);
+            for (const [cid, c] of changes) {
+              state.entities.set(cid, c);
+              dirty.add(cid);
+            }
           }
-          // 删除事件下，邻居都需要重算 overlap；用 cleanups 的 ids 作为 dirty 集
-          const dirty = new Set<string>(cleanups.keys());
           applyOverlapPatch(state, dirty);
         });
         if (removed && removed.entityType === 'lane') invalidateLaneCaches([removed.id]);
+      },
+
+      batchImport(entities) {
+        if (entities.length === 0) return;
+        set((state) => {
+          for (const e of entities) state.entities.set(e.id, e);
+          // 一次拓扑重算 → 写回 lane.junctionId / pred / succ
+          const { changes: topoChanges } = reconcileLaneTopology(state.entities);
+          for (const [cid, c] of topoChanges) state.entities.set(cid, c);
+          // 一次 full reconcile —— 替代 N 次 incremental 累加，主线程同步跑.
+          // 5w 量纲下 ~450ms，导入路径用户体验 acceptable；超大图建议 caller
+          // 走 worker 路径（recomputeOverlapsAsync）.
+          const patch = reconcileOverlaps(state.entities, { mode: 'full' });
+          for (const oid of patch.removedOverlapIds) state.entities.delete(oid);
+          for (const [oid, e] of patch.changes) state.entities.set(oid, e);
+        });
       },
 
       reparentEntity(childId, target) {

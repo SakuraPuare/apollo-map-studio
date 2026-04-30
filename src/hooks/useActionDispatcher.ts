@@ -21,7 +21,7 @@ import {
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
-import { pickAndImportApollo, exportApollo } from '@/io/mapIO';
+import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
 
 export interface ActionDispatcher {
   /**
@@ -72,8 +72,11 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
         }
       });
     });
-    map.set('exportApollo', () => {
-      void exportApollo();
+    map.set('exportApolloBin', () => {
+      void exportApolloBin();
+    });
+    map.set('exportApolloText', () => {
+      void exportApolloText();
     });
     map.set('settings', onOpenSettings);
 

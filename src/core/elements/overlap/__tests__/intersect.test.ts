@@ -24,8 +24,8 @@ describe('bboxOfPoints', () => {
     expect(b).toEqual({ minX: -0.5, minY: -0.5, maxX: 1.5, maxY: 1.5 });
   });
 
-  it('returns zero bbox on empty input', () => {
-    expect(bboxOfPoints([])).toEqual({ minX: 0, minY: 0, maxX: 0, maxY: 0 });
+  it('returns null on empty input (no spurious origin bbox)', () => {
+    expect(bboxOfPoints([])).toBeNull();
   });
 });
 

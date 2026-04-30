@@ -5,7 +5,8 @@ export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
 
 export type ActionId =
   | 'importApollo'
-  | 'exportApollo'
+  | 'exportApolloBin'
+  | 'exportApolloText'
   | 'settings'
   | 'undo'
   | 'redo'
