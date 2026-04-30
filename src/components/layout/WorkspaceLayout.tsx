@@ -41,6 +41,11 @@ const LazySettingsPanel = lazy(async () => {
   return { default: module.SettingsPanel };
 });
 
+const LazyProjPickerDialog = lazy(async () => {
+  const module = await import('@/components/dialogs/ProjPickerDialog');
+  return { default: module.ProjPickerDialog };
+});
+
 const LazyEntityForm = lazy(async () => {
   const module = await import('./panels/InspectorForms');
   return { default: module.EntityForm };
@@ -319,6 +324,12 @@ function WorkspaceLayoutInner() {
           <LazySettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </Suspense>
       )}
+
+      {/* PROJ picker — opens automatically when an Apollo map is imported
+          without a Header.projection.proj field. */}
+      <Suspense fallback={null}>
+        <LazyProjPickerDialog />
+      </Suspense>
     </div>
   );
 }

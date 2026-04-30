@@ -53,12 +53,15 @@ export function buildColdLayerFilter(
 ): maplibregl.FilterSpecification {
   const baseFilter = COLD_LAYER_FILTERS[layerId];
   if (!hiddenEntityId) return baseFilter;
-  // maplibre's FilterSpecification is a nested union; the compiler can't
-  // narrow a runtime-composed ['all', X, Y] because X is the full union.
-  // Runtime behavior is correct; this cast pins the return type.
+  // The base filters above use legacy-filter syntax (`['==', '$type', ...]`,
+  // `['has', ...]`). Mixing an expression-style operand (`['get', 'id']`)
+  // inside a legacy `['all', …]` chain trips MapLibre's validator with
+  // `filter[2][1]: string expected, array found`. Stay in legacy syntax —
+  // features are tagged with `properties.id = entity.id` (apolloCompile/
+  // features.ts), so the property-name form works.
   return [
     'all',
     baseFilter,
-    ['!=', ['get', 'id'], hiddenEntityId],
+    ['!=', 'id', hiddenEntityId],
   ] as unknown as maplibregl.FilterSpecification;
 }

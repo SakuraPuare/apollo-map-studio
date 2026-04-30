@@ -9,6 +9,7 @@ import { useOverlayLayer } from '@/hooks/useOverlayLayer';
 import { useColdLayer } from '@/hooks/useColdLayer';
 import { useHotLayer } from '@/hooks/useHotLayer';
 import { useGridLayer } from '@/hooks/useGridLayer';
+import { useApolloLayer } from '@/hooks/useApolloLayer';
 import { useCursorManager } from '@/hooks/useCursorManager';
 import { useDragPan } from '@/hooks/useDragPan';
 
@@ -37,6 +38,7 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
   useColdLayer(mapRef, mapLoadedRef, actorRef, bridgeRef);
   useHotLayer(mapRef, mapLoadedRef, actorRef);
   useGridLayer(mapRef, mapLoadedRef);
+  useApolloLayer(mapRef, mapLoadedRef);
   useCursorManager(mapRef, actorRef);
   useDragPan(mapRef, actorRef);
 

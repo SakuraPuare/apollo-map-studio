@@ -1,0 +1,280 @@
+/**
+ * Convert a decoded Apollo HD-map (with PointENU coordinates already in
+ * WGS84 lon/lat) into MapLibre-ready GeoJSON FeatureCollections — one
+ * per visual category. Pure function, no DOM, no store dependency.
+ *
+ * The output is read-only: the editor's MapEntity store is not touched.
+ * This keeps the round-trip path lossless (re-export uses the original
+ * proto tree) while still letting the canvas show what was imported.
+ */
+
+interface PointLL {
+  x: number;
+  y: number;
+  z?: number;
+}
+
+interface LineSegment {
+  point?: PointLL[];
+}
+
+interface Curve {
+  segment?: Array<{ line_segment?: LineSegment }>;
+}
+
+interface ApolloPolygon {
+  point?: PointLL[];
+}
+
+interface RawId {
+  id?: string;
+}
+
+interface RawLane {
+  id?: RawId;
+  central_curve?: Curve;
+  left_boundary?: { curve?: Curve };
+  right_boundary?: { curve?: Curve };
+  type?: number;
+  turn?: number;
+}
+
+interface RawCrosswalk {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+}
+
+interface RawJunction {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+  type?: number;
+}
+
+interface RawRoad {
+  id?: RawId;
+  section?: Array<{
+    boundary?: {
+      outer_polygon?: {
+        edge?: Array<{ curve?: Curve; type?: number }>;
+      };
+    };
+  }>;
+}
+
+interface RawSignal {
+  id?: RawId;
+  boundary?: ApolloPolygon;
+  stop_line?: Curve[];
+  type?: number;
+}
+
+interface RawStopSign {
+  id?: RawId;
+  stop_line?: Curve[];
+}
+
+interface RawSpeedBump {
+  id?: RawId;
+  position?: Curve[];
+}
+
+interface RawClearArea {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+}
+
+interface RawParkingSpace {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+}
+
+interface RawApolloMap {
+  lane?: RawLane[];
+  crosswalk?: RawCrosswalk[];
+  junction?: RawJunction[];
+  road?: RawRoad[];
+  signal?: RawSignal[];
+  stop_sign?: RawStopSign[];
+  speed_bump?: RawSpeedBump[];
+  clear_area?: RawClearArea[];
+  parking_space?: RawParkingSpace[];
+}
+
+export interface ApolloLayerFeatures {
+  laneCenters: GeoJSON.FeatureCollection;
+  laneBoundaries: GeoJSON.FeatureCollection;
+  roadBoundaries: GeoJSON.FeatureCollection;
+  crosswalks: GeoJSON.FeatureCollection;
+  junctions: GeoJSON.FeatureCollection;
+  signals: GeoJSON.FeatureCollection;
+  stopSigns: GeoJSON.FeatureCollection;
+  clearAreas: GeoJSON.FeatureCollection;
+  parkingSpaces: GeoJSON.FeatureCollection;
+  speedBumps: GeoJSON.FeatureCollection;
+}
+
+const empty = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] });
+
+function pointsFromCurve(curve: Curve | undefined): GeoJSON.Position[] {
+  if (!curve?.segment) return [];
+  const out: GeoJSON.Position[] = [];
+  for (const seg of curve.segment) {
+    const pts = seg.line_segment?.point;
+    if (!pts) continue;
+    for (const p of pts) {
+      if (typeof p.x === 'number' && typeof p.y === 'number') {
+        out.push([p.x, p.y]);
+      }
+    }
+  }
+  return out;
+}
+
+function ringFromPolygon(poly: ApolloPolygon | undefined): GeoJSON.Position[] {
+  if (!poly?.point) return [];
+  const ring: GeoJSON.Position[] = [];
+  for (const p of poly.point) {
+    if (typeof p.x === 'number' && typeof p.y === 'number') ring.push([p.x, p.y]);
+  }
+  // GeoJSON polygons require a closed ring.
+  if (ring.length >= 3) {
+    const first = ring[0]!;
+    const last = ring[ring.length - 1]!;
+    const fx = first[0] as number;
+    const fy = first[1] as number;
+    const lx = last[0] as number;
+    const ly = last[1] as number;
+    if (fx !== lx || fy !== ly) ring.push([fx, fy]);
+  }
+  return ring;
+}
+
+function lineFeature(
+  coords: GeoJSON.Position[],
+  props: Record<string, unknown>,
+): GeoJSON.Feature | null {
+  if (coords.length < 2) return null;
+  return {
+    type: 'Feature',
+    properties: props,
+    geometry: { type: 'LineString', coordinates: coords },
+  };
+}
+
+function polygonFeature(
+  ring: GeoJSON.Position[],
+  props: Record<string, unknown>,
+): GeoJSON.Feature | null {
+  if (ring.length < 4) return null;
+  return {
+    type: 'Feature',
+    properties: props,
+    geometry: { type: 'Polygon', coordinates: [ring] },
+  };
+}
+
+function pointFeature(point: GeoJSON.Position, props: Record<string, unknown>): GeoJSON.Feature {
+  return {
+    type: 'Feature',
+    properties: props,
+    geometry: { type: 'Point', coordinates: point },
+  };
+}
+
+function centroid(ring: GeoJSON.Position[]): GeoJSON.Position | null {
+  if (ring.length === 0) return null;
+  let sx = 0;
+  let sy = 0;
+  for (const pos of ring) {
+    const x = pos[0] as number | undefined;
+    const y = pos[1] as number | undefined;
+    if (typeof x !== 'number' || typeof y !== 'number') continue;
+    sx += x;
+    sy += y;
+  }
+  return [sx / ring.length, sy / ring.length];
+}
+
+/**
+ * NOTE: as of the entityBridge sprint, every supported Apollo entity
+ * type is lifted into mapStore as a MapEntity and rendered by the cold
+ * layer. This builder now only returns visualizations for raw map fields
+ * that are NOT yet bridged (currently: nothing). It is kept so that any
+ * future Apollo proto field we pick up before writing a bridge can be
+ * surfaced visually with one extra branch here, no UI rewrite required.
+ */
+export function buildApolloLayerFeatures(_map: RawApolloMap): ApolloLayerFeatures {
+  const out: ApolloLayerFeatures = {
+    laneCenters: empty(),
+    laneBoundaries: empty(),
+    roadBoundaries: empty(),
+    crosswalks: empty(),
+    junctions: empty(),
+    signals: empty(),
+    stopSigns: empty(),
+    clearAreas: empty(),
+    parkingSpaces: empty(),
+    speedBumps: empty(),
+  };
+
+  // All Apollo entity types are bridged into mapStore as MapEntity records
+  // and drawn by the cold layer. Nothing remaining for the viewer layer.
+  return out;
+}
+
+/**
+ * Walk every point reachable from a raw Apollo Map (lane curves, polygons,
+ * road boundaries, signal stop lines, etc.) and return the WGS84 bounding
+ * box. Used by ApolloLayer / mapIO to auto-fit the viewport on import,
+ * even though the actual rendering goes through the cold layer.
+ */
+export function computeApolloMapBounds(
+  map: RawApolloMap,
+): [[number, number], [number, number]] | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const visit = (p: PointLL | undefined) => {
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  };
+  const visitCurve = (c: Curve | undefined) => {
+    for (const seg of c?.segment ?? []) {
+      for (const pt of seg.line_segment?.point ?? []) visit(pt);
+    }
+  };
+  const visitPolygon = (p: ApolloPolygon | undefined) => {
+    for (const pt of p?.point ?? []) visit(pt);
+  };
+
+  for (const lane of map.lane ?? []) {
+    visitCurve(lane.central_curve);
+    visitCurve(lane.left_boundary?.curve);
+    visitCurve(lane.right_boundary?.curve);
+  }
+  for (const cw of map.crosswalk ?? []) visitPolygon(cw.polygon);
+  for (const j of map.junction ?? []) visitPolygon(j.polygon);
+  for (const ca of map.clear_area ?? []) visitPolygon(ca.polygon);
+  for (const ps of map.parking_space ?? []) visitPolygon(ps.polygon);
+  for (const r of map.road ?? []) {
+    for (const sec of r.section ?? []) {
+      for (const e of sec.boundary?.outer_polygon?.edge ?? []) visitCurve(e.curve);
+    }
+  }
+  for (const sig of map.signal ?? []) {
+    visitPolygon(sig.boundary);
+    for (const sl of sig.stop_line ?? []) visitCurve(sl);
+  }
+  for (const ss of map.stop_sign ?? []) for (const sl of ss.stop_line ?? []) visitCurve(sl);
+  for (const sb of map.speed_bump ?? []) for (const c of sb.position ?? []) visitCurve(c);
+
+  if (!Number.isFinite(minX)) return null;
+  return [
+    [minX, minY],
+    [maxX, maxY],
+  ];
+}

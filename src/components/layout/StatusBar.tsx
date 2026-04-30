@@ -1,5 +1,6 @@
-import { FaMapPin, FaMagnifyingGlassPlus, FaTableCells, FaMagnet } from 'react-icons/fa6';
+import { FaMapPin, FaMagnifyingGlassPlus, FaTableCells, FaMagnet, FaMap } from 'react-icons/fa6';
 import { useUIStore } from '@/store/uiStore';
+import { useApolloMapStore } from '@/store/apolloMapStore';
 
 interface StatusBarProps {
   mode?: string;
@@ -24,6 +25,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const appMode = useUIStore((s) => s.appMode);
+  const apolloInfo = useApolloMapStore((s) => s.info);
 
   const modeLabel = MODE_LABELS[mode] || mode;
   const isDrawing = mode.startsWith('draw');
@@ -59,6 +61,20 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
           <span className="text-ams-text-disabled">Entities:</span>
           <span className="font-mono text-ams-text-secondary">{entityCount}</span>
         </div>
+
+        {/* Apollo map indicator (visible only after Import) */}
+        {apolloInfo && (
+          <>
+            <div className="w-px h-3 bg-ams-border-strong" />
+            <div className="flex items-center gap-1.5" title={`PROJ: ${apolloInfo.projString}`}>
+              <FaMap className="w-3 h-3 text-ams-accent" />
+              <span className="text-ams-text-secondary">{apolloInfo.filename}</span>
+              <span className="text-ams-text-disabled font-mono">
+                lane={apolloInfo.counts.lane ?? 0} road={apolloInfo.counts.road ?? 0}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex-1" />
