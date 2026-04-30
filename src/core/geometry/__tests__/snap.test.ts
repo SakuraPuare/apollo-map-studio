@@ -85,15 +85,22 @@ describe('pixelsToMeters', () => {
 });
 
 describe('collectCandidates', () => {
-  it('emits one vertex per polyline point and N-1 edges', () => {
+  it('emits ONLY lane endpoints (not interior vertices), with role tags', () => {
+    // Topology contract: only lane start/end can become predecessor /
+    // successor. Interior vertex snapping would create coincident
+    // geometry without a topological link, so we exclude it from
+    // vertex candidates. Edge segments still cover the full polyline
+    // (mid-lane proximity → 'edge' snap, not endpoint snap).
     const lane = laneAt('lane-1', [
       [ORIGIN_LNG, ORIGIN_LAT],
-      [ORIGIN_LNG + 0.0001, ORIGIN_LAT],
+      [ORIGIN_LNG + 0.0001, ORIGIN_LAT], // interior vertex
       [ORIGIN_LNG + 0.0002, ORIGIN_LAT],
     ]);
     const { vertices, edges } = collectCandidates([lane], null);
-    expect(vertices).toHaveLength(3);
-    expect(edges).toHaveLength(2);
+    expect(vertices).toHaveLength(2);
+    expect(vertices[0]!.endpointRole).toBe('start');
+    expect(vertices[1]!.endpointRole).toBe('end');
+    expect(edges).toHaveLength(2); // segments preserved for edge snapping
   });
 
   it('closes polygon edges (wraps last → first)', () => {
@@ -212,6 +219,81 @@ describe('findSnapTarget', () => {
       null,
     );
     expect(target!.entityId).toBe('lane-near');
+  });
+
+  it('endpointRole propagates: snap to lane start tags "start"', () => {
+    const lane = laneAt('lane-1', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + 0.001, ORIGIN_LAT],
+    ]);
+    const target = findSnapTarget({ x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT }, [lane], 12, null);
+    expect(target!.kind).toBe('vertex');
+    expect(target!.endpointRole).toBe('start');
+  });
+
+  it('endpointRole "end" when snapping to the lane terminus', () => {
+    const lane = laneAt('lane-1', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + FIVE_M_LNG * 10, ORIGIN_LAT],
+    ]);
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG * 10, y: ORIGIN_LAT },
+      [lane],
+      12,
+      null,
+    );
+    expect(target!.kind).toBe('vertex');
+    expect(target!.endpointRole).toBe('end');
+  });
+
+  it('cursor near a lane interior vertex falls through to "edge" snap (no endpointRole)', () => {
+    // 3-point lane with an interior vertex at the midpoint. Cursor sits
+    // exactly on the interior vertex. With endpoints-only candidates,
+    // this should be classified as an edge snap instead of vertex.
+    const lane = laneAt('lane-1', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + FIVE_M_LNG * 5, ORIGIN_LAT],
+      [ORIGIN_LNG + FIVE_M_LNG * 10, ORIGIN_LAT],
+    ]);
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG * 5, y: ORIGIN_LAT },
+      [lane],
+      12,
+      null,
+    );
+    expect(target!.kind).toBe('edge');
+    expect(target!.endpointRole).toBeUndefined();
+  });
+
+  it('polygon vertex snap has no endpointRole (lane-only concept)', () => {
+    const j: {
+      id: string;
+      entityType: 'junction';
+      polygon: { points: { x: number; y: number }[] };
+      type: 'CROSS_ROAD';
+      overlapIds: string[];
+    } = {
+      id: 'j-1',
+      entityType: 'junction',
+      polygon: {
+        points: [
+          { x: ORIGIN_LNG, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+        ],
+      },
+      type: 'CROSS_ROAD',
+      overlapIds: [],
+    };
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT },
+      [j as unknown as MapEntity],
+      12,
+      null,
+    );
+    expect(target!.kind).toBe('vertex');
+    expect(target!.entityType).toBe('junction');
+    expect(target!.endpointRole).toBeUndefined();
   });
 });
 

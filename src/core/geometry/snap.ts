@@ -18,6 +18,7 @@ import type { MapEntity } from '@/types/entities';
 import type {
   LaneEntity,
   JunctionEntity,
+  PNCJunctionEntity,
   ParkingSpaceEntity,
   CrosswalkEntity,
   SignalEntity,
@@ -30,6 +31,14 @@ const DEG_TO_M = 111320;
 
 export type SnapKind = 'vertex' | 'edge';
 
+/**
+ * For lane vertex hits, role within the centerline polyline. This is
+ * what `reconcileLaneTopology` keys off when deriving predecessor /
+ * successor — only START / END snaps establish topology; INTERIOR
+ * snaps would create coincident geometry without a topological link.
+ */
+export type LaneEndpointRole = 'start' | 'end';
+
 export interface SnapTarget {
   kind: SnapKind;
   /** Snapped position (lng/lat) */
@@ -39,6 +48,13 @@ export interface SnapTarget {
   entityType: string;
   /** For vertex hits: index within the source list (debug / future use) */
   vertexIndex?: number;
+  /**
+   * For lane vertex hits, which centerline endpoint this is. Drives the
+   * pred/succ decision: snapping the new lane's start to an existing
+   * lane's end means "existing → new" (existing.successor += new),
+   * snapping to an existing lane's start means "fork" (no pred/succ).
+   */
+  endpointRole?: LaneEndpointRole;
 }
 
 interface VertexCandidate {
@@ -46,6 +62,7 @@ interface VertexCandidate {
   entityId: string;
   entityType: string;
   vertexIndex: number;
+  endpointRole?: LaneEndpointRole;
 }
 
 interface EdgeCandidate {
@@ -82,8 +99,8 @@ function pushPolylineVertices(
   entityType: string,
 ): void {
   if (pts.length === 0) return;
-  // Endpoints first (highest snap value for connecting lanes); but also
-  // include all interior vertices so mid-curve insertion can latch on.
+  // For non-lane polylines, expose every interior vertex (mid-curve
+  // insertion is useful for things like rough trace alignment).
   for (let i = 0; i < pts.length; i++) {
     out.push({ point: pts[i]!, entityId, entityType, vertexIndex: i });
   }
@@ -120,6 +137,51 @@ function laneCenterPoints(lane: LaneEntity): GeoPoint[] {
 }
 
 /**
+ * Lane snap candidates — endpoints only, tagged with role.
+ *
+ * Why endpoints-only:
+ *   Lanes have direction. Topology (predecessor / successor) is only
+ *   meaningful at the centerline endpoints. If we let the cursor snap
+ *   to an interior vertex of an existing lane, the resulting coincident
+ *   geometry would not produce any pred/succ link (reconcile only keys
+ *   off start/end), leaving the user with what looks like a connection
+ *   but acts like a stray point. Restricting candidates to endpoints
+ *   prevents that footgun.
+ *
+ * Mid-lane edge snap is still available via the edge pass (rendering
+ * the cursor onto the lane's shape without claiming a connection).
+ */
+function pushLaneEndpointVertices(
+  out: VertexCandidate[],
+  edges: EdgeCandidate[],
+  pts: GeoPoint[],
+  entityId: string,
+): void {
+  if (pts.length === 0) return;
+  out.push({
+    point: pts[0]!,
+    entityId,
+    entityType: 'lane',
+    vertexIndex: 0,
+    endpointRole: 'start',
+  });
+  if (pts.length > 1) {
+    out.push({
+      point: pts[pts.length - 1]!,
+      entityId,
+      entityType: 'lane',
+      vertexIndex: pts.length - 1,
+      endpointRole: 'end',
+    });
+  }
+  // Edge segments still cover the whole polyline so mid-lane proximity
+  // can produce an 'edge' snap (not an endpoint snap).
+  for (let i = 0; i < pts.length - 1; i++) {
+    edges.push({ a: pts[i]!, b: pts[i + 1]!, entityId, entityType: 'lane' });
+  }
+}
+
+/**
  * Collect snap candidates from every entity.
  *
  * `excludeId` is the actively-edited entity (we don't want to snap onto
@@ -137,11 +199,16 @@ export function collectCandidates(
     switch (e.entityType) {
       case 'lane': {
         const pts = laneCenterPoints(e as LaneEntity);
-        pushPolylineVertices(vertices, edges, pts, e.id, e.entityType);
+        pushLaneEndpointVertices(vertices, edges, pts, e.id);
         break;
       }
       case 'junction': {
         const pts = (e as JunctionEntity).polygon.points;
+        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
+        break;
+      }
+      case 'pncJunction': {
+        const pts = (e as PNCJunctionEntity).polygon.points;
         pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
         break;
       }
@@ -277,6 +344,7 @@ export function findSnapTarget(
       entityId: bestVertex.cand.entityId,
       entityType: bestVertex.cand.entityType,
       vertexIndex: bestVertex.cand.vertexIndex,
+      ...(bestVertex.cand.endpointRole ? { endpointRole: bestVertex.cand.endpointRole } : {}),
     };
   }
 
