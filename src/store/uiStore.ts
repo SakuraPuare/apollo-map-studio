@@ -88,10 +88,21 @@ interface UIActions {
 
 type UIStore = UIState & UIActions;
 
+const DEFAULT_LAYER_STATE: LayerState = { visible: true, locked: false };
+
 // Initialize all entity types as visible and unlocked
 const defaultLayerStates: Record<string, LayerState> = {};
 for (const type of ENTITY_TYPES) {
-  defaultLayerStates[type] = { visible: true, locked: false };
+  defaultLayerStates[type] = { ...DEFAULT_LAYER_STATE };
+}
+
+function patchLayer(
+  layerStates: Record<string, LayerState>,
+  type: string,
+  patch: Partial<LayerState>,
+): Record<string, LayerState> {
+  const cur = layerStates[type] ?? DEFAULT_LAYER_STATE;
+  return { ...layerStates, [type]: { ...cur, ...patch } };
 }
 
 export const useUIStore = create<UIStore>()((set, get) => ({
@@ -120,43 +131,23 @@ export const useUIStore = create<UIStore>()((set, get) => ({
   },
 
   setLayerVisible(type, visible) {
-    set((s) => ({
-      layerStates: {
-        ...s.layerStates,
-        [type]: { ...(s.layerStates[type] || { visible: true, locked: false }), visible },
-      },
-    }));
+    set((s) => ({ layerStates: patchLayer(s.layerStates, type, { visible }) }));
   },
   setLayerLocked(type, locked) {
-    set((s) => ({
-      layerStates: {
-        ...s.layerStates,
-        [type]: { ...(s.layerStates[type] || { visible: true, locked: false }), locked },
-      },
-    }));
+    set((s) => ({ layerStates: patchLayer(s.layerStates, type, { locked }) }));
   },
   toggleLayerVisible(type) {
-    const current = get().layerStates[type];
     set((s) => ({
-      layerStates: {
-        ...s.layerStates,
-        [type]: {
-          ...(current || { visible: true, locked: false }),
-          visible: !(current?.visible ?? true),
-        },
-      },
+      layerStates: patchLayer(s.layerStates, type, {
+        visible: !(s.layerStates[type]?.visible ?? true),
+      }),
     }));
   },
   toggleLayerLocked(type) {
-    const current = get().layerStates[type];
     set((s) => ({
-      layerStates: {
-        ...s.layerStates,
-        [type]: {
-          ...(current || { visible: true, locked: false }),
-          locked: !(current?.locked ?? false),
-        },
-      },
+      layerStates: patchLayer(s.layerStates, type, {
+        locked: !(s.layerStates[type]?.locked ?? false),
+      }),
     }));
   },
   isLayerVisible(type) {

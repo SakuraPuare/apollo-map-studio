@@ -82,27 +82,119 @@ interface RawApolloMap {
   barrier_gate?: RawBarrierGate[];
 }
 
+type EntityType = MapEntity['entityType'];
+
 function pushIfNotNull<T>(arr: T[], v: T | null) {
   if (v !== null) arr.push(v);
 }
 
+/**
+ * Bidirectional bridge between Apollo proto fields and MapEntity types.
+ * Order here defines emit order in `apolloMapToEntities` — must stay stable
+ * (downstream consumers rely on it for deterministic snapshots).
+ *
+ * Functions are typed against `unknown`/`MapEntity` here because TypeScript
+ * cannot keep per-row Raw/Entity generics aligned across a heterogeneous
+ * tuple; each row's `fromProto` / `toProto` are pre-narrowed by sibling
+ * modules and the runtime dispatch in `entitiesToApolloMap` only feeds each
+ * `toProto` entities of the matching `entityType`.
+ */
+interface BridgeRule {
+  /** Proto field name on the raw Apollo map. */
+  field: keyof RawApolloMap;
+  /** MapEntity discriminator that routes back to this rule on serialize. */
+  entityType: EntityType;
+  fromProto: (raw: unknown) => MapEntity | null;
+  toProto: (entity: MapEntity) => unknown;
+}
+
+// Helper to register a typed pair without losing call-site type checking on
+// the Raw/Entity functions; the cast happens once here, not at every row.
+function rule<RawT, EntityT extends MapEntity>(
+  field: keyof RawApolloMap,
+  entityType: EntityT['entityType'],
+  fromProto: (raw: RawT) => EntityT | null,
+  toProto: (entity: EntityT) => unknown,
+): BridgeRule {
+  return {
+    field,
+    entityType,
+    fromProto: fromProto as (raw: unknown) => MapEntity | null,
+    toProto: toProto as (entity: MapEntity) => unknown,
+  };
+}
+
+const BRIDGES: readonly BridgeRule[] = [
+  rule<RawCrosswalk, CrosswalkEntity>(
+    'crosswalk',
+    'crosswalk',
+    rawCrosswalkToEntity,
+    entityToRawCrosswalk,
+  ),
+  rule<RawJunction, JunctionEntity>(
+    'junction',
+    'junction',
+    rawJunctionToEntity,
+    entityToRawJunction,
+  ),
+  rule<RawLane, LaneEntity>('lane', 'lane', rawLaneToEntity, entityToRawLane),
+  rule<RawStopSign, StopSignEntity>(
+    'stop_sign',
+    'stopSign',
+    rawStopSignToEntity,
+    entityToRawStopSign,
+  ),
+  rule<RawSignal, SignalEntity>('signal', 'signal', rawSignalToEntity, entityToRawSignal),
+  rule<RawYieldSign, YieldSignEntity>(
+    'yield',
+    'yieldSign',
+    rawYieldSignToEntity,
+    entityToRawYieldSign,
+  ),
+  rule<RawOverlap, OverlapEntity>('overlap', 'overlap', rawOverlapToEntity, entityToRawOverlap),
+  rule<RawClearArea, ClearAreaEntity>(
+    'clear_area',
+    'clearArea',
+    rawClearAreaToEntity,
+    entityToRawClearArea,
+  ),
+  rule<RawSpeedBump, SpeedBumpEntity>(
+    'speed_bump',
+    'speedBump',
+    rawSpeedBumpToEntity,
+    entityToRawSpeedBump,
+  ),
+  rule<RawRoad, RoadEntity>('road', 'road', rawRoadToEntity, entityToRawRoad),
+  rule<RawParkingSpace, ParkingSpaceEntity>(
+    'parking_space',
+    'parkingSpace',
+    rawParkingSpaceToEntity,
+    entityToRawParkingSpace,
+  ),
+  rule<RawPNCJunction, PNCJunctionEntity>(
+    'pnc_junction',
+    'pncJunction',
+    rawPNCJunctionToEntity,
+    entityToRawPNCJunction,
+  ),
+  rule<RawRSU, RSUEntity>('rsu', 'rsu', rawRSUToEntity, entityToRawRSU),
+  rule<RawArea, AreaEntity>('ad_area', 'area', rawAreaToEntity, entityToRawArea),
+  rule<RawBarrierGate, BarrierGateEntity>(
+    'barrier_gate',
+    'barrierGate',
+    rawBarrierGateToEntity,
+    entityToRawBarrierGate,
+  ),
+];
+
 export function apolloMapToEntities(map: RawApolloMap): MapEntity[] {
   const out: MapEntity[] = [];
-  for (const x of map.crosswalk ?? []) pushIfNotNull(out, rawCrosswalkToEntity(x));
-  for (const x of map.junction ?? []) pushIfNotNull(out, rawJunctionToEntity(x));
-  for (const x of map.lane ?? []) pushIfNotNull(out, rawLaneToEntity(x));
-  for (const x of map.stop_sign ?? []) pushIfNotNull(out, rawStopSignToEntity(x));
-  for (const x of map.signal ?? []) pushIfNotNull(out, rawSignalToEntity(x));
-  for (const x of map.yield ?? []) pushIfNotNull(out, rawYieldSignToEntity(x));
-  for (const x of map.overlap ?? []) pushIfNotNull(out, rawOverlapToEntity(x));
-  for (const x of map.clear_area ?? []) pushIfNotNull(out, rawClearAreaToEntity(x));
-  for (const x of map.speed_bump ?? []) pushIfNotNull(out, rawSpeedBumpToEntity(x));
-  for (const x of map.road ?? []) pushIfNotNull(out, rawRoadToEntity(x));
-  for (const x of map.parking_space ?? []) pushIfNotNull(out, rawParkingSpaceToEntity(x));
-  for (const x of map.pnc_junction ?? []) pushIfNotNull(out, rawPNCJunctionToEntity(x));
-  for (const x of map.rsu ?? []) pushIfNotNull(out, rawRSUToEntity(x));
-  for (const x of map.ad_area ?? []) pushIfNotNull(out, rawAreaToEntity(x));
-  for (const x of map.barrier_gate ?? []) pushIfNotNull(out, rawBarrierGateToEntity(x));
+  for (const bridge of BRIDGES) {
+    const items = (map[bridge.field] ?? []) as unknown[];
+    for (const raw of items) {
+      pushIfNotNull(out, bridge.fromProto(raw));
+    }
+  }
   return out;
 }
 
@@ -112,107 +204,21 @@ export function entitiesToApolloMap(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...baseMap };
 
-  const buckets: {
-    crosswalk: CrosswalkEntity[];
-    junction: JunctionEntity[];
-    lane: LaneEntity[];
-    stop_sign: StopSignEntity[];
-    signal: SignalEntity[];
-    yield: YieldSignEntity[];
-    overlap: OverlapEntity[];
-    clear_area: ClearAreaEntity[];
-    speed_bump: SpeedBumpEntity[];
-    road: RoadEntity[];
-    parking_space: ParkingSpaceEntity[];
-    pnc_junction: PNCJunctionEntity[];
-    rsu: RSUEntity[];
-    ad_area: AreaEntity[];
-    barrier_gate: BarrierGateEntity[];
-  } = {
-    crosswalk: [],
-    junction: [],
-    lane: [],
-    stop_sign: [],
-    signal: [],
-    yield: [],
-    overlap: [],
-    clear_area: [],
-    speed_bump: [],
-    road: [],
-    parking_space: [],
-    pnc_junction: [],
-    rsu: [],
-    ad_area: [],
-    barrier_gate: [],
-  };
-
-  for (const e of entities) {
-    switch (e.entityType) {
-      case 'crosswalk':
-        buckets.crosswalk.push(e);
-        break;
-      case 'junction':
-        buckets.junction.push(e);
-        break;
-      case 'lane':
-        buckets.lane.push(e);
-        break;
-      case 'stopSign':
-        buckets.stop_sign.push(e);
-        break;
-      case 'signal':
-        buckets.signal.push(e);
-        break;
-      case 'yieldSign':
-        buckets.yield.push(e);
-        break;
-      case 'overlap':
-        buckets.overlap.push(e);
-        break;
-      case 'clearArea':
-        buckets.clear_area.push(e);
-        break;
-      case 'speedBump':
-        buckets.speed_bump.push(e);
-        break;
-      case 'road':
-        buckets.road.push(e);
-        break;
-      case 'parkingSpace':
-        buckets.parking_space.push(e);
-        break;
-      case 'pncJunction':
-        buckets.pnc_junction.push(e);
-        break;
-      case 'rsu':
-        buckets.rsu.push(e);
-        break;
-      case 'area':
-        buckets.ad_area.push(e);
-        break;
-      case 'barrierGate':
-        buckets.barrier_gate.push(e);
-        break;
-      default:
-        break;
-    }
+  // Pre-seed one bucket per bridge so empty entity types still emit `[]`
+  // (matches the prior explicit-assignment behaviour).
+  const buckets = new Map<EntityType, MapEntity[]>();
+  for (const bridge of BRIDGES) {
+    buckets.set(bridge.entityType, []);
   }
 
-  out.crosswalk = buckets.crosswalk.map(entityToRawCrosswalk);
-  out.junction = buckets.junction.map(entityToRawJunction);
-  out.lane = buckets.lane.map(entityToRawLane);
-  out.stop_sign = buckets.stop_sign.map(entityToRawStopSign);
-  out.signal = buckets.signal.map(entityToRawSignal);
-  out.yield = buckets.yield.map(entityToRawYieldSign);
-  out.overlap = buckets.overlap.map(entityToRawOverlap);
-  out.clear_area = buckets.clear_area.map(entityToRawClearArea);
-  out.speed_bump = buckets.speed_bump.map(entityToRawSpeedBump);
-  out.road = buckets.road.map(entityToRawRoad);
-  out.parking_space = buckets.parking_space.map(entityToRawParkingSpace);
-  out.pnc_junction = buckets.pnc_junction.map(entityToRawPNCJunction);
-  out.rsu = buckets.rsu.map(entityToRawRSU);
-  out.ad_area = buckets.ad_area.map(entityToRawArea);
-  out.barrier_gate = buckets.barrier_gate.map(entityToRawBarrierGate);
+  for (const e of entities) {
+    buckets.get(e.entityType)?.push(e);
+  }
+
+  for (const bridge of BRIDGES) {
+    const bucket = buckets.get(bridge.entityType) ?? [];
+    out[bridge.field] = bucket.map(bridge.toProto);
+  }
 
   return out;
 }

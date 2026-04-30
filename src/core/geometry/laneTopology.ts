@@ -164,15 +164,191 @@ export interface LaneTopologyDiff {
   changes: Map<string, LaneEntity>;
 }
 
+interface NeighborBuckets {
+  lF: string[];
+  rF: string[];
+  lR: string[];
+  rR: string[];
+}
+
+/** pred/succ：端点 1cm 精度共享坐标的 lane（排除自身）。 */
+function derivePredSucc(
+  lane: LaneEntity,
+  s: GeoPoint,
+  t: GeoPoint,
+  startsByKey: ReadonlyMap<string, Endpoint[]>,
+  endsByKey: ReadonlyMap<string, Endpoint[]>,
+): { pred: string[]; succ: string[] } {
+  const predHits = (endsByKey.get(endpointKey(s.x, s.y)) ?? []).filter(
+    (ep) => ep.laneId !== lane.id,
+  );
+  const succHits = (startsByKey.get(endpointKey(t.x, t.y)) ?? []).filter(
+    (ep) => ep.laneId !== lane.id,
+  );
+  return {
+    pred: Array.from(new Set(predHits.map((ep) => ep.laneId))),
+    succ: Array.from(new Set(succHits.map((ep) => ep.laneId))),
+  };
+}
+
+/** selfReverse：B 是 A 的反向孪生 ⇔ B.end == A.start 且 B.start == A.end。 */
+function deriveSelfReverse(
+  lane: LaneEntity,
+  s: GeoPoint,
+  t: GeoPoint,
+  endsByKey: ReadonlyMap<string, Endpoint[]>,
+  lanesById: ReadonlyMap<string, LaneEntity>,
+): string[] {
+  const sKey = endpointKey(s.x, s.y);
+  const tKey = endpointKey(t.x, t.y);
+  const reverseCandidates = (endsByKey.get(sKey) ?? []).filter((ep) => ep.laneId !== lane.id);
+  return Array.from(
+    new Set(
+      reverseCandidates
+        .filter((ep) => {
+          const other = lanesById.get(ep.laneId);
+          if (!other) return false;
+          const os = laneStart(other);
+          return !!os && endpointKey(os.x, os.y) === tKey;
+        })
+        .map((ep) => ep.laneId),
+    ),
+  );
+}
+
 /**
- * 扫描所有 lane + junction，从几何上重算所有 lane 的拓扑字段：
- * predecessor / successor / selfReverse / junctionId / 4 个 neighbor 数组。
- *
- * 不修改：overlapIds（语义是冲突区域，由专门的 overlap 抓手维护）、
- *        leftSamples/rightSamples 等纯几何派生字段（由 derive 引擎管）。
+ * lane 中心线与 junction.polygon 几何相交（端点在内 OR 任一段穿越边）→
+ * 视为属于该 junction。与 overlap pipeline 的判定对齐，避免 lane.junctionId
+ * 与自动派生的 OverlapEntity{lane,junction} 拓扑自相矛盾。
  */
-export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff {
-  // 1. 收集 lane / junction，并算每条 lane 的局部 frame。
+function deriveJunctionId(
+  lane: LaneEntity,
+  junctionPolygons: readonly { id: string; polygon: [number, number][] }[],
+): string | null {
+  const centralPts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const centralLine: [number, number][] = centralPts.map((p) => [p.x, p.y]);
+  for (const j of junctionPolygons) {
+    if (j.polygon.length < 3) continue;
+    if (polylineHitsPolygon(centralLine, j.polygon)) return j.id;
+  }
+  return null;
+}
+
+/** A lane 在自己的局部 frame 下，分类 neighbor 用到的全部派生量。 */
+interface NeighborFrame {
+  /** A 起点 lng/lat（用于把 B 的端点投到 A 的局部空间） */
+  s: GeoPoint;
+  frame: LocalFrame;
+  /** A 在自己 frame 下的纵向长度 */
+  aLen: number;
+  /** A 的左法向 = (-uy, ux) */
+  lxA: number;
+  lyA: number;
+}
+
+/**
+ * 对单条 other lane 在 A 的局部 frame 下做 (forward, left) 分类。
+ * 返回 null 表示不构成 neighbor（方向不平行 / 重叠不足 / 横向超界）。
+ */
+function classifyNeighbor(
+  ctx: NeighborFrame,
+  other: LaneEntity,
+): { isForward: boolean; isLeft: boolean } | null {
+  const { s, frame, aLen, lxA, lyA } = ctx;
+  const oStart = laneStart(other)!;
+  const oEnd = laneEnd(other)!;
+  const oStartLocal = projectInto(s.x, s.y, oStart);
+  const oEndLocal = projectInto(s.x, s.y, oEnd);
+
+  // 1. 方向：B 在 A 局部 frame 下的方向单位向量。
+  const dx = oEndLocal.x - oStartLocal.x;
+  const dy = oEndLocal.y - oStartLocal.y;
+  const bLen = Math.hypot(dx, dy);
+  if (bLen < 1e-3) return null;
+  const cosTheta = (dx / bLen) * frame.ux + (dy / bLen) * frame.uy;
+
+  let isForward: boolean;
+  if (cosTheta > PARALLEL_DOT_THRESHOLD) isForward = true;
+  else if (cosTheta < -PARALLEL_DOT_THRESHOLD) isForward = false;
+  else return null;
+
+  // 2. 纵向重叠：把 B 的两个端点在 A 的纵向轴上的投影组成区间，
+  //    要求与 A 的 [0, aLen] 区间重叠至少 50%（按短的那条算）。
+  //    这一抓手取代旧版"端点必须紧对齐"，对齐手绘场景的颗粒度。
+  const oStartLon = oStartLocal.x * frame.ux + oStartLocal.y * frame.uy;
+  const oEndLon = oEndLocal.x * frame.ux + oEndLocal.y * frame.uy;
+  const bLonMin = Math.min(oStartLon, oEndLon);
+  const bLonMax = Math.max(oStartLon, oEndLon);
+  const overlap = Math.max(0, Math.min(aLen, bLonMax) - Math.max(0, bLonMin));
+  const minLen = Math.min(aLen, bLonMax - bLonMin);
+  if (minLen < 1e-3 || overlap < NEIGHBOR_MIN_OVERLAP_RATIO * minLen) return null;
+
+  // 3. 横向：B 中点在 A 局部 frame 的横向偏移决定相邻性 + 左右。
+  const midBX = (oStartLocal.x + oEndLocal.x) / 2;
+  const midBY = (oStartLocal.y + oEndLocal.y) / 2;
+  const latMid = midBX * lxA + midBY * lyA;
+  const absLat = Math.abs(latMid);
+  if (absLat < NEIGHBOR_MIN_LATERAL_M || absLat > NEIGHBOR_MAX_LATERAL_M) return null;
+
+  // 左法向上为正 → B 在 A 左侧。
+  return { isForward, isLeft: latMid > 0 };
+}
+
+/** ── neighbors (fwd/rev × L/R) ── */
+function deriveNeighbors(
+  lane: LaneEntity,
+  s: GeoPoint,
+  frameA: LocalFrame,
+  lanes: readonly LaneEntity[],
+  frames: ReadonlyMap<string, LocalFrame>,
+): NeighborBuckets {
+  const lF: string[] = [];
+  const rF: string[] = [];
+  const lR: string[] = [];
+  const rR: string[] = [];
+
+  // A 的左法向 = (-uy, ux)（A 朝 +ux 方向，左侧法向 +y）
+  const ctx: NeighborFrame = {
+    s,
+    frame: frameA,
+    aLen: Math.hypot(frameA.ex, frameA.ey),
+    lxA: -frameA.uy,
+    lyA: frameA.ux,
+  };
+
+  for (const other of lanes) {
+    if (other.id === lane.id) continue;
+    if (!frames.has(other.id)) continue;
+    const cls = classifyNeighbor(ctx, other);
+    if (!cls) continue;
+    if (cls.isForward) {
+      if (cls.isLeft) lF.push(other.id);
+      else rF.push(other.id);
+    } else {
+      if (cls.isLeft) lR.push(other.id);
+      else rR.push(other.id);
+    }
+  }
+
+  return {
+    lF: Array.from(new Set(lF)),
+    rF: Array.from(new Set(rF)),
+    lR: Array.from(new Set(lR)),
+    rR: Array.from(new Set(rR)),
+  };
+}
+
+interface TopologyIndices {
+  lanes: LaneEntity[];
+  frames: Map<string, LocalFrame>;
+  startsByKey: Map<string, Endpoint[]>;
+  endsByKey: Map<string, Endpoint[]>;
+  junctionPolygons: { id: string; polygon: [number, number][] }[];
+  lanesById: Map<string, LaneEntity>;
+}
+
+/** 1+2 阶段：收集 lane / junction、构 frame、端点倒排索引、junction polygon。 */
+function buildTopologyIndices(entities: ReadonlyMap<string, MapEntity>): TopologyIndices {
   const lanes: LaneEntity[] = [];
   const frames = new Map<string, LocalFrame>();
   const startEndpoints: Endpoint[] = [];
@@ -196,7 +372,7 @@ export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>):
     if (frame) frames.set(lane.id, frame);
   }
 
-  // 2. 端点 → lane 倒排索引，给 pred/succ 和 selfReverse 用。
+  // 端点 → lane 倒排索引，给 pred/succ 和 selfReverse 用。
   const startsByKey = new Map<string, Endpoint[]>();
   const endsByKey = new Map<string, Endpoint[]>();
   for (const ep of startEndpoints) {
@@ -221,120 +397,36 @@ export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>):
   const lanesById = new Map<string, LaneEntity>();
   for (const lane of lanes) lanesById.set(lane.id, lane);
 
+  return { lanes, frames, startsByKey, endsByKey, junctionPolygons, lanesById };
+}
+
+/**
+ * 扫描所有 lane + junction，从几何上重算所有 lane 的拓扑字段：
+ * predecessor / successor / selfReverse / junctionId / 4 个 neighbor 数组。
+ *
+ * 不修改：overlapIds（语义是冲突区域，由专门的 overlap 抓手维护）、
+ *        leftSamples/rightSamples 等纯几何派生字段（由 derive 引擎管）。
+ */
+export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff {
+  // 1+2. 收集 lane / junction、构 frame、倒排索引。
+  const { lanes, frames, startsByKey, endsByKey, junctionPolygons, lanesById } =
+    buildTopologyIndices(entities);
+
   // 3. 对每条 lane 推导所有拓扑字段。
   const changes = new Map<string, LaneEntity>();
   for (const lane of lanes) {
     const s = laneStart(lane)!;
     const t = laneEnd(lane)!;
 
-    // ── pred/succ ──
-    const predHits = (endsByKey.get(endpointKey(s.x, s.y)) ?? []).filter(
-      (ep) => ep.laneId !== lane.id,
-    );
-    const succHits = (startsByKey.get(endpointKey(t.x, t.y)) ?? []).filter(
-      (ep) => ep.laneId !== lane.id,
-    );
-    const newPred = Array.from(new Set(predHits.map((ep) => ep.laneId)));
-    const newSucc = Array.from(new Set(succHits.map((ep) => ep.laneId)));
+    const { pred: newPred, succ: newSucc } = derivePredSucc(lane, s, t, startsByKey, endsByKey);
+    const newSelfReverse = deriveSelfReverse(lane, s, t, endsByKey, lanesById);
+    const newJunctionId = deriveJunctionId(lane, junctionPolygons);
 
-    // ── selfReverse ──
-    // B 是 A 的反向孪生 ⇔ B.end == A.start 且 B.start == A.end。
-    const sKey = endpointKey(s.x, s.y);
-    const tKey = endpointKey(t.x, t.y);
-    const reverseCandidates = (endsByKey.get(sKey) ?? []).filter((ep) => ep.laneId !== lane.id);
-    const newSelfReverse = Array.from(
-      new Set(
-        reverseCandidates
-          .filter((ep) => {
-            const other = lanesById.get(ep.laneId);
-            if (!other) return false;
-            const os = laneStart(other);
-            return !!os && endpointKey(os.x, os.y) === tKey;
-          })
-          .map((ep) => ep.laneId),
-      ),
-    );
-
-    // ── junctionId ──
-    // lane 中心线与 junction.polygon 几何相交（端点在内 OR 任一段穿越边）→
-    // 视为属于该 junction。与 overlap pipeline 的判定对齐，避免 lane.junctionId
-    // 与自动派生的 OverlapEntity{lane,junction} 拓扑自相矛盾。
-    const centralPts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
-    const centralLine: [number, number][] = centralPts.map((p) => [p.x, p.y]);
-    let newJunctionId: string | null = null;
-    for (const j of junctionPolygons) {
-      if (j.polygon.length < 3) continue;
-      if (polylineHitsPolygon(centralLine, j.polygon)) {
-        newJunctionId = j.id;
-        break;
-      }
-    }
-
-    // ── neighbors (fwd/rev × L/R) ──
-    const lF: string[] = [];
-    const rF: string[] = [];
-    const lR: string[] = [];
-    const rR: string[] = [];
     const frameA = frames.get(lane.id);
-    if (frameA) {
-      // A 的左法向 = (-uy, ux)（A 朝 +ux 方向，左侧法向 +y）
-      const lxA = -frameA.uy;
-      const lyA = frameA.ux;
-      const aLen = Math.hypot(frameA.ex, frameA.ey);
-      for (const other of lanes) {
-        if (other.id === lane.id) continue;
-        if (!frames.has(other.id)) continue;
-        const oStart = laneStart(other)!;
-        const oEnd = laneEnd(other)!;
-        const oStartLocal = projectInto(s.x, s.y, oStart);
-        const oEndLocal = projectInto(s.x, s.y, oEnd);
-
-        // 1. 方向：B 在 A 局部 frame 下的方向单位向量。
-        const dx = oEndLocal.x - oStartLocal.x;
-        const dy = oEndLocal.y - oStartLocal.y;
-        const bLen = Math.hypot(dx, dy);
-        if (bLen < 1e-3) continue;
-        const cosTheta = (dx / bLen) * frameA.ux + (dy / bLen) * frameA.uy;
-
-        let isForward: boolean;
-        if (cosTheta > PARALLEL_DOT_THRESHOLD) isForward = true;
-        else if (cosTheta < -PARALLEL_DOT_THRESHOLD) isForward = false;
-        else continue;
-
-        // 2. 纵向重叠：把 B 的两个端点在 A 的纵向轴上的投影组成区间，
-        //    要求与 A 的 [0, aLen] 区间重叠至少 50%（按短的那条算）。
-        //    这一抓手取代旧版"端点必须紧对齐"，对齐手绘场景的颗粒度。
-        const oStartLon = oStartLocal.x * frameA.ux + oStartLocal.y * frameA.uy;
-        const oEndLon = oEndLocal.x * frameA.ux + oEndLocal.y * frameA.uy;
-        const bLonMin = Math.min(oStartLon, oEndLon);
-        const bLonMax = Math.max(oStartLon, oEndLon);
-        const overlap = Math.max(0, Math.min(aLen, bLonMax) - Math.max(0, bLonMin));
-        const minLen = Math.min(aLen, bLonMax - bLonMin);
-        if (minLen < 1e-3 || overlap < NEIGHBOR_MIN_OVERLAP_RATIO * minLen) continue;
-
-        // 3. 横向：B 中点在 A 局部 frame 的横向偏移决定相邻性 + 左右。
-        const midBX = (oStartLocal.x + oEndLocal.x) / 2;
-        const midBY = (oStartLocal.y + oEndLocal.y) / 2;
-        const latMid = midBX * lxA + midBY * lyA;
-        const absLat = Math.abs(latMid);
-        if (absLat < NEIGHBOR_MIN_LATERAL_M || absLat > NEIGHBOR_MAX_LATERAL_M) continue;
-
-        // 左法向上为正 → B 在 A 左侧。
-        const isLeft = latMid > 0;
-        if (isForward) {
-          if (isLeft) lF.push(other.id);
-          else rF.push(other.id);
-        } else {
-          if (isLeft) lR.push(other.id);
-          else rR.push(other.id);
-        }
-      }
-    }
-
-    const newLF = Array.from(new Set(lF));
-    const newRF = Array.from(new Set(rF));
-    const newLR = Array.from(new Set(lR));
-    const newRR = Array.from(new Set(rR));
+    const neighbors: NeighborBuckets = frameA
+      ? deriveNeighbors(lane, s, frameA, lanes, frames)
+      : { lF: [], rF: [], lR: [], rR: [] };
+    const { lF: newLF, rF: newRF, lR: newLR, rR: newRR } = neighbors;
 
     // ── 写回 diff（任一字段变化即写） ──
     const dirty =

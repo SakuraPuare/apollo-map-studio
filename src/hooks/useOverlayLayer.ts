@@ -41,70 +41,179 @@ export function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayR
   );
 }
 
-export function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[] {
-  const { currentState, drawPoints, previewPoint, bezierAnchors } = renderState;
+// Per-draw-state feature builders. Each one receives the render state and
+// returns the GeoJSON features for that state. Splitting them out keeps each
+// builder's complexity well below the lint threshold and makes the dispatch
+// table the single source of truth for "which states render an overlay".
+type OverlayBuilder = (state: OverlayRenderState) => GeoJSON.Feature[];
+
+function withPreview(drawPoints: LngLat[], previewPoint: LngLat | null): LngLat[] {
+  return previewPoint ? [...drawPoints, previewPoint] : drawPoints;
+}
+
+function vertexFeatures(drawPoints: LngLat[]): GeoJSON.Feature[] {
+  return drawPoints.map((pt) => pointFeature(pt, 'vertex'));
+}
+
+function buildPolylineFeatures({
+  drawPoints,
+  previewPoint,
+}: OverlayRenderState): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
+  const allPts = withPreview(drawPoints, previewPoint);
+  if (allPts.length >= 2) features.push(lineFeature(allPts));
+  features.push(...vertexFeatures(drawPoints));
+  return features;
+}
 
-  if (currentState === 'drawPolyline' || currentState === 'drawCatmullRom') {
-    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
-    if (allPts.length >= 2) {
-      const line = currentState === 'drawCatmullRom' ? catmullRom(allPts) : allPts;
-      features.push(lineFeature(line));
-    }
-    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
-  } else if (currentState === 'drawBezier') {
-    const runtimeAnchors: BezierAnchor[] = bezierAnchors.map((anchor) => ({ ...anchor }));
+function buildCatmullRomFeatures({
+  drawPoints,
+  previewPoint,
+}: OverlayRenderState): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+  const allPts = withPreview(drawPoints, previewPoint);
+  if (allPts.length >= 2) features.push(lineFeature(catmullRom(allPts)));
+  features.push(...vertexFeatures(drawPoints));
+  return features;
+}
 
-    if (previewPoint && runtimeAnchors.length > 0) {
-      const preview: BezierAnchor = { point: previewPoint, handleIn: null, handleOut: null };
-      const withPreview = [...runtimeAnchors, preview];
-      if (withPreview.length >= 2) features.push(lineFeature(cubicBezier(withPreview)));
-    } else if (runtimeAnchors.length >= 2) {
-      features.push(lineFeature(cubicBezier(runtimeAnchors)));
+function bezierAnchorFeatures(anchors: BezierAnchor[]): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+  for (const anchor of anchors) {
+    features.push(pointFeature(anchor.point, 'vertex'));
+    if (anchor.handleIn) {
+      features.push(handleLineFeature(anchor.point, anchor.handleIn));
+      features.push(pointFeature(anchor.handleIn, 'handle'));
     }
-
-    for (const anchor of runtimeAnchors) {
-      features.push(pointFeature(anchor.point, 'vertex'));
-      if (anchor.handleIn) {
-        features.push(handleLineFeature(anchor.point, anchor.handleIn));
-        features.push(pointFeature(anchor.handleIn, 'handle'));
-      }
-      if (anchor.handleOut) {
-        features.push(handleLineFeature(anchor.point, anchor.handleOut));
-        features.push(pointFeature(anchor.handleOut, 'handle'));
-      }
-    }
-  } else if (currentState === 'drawArc') {
-    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
-    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
-    if (allPts.length === 3) {
-      features.push(lineFeature(threePointArc(allPts[0]!, allPts[1]!, allPts[2]!)));
-    } else if (allPts.length === 2) {
-      features.push(lineFeature(allPts));
-    }
-  } else if (currentState === 'drawRotatedRect') {
-    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
-    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
-    if (allPts.length === 3) {
-      const r = rotatedRectFromPoints(allPts[0]!, allPts[1]!, allPts[2]!);
-      features.push(polygonFeature(rectCorners(r.p1, r.p2, r.rotation)));
-    } else if (allPts.length === 2) {
-      // 显示主轴
-      features.push(lineFeature([allPts[0]!, allPts[1]!]));
-    } else if (allPts.length === 1 && previewPoint) {
-      features.push(lineFeature([allPts[0]!, previewPoint]));
-    }
-  } else if (currentState === 'drawPolygon') {
-    const allPts = previewPoint ? [...drawPoints, previewPoint] : drawPoints;
-    for (const pt of drawPoints) features.push(pointFeature(pt, 'vertex'));
-    if (allPts.length >= 3) {
-      features.push(polygonFeature(allPts));
-    } else if (allPts.length === 2) {
-      features.push(lineFeature(allPts));
+    if (anchor.handleOut) {
+      features.push(handleLineFeature(anchor.point, anchor.handleOut));
+      features.push(pointFeature(anchor.handleOut, 'handle'));
     }
   }
-
   return features;
+}
+
+function buildBezierFeatures({
+  bezierAnchors,
+  previewPoint,
+}: OverlayRenderState): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+  const runtimeAnchors: BezierAnchor[] = bezierAnchors.map((anchor) => ({ ...anchor }));
+
+  if (previewPoint && runtimeAnchors.length > 0) {
+    const preview: BezierAnchor = { point: previewPoint, handleIn: null, handleOut: null };
+    const withPreviewAnchors = [...runtimeAnchors, preview];
+    if (withPreviewAnchors.length >= 2) {
+      features.push(lineFeature(cubicBezier(withPreviewAnchors)));
+    }
+  } else if (runtimeAnchors.length >= 2) {
+    features.push(lineFeature(cubicBezier(runtimeAnchors)));
+  }
+
+  features.push(...bezierAnchorFeatures(runtimeAnchors));
+  return features;
+}
+
+function buildArcFeatures({ drawPoints, previewPoint }: OverlayRenderState): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = vertexFeatures(drawPoints);
+  const allPts = withPreview(drawPoints, previewPoint);
+  if (allPts.length === 3) {
+    features.push(lineFeature(threePointArc(allPts[0]!, allPts[1]!, allPts[2]!)));
+  } else if (allPts.length === 2) {
+    features.push(lineFeature(allPts));
+  }
+  return features;
+}
+
+function buildRotatedRectFeatures({
+  drawPoints,
+  previewPoint,
+}: OverlayRenderState): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = vertexFeatures(drawPoints);
+  const allPts = withPreview(drawPoints, previewPoint);
+  if (allPts.length === 3) {
+    const r = rotatedRectFromPoints(allPts[0]!, allPts[1]!, allPts[2]!);
+    features.push(polygonFeature(rectCorners(r.p1, r.p2, r.rotation)));
+  } else if (allPts.length === 2) {
+    // 显示主轴
+    features.push(lineFeature([allPts[0]!, allPts[1]!]));
+  } else if (allPts.length === 1 && previewPoint) {
+    features.push(lineFeature([allPts[0]!, previewPoint]));
+  }
+  return features;
+}
+
+function buildPolygonFeatures({ drawPoints, previewPoint }: OverlayRenderState): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = vertexFeatures(drawPoints);
+  const allPts = withPreview(drawPoints, previewPoint);
+  if (allPts.length >= 3) {
+    features.push(polygonFeature(allPts));
+  } else if (allPts.length === 2) {
+    features.push(lineFeature(allPts));
+  }
+  return features;
+}
+
+const OVERLAY_BUILDERS: Record<string, OverlayBuilder> = {
+  drawPolyline: buildPolylineFeatures,
+  drawCatmullRom: buildCatmullRomFeatures,
+  drawBezier: buildBezierFeatures,
+  drawArc: buildArcFeatures,
+  drawRotatedRect: buildRotatedRectFeatures,
+  drawPolygon: buildPolygonFeatures,
+};
+
+export function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.Feature[] {
+  const builder = OVERLAY_BUILDERS[renderState.currentState];
+  return builder ? builder(renderState) : [];
+}
+
+function snapTargetFeatureCollection(target: SnapTarget): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          kind: target.kind,
+          entityId: target.entityId,
+          entityType: target.entityType,
+        },
+        geometry: { type: 'Point', coordinates: [target.point.x, target.point.y] },
+      },
+    ],
+  };
+}
+
+function useSnapIndicatorLayer(
+  mapRef: React.RefObject<maplibregl.Map | null>,
+  mapLoadedRef: React.RefObject<boolean>,
+) {
+  // Snap indicator — independent source so it can render outside draw
+  // states (e.g. during vertex drag). Subscribes to `currentSnapTarget`
+  // from the UI store; the store's setter dedupes identity churn so this
+  // effect only runs on real snap state changes.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = (target: SnapTarget | null) => {
+      if (!mapLoadedRef.current) return;
+      const src = map.getSource('snap') as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      src.setData(target ? snapTargetFeatureCollection(target) : EMPTY_FC);
+    };
+
+    apply(useUIStore.getState().currentSnapTarget);
+    const unsub = useUIStore.subscribe((s, prev) => {
+      if (s.currentSnapTarget !== prev.currentSnapTarget) {
+        apply(s.currentSnapTarget);
+      }
+    });
+
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 export function useOverlayLayer(
@@ -172,46 +281,5 @@ export function useOverlayLayer(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);
 
-  // Snap indicator — independent source so it can render outside draw
-  // states (e.g. during vertex drag). Subscribes to `currentSnapTarget`
-  // from the UI store; the store's setter dedupes identity churn so this
-  // effect only runs on real snap state changes.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const apply = (target: SnapTarget | null) => {
-      if (!mapLoadedRef.current) return;
-      const src = map.getSource('snap') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-      if (!target) {
-        src.setData(EMPTY_FC);
-        return;
-      }
-      src.setData({
-        type: 'FeatureCollection',
-        features: [
-          {
-            type: 'Feature',
-            properties: {
-              kind: target.kind,
-              entityId: target.entityId,
-              entityType: target.entityType,
-            },
-            geometry: { type: 'Point', coordinates: [target.point.x, target.point.y] },
-          },
-        ],
-      });
-    };
-
-    apply(useUIStore.getState().currentSnapTarget);
-    const unsub = useUIStore.subscribe((s, prev) => {
-      if (s.currentSnapTarget !== prev.currentSnapTarget) {
-        apply(s.currentSnapTarget);
-      }
-    });
-
-    return unsub;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useSnapIndicatorLayer(mapRef, mapLoadedRef);
 }

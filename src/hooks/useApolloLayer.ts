@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type maplibregl from 'maplibre-gl';
 import { useApolloMapStore } from '@/store/apolloMapStore';
-import { buildApolloLayerFeatures, computeApolloMapBounds } from '@/io/proto/apolloGeoJson';
+import { computeApolloMapBounds } from '@/io/proto/apolloGeoJson';
 
 /**
  * Render the imported (read-only) Apollo HD-map onto the canvas as a set
@@ -211,31 +211,16 @@ export function useApolloLayer(
     const apply = () => {
       ensureInstalled();
       if (!installedRef.current) return;
-      const features = rawMap
-        ? buildApolloLayerFeatures(rawMap as Parameters<typeof buildApolloLayerFeatures>[0])
-        : null;
 
-      const set = (sourceId: string, fc: GeoJSON.FeatureCollection) => {
+      // All Apollo entity types are bridged into mapStore and rendered by
+      // the cold layer. These viewer-layer sources stay empty; they exist
+      // only so the layer specs below remain valid.
+      for (const sourceId of Object.values(SOURCE)) {
         const src = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
-        src?.setData(fc);
-      };
+        src?.setData(EMPTY_FC);
+      }
 
-      set(SOURCE.laneCenter, features?.laneCenters ?? EMPTY_FC);
-      set(SOURCE.laneBoundary, features?.laneBoundaries ?? EMPTY_FC);
-      set(SOURCE.roadBoundary, features?.roadBoundaries ?? EMPTY_FC);
-      set(SOURCE.crosswalk, features?.crosswalks ?? EMPTY_FC);
-      set(SOURCE.junction, features?.junctions ?? EMPTY_FC);
-      set(SOURCE.signal, features?.signals ?? EMPTY_FC);
-      set(SOURCE.stopSign, features?.stopSigns ?? EMPTY_FC);
-      set(SOURCE.clearArea, features?.clearAreas ?? EMPTY_FC);
-      set(SOURCE.parkingSpace, features?.parkingSpaces ?? EMPTY_FC);
-      set(SOURCE.speedBump, features?.speedBumps ?? EMPTY_FC);
-
-      // Auto-fit viewport to imported map bounds. Bounds are computed
-      // directly from the raw proto tree (every Apollo entity is now
-      // bridged into mapStore for rendering, but the viewer layer still
-      // owns the auto-zoom UX so we don't have to teach the cold layer
-      // about new-entity-batch fitting.)
+      // Auto-fit viewport to imported map bounds.
       if (rawMap) {
         const bounds = computeApolloMapBounds(
           rawMap as Parameters<typeof computeApolloMapBounds>[0],

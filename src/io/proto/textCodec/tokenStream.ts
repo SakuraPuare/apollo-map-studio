@@ -102,72 +102,9 @@ export class TokenStream {
         this.pos++;
         const esc = this.text[this.pos]!;
         this.pos++;
-        switch (esc) {
-          case 'n':
-            v += '\n';
-            break;
-          case 'r':
-            v += '\r';
-            break;
-          case 't':
-            v += '\t';
-            break;
-          case 'a':
-            v += '\x07';
-            break;
-          case 'b':
-            v += '\x08';
-            break;
-          case 'f':
-            v += '\x0c';
-            break;
-          case 'v':
-            v += '\x0b';
-            break;
-          case '"':
-            v += '"';
-            break;
-          case "'":
-            v += "'";
-            break;
-          case '\\':
-            v += '\\';
-            break;
-          case '0':
-          case '1':
-          case '2':
-          case '3':
-          case '4':
-          case '5':
-          case '6':
-          case '7': {
-            let oct = esc;
-            for (let i = 0; i < 2; i++) {
-              const o = this.text[this.pos];
-              if (o !== undefined && o >= '0' && o <= '7') {
-                oct += o;
-                this.pos++;
-              } else break;
-            }
-            v += String.fromCharCode(parseInt(oct, 8));
-            break;
-          }
-          case 'x':
-          case 'X': {
-            let hex = '';
-            for (let i = 0; i < 2; i++) {
-              const h = this.text[this.pos];
-              if (h !== undefined && /[0-9a-fA-F]/.test(h)) {
-                hex += h;
-                this.pos++;
-              } else break;
-            }
-            v += hex ? String.fromCharCode(parseInt(hex, 16)) : '';
-            break;
-          }
-          default:
-            v += esc;
-        }
+        const result = readEscapeSequence(this.text, this.pos, esc);
+        v += result.char;
+        this.pos = result.nextPos;
       } else {
         v += c;
         this.pos++;
@@ -201,4 +138,66 @@ export class TokenStream {
     }
     return { kind: 'identifier', value: this.text.slice(start, this.pos) };
   }
+}
+
+interface EscapeResult {
+  char: string;
+  nextPos: number;
+}
+
+function readHexEscape(input: string, pos: number): EscapeResult {
+  let hex = '';
+  let p = pos;
+  for (let i = 0; i < 2; i++) {
+    const h = input[p];
+    if (h !== undefined && /[0-9a-fA-F]/.test(h)) {
+      hex += h;
+      p++;
+    } else {
+      break;
+    }
+  }
+  return {
+    char: hex ? String.fromCharCode(parseInt(hex, 16)) : '',
+    nextPos: p,
+  };
+}
+
+function readOctalEscape(input: string, pos: number, firstDigit: string): EscapeResult {
+  let oct = firstDigit;
+  let p = pos;
+  for (let i = 0; i < 2; i++) {
+    const o = input[p];
+    if (o !== undefined && o >= '0' && o <= '7') {
+      oct += o;
+      p++;
+    } else {
+      break;
+    }
+  }
+  return {
+    char: String.fromCharCode(parseInt(oct, 8)),
+    nextPos: p,
+  };
+}
+
+const SIMPLE_ESCAPES: Record<string, string> = {
+  n: '\n',
+  r: '\r',
+  t: '\t',
+  a: '\x07',
+  b: '\x08',
+  f: '\x0c',
+  v: '\x0b',
+  '"': '"',
+  "'": "'",
+  '\\': '\\',
+};
+
+function readEscapeSequence(input: string, pos: number, esc: string): EscapeResult {
+  const simple = SIMPLE_ESCAPES[esc];
+  if (simple !== undefined) return { char: simple, nextPos: pos };
+  if (esc >= '0' && esc <= '7') return readOctalEscape(input, pos, esc);
+  if (esc === 'x' || esc === 'X') return readHexEscape(input, pos);
+  return { char: esc, nextPos: pos };
 }
