@@ -40,6 +40,7 @@ import type { GeoPoint } from '@/types/entities';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { pointsToCurve, pointsToPolygon } from './conversions';
 import { projectPoint } from './projection';
+import { buildSignalTemplate } from './signalTemplate';
 
 interface DrawResult {
   drawTool: string;
@@ -189,14 +190,30 @@ function createCrosswalk(id: string, d: DrawResult): CrosswalkEntity {
 
 function createSignal(id: string, d: DrawResult): SignalEntity {
   const source = buildSourceInfo(d);
+  const linePts = extractLinePoints(d);
+  const type: SignalEntity['type'] = 'MIX_3_VERTICAL';
+  let boundary = pointsToPolygon([]);
+  let subsignals: SignalEntity['subsignals'] = [];
+  if (linePts.length >= 2) {
+    const first = linePts[0]!;
+    const last = linePts[linePts.length - 1]!;
+    const anchor: GeoPoint = {
+      x: (first.x + last.x) / 2,
+      y: (first.y + last.y) / 2,
+    };
+    const heading = Math.atan2(last.y - first.y, last.x - first.x);
+    const tpl = buildSignalTemplate({ type, anchor, heading });
+    boundary = tpl.boundary;
+    subsignals = tpl.subsignals;
+  }
   return {
     id,
     entityType: 'signal',
-    boundary: pointsToPolygon([]),
-    subsignals: [],
-    type: 'MIX_3_VERTICAL',
+    boundary,
+    subsignals,
+    type,
     overlapIds: [],
-    stopLines: [pointsToCurve(extractLinePoints(d))],
+    stopLines: [pointsToCurve(linePts)],
     signInfo: [],
     ...(source ? { _source: source } : {}),
   };

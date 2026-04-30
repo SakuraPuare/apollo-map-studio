@@ -40,3 +40,18 @@ export function polylineLengthMeters(points: readonly GeoPoint[]): number {
   }
   return total;
 }
+
+/**
+ * 在某个纬度上，1 米对应的经度/纬度差（度）。
+ * 用作小尺度（< 100m）的本地米↔度换算——signalTemplate 这种尺寸 < 2m
+ * 的几何造型完全够用，避免引入 proj4 的开销。
+ */
+export function metersToDegLat(): number {
+  return 1 / ((Math.PI / 180) * EARTH_RADIUS_M);
+}
+
+export function metersToDegLng(latDeg: number): number {
+  const cosLat = Math.cos(latDeg * DEG_TO_RAD);
+  if (cosLat < 1e-9) return metersToDegLat();
+  return 1 / ((Math.PI / 180) * EARTH_RADIUS_M * cosLat);
+}

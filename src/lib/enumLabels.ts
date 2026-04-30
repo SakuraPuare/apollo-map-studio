@@ -18,9 +18,11 @@ import type {
   BoundaryLineType,
   JunctionType,
   SignalType,
+  SignInfoType,
   StopSignType,
   RoadType,
   PassageType,
+  SubsignalType,
 } from '@/types/apollo';
 
 export type EnumCategory =
@@ -30,6 +32,8 @@ export type EnumCategory =
   | 'boundaryType'
   | 'junctionType'
   | 'signalType'
+  | 'signInfoType'
+  | 'subsignalType'
   | 'stopSignType'
   | 'roadType'
   | 'passageType';
@@ -87,6 +91,22 @@ const signalType: Dict<SignalType> = {
   SINGLE: 'Single',
 };
 
+const signInfoType: Dict<SignInfoType> = {
+  NO_RIGHT_TURN_ON_RED: 'No Right Turn on Red',
+  None: 'None',
+};
+
+const subsignalType: Dict<SubsignalType> = {
+  UNKNOWN_SUBSIGNAL: 'Unknown',
+  CIRCLE: 'Circle',
+  ARROW_LEFT: 'Arrow Left',
+  ARROW_FORWARD: 'Arrow Forward',
+  ARROW_RIGHT: 'Arrow Right',
+  ARROW_LEFT_AND_FORWARD: 'Arrow Left+Forward',
+  ARROW_RIGHT_AND_FORWARD: 'Arrow Right+Forward',
+  ARROW_U_TURN: 'Arrow U-Turn',
+};
+
 const stopSignType: Dict<StopSignType> = {
   UNKNOWN_STOP_SIGN: 'Unknown',
   ONE_WAY: 'One-Way',
@@ -116,6 +136,8 @@ const REGISTRY: Record<EnumCategory, Readonly<Record<string, string>>> = {
   boundaryType,
   junctionType,
   signalType,
+  signInfoType,
+  subsignalType,
   stopSignType,
   roadType,
   passageType,

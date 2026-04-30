@@ -83,8 +83,32 @@ export const signalTypeOptions = [
   'SINGLE',
 ] as const;
 
+/**
+ * Sign-info enum surfaced in the inspector. Apollo proto also accepts
+ * `None` (value 0), but we treat absence of an entry as "none" — only
+ * positive flags appear here. Per `signals_xml_parser.cc`, the only
+ * currently-supported flag is NO_RIGHT_TURN_ON_RED.
+ */
+export const signInfoTypeOptions = ['NO_RIGHT_TURN_ON_RED'] as const;
+
+/** Per-bulb subsignal type. Mirrors `Subsignal::Type` in
+ *  `map_signal.proto`. UNKNOWN is exposed so users can clear a value. */
+export const subsignalTypeOptions = [
+  'UNKNOWN_SUBSIGNAL',
+  'CIRCLE',
+  'ARROW_LEFT',
+  'ARROW_FORWARD',
+  'ARROW_RIGHT',
+  'ARROW_LEFT_AND_FORWARD',
+  'ARROW_RIGHT_AND_FORWARD',
+  'ARROW_U_TURN',
+] as const;
+
 export const signalSchema = z.object({
   type: z.enum(signalTypeOptions),
+  // Required (not `.default`) so the schema's input + output types match.
+  // The form initialises `signInfo: []` in `defaultValues` instead.
+  signInfo: z.array(z.enum(signInfoTypeOptions)),
 });
 
 export type SignalFormValues = z.infer<typeof signalSchema>;

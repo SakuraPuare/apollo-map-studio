@@ -101,12 +101,24 @@ describe('parkingSpaceSchema', () => {
 describe('signalSchema', () => {
   it('合法 enum 全部通过', () => {
     for (const t of signalTypeOptions) {
-      expect(signalSchema.safeParse({ type: t }).success).toBe(true);
+      expect(signalSchema.safeParse({ type: t, signInfo: [] }).success).toBe(true);
     }
   });
 
   it('未知 type 失败', () => {
-    expect(signalSchema.safeParse({ type: 'BLINKING' }).success).toBe(false);
+    expect(signalSchema.safeParse({ type: 'BLINKING', signInfo: [] }).success).toBe(false);
+  });
+
+  it('signInfo 接受 NO_RIGHT_TURN_ON_RED', () => {
+    expect(
+      signalSchema.safeParse({ type: 'SINGLE', signInfo: ['NO_RIGHT_TURN_ON_RED'] }).success,
+    ).toBe(true);
+  });
+
+  it('signInfo 拒绝未知 flag', () => {
+    expect(signalSchema.safeParse({ type: 'SINGLE', signInfo: ['BOGUS_FLAG'] }).success).toBe(
+      false,
+    );
   });
 });
 
