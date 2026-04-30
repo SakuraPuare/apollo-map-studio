@@ -18,7 +18,7 @@ import type { MapEntity } from '@/types/entities';
 
 export type DeriveCause = 'create' | 'editGeometry' | 'editAttribute';
 
-export interface DeriveContext<E> {
+export interface DeriveContext<E extends MapEntity> {
   cause: DeriveCause;
   /** Entity state before the change that triggered derivation (for diff-based gating). */
   prev?: E;
@@ -34,5 +34,5 @@ export interface DeriveRule<E extends MapEntity> {
   /** Triggers this rule should run on. Default: `['create', 'editGeometry']`. */
   on?: readonly DeriveCause[];
   /** Pure transform; return a new entity (or the same reference if no-op). */
-  apply: (entity: E, ctx: DeriveContext<E>) => E;
+  apply(entity: E, ctx: DeriveContext<E>): E;
 }

@@ -17,13 +17,13 @@ import {
   entityToHotFeatures,
 } from '../geoJsonHelpers';
 import type {
-  MapEntity,
   PolylineEntity,
   BezierEntity,
   ArcEntity,
   RectEntity,
   PolygonEntity,
 } from '@/types/entities';
+import type { LaneEntity, SignalEntity } from '@/types/apollo';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 // ── 基础 helper ─────────────────────────────────────────────────
@@ -205,7 +205,7 @@ describe('entityToHotFeatures — drawing entities', () => {
   // 闭合成 Polygon——导致"导入的车道首尾闭合，自己画的不闭合"的体感差。
 
   it('imported lane (no _source) → 走 LineString，不被闭合', () => {
-    const lane = {
+    const lane: LaneEntity = {
       id: 'lane_imported',
       entityType: 'lane' as const,
       centralCurve: {
@@ -246,7 +246,7 @@ describe('entityToHotFeatures — drawing entities', () => {
       leftRoadSamples: [],
       rightRoadSamples: [],
     };
-    const features = entityToHotFeatures(lane as unknown as MapEntity);
+    const features = entityToHotFeatures(lane);
     const polygons = features.filter((f) => f.geometry.type === 'Polygon');
     const lines = features.filter((f) => f.geometry.type === 'LineString');
     expect(polygons.length).toBe(0);
@@ -261,7 +261,7 @@ describe('entityToHotFeatures — drawing entities', () => {
   });
 
   it('imported signal (no _source, stopLines 非空) → 走 LineString，不被闭合', () => {
-    const signal = {
+    const signal: SignalEntity = {
       id: 'signal_imported',
       entityType: 'signal' as const,
       boundary: {
@@ -295,7 +295,7 @@ describe('entityToHotFeatures — drawing entities', () => {
       ],
       signInfo: [],
     };
-    const features = entityToHotFeatures(signal as unknown as MapEntity);
+    const features = entityToHotFeatures(signal);
     const polygons = features.filter((f) => f.geometry.type === 'Polygon');
     const lines = features.filter((f) => f.geometry.type === 'LineString');
     expect(polygons.length).toBe(0);
@@ -309,32 +309,32 @@ import { isPolygonEditEntity } from '../entityOps';
 
 describe('isPolygonEditEntity', () => {
   it('lane 是 area（hitTest 用）但 editPoints 是折线 → false', () => {
-    expect(isPolygonEditEntity({ entityType: 'lane' } as unknown as MapEntity)).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'lane' })).toBe(false);
   });
 
   it.each(['signal', 'stopSign', 'yieldSign', 'speedBump', 'barrierGate'] as const)(
     '%s 的 editPoints 来自 stop_line / position 折线 → false',
     (t) => {
-      expect(isPolygonEditEntity({ entityType: t } as unknown as MapEntity)).toBe(false);
+      expect(isPolygonEditEntity({ entityType: t })).toBe(false);
     },
   );
 
   it.each(['junction', 'pncJunction', 'parkingSpace', 'crosswalk', 'clearArea', 'area'] as const)(
     '%s 的 editPoints 是多边形环 → true',
     (t) => {
-      expect(isPolygonEditEntity({ entityType: t } as unknown as MapEntity)).toBe(true);
+      expect(isPolygonEditEntity({ entityType: t })).toBe(true);
     },
   );
 
   it('drawing rect / polygon → true', () => {
-    expect(isPolygonEditEntity({ entityType: 'rect' } as unknown as MapEntity)).toBe(true);
-    expect(isPolygonEditEntity({ entityType: 'polygon' } as unknown as MapEntity)).toBe(true);
+    expect(isPolygonEditEntity({ entityType: 'rect' })).toBe(true);
+    expect(isPolygonEditEntity({ entityType: 'polygon' })).toBe(true);
   });
 
   it('drawing polyline / catmullRom / bezier / arc → false', () => {
-    expect(isPolygonEditEntity({ entityType: 'polyline' } as unknown as MapEntity)).toBe(false);
-    expect(isPolygonEditEntity({ entityType: 'catmullRom' } as unknown as MapEntity)).toBe(false);
-    expect(isPolygonEditEntity({ entityType: 'bezier' } as unknown as MapEntity)).toBe(false);
-    expect(isPolygonEditEntity({ entityType: 'arc' } as unknown as MapEntity)).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'polyline' })).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'catmullRom' })).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'bezier' })).toBe(false);
+    expect(isPolygonEditEntity({ entityType: 'arc' })).toBe(false);
   });
 });

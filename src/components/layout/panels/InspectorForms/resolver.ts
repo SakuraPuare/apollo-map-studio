@@ -1,8 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { FieldValues, Resolver } from 'react-hook-form';
+import type { ZodType } from 'zod';
 
-// Zod 4 + @hookform/resolvers@5 overload-resolution shim: runtime is
-// version-aware, but TS only sees the Zod 3 overload for bare ZodObject inputs.
-export function zodResolverZ4<T extends FieldValues>(schema: unknown): Resolver<T> {
-  return zodResolver(schema as never) as unknown as Resolver<T>;
+type ZodResolverFactory = <T extends FieldValues>(schema: ZodType<T, T>) => Resolver<T>;
+
+const resolveZod = zodResolver as ZodResolverFactory;
+
+export function zodResolverZ4<T extends FieldValues>(schema: ZodType<T, T>): Resolver<T> {
+  return resolveZod(schema);
 }

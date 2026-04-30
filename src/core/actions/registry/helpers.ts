@@ -2,6 +2,11 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 import { ACTION_DEFS } from './definitions';
 import type { ActionCategory, ActionDef, KeyBinding, ToolStripSlot } from './types';
 
+export type KeyBindingEvent = Pick<
+  KeyboardEvent,
+  'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'
+>;
+
 export const ACTION_MAP = new Map(ACTION_DEFS.map((a) => [a.id, a]));
 
 export function getActionsByCategory(category: ActionCategory): ActionDef[] {
@@ -40,7 +45,7 @@ export function getToolStripSlotActions(slot: ToolStripSlot): ActionDef[] {
   );
 }
 
-export function matchesKeybinding(e: KeyboardEvent, kb: KeyBinding): boolean {
+export function matchesKeybinding(e: KeyBindingEvent, kb: KeyBinding): boolean {
   if (e.key.toLowerCase() !== kb.key.toLowerCase()) return false;
   if (!!kb.ctrl !== (e.ctrlKey || e.metaKey)) return false;
   if (!!kb.shift !== e.shiftKey) return false;

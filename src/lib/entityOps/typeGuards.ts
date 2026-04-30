@@ -22,7 +22,7 @@ export function isAreaEntity(entity: MapEntity): boolean {
  * polyline). Used by the hot layer so that `lane`/`signal` editPoints are
  * rendered as LineStrings instead of being closed into a Polygon.
  */
-export function isPolygonEditEntity(entity: MapEntity): boolean {
-  if (isApolloEntityType(entity)) return isApolloPolygonEditPoints(entity);
+export function isPolygonEditEntity(entity: Pick<MapEntity, 'entityType'>): boolean {
+  if (!DRAWING_TYPES.has(entity.entityType)) return isApolloPolygonEditPoints(entity);
   return entity.entityType === 'rect' || entity.entityType === 'polygon';
 }

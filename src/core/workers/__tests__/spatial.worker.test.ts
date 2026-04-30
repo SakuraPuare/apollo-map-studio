@@ -42,7 +42,7 @@ async function loadWorker(): Promise<WorkerHandle> {
     set onmessage(h: (e: MessageEvent<WorkerRequest>) => void) {
       messageHandlers.push(h);
     },
-  } as unknown as typeof globalThis;
+  };
 
   // 注入到 worker 模块的全局环境
   vi.stubGlobal('self', fakeSelf);
@@ -60,7 +60,7 @@ async function loadWorker(): Promise<WorkerHandle> {
     responses,
     send(req: WorkerRequest): WorkerResponse {
       const before = responses.length;
-      handler({ data: req } as unknown as MessageEvent<WorkerRequest>);
+      handler(new MessageEvent<WorkerRequest>('message', { data: req }));
       const after = responses[before];
       if (!after) {
         throw new Error(`worker did not respond to ${req.type}`);

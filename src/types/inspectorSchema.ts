@@ -60,7 +60,11 @@ import { LaneRef, LaneRefList } from '@/components/layout/panels/LaneRefList';
 // ─── FieldDef ──────────────────────────────────────────────
 
 /** Numeric input rendered as `<Input type="number">`. */
-export interface NumberFieldDef<TEntity, TFormValues, TKey extends keyof TFormValues> {
+export interface NumberFieldDef<
+  TEntity extends MapEntity,
+  TFormValues,
+  TKey extends keyof TFormValues,
+> {
   kind: 'number';
   name: TKey;
   label: string;
@@ -82,7 +86,11 @@ export interface NumberFieldDef<TEntity, TFormValues, TKey extends keyof TFormVa
 }
 
 /** Enumerated select rendered as `<Select>`. */
-export interface EnumFieldDef<TEntity, TFormValues, TKey extends keyof TFormValues> {
+export interface EnumFieldDef<
+  TEntity extends MapEntity,
+  TFormValues,
+  TKey extends keyof TFormValues,
+> {
   kind: 'enum';
   name: TKey;
   label: string;
@@ -100,9 +108,11 @@ export interface EnumFieldDef<TEntity, TFormValues, TKey extends keyof TFormValu
   overridesPaths?: readonly string[];
 }
 
-export type FieldDef<TEntity, TFormValues, TKey extends keyof TFormValues = keyof TFormValues> =
-  | NumberFieldDef<TEntity, TFormValues, TKey>
-  | EnumFieldDef<TEntity, TFormValues, TKey>;
+export type FieldDef<
+  TEntity extends MapEntity,
+  TFormValues,
+  TKey extends keyof TFormValues = keyof TFormValues,
+> = NumberFieldDef<TEntity, TFormValues, TKey> | EnumFieldDef<TEntity, TFormValues, TKey>;
 
 /**
  * Distributes FieldDef over each key of TFormValues so the resulting
@@ -111,7 +121,7 @@ export type FieldDef<TEntity, TFormValues, TKey extends keyof TFormValues = keyo
  * widens the value type of `read` to the union of every possible
  * field type, defeating per-field type safety.
  */
-export type AnyFieldDef<TEntity, TFormValues> = {
+export type AnyFieldDef<TEntity extends MapEntity, TFormValues> = {
   [K in keyof TFormValues]-?: FieldDef<TEntity, TFormValues, K>;
 }[keyof TFormValues];
 
@@ -120,7 +130,7 @@ export type AnyFieldDef<TEntity, TFormValues> = {
  * `<Value>`. Used for derived/topology summaries like "Length" or
  * "Predecessors" that LaneForm previously hardcoded.
  */
-export interface ReadOnlyDef<TEntity> {
+export interface ReadOnlyDef<TEntity extends MapEntity> {
   kind: 'readonly';
   label: string;
   section: string;
@@ -141,7 +151,10 @@ export interface ReadOnlyDef<TEntity> {
  *   by fields/readonly that are not listed here render last in the
  *   order they were declared.
  */
-export interface EntitySchema<TEntity, TFormValues extends Record<string, unknown>> {
+export interface EntitySchema<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+> {
   /**
    * Stable identifier; useful for keying React re-renders when the
    * panel switches between entity kinds (lane → junction → ...).
@@ -152,7 +165,7 @@ export interface EntitySchema<TEntity, TFormValues extends Record<string, unknow
   /** Read-only derived rows. */
   readonly: ReadonlyArray<ReadOnlyDef<TEntity>>;
   /** Zod validation schema (must produce TFormValues on parse). */
-  validation: ZodType<TFormValues>;
+  validation: ZodType<TFormValues, TFormValues>;
   /** Section render order. */
   sectionOrder: ReadonlyArray<string>;
 }
@@ -171,16 +184,17 @@ export interface EntitySchema<TEntity, TFormValues extends Record<string, unknow
  *   const F = fieldBuilder<LaneEntity, LaneFormValues>();
  *   F.field({ kind: 'number', name: 'speedLimit', read, write, ... })
  */
-export function fieldBuilder<TEntity, TFormValues extends Record<string, unknown>>() {
+export function fieldBuilder<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+>() {
   return {
     field<TKey extends keyof TFormValues>(
       def: FieldDef<TEntity, TFormValues, TKey>,
-    ): AnyFieldDef<TEntity, TFormValues> {
-      // The per-key narrowed FieldDef is structurally a member of the
-      // distributed AnyFieldDef union — TS cannot prove the variance
-      // automatically when TKey is a free generic, hence the explicit
-      // unknown bridge. Each call site retains full type safety.
-      return def as unknown as AnyFieldDef<TEntity, TFormValues>;
+    ): FieldDef<TEntity, TFormValues, TKey> {
+      // Keep the return type per-key narrowed; the schema's fields array
+      // stores these as the distributed AnyFieldDef union.
+      return def;
     },
   };
 }
@@ -248,7 +262,7 @@ const LaneField = fieldBuilder<LaneEntity, LaneFormValues>();
  */
 export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
   id: 'lane',
-  validation: laneSchema as ZodType<LaneFormValues>,
+  validation: laneSchema,
   sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
   fields: [
     LaneField.field({
@@ -427,10 +441,10 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
  * canonical form-values object. Mirrors the old
  * `laneFormValuesFromEntity` semantics, generalized.
  */
-export function formValuesFromEntity<TEntity, TFormValues extends Record<string, unknown>>(
-  schema: EntitySchema<TEntity, TFormValues>,
-  entity: TEntity,
-): TFormValues {
+export function formValuesFromEntity<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+>(schema: EntitySchema<TEntity, TFormValues>, entity: TEntity): TFormValues {
   const result = {} as Record<string, unknown>;
   for (const field of schema.fields) {
     // `field.read` is the union of per-key readers; calling it with the
@@ -447,7 +461,10 @@ export function formValuesFromEntity<TEntity, TFormValues extends Record<string,
  * the form is already in sync (the dedupe gate that breaks the
  * store→reset→watch→updateEntity loop).
  */
-export function diffFormAgainstEntity<TEntity, TFormValues extends Record<string, unknown>>(
+export function diffFormAgainstEntity<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+>(
   schema: EntitySchema<TEntity, TFormValues>,
   current: Partial<TFormValues>,
   entity: TEntity,
@@ -464,7 +481,10 @@ export function diffFormAgainstEntity<TEntity, TFormValues extends Record<string
 }
 
 /** True iff at least one field differs — gate for `updateEntity`. */
-export function shouldPersistForm<TEntity, TFormValues extends Record<string, unknown>>(
+export function shouldPersistForm<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+>(
   schema: EntitySchema<TEntity, TFormValues>,
   formValues: Partial<TFormValues>,
   entity: TEntity,
@@ -484,7 +504,10 @@ export function shouldPersistForm<TEntity, TFormValues extends Record<string, un
  * Order: writes apply left-to-right; override tagging is appended
  * after each write so the next field sees the updated entity.
  */
-export function applyFormValuesToEntity<TEntity, TFormValues extends Record<string, unknown>>(
+export function applyFormValuesToEntity<
+  TEntity extends MapEntity,
+  TFormValues extends Record<string, unknown>,
+>(
   schema: EntitySchema<TEntity, TFormValues>,
   entity: TEntity,
   values: Partial<TFormValues>,
@@ -508,7 +531,7 @@ export function applyFormValuesToEntity<TEntity, TFormValues extends Record<stri
       if (prevValue !== newValue) {
         const paths = field.overridesPaths ?? [String(field.name)];
         for (const path of paths) {
-          next = markUserOverride(next as unknown as MapEntity, path) as unknown as TEntity;
+          next = markUserOverride(next, path);
         }
       }
     }

@@ -26,13 +26,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import {
   useForm,
   FormProvider,
-  type Resolver,
   type FieldValues,
   type Path,
   type PathValue,
   type DefaultValues,
 } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useMapStore } from '@/store/mapStore';
 import { Input, Select, Section, Value } from '@/components/ui/form-fields';
 import {
@@ -45,14 +43,7 @@ import {
   applyFormValuesToEntity,
 } from '@/types/inspectorSchema';
 import type { MapEntity } from '@/types/entities';
-
-// Zod 4 + @hookform/resolvers@5 overload-resolution shim — same
-// rationale as the original InspectorForms.tsx: runtime is version-
-// aware (checks `_zod` vs `_def.typeName`) but TS sees the v3
-// overload for bare ZodObject inputs.
-function zodResolverZ4<T extends FieldValues>(schema: unknown): Resolver<T> {
-  return zodResolver(schema as never) as unknown as Resolver<T>;
-}
+import { zodResolverZ4 } from './InspectorForms/resolver';
 
 interface SchemaFormProps<TEntity extends MapEntity, TFormValues extends FieldValues> {
   schema: EntitySchema<TEntity, TFormValues>;
@@ -146,7 +137,7 @@ export function SchemaForm<TEntity extends MapEntity, TFormValues extends FieldV
 
 // ─── Render helpers ────────────────────────────────────────
 
-function renderField<TEntity, TFormValues extends Record<string, unknown>>(
+function renderField<TEntity extends MapEntity, TFormValues extends Record<string, unknown>>(
   field: AnyFieldDef<TEntity, TFormValues>,
 ): React.ReactElement {
   if (field.kind === 'number') {
@@ -174,13 +165,13 @@ function renderField<TEntity, TFormValues extends Record<string, unknown>>(
   );
 }
 
-interface SectionGroup<TEntity, TFormValues extends Record<string, unknown>> {
+interface SectionGroup<TEntity extends MapEntity, TFormValues extends Record<string, unknown>> {
   title: string;
   fields: ReadonlyArray<AnyFieldDef<TEntity, TFormValues>>;
   readonly: ReadonlyArray<ReadOnlyDef<TEntity>>;
 }
 
-function groupBySections<TEntity, TFormValues extends Record<string, unknown>>(
+function groupBySections<TEntity extends MapEntity, TFormValues extends Record<string, unknown>>(
   schema: EntitySchema<TEntity, TFormValues>,
 ): Array<SectionGroup<TEntity, TFormValues>> {
   // Bucket by title, preserving declaration order for any sections

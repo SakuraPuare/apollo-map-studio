@@ -255,7 +255,7 @@ describe('withLabels', () => {
   });
 
   it('unknown values in options fall back to raw value as label', () => {
-    const result = withLabels('laneType', ['CITY_DRIVING', 'GHOST_LANE' as any]);
+    const result = withLabels('laneType', ['CITY_DRIVING', 'GHOST_LANE']);
     expect(result[0]).toEqual({ value: 'CITY_DRIVING', label: 'City Driving' });
     expect(result[1]).toEqual({ value: 'GHOST_LANE', label: 'GHOST_LANE' });
   });

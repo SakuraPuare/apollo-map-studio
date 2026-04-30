@@ -15,6 +15,31 @@ import {
 } from '@/lib/entityOps';
 import { rectCenter, rectPolygonPoints, rectRotationFromHandle, resizeRotatedRect } from './rect';
 
+type RectSourceEntity<E> = E extends { polygon: unknown }
+  ? '_sourceRect' extends keyof E
+    ? E
+    : never
+  : never;
+
+type ApolloRectSourceEntity = RectSourceEntity<ApolloEntity>;
+
+function hasRectSource(
+  entity: ApolloEntity,
+): entity is ApolloRectSourceEntity & { _sourceRect: SourceRectInfo } {
+  return getSourceRect(entity) !== undefined && 'polygon' in entity;
+}
+
+function withSourceRect<TEntity extends ApolloRectSourceEntity>(
+  entity: TEntity,
+  sourceRect: SourceRectInfo,
+): TEntity {
+  return {
+    ...entity,
+    polygon: { points: rectPolygonPoints(sourceRect) },
+    _sourceRect: sourceRect,
+  };
+}
+
 export function getApolloDragCenter(entity: ApolloEntity): LngLat | null {
   const sourceRect = getSourceRect(entity);
   if (sourceRect) return rectCenter(sourceRect);
@@ -90,7 +115,7 @@ function applyArcSourceDrag(
 }
 
 function applyRectSourceDrag(
-  entity: ApolloEntity,
+  entity: ApolloRectSourceEntity,
   sourceRect: SourceRectInfo,
   index: number,
   pointType: DragPointType,
@@ -101,20 +126,12 @@ function applyRectSourceDrag(
       ...sourceRect,
       rotation: rectRotationFromHandle(sourceRect, newPoint),
     };
-    return {
-      ...entity,
-      polygon: { points: rectPolygonPoints(newRect) },
-      _sourceRect: newRect,
-    } as unknown as MapEntity;
+    return withSourceRect(entity, newRect);
   }
 
   if (pointType === 'vertex') {
     const newRect = resizeRotatedRect(sourceRect, index, newPoint);
-    return {
-      ...entity,
-      polygon: { points: rectPolygonPoints(newRect) },
-      _sourceRect: newRect,
-    } as unknown as MapEntity;
+    return withSourceRect(entity, newRect);
   }
 
   if (pointType === 'center') {
@@ -126,11 +143,7 @@ function applyRectSourceDrag(
       p2: { x: sourceRect.p2.x + dx, y: sourceRect.p2.y + dy },
       rotation: sourceRect.rotation,
     };
-    return {
-      ...entity,
-      polygon: { points: rectPolygonPoints(newRect) },
-      _sourceRect: newRect,
-    } as unknown as MapEntity;
+    return withSourceRect(entity, newRect);
   }
 
   return entity;
@@ -144,7 +157,6 @@ export function applyApolloDrag(
   altKey = false,
 ): MapEntity {
   const source = getSource(entity);
-  const sourceRect = getSourceRect(entity);
 
   if (source?.drawTool === 'drawBezier' && source.anchors) {
     return applyBezierSourceDrag(entity, source, index, pointType, newPoint, altKey);
@@ -154,8 +166,8 @@ export function applyApolloDrag(
     return applyArcSourceDrag(entity, source, index, newPoint);
   }
 
-  if (sourceRect) {
-    return applyRectSourceDrag(entity, sourceRect, index, pointType, newPoint);
+  if (hasRectSource(entity)) {
+    return applyRectSourceDrag(entity, entity._sourceRect, index, pointType, newPoint);
   }
 
   if (pointType === 'center') {

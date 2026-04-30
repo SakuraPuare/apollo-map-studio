@@ -15,27 +15,23 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { matchesKeybinding, getKeyBindingActions } from '@/core/actions/registry';
-import type { KeyBinding } from '@/core/actions/registry';
+import type { KeyBinding, KeyBindingEvent } from '@/core/actions/registry';
 
 // ---------------------------------------------------------------------------
 // 1. matchesKeybinding — pure function, no mocks needed
 //
 //    matchesKeybinding(e, kb) only reads: e.key, e.ctrlKey, e.metaKey,
-//    e.shiftKey, e.altKey. We pass plain objects cast to KeyboardEvent
-//    instead of using the DOM constructor (no jsdom in this env).
+//    e.shiftKey, e.altKey, so tests can use plain objects.
 // ---------------------------------------------------------------------------
 
-type FakeKbEvent = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>;
-
-const makeEvent = (overrides: Partial<FakeKbEvent> = {}): KeyboardEvent =>
-  ({
-    key: 'z',
-    ctrlKey: true,
-    metaKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...overrides,
-  }) as unknown as KeyboardEvent;
+const makeEvent = (overrides: Partial<KeyBindingEvent> = {}): KeyBindingEvent => ({
+  key: 'z',
+  ctrlKey: true,
+  metaKey: false,
+  shiftKey: false,
+  altKey: false,
+  ...overrides,
+});
 
 describe('matchesKeybinding', () => {
   const kb: KeyBinding = { key: 'z', ctrl: true };

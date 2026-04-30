@@ -23,9 +23,9 @@ export type { DeriveCause, DeriveContext, DeriveRule } from './types';
 
 const DEFAULT_TRIGGERS: readonly DeriveCause[] = ['create', 'editGeometry'];
 
-const REGISTRY: Partial<Record<MapEntity['entityType'], DeriveRule<MapEntity>[]>> = {
-  lane: laneRules as unknown as DeriveRule<MapEntity>[],
-  parkingSpace: parkingSpaceRules as unknown as DeriveRule<MapEntity>[],
+const REGISTRY: Partial<Record<MapEntity['entityType'], readonly DeriveRule<MapEntity>[]>> = {
+  lane: laneRules,
+  parkingSpace: parkingSpaceRules,
 };
 
 function readOverrides(entity: MapEntity): ReadonlySet<string> {
@@ -50,7 +50,7 @@ export function applyDerive<E extends MapEntity>(entity: E, ctx: DeriveContext<E
     const triggers = rule.on ?? DEFAULT_TRIGGERS;
     if (!triggers.includes(ctx.cause)) continue;
     if (rule.owns.some((path) => overrides.has(path))) continue;
-    next = rule.apply(next, ctx as DeriveContext<MapEntity>);
+    next = rule.apply(next, ctx);
   }
 
   return next as E;

@@ -38,7 +38,7 @@ function makeFeature(id: string, idx = 0): GeoJSON.Feature {
 // Helper: make a minimal SerializedEntity stub
 // ---------------------------------------------------------------------------
 function makeEntity(id: string): SerializedEntity {
-  return { id } as unknown as SerializedEntity;
+  return { id, entityType: 'polyline', points: [] };
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import {
   getKeyBindingActions,
   matchesKeybinding,
 } from '../registry';
+import type { KeyBindingEvent } from '../registry';
 
 describe('Action Registry', () => {
   // ── Structural integrity ────────────────────────────────
@@ -137,14 +138,14 @@ describe('Action Registry', () => {
     metaKey?: boolean;
     shiftKey?: boolean;
     altKey?: boolean;
-  }): KeyboardEvent {
+  }): KeyBindingEvent {
     return {
       key: opts.key,
       ctrlKey: opts.ctrlKey ?? false,
       metaKey: opts.metaKey ?? false,
       shiftKey: opts.shiftKey ?? false,
       altKey: opts.altKey ?? false,
-    } as unknown as KeyboardEvent;
+    };
   }
 
   it('matchesKeybinding works for simple key', () => {

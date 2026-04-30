@@ -10,6 +10,7 @@ export {
   getToolStripSlotActions,
   matchesKeybinding,
 } from './registry/helpers';
+export type { KeyBindingEvent } from './registry/helpers';
 export type {
   ActionCategory,
   ActionDef,

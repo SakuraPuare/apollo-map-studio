@@ -150,7 +150,7 @@ export function apolloEntityCoords(entity: ApolloEntity): LngLat[] {
   return pointsToCoords(pts);
 }
 
-export function isApolloAreaEntity(entity: ApolloEntity): boolean {
+export function isApolloAreaEntity(entity: { entityType: string }): boolean {
   switch (entity.entityType) {
     case 'junction':
     case 'parkingSpace':
@@ -177,7 +177,7 @@ export function isApolloAreaEntity(entity: ApolloEntity): boolean {
  *   - signal/stopSign/yieldSign/barrierGate/speedBump edit on stop_line /
  *     position curves — polyline.
  */
-export function isApolloPolygonEditPoints(entity: ApolloEntity): boolean {
+export function isApolloPolygonEditPoints(entity: { entityType: string }): boolean {
   switch (entity.entityType) {
     case 'junction':
     case 'parkingSpace':

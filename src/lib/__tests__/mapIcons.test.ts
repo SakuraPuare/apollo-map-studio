@@ -58,13 +58,13 @@ describe('registerMapIcons — skips already-registered icons', () => {
 
   it('does not call addImage for icons that hasImage returns true', async () => {
     const map = makeMapStub([...ALL_ICON_IDS]); // all pre-registered
-    await registerMapIcons(map as any);
+    await registerMapIcons(map);
     expect(map.addImage).not.toHaveBeenCalled();
   });
 
   it('calls hasImage for every icon in the registry (6 total)', async () => {
     const map = makeMapStub([...ALL_ICON_IDS]); // all pre-registered → no rasterize
-    await registerMapIcons(map as any);
+    await registerMapIcons(map);
     expect(map.hasImage).toHaveBeenCalledTimes(6);
     for (const id of ALL_ICON_IDS) {
       expect(map.hasImage).toHaveBeenCalledWith(id);
@@ -81,13 +81,13 @@ describe('registerMapIcons — resolves without throwing on rasterize failure', 
     // In the test environment Blob/URL.createObjectURL/Image/Canvas are absent or
     // stub-only, so rasterize will throw. The module must swallow per-icon errors.
     const map = makeMapStub([]); // nothing pre-registered → triggers rasterize
-    await expect(registerMapIcons(map as any)).resolves.toBeUndefined();
+    await expect(registerMapIcons(map)).resolves.toBeUndefined();
   });
 
   it('logs a console.error for each failing icon but continues', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const map = makeMapStub([]);
-    await registerMapIcons(map as any);
+    await registerMapIcons(map);
     // At least one error should have been logged for each of the 6 icons that
     // failed rasterization in the headless test environment.
     expect(errorSpy.mock.calls.length).toBeGreaterThan(0);
@@ -102,9 +102,9 @@ describe('registerMapIcons — icon ID contract', () => {
   it('all 6 expected icon IDs are checked on the map', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const map = makeMapStub([...ALL_ICON_IDS]); // pre-registered to avoid DOM ops
-    await registerMapIcons(map as any);
+    await registerMapIcons(map);
 
-    const checkedIds = map.hasImage.mock.calls.map((c: any[]) => c[0]);
+    const checkedIds = map.hasImage.mock.calls.map(([id]) => id);
     for (const id of ALL_ICON_IDS) {
       expect(checkedIds).toContain(id);
     }

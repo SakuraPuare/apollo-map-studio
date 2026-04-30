@@ -266,13 +266,7 @@ describe('findSnapTarget', () => {
   });
 
   it('polygon vertex snap has no endpointRole (lane-only concept)', () => {
-    const j: {
-      id: string;
-      entityType: 'junction';
-      polygon: { points: { x: number; y: number }[] };
-      type: 'CROSS_ROAD';
-      overlapIds: string[];
-    } = {
+    const j: JunctionEntity = {
       id: 'j-1',
       entityType: 'junction',
       polygon: {
@@ -285,12 +279,7 @@ describe('findSnapTarget', () => {
       type: 'CROSS_ROAD',
       overlapIds: [],
     };
-    const target = findSnapTarget(
-      { x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT },
-      [j as unknown as MapEntity],
-      12,
-      null,
-    );
+    const target = findSnapTarget({ x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT }, [j], 12, null);
     expect(target!.kind).toBe('vertex');
     expect(target!.entityType).toBe('junction');
     expect(target!.endpointRole).toBeUndefined();
