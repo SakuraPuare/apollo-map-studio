@@ -5,11 +5,12 @@ import { enableMapSet } from 'immer';
 import type { MapEntity } from '@/types/entities';
 import {
   reparent,
-  cascadeDeleteRefs,
+  cascadeDeleteRefsFull,
   type ParentTarget,
   type ReparentResult,
 } from '@/lib/entityOps';
 import { reconcileLaneTopology } from '@/core/geometry/laneTopology';
+import { reconcileOverlaps, invalidateLaneCaches } from '@/core/elements/overlap';
 import { readHistoryLimit } from './settingsStore';
 
 enableMapSet();
@@ -32,6 +33,25 @@ interface MapActions {
 
 type MapStore = MapState & MapActions;
 
+/** lane / junction 几何变化才需要触发拓扑重算（pred/succ/junctionId） */
+function topologyAffectingType(t: MapEntity['entityType']): boolean {
+  return t === 'lane' || t === 'junction';
+}
+
+/**
+ * 在 immer producer 内调用 reconcileOverlaps；patch 直接落到 draft，
+ * 与 laneTopology / cascadeDelete 共享同一个 zundo 事务（R1 闭环不破）。
+ */
+function applyOverlapPatch(
+  draft: { entities: Map<string, MapEntity> },
+  dirtyIds: Set<string>,
+): void {
+  if (dirtyIds.size === 0) return;
+  const patch = reconcileOverlaps(draft.entities, { mode: 'incremental', dirtyIds });
+  for (const id of patch.removedOverlapIds) draft.entities.delete(id);
+  for (const [id, e] of patch.changes) draft.entities.set(id, e);
+}
+
 export const useMapStore = create<MapStore>()(
   temporal(
     immer((set, get) => ({
@@ -40,13 +60,11 @@ export const useMapStore = create<MapStore>()(
       addEntity(entity) {
         set((state) => {
           state.entities.set(entity.id, entity);
-          if (entity.entityType === 'lane' || entity.entityType === 'junction') {
-            // Lane geometry changes may form/dissolve pred/succ/neighbors;
-            // junction polygon changes may flip lane.junctionId membership.
-            // Either way, reconcile rebuilds all derived topology fields.
+          if (topologyAffectingType(entity.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }
+          applyOverlapPatch(state, new Set([entity.id]));
         });
       },
 
@@ -54,10 +72,11 @@ export const useMapStore = create<MapStore>()(
         set((state) => {
           if (!state.entities.has(id)) return;
           state.entities.set(id, entity);
-          if (entity.entityType === 'lane' || entity.entityType === 'junction') {
+          if (topologyAffectingType(entity.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }
+          applyOverlapPatch(state, new Set([id]));
         });
       },
 
@@ -65,21 +84,22 @@ export const useMapStore = create<MapStore>()(
         const all = get().entities;
         if (!all.has(id)) return;
         const removed = all.get(id);
-        const cleanups = cascadeDeleteRefs(new Set([id]), all);
+        const { changes: cleanups, cascadeRemoved } = cascadeDeleteRefsFull(new Set([id]), all);
         set((state) => {
           for (const [cid, entity] of cleanups) {
             state.entities.set(cid, entity);
           }
+          for (const cid of cascadeRemoved) state.entities.delete(cid);
           state.entities.delete(id);
-          if (removed && (removed.entityType === 'lane' || removed.entityType === 'junction')) {
-            // Topology on neighbors must drop now that the geometry is gone.
-            // cascadeDeleteRefs already strips dangling ids; reconcile is the
-            // single source of truth for derivations and also rebuilds
-            // junctionId for lanes when a junction polygon disappears.
+          if (removed && topologyAffectingType(removed.entityType)) {
             const { changes } = reconcileLaneTopology(state.entities);
             for (const [cid, c] of changes) state.entities.set(cid, c);
           }
+          // 删除事件下，邻居都需要重算 overlap；用 cleanups 的 ids 作为 dirty 集
+          const dirty = new Set<string>(cleanups.keys());
+          applyOverlapPatch(state, dirty);
         });
+        if (removed && removed.entityType === 'lane') invalidateLaneCaches([removed.id]);
       },
 
       reparentEntity(childId, target) {
