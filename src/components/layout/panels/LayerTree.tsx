@@ -1,4 +1,5 @@
 import { useMemo, useRef, useCallback } from 'react';
+import { nanoid } from 'nanoid';
 import { Tree, NodeRendererProps, TreeApi, NodeApi } from 'react-arborist';
 import {
   FaChevronRight,
@@ -9,6 +10,7 @@ import {
   FaLayerGroup,
   FaTrash,
   FaLink,
+  FaPlus,
 } from 'react-icons/fa6';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
@@ -468,9 +470,35 @@ interface LayerTreeProps {
 export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   const entities = useMapStore((s) => s.entities);
   const reparentEntity = useMapStore((s) => s.reparentEntity);
+  const addEntity = useMapStore((s) => s.addEntity);
   const treeRef = useRef<TreeApi<TreeNode>>(null);
 
   const treeData = useMemo(() => buildTree(entities), [entities]);
+
+  const createRoad = useCallback(() => {
+    const id = `road_${nanoid(12)}`;
+    const road: RoadEntity = {
+      id,
+      entityType: 'road',
+      sections: [{ id: `sec_${nanoid(8)}`, laneIds: [] }],
+      junctionId: null,
+      type: 'CITY_ROAD',
+    };
+    addEntity(road);
+    onSelect?.(id);
+  }, [addEntity, onSelect]);
+
+  const createRSU = useCallback(() => {
+    const id = `rsu_${nanoid(12)}`;
+    const rsu: RSUEntity = {
+      id,
+      entityType: 'rsu',
+      junctionId: null,
+      overlapIds: [],
+    };
+    addEntity(rsu);
+    onSelect?.(id);
+  }, [addEntity, onSelect]);
 
   const handleSelect = useCallback(
     (nodes: NodeApi<TreeNode>[]) => {
@@ -523,7 +551,24 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   );
 
   return (
-    <div className="h-full">
+    <div className="h-full flex flex-col">
+      {/* Container-only entities (no canvas geometry) need a tree-side spawn affordance. */}
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
+        <button
+          onClick={createRoad}
+          className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
+          title="新建 Road（之后拖 lane 进 Section 完成 assign）"
+        >
+          <FaPlus className="w-2.5 h-2.5" /> Road
+        </button>
+        <button
+          onClick={createRSU}
+          className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
+          title="新建 RSU（之后拖到某个 Junction 下完成 assign）"
+        >
+          <FaPlus className="w-2.5 h-2.5" /> RSU
+        </button>
+      </div>
       {treeData.length === 0 ? (
         <div className="flex items-center justify-center h-32 text-zinc-600 text-xs">
           No entities yet. Start drawing!
