@@ -2,24 +2,17 @@ import { useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
-import type { DragPointType } from '@/types/editor';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
-import {
-  applyDrag,
-  getDragCenter,
-  toggleSmooth,
-  toggleSmoothApollo,
-  deleteVertex,
-} from '@/components/map/entityMutations';
-import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
+import { applyDrag } from '@/components/map/entityMutations';
 import { CLICK_THRESHOLD_PX } from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
-import { applyLaneConnection, planConnection } from '@/core/geometry/connectLanes';
-import type { LaneEntity } from '@/types/apollo';
 import { createCursorScheduler } from './mapEventRouter/cursorScheduler';
 import { hitBbox, toLngLat, workerHitTest } from './mapEventRouter/hitTest';
 import { isDuplicateInput, sampleInput, type InputSample } from './mapEventRouter/inputDedup';
+import { handleConnectModeClick } from './mapEventRouter/connectMode';
+import { handleMapKeyDown } from './mapEventRouter/keyboard';
+import { handleSelectedMouseDown } from './mapEventRouter/selectionDrag';
 import { applySnap as applySnapToPoint } from './mapEventRouter/snap';
 
 export { isDuplicateInput };
@@ -49,77 +42,11 @@ export function useMapEventRouter(
       mouseDownScreenPos = { x: e.point.x, y: e.point.y };
       const snap = actorRef.getSnapshot();
       const state = snap.value as string;
-      const altKey = e.originalEvent.altKey;
 
-      // Connect-lanes is a modal pick flow that lives ON TOP of FSM state.
-      // We routinely SELECT_ENTITY the first picked lane so the user sees
-      // it highlighted (without that, the click feels like a no-op, which
-      // is the original "无法选中车道" report). That selection means a click
-      // on the lane's hot-points/hot-fill on the second pick would otherwise
-      // start a vertex/center drag here — short-circuit the drag branch
-      // while connect mode is active so the click reaches the connect
-      // handler in onClick instead.
-      if (state === 'selected' && !useUIStore.getState().connectMode.active) {
-        const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
-        if (hotHits.length > 0) {
-          const props = hotHits[0]!.properties;
-          const idx = props?.index as number;
-          const pType = (
-            props?.role === 'handle' ? (props?.handleType as DragPointType) : 'vertex'
-          ) as DragPointType;
-
-          if (altKey && pType === 'vertex') {
-            const entityId = snap.context.selectedEntityId;
-            if (entityId) {
-              const entity = useMapStore.getState().entities.get(entityId);
-              if (entity) {
-                if (entity.entityType === 'bezier') {
-                  useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
-                } else {
-                  // Apollo entity with bezier source
-                  const src = (entity as unknown as Record<string, unknown>)._source as
-                    | SourceDrawInfo
-                    | undefined;
-                  if (src?.drawTool === 'drawBezier' && src.anchors) {
-                    useMapStore
-                      .getState()
-                      .updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
-                  }
-                }
-              }
-            }
-            actorRef.send({ type: 'TOGGLE_SMOOTH', index: idx });
-            return;
-          }
-
-          map.dragPan.disable();
-          actorRef.send({ type: 'START_DRAG', index: idx, pointType: pType, altKey });
-          return;
-        }
-
-        const fillHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-fill'] });
-        if (fillHits.length > 0) {
-          map.dragPan.disable();
-          const entityId = snap.context.selectedEntityId;
-          centerGrabOffset = null;
-          if (entityId) {
-            const entity = useMapStore.getState().entities.get(entityId);
-            if (entity) {
-              const center = getDragCenter(entity);
-              if (center) {
-                const m = toLngLat(e);
-                centerGrabOffset = [m[0] - center[0], m[1] - center[1]];
-              }
-            }
-          }
-          actorRef.send({
-            type: 'START_DRAG',
-            index: -2,
-            pointType: 'center' as DragPointType,
-            altKey: false,
-          });
-          return;
-        }
+      const selectedDrag = handleSelectedMouseDown(map, actorRef, e);
+      if (selectedDrag.handled) {
+        if ('centerGrabOffset' in selectedDrag) centerGrabOffset = selectedDrag.centerGrabOffset!;
+        return;
       }
 
       if (state === 'editingPoint') return;
@@ -142,68 +69,7 @@ export function useMapEventRouter(
         if (Math.hypot(dx, dy) > CLICK_THRESHOLD_PX) return;
       }
 
-      // Connect-lanes mode intercepts every click — first picks the
-      // source lane, second picks the target and commits the join.
-      // Non-lane clicks are ignored (with a no-op visual reset).
-      const ui = useUIStore.getState();
-      if (ui.connectMode.active) {
-        // Filter to lanes so an overlapping junction polygon (lanes routinely
-        // pass through junctions) doesn't shadow the lane the user actually
-        // clicked.
-        hitTest(e, (t) => t === 'lane').then((hitId) => {
-          const current = useUIStore.getState();
-          if (!current.connectMode.active) return;
-          if (!hitId) return;
-          const entity = useMapStore.getState().entities.get(hitId);
-          if (!entity || entity.entityType !== 'lane') return;
-          if (!current.connectMode.firstLaneId) {
-            useUIStore.getState().setConnectFirstLane(hitId);
-            // Re-use the FSM selection highlight so the picked lane lights
-            // up immediately. Without this the user gets zero visual
-            // feedback that their first click landed and reports the mode
-            // as broken ("无法选中车道"). The drag branch in onMouseDown is
-            // gated on connectMode so a follow-up click on the same lane
-            // doesn't start a vertex drag.
-            actorRef.send({ type: 'SELECT_ENTITY', id: hitId });
-            return;
-          }
-          if (current.connectMode.firstLaneId === hitId) return; // same lane
-          const a = useMapStore.getState().entities.get(current.connectMode.firstLaneId);
-          if (!a || a.entityType !== 'lane') {
-            useUIStore.getState().exitConnectMode();
-            return;
-          }
-          // Wrap the apply step in try/finally so a malformed source
-          // record (missing anchor handle, etc.) can't strand the user
-          // in connect mode — exitConnectMode + SELECT_ENTITY must run
-          // regardless of whether applyDrag/updateEntity threw. The
-          // reconcile inside updateEntity has already written pred/succ
-          // for clean cases; thrown cases at least free the UI.
-          try {
-            const plan = planConnection(a as LaneEntity, entity as LaneEntity);
-            if (plan) {
-              // applyLaneConnection knows that `plan.indexToMove` is a
-              // centerline-point index — translates it to first/last anchor
-              // (bezier) or arcPoints[0|2] (arc) before re-sampling. The
-              // old applyDrag('vertex') path indexed `_source.anchors`
-              // directly with the centerline index and crashed on bezier
-              // lanes ("无法选中车道" → drag undefined.x).
-              const next = applyLaneConnection(a as LaneEntity, plan);
-              useMapStore.getState().updateEntity(a.id, next);
-              // reconcileLaneTopology runs inside updateEntity for lanes,
-              // so pred/succ are written into the store before we exit.
-            }
-          } catch (err) {
-            console.error('[connect] apply failed', err);
-          } finally {
-            useUIStore.getState().exitConnectMode();
-            // Surface the joined lane so user can immediately see the
-            // result in Inspector.
-            actorRef.send({ type: 'SELECT_ENTITY', id: a.id });
-          }
-        });
-        return;
-      }
+      if (handleConnectModeClick(actorRef, hitTest, e)) return;
 
       const snap = actorRef.getSnapshot();
       const state = snap.value as string;
@@ -324,39 +190,9 @@ export function useMapEventRouter(
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      handleMapKeyDown(actorRef, e, () => {
         centerGrabOffset = null;
-        // ESC also cancels connect-mode so the user can bail without
-        // committing a join.
-        if (useUIStore.getState().connectMode.active) {
-          useUIStore.getState().exitConnectMode();
-        }
-        actorRef.send({ type: 'CANCEL' });
-      }
-      if (e.key === 'Enter') actorRef.send({ type: 'CONFIRM' });
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        const snap = actorRef.getSnapshot();
-        if (snap.value !== 'selected' || !snap.context.selectedEntityId) return;
-        const id = snap.context.selectedEntityId;
-        const store = useMapStore.getState();
-        const entity = store.entities.get(id);
-        if (!entity) return;
-
-        const idx = snap.context.dragPointIndex;
-        const pType = snap.context.dragPointType;
-
-        if (pType === 'vertex' && idx >= 0) {
-          const result = deleteVertex(entity, idx);
-          if (result) {
-            store.updateEntity(id, result);
-            actorRef.send({ type: 'SELECT_ENTITY', id });
-            return;
-          }
-        }
-
-        actorRef.send({ type: 'DELETE_ENTITY' });
-        store.removeEntity(id);
-      }
+      });
     };
 
     const onZoomEnd = () => {
