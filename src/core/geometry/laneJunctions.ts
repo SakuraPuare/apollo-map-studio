@@ -315,6 +315,7 @@ function sideJoinOffset(
   const anchorA = normalForSide(dirA, side).map((v) => v * widthA) as Vec2;
   const anchorB = normalForSide(dirB, side).map((v) => v * widthB) as Vec2;
   const exact = intersectLines(anchorA, dirA, anchorB, dirB) ?? midpoint(anchorA, anchorB);
+  const maxWidth = Math.max(widthA, widthB);
 
   if (a.isStart === b.isStart) {
     return exact;
@@ -328,7 +329,7 @@ function sideJoinOffset(
     return exact;
   }
 
-  const cap = MAX_OUTER_MITER * Math.max(widthA, widthB);
+  const cap = MAX_OUTER_MITER * maxWidth;
   return clampVector(exact, cap);
 }
 
@@ -383,39 +384,39 @@ function updateLineEndpoint(
   feature: GeoJSON.Feature<GeoJSON.LineString> | undefined,
   isStart: boolean,
   joinPt: LngLat,
+  dir: Vec2,
+  cosLat: number,
 ) {
   if (!feature) return;
   const coords = feature.geometry.coordinates;
   if (coords.length === 0) return;
   coords[isStart ? 0 : coords.length - 1] = joinPt;
+
+  // Preserve the single-lane tight-turn behavior after stitching: if the
+  // join lands behind short terminal edge segments, remove those folded points.
+  while (coords.length > 2) {
+    const endpointIndex = isStart ? 0 : coords.length - 1;
+    const adjacentIndex = isStart ? 1 : coords.length - 2;
+    const endpoint = projectCoord(coords[endpointIndex] as LngLat, cosLat);
+    const adjacent = projectCoord(coords[adjacentIndex] as LngLat, cosLat);
+    const vx = isStart ? adjacent[0] - endpoint[0] : endpoint[0] - adjacent[0];
+    const vy = isStart ? adjacent[1] - endpoint[1] : endpoint[1] - adjacent[1];
+    if (vx * dir[0] + vy * dir[1] > 1e-4) break;
+    coords.splice(adjacentIndex, 1);
+  }
 }
 
-function updatePolygonEndpoint(
-  refs: LaneFeatureRefs | undefined,
-  side: 'left' | 'right',
-  isStart: boolean,
-  joinPt: LngLat,
-) {
+function projectCoord(coord: LngLat, cosLat: number): Vec2 {
+  return [coord[0] * cosLat * DEG_TO_M, coord[1] * DEG_TO_M];
+}
+
+function syncPolygonFromEdges(refs: LaneFeatureRefs | undefined) {
   if (!refs?.polygon || !refs.left || !refs.right) return;
-
-  const ring = refs.polygon.geometry.coordinates[0];
-  if (!ring || ring.length === 0) return;
-
-  const leftLen = refs.left.geometry.coordinates.length;
-  const rightLen = refs.right.geometry.coordinates.length;
-  const ringFirst = ring[0]!;
-  const ringLast = ring[ring.length - 1]!;
-  const isClosed = ring.length > 1 && ringFirst[0] === ringLast[0] && ringFirst[1] === ringLast[1];
-  const logicalLen = isClosed ? ring.length - 1 : ring.length;
-  if (logicalLen < leftLen + rightLen) return;
-
-  const index =
-    side === 'left' ? (isStart ? 0 : leftLen - 1) : isStart ? leftLen + rightLen - 1 : leftLen;
-
-  ring[index] = joinPt;
-  if (isClosed && index === 0) {
-    ring[ring.length - 1] = joinPt;
-  }
+  const left = refs.left.geometry.coordinates as LngLat[];
+  const right = refs.right.geometry.coordinates as LngLat[];
+  const ring = [...left, ...[...right].reverse()].map(([lng, lat]) => [lng, lat] as LngLat);
+  if (ring.length > 0) ring.push([ring[0]![0], ring[0]![1]]);
+  refs.polygon.geometry.coordinates[0] = ring;
 }
 
 export function applyLaneJunctions(
@@ -509,15 +510,13 @@ export function applyLaneJunctions(
       const refsA = featureMap.get(a.id);
       const refsB = featureMap.get(b.id);
 
-      updateLineEndpoint(refsA?.left, a.isStart, leftJoin);
-      updateLineEndpoint(refsB?.left, b.isStart, leftJoin);
-      updateLineEndpoint(refsA?.right, a.isStart, rightJoin);
-      updateLineEndpoint(refsB?.right, b.isStart, rightJoin);
+      updateLineEndpoint(refsA?.left, a.isStart, leftJoin, dirA, cosLat);
+      updateLineEndpoint(refsB?.left, b.isStart, leftJoin, dirB, cosLat);
+      updateLineEndpoint(refsA?.right, a.isStart, rightJoin, dirA, cosLat);
+      updateLineEndpoint(refsB?.right, b.isStart, rightJoin, dirB, cosLat);
 
-      updatePolygonEndpoint(refsA, 'left', a.isStart, leftJoin);
-      updatePolygonEndpoint(refsB, 'left', b.isStart, leftJoin);
-      updatePolygonEndpoint(refsA, 'right', a.isStart, rightJoin);
-      updatePolygonEndpoint(refsB, 'right', b.isStart, rightJoin);
+      syncPolygonFromEdges(refsA);
+      syncPolygonFromEdges(refsB);
     }
   }
 

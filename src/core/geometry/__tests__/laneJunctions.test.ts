@@ -373,15 +373,13 @@ describe('applyLaneJunctions — decorateOnly (incremental cache support)', () =
 
 // ─── Snap-connected lane boundary regression ──────────────
 //
-// Bug context: at near-180° head-to-head turns the analytic miter
-// intersection blew up (40m+) because the inner branch of
-// `sideJoinOffset` returned `exact` without a magnitude cap. Fix:
-// universal cap-by-midpoint when |exact| > MAX_OUTER_MITER * width.
+// Bug context: when two multi-point lanes are snapped together, the analytic
+// miter intersection can land past a short terminal segment. Single-lane
+// offset code collapses those unsafe tight-turn segments, but stitching used
+// to reintroduce them by overwriting only the connected endpoint.
 //
-// This block sweeps practical turn angles 30°…160° to pin geometric
-// invariants. The U-turn region (|angle| ≥ 165°) is excluded — those
-// connections require a junction entity, not a continuous lane link;
-// see the design note in `sideJoinOffset`.
+// This block sweeps practical turn angles and short terminal-segment cases
+// to pin geometric invariants for two connected lanes.
 
 describe('Snap-connected lane boundaries (regression sweep)', () => {
   function segmentsCross(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat): boolean {
@@ -422,6 +420,10 @@ describe('Snap-connected lane boundaries (regression sweep)', () => {
   const stepLng = STEP_M / mPerLng;
   const stepLat = STEP_M / mPerLat;
 
+  // Practical angle range only. |angle| ≥ 165° (head-to-head U-turns)
+  // require a junction entity, not a continuous lane connection — A's
+  // "left" and B's "left" land on physically opposite sides, so no
+  // single-point join can satisfy both.
   for (const turnDeg of [30, 60, 90, 120, 140, 160, -30, -60, -90, -120, -140, -160]) {
     it(`turn ${turnDeg}° produces non-crossing boundary geometry`, () => {
       const rad = (turnDeg * Math.PI) / 180;
@@ -454,4 +456,44 @@ describe('Snap-connected lane boundaries (regression sweep)', () => {
       expect(failures).toEqual([]);
     });
   }
+
+  it('short terminal segments do not reintroduce boundary crossing after stitching', () => {
+    const terminalM = 5;
+    const bodyM = 30;
+    const terminalLng = terminalM / mPerLng;
+    const terminalLat = terminalM / mPerLat;
+    const bodyLng = bodyM / mPerLng;
+    const bodyLat = bodyM / mPerLat;
+
+    for (const turnDeg of [120, 140, 160, -120, -140, -160]) {
+      const rad = (turnDeg * Math.PI) / 180;
+      const dirX = Math.cos(rad);
+      const dirY = Math.sin(rad);
+      const a = makeLane('A', [
+        [-bodyLng, LAT],
+        [-terminalLng, LAT],
+        [0, LAT],
+      ]);
+      const b = makeLane('B', [
+        [0, LAT],
+        [terminalLng * dirX, LAT + terminalLat * dirY],
+        [bodyLng * dirX, LAT + bodyLat * dirY],
+      ]);
+
+      const features = stitch([a, b]);
+      const aLeft = laneLine(features, 'A', 'laneEdgeLeft').geometry.coordinates as LngLat[];
+      const aRight = laneLine(features, 'A', 'laneEdgeRight').geometry.coordinates as LngLat[];
+      const bLeft = laneLine(features, 'B', 'laneEdgeLeft').geometry.coordinates as LngLat[];
+      const bRight = laneLine(features, 'B', 'laneEdgeRight').geometry.coordinates as LngLat[];
+
+      const failures: string[] = [];
+      if (selfCrosses(aLeft)) failures.push(`${turnDeg}: A.left self`);
+      if (selfCrosses(aRight)) failures.push(`${turnDeg}: A.right self`);
+      if (selfCrosses(bLeft)) failures.push(`${turnDeg}: B.left self`);
+      if (selfCrosses(bRight)) failures.push(`${turnDeg}: B.right self`);
+      if (pairCrosses(aLeft, bLeft)) failures.push(`${turnDeg}: A.left x B.left`);
+      if (pairCrosses(aRight, bRight)) failures.push(`${turnDeg}: A.right x B.right`);
+      expect(failures).toEqual([]);
+    }
+  });
 });
