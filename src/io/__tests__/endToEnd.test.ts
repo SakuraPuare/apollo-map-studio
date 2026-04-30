@@ -15,7 +15,7 @@ const APOLLO_BIN = path.resolve(
   '../__fixtures__/apollo/borregas_ave/base_map.bin',
 );
 
-// Mirrors what `pickAndImportBin` + `exportApolloBin` do, minus DOM file IO,
+// Mirrors what `pickAndImportApollo` + `exportApollo` do, minus DOM file IO,
 // so we can exercise the full pipeline end-to-end in a pure-Node test.
 async function runFullRoundTrip(bytes: Uint8Array, format: 'bin' | 'txt') {
   const decoded = await decodeMapBin(bytes);

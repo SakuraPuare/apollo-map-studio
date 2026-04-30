@@ -1,12 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   ACTION_DEFS,
   ACTION_MAP,
+  formatShortcut,
   getMenuActions,
   getCommandPaletteActions,
   getKeyBindingActions,
   matchesKeybinding,
 } from '../registry';
+import { _resetIsMacCache } from '../registry/helpers';
 import type { KeyBindingEvent } from '../registry';
 
 describe('Action Registry', () => {
@@ -70,10 +72,11 @@ describe('Action Registry', () => {
 
   // ── Menu coverage ───────────────────────────────────────
 
-  it('File menu has at least export and settings', () => {
+  it('File menu has Apollo import/export and settings', () => {
     const fileActions = getMenuActions('File');
     const ids = fileActions.map((a) => a.id);
-    expect(ids).toContain('export');
+    expect(ids).toContain('importApollo');
+    expect(ids).toContain('exportApollo');
     expect(ids).toContain('settings');
   });
 
@@ -195,6 +198,51 @@ describe('Action Registry', () => {
       const action = ACTION_DEFS.find((a) => a.drawTool === tool);
       expect(action, `No action registered for DrawTool "${tool}"`).toBeDefined();
     }
+  });
+
+  // ── Platform-aware shortcut formatting ──────────────────
+
+  describe('formatShortcut', () => {
+    beforeEach(() => _resetIsMacCache());
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      _resetIsMacCache();
+    });
+
+    function stubPlatform(platform: string, ua = '') {
+      vi.stubGlobal('navigator', { platform, userAgent: ua });
+    }
+
+    it('keeps Mac glyphs verbatim on macOS', () => {
+      stubPlatform('MacIntel');
+      expect(formatShortcut('⌘S')).toBe('⌘S');
+      expect(formatShortcut('⇧⌘Z')).toBe('⇧⌘Z');
+      expect(formatShortcut('⌘,')).toBe('⌘,');
+    });
+
+    it('rewrites Mac glyphs to Ctrl/Shift/Alt on Windows', () => {
+      stubPlatform('Win32');
+      expect(formatShortcut('⌘S')).toBe('Ctrl+S');
+      expect(formatShortcut('⇧⌘Z')).toBe('Shift+Ctrl+Z');
+      expect(formatShortcut('⌘,')).toBe('Ctrl+,');
+    });
+
+    it('rewrites Mac glyphs on Linux', () => {
+      stubPlatform('Linux x86_64');
+      expect(formatShortcut('⌘K')).toBe('Ctrl+K');
+    });
+
+    it('passes through non-modifier glyphs and bare letters', () => {
+      stubPlatform('Win32');
+      expect(formatShortcut('⌫')).toBe('⌫');
+      expect(formatShortcut('H')).toBe('H');
+    });
+
+    it('handles undefined/empty input', () => {
+      stubPlatform('Win32');
+      expect(formatShortcut(undefined)).toBe('');
+      expect(formatShortcut('')).toBe('');
+    });
   });
 
   // ── Toggle actions have isToggle flag ───────────────────

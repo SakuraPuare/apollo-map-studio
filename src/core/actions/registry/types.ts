@@ -4,11 +4,8 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
 
 export type ActionId =
-  | 'export'
-  | 'importApolloBin'
-  | 'importApolloTxt'
-  | 'exportApolloBin'
-  | 'exportApolloTxt'
+  | 'importApollo'
+  | 'exportApollo'
   | 'settings'
   | 'undo'
   | 'redo'

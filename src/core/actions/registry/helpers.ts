@@ -52,3 +52,57 @@ export function matchesKeybinding(e: KeyBindingEvent, kb: KeyBinding): boolean {
   if (!!kb.alt !== e.altKey) return false;
   return true;
 }
+
+// ─── Platform-aware shortcut display ─────────────────────────────────
+//
+// Registry authors write the canonical Mac glyph form (⌘S, ⇧⌘Z, ⌥⌫…) once.
+// At render time we map those glyphs to Ctrl+/Shift+/Alt+ on non-Mac. The
+// keybinding matcher already treats ctrl+meta as the same modifier, so we
+// only need to fix the *display*, not the dispatch path.
+
+let cachedIsMac: boolean | null = null;
+
+interface NavigatorUAData {
+  platform?: string;
+}
+
+export function isMacPlatform(): boolean {
+  if (cachedIsMac !== null) return cachedIsMac;
+  if (typeof navigator === 'undefined') {
+    cachedIsMac = false;
+    return cachedIsMac;
+  }
+  const uaData = (navigator as Navigator & { userAgentData?: NavigatorUAData }).userAgentData;
+  if (uaData?.platform) {
+    cachedIsMac = /mac/i.test(uaData.platform);
+    return cachedIsMac;
+  }
+  // navigator.platform is deprecated but still populated everywhere we ship.
+  // userAgent fallback covers iPad masquerading as desktop Safari.
+  const platform = navigator.platform ?? '';
+  const ua = navigator.userAgent ?? '';
+  cachedIsMac = /Mac|iPhone|iPad|iPod/.test(platform) || /Macintosh|iPhone|iPad|iPod/.test(ua);
+  return cachedIsMac;
+}
+
+/** Test-only: reset the memoised platform check between tests. */
+export function _resetIsMacCache(): void {
+  cachedIsMac = null;
+}
+
+/**
+ * Render a registry shortcut string for the current platform. Mac keeps the
+ * compact glyph form (`⌘S`); other platforms get `Ctrl+S`-style spelling.
+ * Non-modifier glyphs (`⌫` Backspace, `⏎` Return, etc.) pass through.
+ */
+export function formatShortcut(shortcut: string | undefined): string {
+  if (!shortcut) return '';
+  if (isMacPlatform()) return shortcut;
+  // Order matters: split modifier prefix from the trailing key. The registry
+  // always lists modifiers in canonical ⌃⌥⇧⌘ order, then the key glyph last.
+  return shortcut
+    .replace(/⌘/g, 'Ctrl+')
+    .replace(/⌃/g, 'Ctrl+')
+    .replace(/⇧/g, 'Shift+')
+    .replace(/⌥/g, 'Alt+');
+}

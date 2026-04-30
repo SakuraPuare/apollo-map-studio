@@ -1,7 +1,12 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
-import { getCommandPaletteActions, type ActionDef, type ActionId } from '@/core/actions/registry';
+import {
+  formatShortcut,
+  getCommandPaletteActions,
+  type ActionDef,
+  type ActionId,
+} from '@/core/actions/registry';
 
 // ─── Main Component ────────────────────────────────────────
 
@@ -113,7 +118,7 @@ export function CommandPalette({
                     {isChecked && <span className="text-cyan-400 text-xs">✓</span>}
                     {action.shortcut && (
                       <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
-                        {action.shortcut}
+                        {formatShortcut(action.shortcut)}
                       </kbd>
                     )}
                   </Command.Item>

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import {
+  formatShortcut,
   getMenuActions,
   getMenuNames,
   type ActionDef,
@@ -84,7 +85,9 @@ function Menu({
                   <span>{item.label}</span>
                 </span>
                 {item.shortcut && (
-                  <span className="text-zinc-600 font-mono text-[10px] ml-4">{item.shortcut}</span>
+                  <span className="text-zinc-600 font-mono text-[10px] ml-4">
+                    {formatShortcut(item.shortcut)}
+                  </span>
                 )}
               </button>
             ),

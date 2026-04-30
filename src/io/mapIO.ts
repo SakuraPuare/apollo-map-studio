@@ -75,18 +75,18 @@ export async function importApolloTextFile(file: File): Promise<ImportResult> {
   return buildImportResult(decoded, file.name);
 }
 
-/** Open file picker (.bin) and import; updates the apolloMapStore on success. */
-export async function pickAndImportBin(): Promise<ApolloMapImportInfo | null> {
-  const file = await pickFile('.bin,application/octet-stream');
+/**
+ * Open one file picker that accepts both Apollo formats and routes by
+ * filename suffix (`.bin` → binary protobuf, `.txt`/`.pb.txt` → text
+ * protobuf). The picker is the only entry point exposed to the menu —
+ * having a single "Import Apollo Map…" action keeps the File menu tight
+ * and avoids forcing the user to know which codec their file uses.
+ */
+export async function pickAndImportApollo(): Promise<ApolloMapImportInfo | null> {
+  const file = await pickFile('.bin,.txt,.pb.txt,application/octet-stream,text/plain');
   if (!file) return null;
-  return runImport(() => importApolloBinFile(file));
-}
-
-/** Open file picker (.txt/.pb.txt) and import; updates the apolloMapStore on success. */
-export async function pickAndImportText(): Promise<ApolloMapImportInfo | null> {
-  const file = await pickFile('.txt,.pb.txt,text/plain');
-  if (!file) return null;
-  return runImport(() => importApolloTextFile(file));
+  const isText = /\.(pb\.txt|txt)$/i.test(file.name);
+  return runImport(() => (isText ? importApolloTextFile(file) : importApolloBinFile(file)));
 }
 
 async function runImport(fn: () => Promise<ImportResult>): Promise<ApolloMapImportInfo | null> {
@@ -149,31 +149,33 @@ function suggestedFilename(originalName: string, ext: 'bin' | 'txt'): string {
   return `${base}-${stamp}.${ext}`;
 }
 
-export async function exportApolloBin(): Promise<void> {
+/**
+ * Export the current map in whichever Apollo format matches the imported
+ * file's suffix (`.txt`/`.pb.txt` → text protobuf, anything else → binary).
+ * Round-trip fidelity is the goal: a `.bin` in stays a `.bin` out, a
+ * `.txt` in stays a `.txt` out. Users who need to convert formats can
+ * re-import the exported file in the desired flavour.
+ */
+export async function exportApollo(): Promise<void> {
   const { rawMap, info } = useApolloMapStore.getState();
   if (!rawMap || !info) {
     useApolloMapStore.getState().setError('Nothing to export — import a map first.');
     return;
   }
   const enuMap = await buildExportPayload(rawMap, info.projString);
-  const bytes = await encodeMapBin(enuMap);
-  // Copy into a fresh ArrayBuffer so Blob constructor accepts it cleanly
-  // regardless of whether the underlying buffer is ArrayBuffer or
-  // SharedArrayBuffer (TS narrows the BlobPart type to ArrayBuffer only).
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
-  downloadBlob(blob, suggestedFilename(info.filename, 'bin'));
-}
-
-export async function exportApolloText(): Promise<void> {
-  const { rawMap, info } = useApolloMapStore.getState();
-  if (!rawMap || !info) {
-    useApolloMapStore.getState().setError('Nothing to export — import a map first.');
-    return;
+  const isText = /\.(pb\.txt|txt)$/i.test(info.filename);
+  if (isText) {
+    const text = await encodeMapText(enuMap);
+    const blob = new Blob([text], { type: 'text/plain' });
+    downloadBlob(blob, suggestedFilename(info.filename, 'txt'));
+  } else {
+    const bytes = await encodeMapBin(enuMap);
+    // Copy into a fresh ArrayBuffer so Blob constructor accepts it cleanly
+    // regardless of whether the underlying buffer is ArrayBuffer or
+    // SharedArrayBuffer (TS narrows the BlobPart type to ArrayBuffer only).
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
+    downloadBlob(blob, suggestedFilename(info.filename, 'bin'));
   }
-  const enuMap = await buildExportPayload(rawMap, info.projString);
-  const text = await encodeMapText(enuMap);
-  const blob = new Blob([text], { type: 'text/plain' });
-  downloadBlob(blob, suggestedFilename(info.filename, 'txt'));
 }

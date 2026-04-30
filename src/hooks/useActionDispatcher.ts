@@ -21,7 +21,7 @@ import {
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
-import { pickAndImportBin, pickAndImportText, exportApolloBin, exportApolloText } from '@/io/mapIO';
+import { pickAndImportApollo, exportApollo } from '@/io/mapIO';
 
 export interface ActionDispatcher {
   /**
@@ -60,19 +60,8 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     const map = new Map<ActionId, () => void>();
 
     // File
-    map.set('export', () => {
-      const entities = useMapStore.getState().entities;
-      const data = Array.from(entities.values());
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `apollo-map-${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-    map.set('importApolloBin', () => {
-      void pickAndImportBin().then((info) => {
+    map.set('importApollo', () => {
+      void pickAndImportApollo().then((info) => {
         if (info) {
           // eslint-disable-next-line no-console
           console.info(
@@ -83,23 +72,8 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
         }
       });
     });
-    map.set('importApolloTxt', () => {
-      void pickAndImportText().then((info) => {
-        if (info) {
-          // eslint-disable-next-line no-console
-          console.info(
-            `[Apollo IO] imported ${info.filename}:`,
-            info.counts,
-            `proj=${info.projString}`,
-          );
-        }
-      });
-    });
-    map.set('exportApolloBin', () => {
-      void exportApolloBin();
-    });
-    map.set('exportApolloTxt', () => {
-      void exportApolloText();
+    map.set('exportApollo', () => {
+      void exportApollo();
     });
     map.set('settings', onOpenSettings);
 

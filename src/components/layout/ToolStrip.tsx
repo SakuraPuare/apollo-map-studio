@@ -5,6 +5,7 @@ import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import {
   ACTION_DEFS,
+  formatShortcut,
   getToolAction,
   getToolStripSlotActions,
   type ActionId,
@@ -35,11 +36,12 @@ interface ToolButtonProps {
 }
 
 function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: ToolButtonProps) {
+  const display = formatShortcut(shortcut);
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      title={shortcut ? `${label} (${shortcut})` : label}
+      title={display ? `${label} (${display})` : label}
       className={clsx(
         'relative h-7 px-2 flex items-center gap-1 rounded text-xs transition-all shrink-0',
         disabled && 'opacity-40 cursor-not-allowed',
