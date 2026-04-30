@@ -71,8 +71,14 @@ export function intersectPolygons(a: readonly GeoPoint[], b: readonly GeoPoint[]
   let result;
   try {
     result = polygonClipping.intersection(polyA, polyB);
-  } catch {
-    // polygon-clipping 在某些自相交退化输入上会抛错；保守返回空。
+  } catch (err) {
+    // polygon-clipping 在某些自相交退化输入上会抛错；保守返回空，但留 telemetry
+    // —— 静默吞错会把真实库 bug / 上游 sanitize 漏洞变成"没相交"的假阴性.
+    console.error('[polyClip] intersection failed; returning empty', {
+      inputA: a.length,
+      inputB: b.length,
+      error: err,
+    });
     return [];
   }
 
@@ -105,7 +111,6 @@ export function largestRing(rings: readonly GeoPoint[][]): GeoPoint[] | null {
 /** 米空间近似面积（绝对值）；用 ring 中点纬度的 cosLat 修正 lng 方向. */
 function signedAreaApproxM2(ring: readonly GeoPoint[]): number {
   if (ring.length < 3) return 0;
-  const METERS_PER_DEGREE = 111_319.5;
   let latSum = 0;
   for (const p of ring) latSum += p.y;
   const meanLat = latSum / ring.length;

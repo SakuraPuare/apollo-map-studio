@@ -13,6 +13,7 @@ import { useProjDialogStore } from '@/store/projDialogStore';
 import { pickFile, readFileAsBytes, readFileAsText, downloadBlob } from './fileIO';
 import { apolloMapToEntities, entitiesToApolloMap } from './proto/entityBridge';
 import { reconcileOverlaps } from '@/core/elements/overlap';
+import { SpatialIndex } from '@/core/elements/overlap/spatialIndex';
 import type { MapEntity } from '@/types/entities';
 
 /**
@@ -127,9 +128,14 @@ async function buildExportPayload(
   //    集合影响，长会话下偶发漏算的可能性永远 > 0；导出前 full 一遍兜底，
   //    保证 .bin 出仓的拓扑闭环一定与几何一致。reconcile 是纯函数，用
   //    transient Map 计算后写回，不污染 live store / 不进 zundo 历史。
+  //
+  //    传入**独立** SpatialIndex —— 默认共享单例会被 transient 实体的 ref
+  //    覆盖 lastSeen，export 完成后下次 incremental 编辑会全部 ref-miss
+  //    走全量重建（性能黑洞），更糟的是 transient 实体引用会泄漏进 sharedIndex。
   const liveSnapshot = useMapStore.getState().entities;
   const transient = new Map<string, MapEntity>(liveSnapshot);
-  const patch = reconcileOverlaps(transient, { mode: 'full' });
+  const isolatedIndex = new SpatialIndex();
+  const patch = reconcileOverlaps(transient, { mode: 'full' }, isolatedIndex);
   for (const id of patch.removedOverlapIds) transient.delete(id);
   for (const [id, e] of patch.changes) transient.set(id, e);
   const editorEntities = Array.from(transient.values());

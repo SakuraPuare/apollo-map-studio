@@ -8,6 +8,7 @@
  *   纯几何函数，无副作用；caller 决定缓存策略（spatialIndex / arc length cache）。
  */
 import type { GeoPoint } from '@/types/entities';
+import { METERS_PER_DEGREE } from '@/config/mapConstants';
 import type { BBox } from './types';
 
 const EPS = 1e-12;
@@ -161,8 +162,40 @@ export function endpointsCoincide(
   cosLat: number,
   toleranceM: number,
 ): boolean {
-  const METERS_PER_DEG = 111_320;
-  const dx = (a.x - b.x) * METERS_PER_DEG * cosLat;
-  const dy = (a.y - b.y) * METERS_PER_DEG;
+  const dx = (a.x - b.x) * METERS_PER_DEGREE * cosLat;
+  const dy = (a.y - b.y) * METERS_PER_DEGREE;
   return dx * dx + dy * dy <= toleranceM * toleranceM;
+}
+
+/**
+ * 折线 × 折线的全部相交点（按 a-side segmentIndex/t 上报）.
+ *
+ * pairTable 的 stopLine / polyline 分支与 lane×lane crossings 都消费这个函数；
+ * 历史上 pairTable 里有一份私拷贝 ——已合并到这里，唯一真值源.
+ */
+export function polylinePolylineCrossings(
+  a: readonly GeoPoint[],
+  b: readonly GeoPoint[],
+): SegmentParam[] {
+  const out: SegmentParam[] = [];
+  if (a.length < 2 || b.length < 2) return out;
+  for (let i = 0; i < a.length - 1; i++) {
+    const a1 = a[i]!;
+    const a2 = a[i + 1]!;
+    const r = { x: a2.x - a1.x, y: a2.y - a1.y };
+    for (let j = 0; j < b.length - 1; j++) {
+      const b1 = b[j]!;
+      const b2 = b[j + 1]!;
+      const s = { x: b2.x - b1.x, y: b2.y - b1.y };
+      const denom = r.x * s.y - r.y * s.x;
+      if (Math.abs(denom) < EPS) continue;
+      const dx = b1.x - a1.x;
+      const dy = b1.y - a1.y;
+      const t = (dx * s.y - dy * s.x) / denom;
+      const u = (dx * r.y - dy * r.x) / denom;
+      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+      out.push({ segmentIndex: i, t });
+    }
+  }
+  return out;
 }

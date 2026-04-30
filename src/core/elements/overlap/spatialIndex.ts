@@ -15,6 +15,7 @@
  */
 import RBush from 'rbush';
 import type { MapEntity } from '@/types/entities';
+import { OVERLAP_STOPLINE_PROBE_DEG } from '@/config/mapConstants';
 import { getCenterline, getPolygon, getStopLines, getPolylines } from './geometryAdapters';
 import { bboxOfPoints, bboxUnion } from './intersect';
 import type { BBox, IndexNode } from './types';
@@ -32,9 +33,6 @@ class OverlapRBush extends RBush<IndexNode> {
   }
 }
 
-/** 100m / 111320 ≈ 0.0009 lng-deg；信号灯 stopLine 周围预留半径 */
-const STOPLINE_PROBE_DEG = 0.0009;
-
 /** 算单个实体的 bbox。返回 null 表示该实体不进索引 */
 export function bboxForEntity(entity: MapEntity): BBox | null {
   if (entity.entityType === 'lane') {
@@ -47,7 +45,7 @@ export function bboxForEntity(entity: MapEntity): BBox | null {
 
   const stopLines = getStopLines(entity);
   if (stopLines.length > 0) {
-    const boxes = stopLines.map((p) => bboxOfPoints(p, STOPLINE_PROBE_DEG));
+    const boxes = stopLines.map((p) => bboxOfPoints(p, OVERLAP_STOPLINE_PROBE_DEG));
     return bboxUnion(boxes);
   }
 
@@ -112,19 +110,17 @@ export class SpatialIndex {
    * O(|dirtyIds|) 增量同步：caller 已经知道 mutation 范围（store 直接拿到
    * dirty 集），不需要全表 ref 比对。
    *
-   * 协议：
-   *   - id 在 entities 里 → insert（自动 remove 旧的）
-   *   - id 不在 entities 里 → remove
+   * 协议（caller 必须保证）：dirtyIds 涵盖本轮所有几何变化的实体 id —— 包括
+   * 新增、删除、modify。violation 不再被 size 启发式兜底（旧版 `Math.abs
+   * (entities.size - this.nodes.size) > expectedDelta` 在 size 相同但实体集
+   * 完全不同的边界上漏判 → 索引 stale 不可见）。冷启 / clear() 后由
+   * `nodes.size === 0` 一次性全量构建。
    *
    * 编辑期单次调用 < 0.5ms（5w 实体 dirty=1）；这是 incremental reconcile
    * < 16ms 帧预算的关键抓手。
    */
   syncDirty(entities: ReadonlyMap<string, MapEntity>, dirtyIds: ReadonlySet<string>): void {
-    // Stale-guard：索引 size vs entities 差距过大说明索引和 entities 已脱节
-    // （首次 / undo / 跨 store 实例 / 大批量 import）。绝对差超过 |dirtyIds|
-    // 就降级到 syncFromEntities 全量重建，先保证语义正确再追求性能。
-    const expectedDelta = dirtyIds.size + 1;
-    if (this.nodes.size === 0 || Math.abs(entities.size - this.nodes.size) > expectedDelta) {
+    if (this.nodes.size === 0) {
       this.syncFromEntities(entities);
       return;
     }

@@ -25,17 +25,12 @@ import type {
   RegionOverlapInfo,
 } from '@/types/apollo';
 import { getCenterline, isOverlapParticipant } from './geometryAdapters';
-import { bboxOfPoints } from './intersect';
+import { bboxOfPoints, bboxOverlap } from './intersect';
 import { type SpatialIndex, bboxForEntity, getSharedSpatialIndex } from './spatialIndex';
-import {
-  PAIR_RULES,
-  detectPair,
-  detectLaneLanePair,
-  emitLaneLaneObjects,
-  findPairRule,
-} from './pairTable';
+import { detectPair, detectLaneLanePair, emitLaneLaneObjects, findPairRule } from './pairTable';
 import { makeOverlapId, isDerivedOverlapId } from './overlapId';
 import { makeRegionId } from './regionId';
+import { REGION_OVERLAPS_OVERRIDE_PATH, parseLaneIsMergeOverride } from './overridePaths';
 import { invalidateLaneArcLength } from './computeLaneS';
 import type { BBox, ReconcileMode, ReconcilePatch } from './types';
 
@@ -140,7 +135,6 @@ export function reconcileOverlaps(
       pairsMatched++;
     }
   }
-  void PAIR_RULES;
 
   const result = diffWithExisting(entities, derived, mode);
   const durationMs = performance.now() - startTime;
@@ -158,10 +152,6 @@ export function reconcileOverlaps(
   };
 }
 
-function bboxOverlap2(a: BBox, b: BBox): boolean {
-  return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
-}
-
 function expandLanesNearBBox(
   entities: ReadonlyMap<string, MapEntity>,
   bbox: BBox,
@@ -171,7 +161,7 @@ function expandLanesNearBBox(
     if (other.entityType !== 'lane') continue;
     if (acc.has(other.id)) continue;
     const lb = bboxForEntity(other);
-    if (lb && bboxOverlap2(lb, bbox)) acc.set(other.id, other);
+    if (lb && bboxOverlap(lb, bbox)) acc.set(other.id, other);
   }
 }
 
@@ -289,9 +279,15 @@ function mergeWithOverrides(
   const overrides = existing._userOverrides;
   if (!overrides || overrides.length === 0) return derivedObjects;
   const overrideSet = new Set(overrides);
-  const regionPinned = overrideSet.has('regionOverlaps');
+  const regionPinned = overrideSet.has(REGION_OVERLAPS_OVERRIDE_PATH);
+  // 把 isMerge 钉位 set 提前折叠成 indices —— 否则每个 object 都做一次正则解析
+  const isMergePinnedIndices = new Set<number>();
+  for (const path of overrides) {
+    const idx = parseLaneIsMergeOverride(path);
+    if (idx !== null) isMergePinnedIndices.add(idx);
+  }
   return derivedObjects.map((newObj, i) =>
-    mergeOneObject(newObj, i, existing, overrideSet, regionPinned),
+    mergeOneObject(newObj, i, existing, isMergePinnedIndices.has(i), regionPinned),
   );
 }
 
@@ -303,13 +299,12 @@ function mergeOneObject(
   newObj: ObjectOverlapInfo,
   i: number,
   existing: OverlapEntity,
-  overrideSet: ReadonlySet<string>,
+  isMergePinned: boolean,
   regionPinned: boolean,
 ): ObjectOverlapInfo {
   if (newObj.objectType === 'lane') {
-    const isMergePath = `objects.${i}.laneOverlapInfo.isMerge`;
     let lane = newObj;
-    if (overrideSet.has(isMergePath)) {
+    if (isMergePinned) {
       const oldObj = existing.objects[i];
       if (oldObj?.objectType === 'lane') {
         lane = {
@@ -356,7 +351,7 @@ function mergeOneObject(
 function isRegionOverlapsPinned(e: OverlapEntity): boolean {
   const overrides = e._userOverrides;
   if (!overrides || overrides.length === 0) return false;
-  return overrides.includes('regionOverlaps');
+  return overrides.includes(REGION_OVERLAPS_OVERRIDE_PATH);
 }
 
 /** RegionOverlapInfo[] 深比较（id + 多边形点序列）. */
@@ -380,14 +375,6 @@ function regionOverlapsEqual(
     }
   }
   return true;
-}
-
-function objectsEqual(a: ObjectOverlapInfo[], b: ObjectOverlapInfo[]): boolean {
-  if (a.length !== b.length) return false;
-  const key = (o: ObjectOverlapInfo) => `${o.objectType}:${o.objectId}`;
-  const sa = a.map(key).sort().join('|');
-  const sb = b.map(key).sort().join('|');
-  return sa === sb;
 }
 
 /**

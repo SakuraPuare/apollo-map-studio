@@ -18,6 +18,7 @@
  */
 import type { JunctionEntity, LaneEntity } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
+import { METERS_PER_DEGREE } from '@/config/mapConstants';
 import { pointInPolygon } from './hitTest';
 
 /** 段相交（cross product 法），共线视为不相交 */
@@ -73,9 +74,6 @@ function polylineHitsPolygon(
 
 /** 与 applyLaneJunctions 渲染端的 toFixed(6) 相同 → 1cm 量级。 */
 const COORD_KEY_PRECISION = 6;
-
-/** 米/度（纬度方向恒定；经度方向需乘 cos(lat)）。WGS84 子午线长度的 1/360。 */
-const METERS_PER_DEGREE = 111_319.5;
 
 /** Neighbor 几何阈值（米） */
 const NEIGHBOR_MIN_LATERAL_M = 1.0;

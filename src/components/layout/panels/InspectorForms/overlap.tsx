@@ -16,6 +16,10 @@
 import { Section, Value } from '@/components/ui/form-fields';
 import { useMapStore } from '@/store/mapStore';
 import type { OverlapEntity, ObjectOverlapInfo } from '@/types/apollo';
+import {
+  REGION_OVERLAPS_OVERRIDE_PATH as OVERRIDE_REGION_OVERLAPS,
+  laneIsMergeOverridePath,
+} from '@/core/elements/overlap/overridePaths';
 
 function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
@@ -49,13 +53,15 @@ export function clearOverride(entity: OverlapEntity, path: string): OverlapEntit
   return { ...entity, _userOverrides: next.length > 0 ? next : undefined };
 }
 
-/** Stable path constant for region polygon pinning (referenced by inspector + tests). */
-export const REGION_OVERLAPS_OVERRIDE_PATH = 'regionOverlaps';
+/** Stable path constant for region polygon pinning (referenced by inspector + tests).
+ *  Re-exported from `core/elements/overlap/overridePaths` —— inspector tests的 import
+ *  路径不动；底层来源是合同模块. */
+export const REGION_OVERLAPS_OVERRIDE_PATH = OVERRIDE_REGION_OVERLAPS;
 
 export function OverlapForm({ entity }: { entity: OverlapEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
-  const overridePathFor = (i: number) => `objects.${i}.laneOverlapInfo.isMerge`;
+  const overridePathFor = laneIsMergeOverridePath;
   const isPinned = (i: number) => (entity._userOverrides ?? []).includes(overridePathFor(i));
 
   const onMergeChange = (i: number, next: boolean) => {

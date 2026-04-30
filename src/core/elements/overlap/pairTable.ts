@@ -11,11 +11,13 @@
 import type { GeoPoint } from '@/types/entities';
 import type { LaneEntity, ObjectOverlapInfo } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
+import { OVERLAP_LANE_ENDPOINT_TOL_M } from '@/config/mapConstants';
 import { getCenterline, getPolygon, getPolylines, getStopLines } from './geometryAdapters';
 import {
   polylineIntersectsPolygon,
   polylinesIntersect,
   polylinePolygonCrossings,
+  polylinePolylineCrossings,
   endpointsCoincide,
   type SegmentParam,
 } from './intersect';
@@ -80,97 +82,48 @@ function laneOverlapInfo(
   return info;
 }
 
+/**
+ * 工厂：lane × secondary 的标准 PairRule. emitSecondary 是各类型唯一变量
+ * （TS literal 类型必须在调用点写死，所以工厂传 builder 而不是 string 反查）.
+ */
+function makeRule<T extends MapEntity['entityType']>(
+  secondaryType: T,
+  geometry: PairRule['geometry'],
+  emitSecondary: (other: MapEntity, opts?: { regionId?: string }) => ObjectOverlapInfo,
+  computeRegion: boolean = false,
+): PairRule {
+  return {
+    secondaryType,
+    geometry,
+    computeRegion,
+    emitObjects: (lane, other, hit, opts) => [
+      laneOverlapInfo(lane, hit, opts),
+      emitSecondary(other, opts),
+    ],
+  };
+}
+
 export const PAIR_RULES: readonly PairRule[] = [
-  {
-    secondaryType: 'junction',
-    geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'junction', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'crosswalk',
-    geometry: 'polygon',
-    computeRegion: true,
-    emitObjects: (lane, other, hit, opts) => {
-      const cw: ObjectOverlapInfo = { objectType: 'crosswalk', objectId: other.id };
+  makeRule('junction', 'polygon', (o) => ({ objectType: 'junction', objectId: o.id })),
+  makeRule(
+    'crosswalk',
+    'polygon',
+    (o, opts) => {
+      const cw: ObjectOverlapInfo = { objectType: 'crosswalk', objectId: o.id };
       if (opts?.regionId) cw.regionOverlapId = opts.regionId;
-      return [laneOverlapInfo(lane, hit, opts), cw];
+      return cw;
     },
-  },
-  {
-    secondaryType: 'clearArea',
-    geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'clearArea', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'parkingSpace',
-    geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'parkingSpace', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'pncJunction',
-    geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'pncJunction', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'area',
-    geometry: 'polygon',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'area', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'signal',
-    geometry: 'stopLines',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'signal', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'stopSign',
-    geometry: 'stopLines',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'stopSign', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'yieldSign',
-    geometry: 'stopLines',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'yieldSign', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'barrierGate',
-    geometry: 'stopLines',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'barrierGate', objectId: other.id },
-    ],
-  },
-  {
-    secondaryType: 'speedBump',
-    geometry: 'polylines',
-    emitObjects: (lane, other, hit) => [
-      laneOverlapInfo(lane, hit),
-      { objectType: 'speedBump', objectId: other.id },
-    ],
-  },
+    true,
+  ),
+  makeRule('clearArea', 'polygon', (o) => ({ objectType: 'clearArea', objectId: o.id })),
+  makeRule('parkingSpace', 'polygon', (o) => ({ objectType: 'parkingSpace', objectId: o.id })),
+  makeRule('pncJunction', 'polygon', (o) => ({ objectType: 'pncJunction', objectId: o.id })),
+  makeRule('area', 'polygon', (o) => ({ objectType: 'area', objectId: o.id })),
+  makeRule('signal', 'stopLines', (o) => ({ objectType: 'signal', objectId: o.id })),
+  makeRule('stopSign', 'stopLines', (o) => ({ objectType: 'stopSign', objectId: o.id })),
+  makeRule('yieldSign', 'stopLines', (o) => ({ objectType: 'yieldSign', objectId: o.id })),
+  makeRule('barrierGate', 'stopLines', (o) => ({ objectType: 'barrierGate', objectId: o.id })),
+  makeRule('speedBump', 'polylines', (o) => ({ objectType: 'speedBump', objectId: o.id })),
 ];
 
 const RULE_BY_TYPE = new Map<string, PairRule>(
@@ -261,29 +214,6 @@ function laneIntervalFromCrossings(
   return { startS: Math.min(s0, s1), endS: Math.max(s0, s1) };
 }
 
-function polylinePolylineCrossings(a: readonly GeoPoint[], b: readonly GeoPoint[]): SegmentParam[] {
-  const out: SegmentParam[] = [];
-  for (let i = 0; i < a.length - 1; i++) {
-    const a1 = a[i]!;
-    const a2 = a[i + 1]!;
-    for (let j = 0; j < b.length - 1; j++) {
-      const b1 = b[j]!;
-      const b2 = b[j + 1]!;
-      const r = { x: a2.x - a1.x, y: a2.y - a1.y };
-      const s = { x: b2.x - b1.x, y: b2.y - b1.y };
-      const denom = r.x * s.y - r.y * s.x;
-      if (Math.abs(denom) < 1e-12) continue;
-      const dx = b1.x - a1.x;
-      const dy = b1.y - a1.y;
-      const t = (dx * s.y - dy * s.x) / denom;
-      const u = (dx * r.y - dy * r.x) / denom;
-      if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-      out.push({ segmentIndex: i, t });
-    }
-  }
-  return out;
-}
-
 /**
  * lane × lane — 单独走，不走通用 PAIR_RULES.
  *
@@ -294,15 +224,10 @@ function polylinePolylineCrossings(a: readonly GeoPoint[], b: readonly GeoPoint[
  *      端点重合是 succ/pred 拓扑链接，**不**算 overlap。这一条挡掉了高速
  *      ramp 等 junction 外几何穿越场景被漏算的 bug。
  *
- * cosLat（GAP-8）：弃用入参，改用 laneA 起点纬度的局部 cosLat，避免大范围
- * 跨纬度地图用全图均值导致的米空间偏差。
+ * cosLat：使用 laneA 起点纬度的局部 cosLat，避免大范围跨纬度地图用全图
+ * 均值导致的米空间偏差。
  */
-export function detectLaneLanePair(
-  laneA: LaneEntity,
-  laneB: LaneEntity,
-  _cosLat?: number,
-): PairGeoHit {
-  void _cosLat; // 签名向后兼容；内部以 laneA 起点局部 cosLat 计算
+export function detectLaneLanePair(laneA: LaneEntity, laneB: LaneEntity): PairGeoHit {
   const centerA = getCenterline(laneA);
   const centerB = getCenterline(laneB);
   if (centerA.length < 2 || centerB.length < 2) return { intersects: false };
@@ -312,7 +237,7 @@ export function detectLaneLanePair(
   const bStart = centerB[0]!;
   const bEnd = centerB[centerB.length - 1]!;
   const localCosLat = Math.cos((aStart.y * Math.PI) / 180) || 1;
-  const TOL_M = 0.5;
+  const TOL_M = OVERLAP_LANE_ENDPOINT_TOL_M;
   const mergeAtEnd = endpointsCoincide(aEnd, bEnd, localCosLat, TOL_M);
   const mergeAtStart = endpointsCoincide(aStart, bStart, localCosLat, TOL_M);
   const aEndBStart = endpointsCoincide(aEnd, bStart, localCosLat, TOL_M);

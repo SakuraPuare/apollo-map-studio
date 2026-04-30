@@ -10,6 +10,11 @@ import type { MapEntity } from '@/types/entities';
  *
  * 编辑器内部形状类型（polyline / bezier / arc / rect / polygon / catmullRom）
  * 不是 Apollo 实体，沿用 lowercase 但不参与 Apollo round-trip。
+ *
+ * Overlap / RegionOverlap 故意**不**进这张表 —— 它们由
+ * `core/elements/overlap/overlapId` & `regionId` 从参与者派生，nextEntityId
+ * 路径不能凭空造一个 `overlap_42`，否则会被 `isDerivedOverlapId` 假阳性命中
+ * 而被 reconcile 当作派生 overlap 删掉。
  */
 const ENTITY_PREFIX: Record<string, string> = {
   lane: 'lane',
@@ -26,10 +31,6 @@ const ENTITY_PREFIX: Record<string, string> = {
   area: 'area',
   road: 'road',
   rsu: 'RSU',
-  // Overlap / RegionOverlap auto-derive from participants via makeOverlapId /
-  // makeRegionId; nextEntityId is here only for explicit manual creation paths.
-  overlap: 'overlap',
-  region: 'region',
   polyline: 'polyline',
   catmullRom: 'catmullrom',
   bezier: 'bezier',
@@ -38,6 +39,9 @@ const ENTITY_PREFIX: Record<string, string> = {
   polygon: 'polygon',
 };
 
+/** Derived 实体类型 —— manual nextEntityId 路径必须显式拒绝，避免 id 命名空间冲突. */
+const DERIVED_ENTITY_TYPES = new Set(['overlap', 'region']);
+
 export const SUB_PREFIX = {
   section: 'section',
   passage: 'passage',
@@ -45,6 +49,12 @@ export const SUB_PREFIX = {
 } as const;
 
 export function entityIdPrefix(entityType: string): string {
+  if (DERIVED_ENTITY_TYPES.has(entityType)) {
+    throw new Error(
+      `[idGenerator] '${entityType}' is a derived entity type — id must come from ` +
+        `core/elements/overlap/{overlapId,regionId}, not nextEntityId/entityIdPrefix.`,
+    );
+  }
   return ENTITY_PREFIX[entityType] ?? entityType.charAt(0).toUpperCase() + entityType.slice(1);
 }
 

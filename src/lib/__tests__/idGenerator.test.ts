@@ -54,12 +54,17 @@ describe('idGenerator — entityIdPrefix (Apollo official conventions)', () => {
     // Inferred from concatenated-lowercase pattern (no Apollo data sample)
     expect(entityIdPrefix('pncJunction')).toBe('PNCJ');
     expect(entityIdPrefix('parkingSpace')).toBe('parkingspace');
-    expect(entityIdPrefix('overlap')).toBe('overlap');
-    expect(entityIdPrefix('region')).toBe('region');
   });
 
   it('falls back to first-letter-uppercased for unknown types', () => {
     expect(entityIdPrefix('frob')).toBe('Frob');
+  });
+
+  it('rejects derived entity types — overlap / region must use derived id helpers', () => {
+    expect(() => entityIdPrefix('overlap')).toThrow(/derived entity type/);
+    expect(() => entityIdPrefix('region')).toThrow(/derived entity type/);
+    expect(() => nextEntityId('overlap')).toThrow(/derived entity type/);
+    expect(() => nextEntityId('region')).toThrow(/derived entity type/);
   });
 });
 

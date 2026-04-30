@@ -76,6 +76,19 @@ export const HIT_BBOX_PADDING_PX = 8;
 /** 实体 hitTest 半径（像素），转换为经纬度后传入 Worker */
 export const HIT_TEST_RADIUS_PX = 10;
 
+// ─── 地理换算 ──────────────────────────────────────────────────────────────────
+
+/** 1 纬度 ≈ 多少米（WGS84 子午线长 / 360°）；lng 方向需再乘 cosLat */
+export const METERS_PER_DEGREE = 111_319.5;
+
+// ─── Overlap pipeline ──────────────────────────────────────────────────────────
+
+/** Lane×lane 端点重合判定容差（米）—— 用于区分合流/分流/穿越 */
+export const OVERLAP_LANE_ENDPOINT_TOL_M = 0.5;
+
+/** stopLine bbox 周围预留半径（lng-deg ≈ 100m / METERS_PER_DEGREE） */
+export const OVERLAP_STOPLINE_PROBE_DEG = 100 / METERS_PER_DEGREE;
+
 // ─── Snap (吸附) ───────────────────────────────────────────────────────────────
 
 /** 吸附触发阈值（像素），按当前 zoom 实时换算为米 */
