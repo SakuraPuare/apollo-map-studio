@@ -78,7 +78,7 @@ export function createEntity(
   drawTool: string,
   points: LngLat[],
   anchors: BezierAnchor[],
-  options?: { laneHalfWidth?: number },
+  options?: { laneHalfWidth?: number; entities?: ReadonlyMap<string, MapEntity> },
 ): ApolloEntity {
   const raw = createApolloEntity(elementType, drawTool, points, anchors, options);
   return applyDerive(raw, { cause: 'create' });

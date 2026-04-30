@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useRef } from 'react';
-import { nanoid } from 'nanoid';
 import { Tree, type NodeApi, type TreeApi } from 'react-arborist';
 import { FaPlus } from 'react-icons/fa6';
 import { canReparent } from '@/lib/entityOps';
+import { nextEntityId, nextSubId, SUB_PREFIX } from '@/lib/idGenerator';
 import { useMapStore } from '@/store/mapStore';
 import type { RoadEntity, RSUEntity } from '@/types/apollo';
 import { Node } from './LayerTree/Node';
@@ -23,20 +23,20 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   const treeData = useMemo(() => buildTree(entities), [entities]);
 
   const createRoad = useCallback(() => {
-    const id = `road_${nanoid(12)}`;
+    const id = nextEntityId('road', entities);
     const road: RoadEntity = {
       id,
       entityType: 'road',
-      sections: [{ id: `sec_${nanoid(8)}`, laneIds: [] }],
+      sections: [{ id: nextSubId(SUB_PREFIX.section, []), laneIds: [] }],
       junctionId: null,
       type: 'CITY_ROAD',
     };
     addEntity(road);
     onSelect?.(id);
-  }, [addEntity, onSelect]);
+  }, [addEntity, entities, onSelect]);
 
   const createRSU = useCallback(() => {
-    const id = `rsu_${nanoid(12)}`;
+    const id = nextEntityId('rsu', entities);
     const rsu: RSUEntity = {
       id,
       entityType: 'rsu',
@@ -45,7 +45,7 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
     };
     addEntity(rsu);
     onSelect?.(id);
-  }, [addEntity, onSelect]);
+  }, [addEntity, entities, onSelect]);
 
   const handleSelect = useCallback(
     (nodes: NodeApi<TreeNode>[]) => {

@@ -1,4 +1,3 @@
-import { nanoid } from 'nanoid';
 import {
   DEFAULT_LANE_HALF_WIDTH,
   DEFAULT_LANE_SPEED_LIMIT_MPS,
@@ -6,6 +5,8 @@ import {
   TURN_INFER_NO_TURN_RAD,
   TURN_INFER_U_TURN_RAD,
 } from '@/config/mapConstants';
+import { nextEntityId } from '@/lib/idGenerator';
+import type { MapEntity } from '@/types/entities';
 import type { LngLat, BezierAnchor } from '@/core/geometry/interpolate';
 import {
   cubicBezier,
@@ -110,13 +111,13 @@ export function inferLaneTurn(centerPts: GeoPoint[]): LaneTurn {
   return delta > 0 ? 'LEFT_TURN' : 'RIGHT_TURN';
 }
 
-function createLane(d: DrawResult): LaneEntity {
+function createLane(id: string, d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
   const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
   const centerPts = extractLinePoints(d);
   const seedBoundaryType = [{ s: 0, types: [DEFAULT_LANE_BOUNDARY_TYPE] }];
   return {
-    id: `lane_${nanoid(12)}`,
+    id,
     entityType: 'lane',
     centralCurve: pointsToCurve(centerPts),
     leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: seedBoundaryType },
@@ -143,9 +144,9 @@ function createLane(d: DrawResult): LaneEntity {
   };
 }
 
-function createJunction(d: DrawResult): JunctionEntity {
+function createJunction(id: string, d: DrawResult): JunctionEntity {
   return {
-    id: `junction_${nanoid(12)}`,
+    id,
     entityType: 'junction',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     type: 'CROSS_ROAD',
@@ -153,9 +154,9 @@ function createJunction(d: DrawResult): JunctionEntity {
   };
 }
 
-function createPNCJunction(d: DrawResult): PNCJunctionEntity {
+function createPNCJunction(id: string, d: DrawResult): PNCJunctionEntity {
   return {
-    id: `pncJunction_${nanoid(12)}`,
+    id,
     entityType: 'pncJunction',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     overlapIds: [],
@@ -163,10 +164,10 @@ function createPNCJunction(d: DrawResult): PNCJunctionEntity {
   };
 }
 
-function createParkingSpace(d: DrawResult): ParkingSpaceEntity {
+function createParkingSpace(id: string, d: DrawResult): ParkingSpaceEntity {
   const rect = buildRectInfo(d);
   return {
-    id: `parkingSpace_${nanoid(12)}`,
+    id,
     entityType: 'parkingSpace',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     heading: 0,
@@ -175,10 +176,10 @@ function createParkingSpace(d: DrawResult): ParkingSpaceEntity {
   };
 }
 
-function createCrosswalk(d: DrawResult): CrosswalkEntity {
+function createCrosswalk(id: string, d: DrawResult): CrosswalkEntity {
   const rect = buildRectInfo(d);
   return {
-    id: `crosswalk_${nanoid(12)}`,
+    id,
     entityType: 'crosswalk',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     overlapIds: [],
@@ -186,10 +187,10 @@ function createCrosswalk(d: DrawResult): CrosswalkEntity {
   };
 }
 
-function createSignal(d: DrawResult): SignalEntity {
+function createSignal(id: string, d: DrawResult): SignalEntity {
   const source = buildSourceInfo(d);
   return {
-    id: `signal_${nanoid(12)}`,
+    id,
     entityType: 'signal',
     boundary: pointsToPolygon([]),
     subsignals: [],
@@ -201,10 +202,10 @@ function createSignal(d: DrawResult): SignalEntity {
   };
 }
 
-function createStopSign(d: DrawResult): StopSignEntity {
+function createStopSign(id: string, d: DrawResult): StopSignEntity {
   const source = buildSourceInfo(d);
   return {
-    id: `stopSign_${nanoid(12)}`,
+    id,
     entityType: 'stopSign',
     stopLines: [pointsToCurve(extractLinePoints(d))],
     type: 'ONE_WAY',
@@ -213,10 +214,10 @@ function createStopSign(d: DrawResult): StopSignEntity {
   };
 }
 
-function createSpeedBump(d: DrawResult): SpeedBumpEntity {
+function createSpeedBump(id: string, d: DrawResult): SpeedBumpEntity {
   const source = buildSourceInfo(d);
   return {
-    id: `speedBump_${nanoid(12)}`,
+    id,
     entityType: 'speedBump',
     position: [pointsToCurve(extractLinePoints(d))],
     overlapIds: [],
@@ -224,10 +225,10 @@ function createSpeedBump(d: DrawResult): SpeedBumpEntity {
   };
 }
 
-function createYieldSign(d: DrawResult): YieldSignEntity {
+function createYieldSign(id: string, d: DrawResult): YieldSignEntity {
   const source = buildSourceInfo(d);
   return {
-    id: `yieldSign_${nanoid(12)}`,
+    id,
     entityType: 'yieldSign',
     stopLines: [pointsToCurve(extractLinePoints(d))],
     overlapIds: [],
@@ -235,10 +236,10 @@ function createYieldSign(d: DrawResult): YieldSignEntity {
   };
 }
 
-function createClearArea(d: DrawResult): ClearAreaEntity {
+function createClearArea(id: string, d: DrawResult): ClearAreaEntity {
   const rect = buildRectInfo(d);
   return {
-    id: `clearArea_${nanoid(12)}`,
+    id,
     entityType: 'clearArea',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     overlapIds: [],
@@ -246,10 +247,10 @@ function createClearArea(d: DrawResult): ClearAreaEntity {
   };
 }
 
-function createBarrierGate(d: DrawResult): BarrierGateEntity {
+function createBarrierGate(id: string, d: DrawResult): BarrierGateEntity {
   const source = buildSourceInfo(d);
   return {
-    id: `barrierGate_${nanoid(12)}`,
+    id,
     entityType: 'barrierGate',
     type: 'ROD',
     polygon: pointsToPolygon([]),
@@ -259,9 +260,9 @@ function createBarrierGate(d: DrawResult): BarrierGateEntity {
   };
 }
 
-function createArea(d: DrawResult): AreaEntity {
+function createArea(id: string, d: DrawResult): AreaEntity {
   return {
-    id: `area_${nanoid(12)}`,
+    id,
     entityType: 'area',
     type: 'Driveable',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
@@ -269,7 +270,7 @@ function createArea(d: DrawResult): AreaEntity {
   };
 }
 
-const FACTORY_MAP: Record<MapElementType, (d: DrawResult) => ApolloEntity> = {
+const FACTORY_MAP: Record<MapElementType, (id: string, d: DrawResult) => ApolloEntity> = {
   lane: createLane,
   junction: createJunction,
   pncJunction: createPNCJunction,
@@ -289,9 +290,10 @@ export function createApolloEntity(
   drawTool: string,
   points: LngLat[],
   anchors: BezierAnchor[],
-  options?: { laneHalfWidth?: number },
+  options?: { laneHalfWidth?: number; entities?: ReadonlyMap<string, MapEntity> },
 ): ApolloEntity {
-  return FACTORY_MAP[elementType]({
+  const id = nextEntityId(elementType, options?.entities);
+  return FACTORY_MAP[elementType](id, {
     drawTool,
     points,
     anchors,

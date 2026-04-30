@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import { nanoid } from 'nanoid';
 import { Section, Value } from '@/components/ui/form-fields';
 import { getEnumLabel } from '@/lib/enumLabels';
+import { nextSubId, SUB_PREFIX } from '@/lib/idGenerator';
 import { useMapStore } from '@/store/mapStore';
 import type { Passage, PassageGroup, PassageType, PNCJunctionEntity } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
@@ -137,9 +137,9 @@ function PassageBlock({ passage, available, onChange, onRemove }: PassageBlockPr
   );
 }
 
-function makeBlankPassage(): Passage {
+function makeBlankPassage(existingIds: string[]): Passage {
   return {
-    id: `psg_${nanoid(8)}`,
+    id: nextSubId(SUB_PREFIX.passage, existingIds),
     laneIds: [],
     signalIds: [],
     stopSignIds: [],
@@ -166,7 +166,16 @@ export function PNCJunctionForm({ entity }: { entity: PNCJunctionEntity }) {
   const setGroups = (passageGroups: PassageGroup[]) => update({ ...entity, passageGroups });
 
   const addGroup = () =>
-    setGroups([...entity.passageGroups, { id: `pg_${nanoid(8)}`, passages: [] }]);
+    setGroups([
+      ...entity.passageGroups,
+      {
+        id: nextSubId(
+          SUB_PREFIX.passageGroup,
+          entity.passageGroups.map((g) => g.id),
+        ),
+        passages: [],
+      },
+    ]);
   const removeGroup = (gid: string) => setGroups(entity.passageGroups.filter((g) => g.id !== gid));
 
   const updatePassage = (gid: string, next: Passage) =>
@@ -179,7 +188,9 @@ export function PNCJunctionForm({ entity }: { entity: PNCJunctionEntity }) {
   const addPassage = (gid: string) =>
     setGroups(
       entity.passageGroups.map((g) =>
-        g.id === gid ? { ...g, passages: [...g.passages, makeBlankPassage()] } : g,
+        g.id === gid
+          ? { ...g, passages: [...g.passages, makeBlankPassage(g.passages.map((p) => p.id))] }
+          : g,
       ),
     );
 
