@@ -202,14 +202,12 @@ function laneIntervalFromCrossings(
   crossings: SegmentParam[],
 ): { startS: number; endS: number } {
   const total = laneArcLength(lane);
-  const points = getCenterline(lane);
   if (crossings.length === 0) return { startS: 0, endS: total };
   const first = crossings[0]!;
   const last = crossings[crossings.length - 1]!;
   const s0 = projectSegmentParam(lane, first.segmentIndex, first.t);
   const s1 = projectSegmentParam(lane, last.segmentIndex, last.t);
   return { startS: Math.min(s0, s1), endS: Math.max(s0, s1) };
-  void points; // silence unused
 }
 
 function polylinePolylineCrossings(a: readonly GeoPoint[], b: readonly GeoPoint[]): SegmentParam[] {
@@ -235,13 +233,25 @@ function polylinePolylineCrossings(a: readonly GeoPoint[], b: readonly GeoPoint[
   return out;
 }
 
-/** lane × lane（仅在同一 junction 内）— 单独走，不走通用 PAIR_RULES */
+/**
+ * lane × lane — 单独走，不走通用 PAIR_RULES.
+ *
+ * 触发分支（GAP-2 修订）：
+ *   1. 同一 junction 内：穿越 / 端点合流 / 端点分流 都计为 overlap（路口
+ *      内部的轨迹冲突）。
+ *   2. junction 外：仅当中心线**真实穿越**（segments 相交）才计 overlap，
+ *      端点重合是 succ/pred 拓扑链接，**不**算 overlap。这一条挡掉了高速
+ *      ramp 等 junction 外几何穿越场景被漏算的 bug。
+ *
+ * cosLat（GAP-8）：弃用入参，改用 laneA 起点纬度的局部 cosLat，避免大范围
+ * 跨纬度地图用全图均值导致的米空间偏差。
+ */
 export function detectLaneLanePair(
   laneA: LaneEntity,
   laneB: LaneEntity,
-  cosLat: number,
+  _cosLat?: number,
 ): PairGeoHit {
-  if (!laneA.junctionId || laneA.junctionId !== laneB.junctionId) return { intersects: false };
+  void _cosLat; // 签名向后兼容；内部以 laneA 起点局部 cosLat 计算
   const centerA = getCenterline(laneA);
   const centerB = getCenterline(laneB);
   if (centerA.length < 2 || centerB.length < 2) return { intersects: false };
@@ -250,12 +260,27 @@ export function detectLaneLanePair(
   const aEnd = centerA[centerA.length - 1]!;
   const bStart = centerB[0]!;
   const bEnd = centerB[centerB.length - 1]!;
+  const localCosLat = Math.cos((aStart.y * Math.PI) / 180) || 1;
   const TOL_M = 0.5;
-  const mergeAtEnd = endpointsCoincide(aEnd, bEnd, cosLat, TOL_M);
-  const mergeAtStart = endpointsCoincide(aStart, bStart, cosLat, TOL_M);
-  const isMerge = mergeAtEnd || mergeAtStart;
+  const mergeAtEnd = endpointsCoincide(aEnd, bEnd, localCosLat, TOL_M);
+  const mergeAtStart = endpointsCoincide(aStart, bStart, localCosLat, TOL_M);
+  // GAP-7: Apollo `LaneOverlapInfo.is_merge` 语义是「车道汇入冲突区域」。
+  // 端点尾部重合 → 真合流；端点头部重合 → 分流（split），不是 merge。
+  const isMerge = mergeAtEnd;
 
-  if (!polylinesIntersect(centerA, centerB) && !isMerge) return { intersects: false };
+  const sameJunction = laneA.junctionId !== null && laneA.junctionId === laneB.junctionId;
+  const crosses = polylinesIntersect(centerA, centerB);
+
+  let hits = false;
+  if (sameJunction) {
+    // junction 内：穿越 / 端点合流 / 端点分流 都算
+    hits = crosses || mergeAtEnd || mergeAtStart;
+  } else {
+    // junction 外：只认真实几何穿越；端点共享是 succ/pred，不是 overlap
+    hits = crosses;
+  }
+  if (!hits) return { intersects: false };
+
   const crossings = polylinePolylineCrossings(centerA, centerB);
   const total = laneArcLength(laneA);
   const interval =

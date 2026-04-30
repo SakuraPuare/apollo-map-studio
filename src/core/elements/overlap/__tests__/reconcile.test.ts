@@ -211,6 +211,68 @@ describe('reconcileOverlaps', () => {
     expect(patch.removedOverlapIds.has('overlap_orphan')).toBe(true);
   });
 
+  it('preserves user-pinned isMerge across reconcile', () => {
+    // Two lanes converging at the same end point → derived isMerge=true
+    const laneA = makeLane('Lane_A', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    const laneB = makeLane('Lane_B', [
+      { x: 116.0, y: 39.9001 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    laneA.junctionId = 'J';
+    laneB.junctionId = 'J';
+    const junction = makeJunction('J', [
+      { x: 115.9999, y: 39.8999 },
+      { x: 116.0011, y: 39.8999 },
+      { x: 116.0011, y: 39.9002 },
+      { x: 115.9999, y: 39.9002 },
+    ]);
+
+    const initial = buildMap(laneA, laneB, junction);
+    const patch1 = reconcileOverlaps(initial, { mode: 'full' });
+
+    const stable = new Map(initial);
+    for (const [id, e] of patch1.changes) stable.set(id, e);
+    for (const id of patch1.removedOverlapIds) stable.delete(id);
+
+    const overlapId = makeOverlapId(['Lane_A', 'Lane_B']);
+    const ov = stable.get(overlapId) as OverlapEntity | undefined;
+    expect(ov).toBeDefined();
+    expect(ov!.objects.length).toBe(2);
+    // The lane×lane derived overlap should default to isMerge=true based on endpoint coincidence
+    const aInfo = ov!.objects.find(
+      (o): o is Extract<typeof o, { objectType: 'lane' }> =>
+        o.objectType === 'lane' && o.objectId === 'Lane_A',
+    );
+    expect(aInfo?.laneOverlapInfo.isMerge).toBe(true);
+
+    // The override path index depends on iteration order — find which slot Lane_A is in
+    const aIdx = ov!.objects.findIndex((o) => o.objectType === 'lane' && o.objectId === 'Lane_A');
+    const pinnedOv: OverlapEntity = {
+      ...ov!,
+      objects: ov!.objects.map((o, i) => {
+        if (i !== aIdx || o.objectType !== 'lane') return o;
+        return {
+          ...o,
+          laneOverlapInfo: { ...o.laneOverlapInfo, isMerge: false },
+        };
+      }),
+      _userOverrides: [`objects.${aIdx}.laneOverlapInfo.isMerge`],
+    };
+    stable.set(overlapId, pinnedOv);
+
+    // Re-run reconcile — geometry still says isMerge=true, but the pin must hold
+    const patch2 = reconcileOverlaps(stable, { mode: 'full' });
+    const after = (patch2.changes.get(overlapId) ?? stable.get(overlapId)) as OverlapEntity;
+    const aAfter = after.objects[aIdx];
+    expect(aAfter?.objectType).toBe('lane');
+    if (aAfter?.objectType === 'lane') {
+      expect(aAfter.laneOverlapInfo.isMerge).toBe(false); // pinned value held
+    }
+  });
+
   it('full mode is idempotent on a stable map', () => {
     const lane = makeLane('Lane_1', [
       { x: 116.0, y: 39.9 },

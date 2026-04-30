@@ -2,6 +2,7 @@
 import type {
   JunctionEntity,
   LaneEntity,
+  OverlapEntity,
   ParkingSpaceEntity,
   PNCJunctionEntity,
   RoadEntity,
@@ -11,6 +12,7 @@ import type {
 import type { MapEntity } from '@/types/entities';
 import { DrawingForm } from './InspectorForms/DrawingForm';
 import { LaneForm } from './InspectorForms/lane';
+import { OverlapForm } from './InspectorForms/overlap';
 import { PNCJunctionForm } from './InspectorForms/pncJunction';
 import {
   JunctionForm,
@@ -42,6 +44,8 @@ export function EntityForm({ entity }: { entity: MapEntity }) {
       return <RoadForm entity={entity as RoadEntity} />;
     case 'pncJunction':
       return <PNCJunctionForm entity={entity as PNCJunctionEntity} />;
+    case 'overlap':
+      return <OverlapForm entity={entity as OverlapEntity} />;
     default:
       return <DrawingForm entity={entity} />;
   }

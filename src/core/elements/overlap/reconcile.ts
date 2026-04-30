@@ -28,19 +28,6 @@ import type { BBox, ReconcileMode, ReconcilePatch } from './types';
 
 type EntityWithOverlap = MapEntity & { overlapIds?: string[] };
 
-function meanLatOf(entities: ReadonlyMap<string, MapEntity>): number {
-  let sum = 0;
-  let count = 0;
-  for (const e of entities.values()) {
-    if (e.entityType !== 'lane') continue;
-    const pts = getCenterline(e as LaneEntity);
-    if (pts.length === 0) continue;
-    sum += pts[0]!.y;
-    count++;
-  }
-  return count > 0 ? sum / count : 0;
-}
-
 interface DerivedOverlap {
   id: string;
   participantIds: string[];
@@ -66,11 +53,16 @@ export function reconcileOverlaps(
   const idx = index ?? new SpatialIndex();
   if (!index) idx.build(entities);
 
-  const meanLat = meanLatOf(entities);
-  const cosLat = Math.cos((meanLat * Math.PI) / 180) || 1;
+  // GAP-8: cosLat 改为 detectLaneLanePair 内部按 laneA 起点纬度局部计算，
+  // 不再走全图均值（跨纬度多度地图全局均值会产生米空间偏差）。
 
   const dirtyLanes = collectDirtyLanes(entities, mode);
   const derived = new Map<string, DerivedOverlap>();
+  // Set-based dedup keyed on the derived overlap id (sorted-participant FNV
+  // hash) — symmetric in (A,B), so it does not depend on which side of an
+  // incremental edit happened to land in dirtyLanes. Replaces the old
+  // `lane.id < lo.id` ordering gate, which silently dropped pairs whose
+  // dirty side had the lexicographically larger id (GAP-3).
   let pairsTested = 0;
   let pairsMatched = 0;
 
@@ -88,10 +80,11 @@ export function reconcileOverlaps(
 
       if (other.entityType === 'lane') {
         const lo = other as LaneEntity;
-        if (lane.id < lo.id === false) continue;
-        const hitA = detectLaneLanePair(lane, lo, cosLat);
+        const dedupId = makeOverlapId([lane.id, lo.id]);
+        if (derived.has(dedupId)) continue;
+        const hitA = detectLaneLanePair(lane, lo);
         if (!hitA.intersects) continue;
-        const hitB = detectLaneLanePair(lo, lane, cosLat);
+        const hitB = detectLaneLanePair(lo, lane);
         const objects = emitLaneLaneObjects(lane, lo, hitA, hitB);
         const ov = buildDerivedOverlap([lane.id, lo.id], objects);
         derived.set(ov.id, ov);
@@ -101,6 +94,8 @@ export function reconcileOverlaps(
 
       const rule = findPairRule(other.entityType);
       if (!rule) continue;
+      const dedupId = makeOverlapId([lane.id, other.id]);
+      if (derived.has(dedupId)) continue;
       const hit = detectPair(lane, other, rule);
       if (!hit.intersects) continue;
       const objects = rule.emitObjects(lane, other, hit);
@@ -215,8 +210,9 @@ function diffWithExisting(
     const existing = entities.get(id);
     if (existing && existing.entityType === 'overlap') {
       const e = existing as OverlapEntity;
-      if (objectsEqual(e.objects, ov.objects)) continue;
-      changes.set(id, { ...e, objects: ov.objects });
+      const merged = mergeWithOverrides(e, ov.objects);
+      if (objectsExactlyEqual(e.objects, merged)) continue;
+      changes.set(id, { ...e, objects: merged });
       continue;
     }
     const next: OverlapEntity = {
@@ -235,12 +231,64 @@ function diffWithExisting(
   return { changes, removedOverlapIds, overlapsCreated };
 }
 
+/**
+ * 把派生出的 objects 与 existing._userOverrides 合并：
+ *   - `objects.<i>.laneOverlapInfo.isMerge` 路径在 overrides 里 → 保留旧值
+ * 其它字段（startS/endS/regionOverlapId）跟随几何派生。
+ */
+function mergeWithOverrides(
+  existing: OverlapEntity,
+  derivedObjects: ObjectOverlapInfo[],
+): ObjectOverlapInfo[] {
+  const overrides = existing._userOverrides;
+  if (!overrides || overrides.length === 0) return derivedObjects;
+  const overrideSet = new Set(overrides);
+  return derivedObjects.map((newObj, i) => {
+    if (newObj.objectType !== 'lane') return newObj;
+    const path = `objects.${i}.laneOverlapInfo.isMerge`;
+    if (!overrideSet.has(path)) return newObj;
+    const oldObj = existing.objects[i];
+    if (!oldObj || oldObj.objectType !== 'lane') return newObj;
+    return {
+      ...newObj,
+      laneOverlapInfo: {
+        ...newObj.laneOverlapInfo,
+        isMerge: oldObj.laneOverlapInfo.isMerge,
+      },
+    };
+  });
+}
+
 function objectsEqual(a: ObjectOverlapInfo[], b: ObjectOverlapInfo[]): boolean {
   if (a.length !== b.length) return false;
   const key = (o: ObjectOverlapInfo) => `${o.objectType}:${o.objectId}`;
   const sa = a.map(key).sort().join('|');
   const sb = b.map(key).sort().join('|');
   return sa === sb;
+}
+
+/**
+ * Deep-equal for objects array — distinguishes is_merge / startS / endS so that
+ * mergeWithOverrides preserving an old isMerge value can be detected as "no
+ * change" and skip the rewrite.
+ */
+function objectsExactlyEqual(a: ObjectOverlapInfo[], b: ObjectOverlapInfo[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.objectType !== y.objectType) return false;
+    if (x.objectId !== y.objectId) return false;
+    if (x.objectType === 'lane' && y.objectType === 'lane') {
+      const li = x.laneOverlapInfo;
+      const lj = y.laneOverlapInfo;
+      if (li.startS !== lj.startS) return false;
+      if (li.endS !== lj.endS) return false;
+      if ((li.isMerge ?? false) !== (lj.isMerge ?? false)) return false;
+      if ((li.regionOverlapId ?? '') !== (lj.regionOverlapId ?? '')) return false;
+    }
+  }
+  return true;
 }
 
 function applyOverlapIdsBack(

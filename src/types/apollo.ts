@@ -358,6 +358,14 @@ export interface OverlapEntity {
   entityType: 'overlap';
   objects: ObjectOverlapInfo[];
   regionOverlaps: RegionOverlapInfo[];
+  /**
+   * Inspector-pinned semantic overrides; reconcile must not clobber these
+   * paths when re-deriving from geometry. Path conventions:
+   *   - `objects.<i>.laneOverlapInfo.isMerge` — user-fixed merge flag
+   *   - `regionOverlaps`                       — user-curated region polygons
+   * Same shape & semantics as LaneEntity._userOverrides.
+   */
+  _userOverrides?: string[];
 }
 
 // ─── map_pnc_junction.proto ──────────────────────────────────────────
