@@ -2,9 +2,7 @@ import { useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
-import { isDrawingState } from '@/core/fsm/editorMachine';
 import type { DragPointType } from '@/types/editor';
-import type { LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
@@ -15,35 +13,16 @@ import {
   deleteVertex,
 } from '@/components/map/entityMutations';
 import type { ApolloEntity, SourceDrawInfo } from '@/types/apollo';
-import {
-  CLICK_THRESHOLD_PX,
-  HIT_BBOX_PADDING_PX,
-  HIT_TEST_RADIUS_PX,
-  SNAP_RADIUS_PX,
-} from '@/config/mapConstants';
+import { CLICK_THRESHOLD_PX } from '@/config/mapConstants';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
-import { findSnapTarget, pixelsToMeters } from '@/core/geometry/snap';
-import type { SnapTarget } from '@/core/geometry/snap';
-import { planConnection } from '@/core/geometry/connectLanes';
+import { applyLaneConnection, planConnection } from '@/core/geometry/connectLanes';
 import type { LaneEntity } from '@/types/apollo';
+import { createCursorScheduler } from './mapEventRouter/cursorScheduler';
+import { hitBbox, toLngLat, workerHitTest } from './mapEventRouter/hitTest';
+import { isDuplicateInput, sampleInput, type InputSample } from './mapEventRouter/inputDedup';
+import { applySnap as applySnapToPoint } from './mapEventRouter/snap';
 
-// Browser fires two `click` events for a dblclick (one per mousedown), then a
-// dblclick event. We shadow the 2nd click so the FSM sees exactly one MOUSE_DOWN
-// per dblclick gesture; otherwise drawPoints would carry a duplicate vertex at
-// the dblclick spot. The FSM in turn no longer slices anything off on
-// DOUBLE_CLICK — dedup here is the single source of truth (otherwise the user
-// loses their actual final point).
-const DBLCLICK_PX_TOLERANCE = 4;
-const DBLCLICK_MS_WINDOW = 350;
-
-type InputSample = { x: number; y: number; ts: number };
-
-export function isDuplicateInput(prev: InputSample | null, next: InputSample): boolean {
-  if (!prev) return false;
-  const dx = next.x - prev.x;
-  const dy = next.y - prev.y;
-  return Math.hypot(dx, dy) < DBLCLICK_PX_TOLERANCE && next.ts - prev.ts < DBLCLICK_MS_WINDOW;
-}
+export { isDuplicateInput };
 
 export function useMapEventRouter(
   mapRef: React.RefObject<maplibregl.Map | null>,
@@ -54,114 +33,17 @@ export function useMapEventRouter(
     const map = mapRef.current;
     if (!map) return;
 
-    const toLngLat = (e: maplibregl.MapMouseEvent): LngLat => [e.lngLat.lng, e.lngLat.lat];
     let mouseDownScreenPos: { x: number; y: number } | null = null;
     // Center-drag: lng/lat offset between cursor at mousedown and entity
     // center. Locked at drag start so the grabbed point follows the cursor
     // instead of the center snapping under the pointer.
     let centerGrabOffset: [number, number] | null = null;
-
-    // Dblclick dedup: skip the 2nd click of a dblclick before it reaches the FSM.
     let lastDrawInput: InputSample | null = null;
-    const sampleOf = (e: maplibregl.MapMouseEvent): InputSample => ({
-      x: e.point.x,
-      y: e.point.y,
-      ts: e.originalEvent.timeStamp,
-    });
-
-    // P2d cursor throttle: coalesce cursorLngLat writes to one per animation
-    // frame. Mousemove fires ~120Hz on modern trackpads — previously every
-    // event triggered a Zustand update → StatusBar rerender. RAF-gating
-    // caps to 60fps and aligns with repaint.
-    let pendingCursorLngLat: LngLat | null = null;
-    let cursorRafId: number | null = null;
-    const flushCursor = () => {
-      if (pendingCursorLngLat) {
-        useUIStore.getState().setCursorLngLat(pendingCursorLngLat);
-        pendingCursorLngLat = null;
-      }
-      cursorRafId = null;
-    };
-    const scheduleCursorUpdate = (point: LngLat) => {
-      pendingCursorLngLat = point;
-      if (cursorRafId === null) {
-        cursorRafId = requestAnimationFrame(flushCursor);
-      }
-    };
-
-    const hitBbox = (point: maplibregl.PointLike): [maplibregl.PointLike, maplibregl.PointLike] => {
-      const p = point as maplibregl.Point;
-      const pad = HIT_BBOX_PADDING_PX;
-      return [
-        [p.x - pad, p.y - pad],
-        [p.x + pad, p.y + pad],
-      ];
-    };
-
-    const pixelToRadius = (px: number): number => {
-      const zoom = map.getZoom();
-      return (px * 360) / (512 * Math.pow(2, zoom));
-    };
-
-    /**
-     * Snap is only allowed in active-edit FSM states:
-     *   - any drawing state (drawBezier, drawPolyline, …) — placing new
-     *     vertices should latch onto existing geometry
-     *   - editingPoint — vertex drag should latch onto neighbors
-     *
-     * In idle / selected states the user is browsing or selecting, and
-     * snapping the cursor would interfere with hit-testing (the click's
-     * lng/lat would jump under their pointer). Gate is centralized here
-     * so every call site is automatically correct.
-     */
-    const isSnapApplicable = (state: string): boolean => {
-      return state === 'editingPoint' || isDrawingState(state);
-    };
-
-    /**
-     * Apply snap when enabled AND the FSM state allows it. Returns the
-     * (possibly adjusted) lng/lat and updates the UI store's
-     * `currentSnapTarget` so the overlay indicator matches what was
-     * actually consumed by the FSM.
-     *
-     * `excludeId` lets a vertex drag skip its own entity so the cursor
-     * doesn't snap onto the dragged point itself.
-     */
-    const applySnap = (lngLat: LngLat, excludeId: string | null = null): LngLat => {
-      const ui = useUIStore.getState();
-      const state = actorRef.getSnapshot().value as string;
-      if (!ui.snapEnabled || !isSnapApplicable(state)) {
-        if (ui.currentSnapTarget) ui.setSnapTarget(null);
-        return lngLat;
-      }
-      const zoom = map.getZoom();
-      const radiusM = pixelsToMeters(SNAP_RADIUS_PX, lngLat[1], zoom);
-      const entities = useMapStore.getState().entities;
-      const target: SnapTarget | null = findSnapTarget(
-        { x: lngLat[0], y: lngLat[1] },
-        entities.values(),
-        radiusM,
-        excludeId,
-      );
-      ui.setSnapTarget(target);
-      if (!target) return lngLat;
-      return [target.point.x, target.point.y];
-    };
-
-    const workerHitTest = (e: maplibregl.MapMouseEvent): Promise<string | null> => {
-      const bridge = bridgeRef.current;
-      if (!bridge) return Promise.resolve(null);
-      const pt = toLngLat(e);
-      return bridge
-        .send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(HIT_TEST_RADIUS_PX) })
-        .then((result) => {
-          if (result.type === 'HIT_RESULT' && result.hits.length > 0) {
-            return result.hits[0]!.id;
-          }
-          return null;
-        })
-        .catch(() => null);
-    };
+    const cursorScheduler = createCursorScheduler();
+    const applySnap = (lngLat: [number, number], excludeId: string | null = null) =>
+      applySnapToPoint(map, actorRef, lngLat, excludeId);
+    const hitTest = (e: maplibregl.MapMouseEvent, filter?: (entityType: string) => boolean) =>
+      workerHitTest(map, bridgeRef.current, e, filter);
 
     const onMouseDown = (e: maplibregl.MapMouseEvent) => {
       mouseDownScreenPos = { x: e.point.x, y: e.point.y };
@@ -169,7 +51,15 @@ export function useMapEventRouter(
       const state = snap.value as string;
       const altKey = e.originalEvent.altKey;
 
-      if (state === 'selected') {
+      // Connect-lanes is a modal pick flow that lives ON TOP of FSM state.
+      // We routinely SELECT_ENTITY the first picked lane so the user sees
+      // it highlighted (without that, the click feels like a no-op, which
+      // is the original "无法选中车道" report). That selection means a click
+      // on the lane's hot-points/hot-fill on the second pick would otherwise
+      // start a vertex/center drag here — short-circuit the drag branch
+      // while connect mode is active so the click reaches the connect
+      // handler in onClick instead.
+      if (state === 'selected' && !useUIStore.getState().connectMode.active) {
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         if (hotHits.length > 0) {
           const props = hotHits[0]!.properties;
@@ -235,7 +125,7 @@ export function useMapEventRouter(
       if (state === 'editingPoint') return;
 
       if (state === 'drawBezier') {
-        const sample = sampleOf(e);
+        const sample = sampleInput(e);
         if (isDuplicateInput(lastDrawInput, sample)) {
           lastDrawInput = sample;
           return;
@@ -257,7 +147,10 @@ export function useMapEventRouter(
       // Non-lane clicks are ignored (with a no-op visual reset).
       const ui = useUIStore.getState();
       if (ui.connectMode.active) {
-        workerHitTest(e).then((hitId) => {
+        // Filter to lanes so an overlapping junction polygon (lanes routinely
+        // pass through junctions) doesn't shadow the lane the user actually
+        // clicked.
+        hitTest(e, (t) => t === 'lane').then((hitId) => {
           const current = useUIStore.getState();
           if (!current.connectMode.active) return;
           if (!hitId) return;
@@ -265,6 +158,13 @@ export function useMapEventRouter(
           if (!entity || entity.entityType !== 'lane') return;
           if (!current.connectMode.firstLaneId) {
             useUIStore.getState().setConnectFirstLane(hitId);
+            // Re-use the FSM selection highlight so the picked lane lights
+            // up immediately. Without this the user gets zero visual
+            // feedback that their first click landed and reports the mode
+            // as broken ("无法选中车道"). The drag branch in onMouseDown is
+            // gated on connectMode so a follow-up click on the same lane
+            // doesn't start a vertex drag.
+            actorRef.send({ type: 'SELECT_ENTITY', id: hitId });
             return;
           }
           if (current.connectMode.firstLaneId === hitId) return; // same lane
@@ -273,27 +173,34 @@ export function useMapEventRouter(
             useUIStore.getState().exitConnectMode();
             return;
           }
-          const plan = planConnection(a as LaneEntity, entity as LaneEntity);
-          if (plan) {
-            // Use the source-aware drag pipeline so bezier/arc-drawn
-            // lanes also rebuild `_source.anchors` / `_source.arcPoints`.
-            // A naive centerline-points overwrite would be silently
-            // reverted on the next worker re-sample.
-            const next = applyDrag(
-              a,
-              plan.indexToMove,
-              'vertex' as DragPointType,
-              [plan.target.x, plan.target.y],
-              false,
-            );
-            useMapStore.getState().updateEntity(a.id, next);
-            // reconcileLaneTopology runs inside updateEntity for lanes,
-            // so pred/succ are written into the store before we exit.
+          // Wrap the apply step in try/finally so a malformed source
+          // record (missing anchor handle, etc.) can't strand the user
+          // in connect mode — exitConnectMode + SELECT_ENTITY must run
+          // regardless of whether applyDrag/updateEntity threw. The
+          // reconcile inside updateEntity has already written pred/succ
+          // for clean cases; thrown cases at least free the UI.
+          try {
+            const plan = planConnection(a as LaneEntity, entity as LaneEntity);
+            if (plan) {
+              // applyLaneConnection knows that `plan.indexToMove` is a
+              // centerline-point index — translates it to first/last anchor
+              // (bezier) or arcPoints[0|2] (arc) before re-sampling. The
+              // old applyDrag('vertex') path indexed `_source.anchors`
+              // directly with the centerline index and crashed on bezier
+              // lanes ("无法选中车道" → drag undefined.x).
+              const next = applyLaneConnection(a as LaneEntity, plan);
+              useMapStore.getState().updateEntity(a.id, next);
+              // reconcileLaneTopology runs inside updateEntity for lanes,
+              // so pred/succ are written into the store before we exit.
+            }
+          } catch (err) {
+            console.error('[connect] apply failed', err);
+          } finally {
+            useUIStore.getState().exitConnectMode();
+            // Surface the joined lane so user can immediately see the
+            // result in Inspector.
+            actorRef.send({ type: 'SELECT_ENTITY', id: a.id });
           }
-          useUIStore.getState().exitConnectMode();
-          // Surface the joined lane so user can immediately see the
-          // result in Inspector.
-          actorRef.send({ type: 'SELECT_ENTITY', id: a.id });
         });
         return;
       }
@@ -307,7 +214,7 @@ export function useMapEventRouter(
         const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
         if (hotHits.length > 0) return;
 
-        workerHitTest(e).then((hitId) => {
+        hitTest(e).then((hitId) => {
           const current = actorRef.getSnapshot();
           if ((current.value as string) !== 'selected') return;
           if (hitId) {
@@ -320,7 +227,7 @@ export function useMapEventRouter(
       }
 
       if (state === 'idle') {
-        workerHitTest(e).then((hitId) => {
+        hitTest(e).then((hitId) => {
           const current = actorRef.getSnapshot();
           if ((current.value as string) !== 'idle') return;
           if (hitId) {
@@ -331,7 +238,7 @@ export function useMapEventRouter(
       }
 
       if (state !== 'drawBezier') {
-        const sample = sampleOf(e);
+        const sample = sampleInput(e);
         if (isDuplicateInput(lastDrawInput, sample)) {
           lastDrawInput = sample;
           return;
@@ -343,7 +250,7 @@ export function useMapEventRouter(
 
     const onMouseMove = (e: maplibregl.MapMouseEvent) => {
       // Update cursor position in UI store (RAF-coalesced, 60fps cap)
-      scheduleCursorUpdate([e.lngLat.lng, e.lngLat.lat]);
+      cursorScheduler.schedule([e.lngLat.lng, e.lngLat.lat]);
 
       const snap = actorRef.getSnapshot();
       const state = snap.value as string;
@@ -484,11 +391,7 @@ export function useMapEventRouter(
       map.off('zoomend', onZoomEnd);
       window.removeEventListener('keydown', onKeyDown);
       unsubSnap();
-      if (cursorRafId !== null) {
-        cancelAnimationFrame(cursorRafId);
-        cursorRafId = null;
-      }
-      pendingCursorLngLat = null;
+      cursorScheduler.dispose();
     };
     // mapRef / bridgeRef are refs — non-reactive by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps

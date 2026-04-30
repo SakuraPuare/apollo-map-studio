@@ -1,0 +1,85 @@
+export const TYPE_LABELS: Record<string, string> = {
+  road: 'Roads',
+  junction: 'Junctions',
+  lane: 'Lanes',
+  signal: 'Signals',
+  crosswalk: 'Crosswalks',
+  stopSign: 'Stop Signs',
+  yieldSign: 'Yield Signs',
+  speedBump: 'Speed Bumps',
+  clearArea: 'Clear Areas',
+  parkingSpace: 'Parking Spaces',
+  parkingLot: 'Parking Lots',
+  pncJunction: 'PNC Junctions',
+  rsu: 'RSUs',
+  area: 'Areas',
+  barrierGate: 'Barrier Gates',
+  overlap: 'Overlaps',
+  speedControl: 'Speed Controls',
+  polyline: 'Polylines',
+  bezier: 'Bezier Curves',
+  arc: 'Arcs',
+  rect: 'Rectangles',
+  polygon: 'Polygons',
+  catmullRom: 'CatmullRom Curves',
+};
+
+export const TOP_LEVEL_ORDER = [
+  'road',
+  'junction',
+  'lane',
+  'signal',
+  'crosswalk',
+  'stopSign',
+  'yieldSign',
+  'speedBump',
+  'clearArea',
+  'parkingSpace',
+  'parkingLot',
+  'pncJunction',
+  'rsu',
+  'area',
+  'barrierGate',
+  'overlap',
+  'speedControl',
+  'polyline',
+  'bezier',
+  'arc',
+  'rect',
+  'polygon',
+  'catmullRom',
+] as const;
+
+const ENTITY_GLYPH: Record<string, string> = {
+  lane: '🛣️',
+  junction: '🔀',
+  road: '🛤️',
+  signal: '🚦',
+  crosswalk: '🚶',
+  stopSign: '🛑',
+  speedBump: '⚠️',
+  yieldSign: '⚠',
+  clearArea: '⛔',
+  parkingSpace: '🅿️',
+  parkingLot: '🅿️',
+  pncJunction: '🔀',
+  rsu: '📡',
+  area: '⬡',
+  barrierGate: '🚧',
+  overlap: '⊕',
+  speedControl: '🐌',
+  polyline: '📏',
+  bezier: '〰️',
+  arc: '⌒',
+  rect: '▭',
+  polygon: '⬡',
+  catmullRom: '🔄',
+};
+
+export function entityIcon(entityType: string): string {
+  return ENTITY_GLYPH[entityType] ?? '📄';
+}
+
+export function entityDisplayId(id: string): string {
+  return id.length > 16 ? `…${id.slice(-12)}` : id;
+}
