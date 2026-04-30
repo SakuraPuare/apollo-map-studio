@@ -12,6 +12,8 @@ import { useMapStore } from '@/store/mapStore';
 import { useProjDialogStore } from '@/store/projDialogStore';
 import { pickFile, readFileAsBytes, readFileAsText, downloadBlob } from './fileIO';
 import { apolloMapToEntities, entitiesToApolloMap } from './proto/entityBridge';
+import { reconcileOverlaps } from '@/core/elements/overlap';
+import type { MapEntity } from '@/types/entities';
 
 /**
  * Default PROJ.4 fallback when the imported map's header has no
@@ -121,10 +123,20 @@ async function buildExportPayload(
   rawMap: Record<string, unknown>,
   projString: string,
 ): Promise<Record<string, unknown>> {
+  // 0. GAP-4: 导出前强制跑一次 full reconcile。编辑期 incremental 受 dirtyIds
+  //    集合影响，长会话下偶发漏算的可能性永远 > 0；导出前 full 一遍兜底，
+  //    保证 .bin 出仓的拓扑闭环一定与几何一致。reconcile 是纯函数，用
+  //    transient Map 计算后写回，不污染 live store / 不进 zundo 历史。
+  const liveSnapshot = useMapStore.getState().entities;
+  const transient = new Map<string, MapEntity>(liveSnapshot);
+  const patch = reconcileOverlaps(transient, { mode: 'full' });
+  for (const id of patch.removedOverlapIds) transient.delete(id);
+  for (const [id, e] of patch.changes) transient.set(id, e);
+  const editorEntities = Array.from(transient.values());
+
   // 1. Merge editor changes from mapStore back into the raw map for any
   //    entity types we have bridges for. Other arrays (lane, road, etc.)
   //    pass through verbatim.
-  const editorEntities = Array.from(useMapStore.getState().entities.values());
   const merged = entitiesToApolloMap(rawMap, editorEntities);
   // 2. Reproject lon/lat back to UTM ENU using the same PROJ the import used.
   const { map: enuMap } = await apolloMapFromLonLat(merged, projString);

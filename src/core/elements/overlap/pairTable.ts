@@ -264,6 +264,9 @@ export function detectLaneLanePair(
   const TOL_M = 0.5;
   const mergeAtEnd = endpointsCoincide(aEnd, bEnd, localCosLat, TOL_M);
   const mergeAtStart = endpointsCoincide(aStart, bStart, localCosLat, TOL_M);
+  const aEndBStart = endpointsCoincide(aEnd, bStart, localCosLat, TOL_M);
+  const aStartBEnd = endpointsCoincide(aStart, bEnd, localCosLat, TOL_M);
+  const anyEndpointTouch = mergeAtEnd || mergeAtStart || aEndBStart || aStartBEnd;
   // GAP-7: Apollo `LaneOverlapInfo.is_merge` 语义是「车道汇入冲突区域」。
   // 端点尾部重合 → 真合流；端点头部重合 → 分流（split），不是 merge。
   const isMerge = mergeAtEnd;
@@ -273,11 +276,15 @@ export function detectLaneLanePair(
 
   let hits = false;
   if (sameJunction) {
-    // junction 内：穿越 / 端点合流 / 端点分流 都算
+    // junction 内：穿越 / 端点合流（merge）/ 端点分流（split）都算 ——
+    // 路口内同源同汇的车道之间存在轨迹冲突，无论几何是否真的相交。
     hits = crosses || mergeAtEnd || mergeAtStart;
   } else {
-    // junction 外：只认真实几何穿越；端点共享是 succ/pred，不是 overlap
-    hits = crosses;
+    // junction 外：要求真实穿越且**不**是单纯端点共享。端点共享（4 种组合：
+    // start-start fork / end-end merge / end-start succ / start-end 反 succ）
+    // 都属于 pred/succ 或 selfReverse 拓扑关系，由 laneTopology 维护，不进
+    // overlap 表。「内部穿越且端点也碰巧重合」是退化场景，统一归到拓扑层处理。
+    hits = crosses && !anyEndpointTouch;
   }
   if (!hits) return { intersects: false };
 

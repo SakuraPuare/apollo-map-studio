@@ -8,7 +8,9 @@
  * 颗粒度：
  *   - pred/succ：端点 1cm 精度（toFixed(6)）共享坐标。
  *   - selfReverse：B.start ≈ A.end 且 B.end ≈ A.start。
- *   - junctionId：lane 中心线 start 和 end 都落在 junction.polygon 内（射线法）。
+ *   - junctionId：lane 中心线与 junction.polygon **几何相交**（端点在内 OR
+ *     任一段穿越多边形边）。与 overlap pipeline 的「centerline × polygon」判定
+ *     对齐，避免 lane.junctionId 与 OverlapEntity{lane,junction} 自相矛盾。
  *   - L/R neighbors (fwd/rev)：相邻 lane 的起终点纵向偏移 < 1.5m，
  *     横向距离 ∈ [1, 6] m（典型车道 3.5m，留缓冲），方向 dot 阈值 ±0.95。
  *
@@ -17,6 +19,57 @@
 import type { JunctionEntity, LaneEntity } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
 import { pointInPolygon } from './hitTest';
+
+/** 段相交（cross product 法），共线视为不相交 */
+function segmentsCross(
+  a1x: number,
+  a1y: number,
+  a2x: number,
+  a2y: number,
+  b1x: number,
+  b1y: number,
+  b2x: number,
+  b2y: number,
+): boolean {
+  const rx = a2x - a1x;
+  const ry = a2y - a1y;
+  const sx = b2x - b1x;
+  const sy = b2y - b1y;
+  const denom = rx * sy - ry * sx;
+  if (Math.abs(denom) < 1e-12) return false;
+  const dx = b1x - a1x;
+  const dy = b1y - a1y;
+  const t = (dx * sy - dy * sx) / denom;
+  const u = (dx * ry - dy * rx) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+/**
+ * 折线是否与多边形相交（任一端点在内 OR 任一段穿越多边形边）。
+ * 与 core/elements/overlap/intersect.ts 同义；此处内联避免跨模块循环依赖
+ * （laneTopology 是 geometry 层，overlap 是 elements 层）。
+ */
+function polylineHitsPolygon(
+  line: readonly [number, number][],
+  polygon: readonly [number, number][],
+): boolean {
+  if (line.length < 2 || polygon.length < 3) return false;
+  const polyMut = polygon as [number, number][];
+  if (pointInPolygon(line[0]!, polyMut)) return true;
+  if (pointInPolygon(line[line.length - 1]!, polyMut)) return true;
+  for (let i = 0; i < line.length - 1; i++) {
+    const a1 = line[i]!;
+    const a2 = line[i + 1]!;
+    for (let j = 0, k = polygon.length - 1; j < polygon.length; k = j++) {
+      const b1 = polygon[k]!;
+      const b2 = polygon[j]!;
+      if (segmentsCross(a1[0], a1[1], a2[0], a2[1], b1[0], b1[1], b2[0], b2[1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /** 与 applyLaneJunctions 渲染端的 toFixed(6) 相同 → 1cm 量级。 */
 const COORD_KEY_PRECISION = 6;
@@ -203,11 +256,15 @@ export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>):
     );
 
     // ── junctionId ──
-    // 起终点都落在某个 junction 的多边形内 → 视为属于该 junction。
+    // lane 中心线与 junction.polygon 几何相交（端点在内 OR 任一段穿越边）→
+    // 视为属于该 junction。与 overlap pipeline 的判定对齐，避免 lane.junctionId
+    // 与自动派生的 OverlapEntity{lane,junction} 拓扑自相矛盾。
+    const centralPts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+    const centralLine: [number, number][] = centralPts.map((p) => [p.x, p.y]);
     let newJunctionId: string | null = null;
     for (const j of junctionPolygons) {
       if (j.polygon.length < 3) continue;
-      if (pointInPolygon([s.x, s.y], j.polygon) && pointInPolygon([t.x, t.y], j.polygon)) {
+      if (polylineHitsPolygon(centralLine, j.polygon)) {
         newJunctionId = j.id;
         break;
       }

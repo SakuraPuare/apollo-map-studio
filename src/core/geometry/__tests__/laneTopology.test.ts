@@ -201,8 +201,9 @@ describe('reconcileLaneTopology', () => {
     expect((changes.get('a') as LaneEntity).junctionId).toBe('j1');
   });
 
-  it('leaves junctionId null when lane crosses the polygon boundary', () => {
-    // start inside (0.5, 0.5), end outside (2, 0.5) — not wholly contained.
+  it('assigns junctionId when lane crosses the polygon boundary (centerline-intersect rule)', () => {
+    // start inside (0.5, 0.5), end outside (2, 0.5). Apollo overlap pipeline
+    // emits an Overlap{lane,junction}; junctionId must agree (centerline hits polygon).
     const a = laneAt('a', [0.5, 0.5], [2, 0.5]);
     const j = junctionAt('j1', [
       [0, 0],
@@ -211,8 +212,32 @@ describe('reconcileLaneTopology', () => {
       [0, 1],
     ]);
     const { changes } = reconcileLaneTopology(makeMapMixed(a, j));
-    // changes may or may not contain 'a' (default junctionId is already null);
-    // either way, the effective value must be null.
+    expect((changes.get('a') as LaneEntity).junctionId).toBe('j1');
+  });
+
+  it('assigns junctionId when lane fully traverses the polygon (both endpoints outside)', () => {
+    // Through-lane: enters one edge and exits the other; both endpoints out.
+    const a = laneAt('a', [-1, 0.5], [2, 0.5]);
+    const j = junctionAt('j1', [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]);
+    const { changes } = reconcileLaneTopology(makeMapMixed(a, j));
+    expect((changes.get('a') as LaneEntity).junctionId).toBe('j1');
+  });
+
+  it('leaves junctionId null when lane is entirely outside the polygon', () => {
+    // both endpoints outside, no segment crosses polygon edges.
+    const a = laneAt('a', [2, 2], [3, 2]);
+    const j = junctionAt('j1', [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ]);
+    const { changes } = reconcileLaneTopology(makeMapMixed(a, j));
     const updated = (changes.get('a') as LaneEntity | undefined) ?? a;
     expect(updated.junctionId).toBeNull();
   });
