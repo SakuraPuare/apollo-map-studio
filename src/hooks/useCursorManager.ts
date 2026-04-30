@@ -3,8 +3,12 @@ import type maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
+import { useUIStore } from '@/store/uiStore';
 
-export function cursorForState(currentState: string): string {
+export function cursorForState(currentState: string, connectModeActive = false): string {
+  // Connect-lanes mode wins over FSM-driven cursor: it's a non-FSM modal
+  // overlay and the user needs an unambiguous "pick a lane" affordance.
+  if (connectModeActive) return 'crosshair';
   if (currentState === 'editingPoint') return 'grabbing';
   if (isDrawingState(currentState)) return 'crosshair';
   return '';
@@ -19,14 +23,21 @@ export function useCursorManager(
     if (!canvas) return;
 
     const applyCursor = () => {
-      canvas.style.cursor = cursorForState(actorRef.getSnapshot().value as string);
+      canvas.style.cursor = cursorForState(
+        actorRef.getSnapshot().value as string,
+        useUIStore.getState().connectMode.active,
+      );
     };
 
     applyCursor();
     const subscription = actorRef.subscribe(applyCursor);
+    const unsubUI = useUIStore.subscribe((s, prev) => {
+      if (s.connectMode.active !== prev.connectMode.active) applyCursor();
+    });
 
     return () => {
       subscription.unsubscribe();
+      unsubUI();
     };
     // mapRef is a ref — non-reactive by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps

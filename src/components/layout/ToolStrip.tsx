@@ -125,21 +125,34 @@ export function ToolStrip({
 
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
-      {/* Connect Lanes — left of ElementBar so it's visually separated
-          from the drawing tools (it's a topology operator, not a tool). */}
+      {/* Default (Hand/Pan) + Connect Lanes — both sit left of ElementBar
+          because they're modal switches, not drawing tools. Default first
+          so it lives to the LEFT of Connect, matching the "escape hatch"
+          mental model (click hand → back to neutral). */}
       {(() => {
+        const defaultAction = ACTION_DEFS.find((a) => a.id === 'defaultMode');
         const connectAction = ACTION_DEFS.find((a) => a.id === 'connectLanes');
-        if (!connectAction) return null;
-        const Icon = connectAction.icon ?? FaMagnifyingGlass;
+        if (!defaultAction && !connectAction) return null;
         return (
           <>
-            <ToolButton
-              icon={Icon}
-              label={connectAction.label}
-              shortcut={connectAction.shortcut}
-              active={getToggleState('connectLanes')}
-              onClick={() => onExecuteAction('connectLanes')}
-            />
+            {defaultAction && (
+              <ToolButton
+                icon={defaultAction.icon ?? FaMagnifyingGlass}
+                label={defaultAction.label}
+                shortcut={defaultAction.shortcut}
+                active={getToggleState('defaultMode')}
+                onClick={() => onExecuteAction('defaultMode')}
+              />
+            )}
+            {connectAction && (
+              <ToolButton
+                icon={connectAction.icon ?? FaMagnifyingGlass}
+                label={connectAction.label}
+                shortcut={connectAction.shortcut}
+                active={getToggleState('connectLanes')}
+                onClick={() => onExecuteAction('connectLanes')}
+              />
+            )}
             <Divider />
           </>
         );

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ActorRefFrom } from 'xstate';
+import { useSelector } from '@xstate/react';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
@@ -20,7 +21,14 @@ import {
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
-import { pickAndImportBin, pickAndImportText, exportApolloBin, exportApolloText } from '@/io/mapIO';
+import {
+  pickAndImportBin,
+  pickAndImportText,
+  exportApolloBin,
+  exportApolloText,
+  saveAmsProject,
+  pickAndOpenAmsProject,
+} from '@/io/mapIO';
 
 export interface ActionDispatcher {
   /**
@@ -48,6 +56,10 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const connectModeActive = useUIStore((s) => s.connectMode.active);
+  // Default-mode toggle indicator: idle FSM + no element armed + not connecting.
+  const fsmStateValue = useSelector(actorRef, (s) => s.value);
+  const fsmActiveElement = useSelector(actorRef, (s) => s.context.activeElement);
+  const inDefaultMode = fsmStateValue === 'idle' && fsmActiveElement === null && !connectModeActive;
 
   // ── Handler map ────────────────────────────────────────
 
@@ -96,6 +108,17 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('exportApolloTxt', () => {
       void exportApolloText();
     });
+    map.set('saveAmsProject', () => {
+      void saveAmsProject();
+    });
+    map.set('openAmsProject', () => {
+      void pickAndOpenAmsProject().then((info) => {
+        if (info) {
+          // eslint-disable-next-line no-console
+          console.info(`[Apollo IO] opened project ${info.filename}:`, info.counts);
+        }
+      });
+    });
     map.set('settings', onOpenSettings);
 
     // Edit
@@ -119,6 +142,21 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
     map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
     map.set('resetLayout', onResetLayout);
     map.set('commandPalette', onOpenCommandPalette);
+
+    // Default (pan/select) mode — escape hatch from any active draw,
+    // selection, or connect flow back to plain idle. Mirrors Photoshop's
+    // 'H' (Hand) tool: nothing armed, map pans freely.
+    map.set('defaultMode', () => {
+      actorRef.send({ type: 'CANCEL' });
+      // CANCEL has no transition out of `idle` (XState 5 no-ops it), so
+      // a residual activeElement from a finished draw would linger. RESET
+      // clears the draw context (incl. activeElement) and is harmless in
+      // any other state.
+      actorRef.send({ type: 'RESET' });
+      if (useUIStore.getState().connectMode.active) {
+        useUIStore.getState().exitConnectMode();
+      }
+    });
 
     // Connect-lanes mode — non-FSM UI mode. Click a lane to record as
     // first selection; click another to commit the join. ESC cancels.
@@ -166,11 +204,13 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
           return snapEnabled;
         case 'connectLanes':
           return connectModeActive;
+        case 'defaultMode':
+          return inDefaultMode;
         default:
           return false;
       }
     },
-    [gridEnabled, snapEnabled, connectModeActive],
+    [gridEnabled, snapEnabled, connectModeActive, inDefaultMode],
   );
 
   // ── Keyboard shortcuts ─────────────────────────────────
