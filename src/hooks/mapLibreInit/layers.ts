@@ -108,6 +108,11 @@ function addColdLayers(map: maplibregl.Map) {
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'icon-padding': 2,
+      // Signal labels carry an `iconRotate` (deg, CW from north) computed
+      // from boundary plane × stop line per Dreamview's algorithm, so the
+      // icon faces oncoming traffic. Other labels default to 0 (no rotate).
+      'icon-rotate': ['coalesce', ['get', 'iconRotate'], 0],
+      'icon-rotation-alignment': 'map',
     },
     paint: {
       'icon-opacity': 0.95,
