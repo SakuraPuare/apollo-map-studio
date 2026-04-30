@@ -15,8 +15,13 @@
  * 决策权交给调用方：返回最佳匹配 + 距离 + mode，由调用方决定执行还是
  * 提示用户（例如对 fork/merge 弹确认对话框）。
  */
-import type { LaneEntity } from '@/types/apollo';
+import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
+import { polylineLengthMeters } from '@/lib/geo';
+import { anchorToRuntime } from './anchorConvert';
+import { coordsToPoints, toLngLat } from './coords';
+import { cubicBezier, threePointArc } from './interpolate';
+import { applyDerive } from '@/core/elements/derive';
 
 const DEG_TO_M = 111320;
 
@@ -102,8 +107,96 @@ export function planConnection(a: LaneEntity, b: LaneEntity): ConnectionPlan | n
   };
 }
 
-// Apply step deliberately delegated to `entityMutations.applyDrag` — see
-// header comment. That helper already handles `_source.anchors` (bezier)
-// and `_source.arcPoints` (arc) so a connect operation on a curved lane
-// re-samples the curve correctly instead of leaving the source stale
-// (which the worker would silently revert on next render).
+/**
+ * Move A's connecting endpoint to `plan.target`, keeping the rest of the
+ * lane geometry intact and re-syncing curve sources.
+ *
+ * 底层逻辑：`plan.indexToMove` 是 lane 中心线点位的索引（0 或 N-1）。
+ * `applyDrag` 在贝塞尔源分支把这个索引当成 `_source.anchors[index]`
+ * 直读，但贝塞尔锚点数 ≪ 中心线采样数，会越界爆 `Cannot read properties
+ * of undefined (reading 'x')`。所以 connect 路径单独走一条函数：
+ *
+ *   - 贝塞尔源：定位首/末锚点，按 dx/dy 整体平移锚点 + 控制柄，
+ *     再用 `cubicBezier` 重采样写回中心线，保留 `_source.anchors`。
+ *   - 圆弧源：改 `arcPoints[0]` 或 `arcPoints[2]` 后 `threePointArc` 重采样。
+ *   - 折线源 / 无源：直接覆写 `centralCurve` 中对应索引点位。
+ *
+ * 任何分支结束都 `applyDerive(editGeometry)` 一遍，让 lane.length /
+ * lane.turn 等派生字段闭环；reconcile 仍由 `updateEntity` 负责。
+ */
+function isStartIndex(plan: ConnectionPlan): boolean {
+  return plan.indexToMove === 0;
+}
+
+function shiftAnchor(
+  anchor: { point: GeoPoint; handleIn: GeoPoint | null; handleOut: GeoPoint | null },
+  target: GeoPoint,
+) {
+  const dx = target.x - anchor.point.x;
+  const dy = target.y - anchor.point.y;
+  return {
+    point: { ...anchor.point, x: target.x, y: target.y },
+    handleIn: anchor.handleIn
+      ? { ...anchor.handleIn, x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy }
+      : null,
+    handleOut: anchor.handleOut
+      ? { ...anchor.handleOut, x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy }
+      : null,
+  };
+}
+
+function writeCenterline(
+  lane: LaneEntity,
+  points: GeoPoint[],
+  source?: SourceDrawInfo,
+): LaneEntity {
+  const segs = [...lane.centralCurve.segments];
+  segs[0] = { ...segs[0]!, lineSegment: { points } };
+  const next: LaneEntity = {
+    ...lane,
+    centralCurve: { segments: segs },
+    length: polylineLengthMeters(points),
+  };
+  if (source) {
+    return { ...next, _source: source } as LaneEntity & { _source: SourceDrawInfo };
+  }
+  return next;
+}
+
+export function applyLaneConnection(lane: LaneEntity, plan: ConnectionPlan): LaneEntity {
+  const source = (lane as unknown as Record<string, unknown>)._source as SourceDrawInfo | undefined;
+
+  // Bezier source: shift first/last anchor (and its handles), re-sample.
+  if (source?.drawTool === 'drawBezier' && source.anchors && source.anchors.length > 0) {
+    const anchors = source.anchors.map((a) => ({ ...a }));
+    const idx = isStartIndex(plan) ? 0 : anchors.length - 1;
+    anchors[idx] = shiftAnchor(anchors[idx]!, plan.target);
+    const runtime = anchors.map(anchorToRuntime);
+    const newPoints = coordsToPoints(cubicBezier(runtime));
+    const next = writeCenterline(lane, newPoints, { ...source, anchors });
+    return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+  }
+
+  // Arc source: replace one of the three control points, re-sample.
+  if (source?.drawTool === 'drawArc' && source.arcPoints) {
+    const arcPoints = [...source.arcPoints] as [GeoPoint, GeoPoint, GeoPoint];
+    const idx = isStartIndex(plan) ? 0 : 2;
+    arcPoints[idx] = { ...arcPoints[idx]!, x: plan.target.x, y: plan.target.y };
+    const newPoints = coordsToPoints(
+      threePointArc(toLngLat(arcPoints[0]), toLngLat(arcPoints[1]), toLngLat(arcPoints[2])),
+    );
+    const next = writeCenterline(lane, newPoints, { ...source, arcPoints });
+    return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+  }
+
+  // Polyline / unknown source: just overwrite the centerline endpoint.
+  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  if (pts.length === 0) return lane;
+  const idx = isStartIndex(plan) ? 0 : pts.length - 1;
+  if (idx < 0 || idx >= pts.length) return lane;
+  const newPoints = pts.map((p, i) =>
+    i === idx ? { ...p, x: plan.target.x, y: plan.target.y } : p,
+  );
+  const next = writeCenterline(lane, newPoints, source);
+  return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+}

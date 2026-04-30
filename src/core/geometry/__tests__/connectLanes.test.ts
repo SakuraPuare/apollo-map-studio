@@ -5,8 +5,9 @@
  * (cosLat = 1) for simple distance arithmetic.
  */
 import { describe, it, expect } from 'vitest';
-import { planConnection } from '../connectLanes';
-import type { LaneEntity } from '@/types/apollo';
+import { applyLaneConnection, planConnection } from '../connectLanes';
+import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
+import type { GeoPoint } from '@/types/entities';
 
 function laneAt(id: string, start: [number, number], end: [number, number]): LaneEntity {
   return {
@@ -117,5 +118,221 @@ describe('planConnection — indexToMove / target details', () => {
     expect(plan.indexToMove).toBe(0);
     expect(plan.target.x).toBe(0.0009);
     expect(plan.target.y).toBe(0.00005);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyLaneConnection — endpoint move across the three source flavors.
+// Regression for the bezier-anchor index out-of-bounds crash that surfaced
+// as "Cannot read properties of undefined (reading 'x')" in connect mode.
+// ---------------------------------------------------------------------------
+
+function laneWithCenterline(id: string, points: GeoPoint[]): LaneEntity {
+  return {
+    id,
+    entityType: 'lane',
+    centralCurve: {
+      segments: [
+        {
+          lineSegment: { points },
+          s: 0,
+          startPosition: points[0]!,
+          heading: 0,
+          length: 0,
+        },
+      ],
+    },
+    leftBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+    rightBoundary: { curve: { segments: [] }, length: 0, boundaryType: [] },
+    length: 0,
+    type: 'CITY_DRIVING',
+    turn: 'NO_TURN',
+    direction: 'FORWARD',
+    speedLimit: 0,
+    predecessorIds: [],
+    successorIds: [],
+    leftNeighborForwardIds: [],
+    rightNeighborForwardIds: [],
+    leftNeighborReverseIds: [],
+    rightNeighborReverseIds: [],
+    selfReverseLaneIds: [],
+    junctionId: null,
+    overlapIds: [],
+    leftSamples: [{ s: 0, width: 1.75 }],
+    rightSamples: [{ s: 0, width: 1.75 }],
+    leftRoadSamples: [],
+    rightRoadSamples: [],
+  };
+}
+
+function withSource<T extends LaneEntity>(lane: T, source: SourceDrawInfo): T {
+  return { ...lane, _source: source } as T & { _source: SourceDrawInfo };
+}
+
+describe('applyLaneConnection — polyline source', () => {
+  it('moves the centerline last point to target (AendToBstart)', () => {
+    const lane = laneWithCenterline('a', [
+      { x: 0, y: 0 },
+      { x: 0.001, y: 0 },
+    ]);
+    const target: GeoPoint = { x: 0.0011, y: 0.00005 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AendToBstart',
+      indexToMove: 1,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+    const pts = out.centralCurve.segments[0]!.lineSegment.points;
+    expect(pts[0]).toEqual({ x: 0, y: 0 });
+    expect(pts[1]).toEqual(expect.objectContaining(target));
+  });
+
+  it('moves the centerline first point to target (AstartToBend)', () => {
+    const lane = laneWithCenterline('a', [
+      { x: 0.001, y: 0 },
+      { x: 0.002, y: 0 },
+    ]);
+    const target: GeoPoint = { x: 0.0009, y: 0.00005 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AstartToBend',
+      indexToMove: 0,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+    const pts = out.centralCurve.segments[0]!.lineSegment.points;
+    expect(pts[0]).toEqual(expect.objectContaining(target));
+    expect(pts[1]).toEqual({ x: 0.002, y: 0 });
+  });
+});
+
+describe('applyLaneConnection — bezier source', () => {
+  // Centerline sampled to many points, but anchors are sparse (2). The
+  // pre-fix code indexed anchors[centerlineLastIndex] and crashed.
+  it('shifts the LAST anchor (and its handles) when moving end endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 20 }, (_, i) => ({
+      x: i * 0.00005,
+      y: 0,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawBezier',
+      anchors: [
+        { point: { x: 0, y: 0 }, handleIn: null, handleOut: { x: 0.0001, y: 0.0001 } },
+        {
+          point: { x: 0.001, y: 0 },
+          handleIn: { x: 0.0009, y: -0.0001 },
+          handleOut: null,
+        },
+      ],
+    });
+
+    const target: GeoPoint = { x: 0.0011, y: 0.00005 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AendToBstart',
+      indexToMove: samplePts.length - 1,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    const lastAnchor = newSource.anchors![1]!;
+    expect(lastAnchor.point).toEqual(expect.objectContaining(target));
+    // handleIn shifted by the same dx/dy (0.0001, 0.00005)
+    expect(lastAnchor.handleIn!.x).toBeCloseTo(0.0009 + 0.0001, 12);
+    expect(lastAnchor.handleIn!.y).toBeCloseTo(-0.0001 + 0.00005, 12);
+    // first anchor untouched
+    expect(newSource.anchors![0]!.point).toEqual({ x: 0, y: 0 });
+    // re-sampled centerline picks up the new endpoint
+    const pts = out.centralCurve.segments[0]!.lineSegment.points;
+    expect(pts[pts.length - 1]).toEqual(expect.objectContaining(target));
+  });
+
+  it('shifts the FIRST anchor when moving start endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 20 }, (_, i) => ({
+      x: i * 0.00005,
+      y: 0,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawBezier',
+      anchors: [
+        { point: { x: 0, y: 0 }, handleIn: null, handleOut: { x: 0.0001, y: 0.0001 } },
+        { point: { x: 0.001, y: 0 }, handleIn: { x: 0.0009, y: 0 }, handleOut: null },
+      ],
+    });
+
+    const target: GeoPoint = { x: -0.0001, y: 0 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AstartToBend',
+      indexToMove: 0,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    expect(newSource.anchors![0]!.point).toEqual(expect.objectContaining(target));
+    // handleOut shifted by dx = -0.0001, dy = 0
+    expect(newSource.anchors![0]!.handleOut!.x).toBeCloseTo(0.0001 - 0.0001, 12);
+    expect(newSource.anchors![1]!.point).toEqual({ x: 0.001, y: 0 });
+  });
+});
+
+describe('applyLaneConnection — arc source', () => {
+  it('rewrites arcPoints[2] when moving end endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 30 }, (_, i) => ({
+      x: i * 0.00003,
+      y: 0,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawArc',
+      arcPoints: [
+        { x: 0, y: 0 },
+        { x: 0.0005, y: 0.0002 },
+        { x: 0.001, y: 0 },
+      ],
+    });
+
+    const target: GeoPoint = { x: 0.0012, y: 0 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AendToBstart',
+      indexToMove: samplePts.length - 1,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    expect(newSource.arcPoints![2]).toEqual(expect.objectContaining(target));
+    expect(newSource.arcPoints![0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it('rewrites arcPoints[0] when moving start endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 30 }, (_, i) => ({
+      x: i * 0.00003,
+      y: 0,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawArc',
+      arcPoints: [
+        { x: 0, y: 0 },
+        { x: 0.0005, y: 0.0002 },
+        { x: 0.001, y: 0 },
+      ],
+    });
+
+    const target: GeoPoint = { x: -0.0001, y: 0 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AstartToBend',
+      indexToMove: 0,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = (out as unknown as { _source?: SourceDrawInfo })._source!;
+    expect(newSource.arcPoints![0]).toEqual(expect.objectContaining(target));
+    expect(newSource.arcPoints![2]).toEqual({ x: 0.001, y: 0 });
   });
 });
