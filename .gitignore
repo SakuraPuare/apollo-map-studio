@@ -148,3 +148,6 @@ vite.config.ts.timestamp-*
 *-tab.png
 page-initial.png
 sidebar-state.png
+
+# Local Claude agent state (worktrees, scratch). Project-specific only.
+.claude/
