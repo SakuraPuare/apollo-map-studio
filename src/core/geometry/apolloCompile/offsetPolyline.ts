@@ -117,7 +117,12 @@ export function offsetPolylineDeg(
     return collapseOffsetLoops(rebuildDenseOffset(pts, segN, widthMeters, cosLat), cosLat);
   }
 
-  return collapseOffsetLoops(result, cosLat);
+  // Ordinary dense curves should preserve their sampled shape. Running the
+  // global loop collapse on them can cut across a valid arc and leave a long
+  // chord, which turns the lane fill into a large triangle. The branch above
+  // handles the tight-radius cases where adjacent offset segments actually
+  // fold backward and need pruning.
+  return result;
 }
 
 function dedupeProjected(points: ProjectedPoint[]): ProjectedPoint[] {

@@ -36,6 +36,14 @@ function dist2d(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.hypot(ax - bx, ay - by);
 }
 
+function maxSegmentLength(points: { x: number; y: number }[]): number {
+  let max = 0;
+  for (let i = 1; i < points.length; i++) {
+    max = Math.max(max, dist2d(points[i - 1]!, points[i]!));
+  }
+  return max;
+}
+
 /**
  * 点 q 到有向线段 p0→p1 的有符号垂直距离（米）
  * 正值 = 左侧（逆时针方向），负值 = 右侧
@@ -212,6 +220,17 @@ describe('150° 右转（miterRatio ≈ 3.86，与左转镜像对称）', () => 
 });
 
 describe('紧弯连续采样', () => {
+  it('大半径密集曲线不会被 loop collapse 裁成跨整段长弦', () => {
+    const center = quarterTurn(70, 64);
+    const left = offsetPolylineDeg(center, WIDTH, 'left');
+    const right = offsetPolylineDeg(center, WIDTH, 'right');
+
+    expect(left.length).toBeGreaterThan(center.length * 0.8);
+    expect(right.length).toBeGreaterThan(center.length * 0.8);
+    expect(maxSegmentLength(left)).toBeLessThan(8);
+    expect(maxSegmentLength(right)).toBeLessThan(8);
+  });
+
   it('内侧偏移线和 lane polygon 都不保留自交 loop', () => {
     const center = quarterTurn(WIDTH, 16);
     const right = offsetPolylineDeg(center, WIDTH, 'right');

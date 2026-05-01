@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LaneEntity } from '@/types/apollo';
-import type { LngLat } from '@/core/geometry/interpolate';
-import { createApolloEntity, compileApolloFeatures } from '../apolloCompile';
+import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
+import { createApolloEntity, compileApolloFeatures, pointsToCurve } from '../apolloCompile';
 import { applyLaneJunctions } from '../laneJunctions';
 
 const DEG_TO_M = 111320;
@@ -48,6 +48,24 @@ function makeLane(
     leftSamples: [{ s: 0, width: widths.left ?? WIDTH }],
     rightSamples: [{ s: 0, width: widths.right ?? WIDTH }],
   };
+}
+
+function makeBezierLane(id: string, anchors: BezierAnchor[]): LaneEntity {
+  const lane = createApolloEntity('lane', 'drawBezier', [], anchors, {
+    laneHalfWidth: WIDTH,
+  }) as LaneEntity;
+  return {
+    ...lane,
+    id,
+    leftSamples: [{ s: 0, width: WIDTH }],
+    rightSamples: [{ s: 0, width: WIDTH }],
+  };
+}
+
+function withoutSource(lane: LaneEntity): LaneEntity {
+  const { _source, ...rest } = lane;
+  void _source;
+  return rest as LaneEntity;
 }
 
 function stitch(lanes: LaneEntity[], excludeId?: string | null) {
@@ -158,7 +176,7 @@ describe('applyLaneJunctions', () => {
     ).toBeCloseTo(joinA[1], 10);
   });
 
-  it('尖锐 V 形连续转向时，内侧 join 保持精确交点，不被 3w 截断', () => {
+  it('尖锐 V 形连续转向时，内侧保持精确交点，外侧限制在 3w 内', () => {
     const segLen = 100;
     const alpha = (150 * Math.PI) / 180;
     const junction = pt(116.001, LAT);
@@ -198,6 +216,144 @@ describe('applyLaneJunctions', () => {
         junction,
       ),
     ).toBeGreaterThan(3 * WIDTH);
+  });
+
+  it('小角度连续转向时，外侧 join 用 bevel，不能被径向截到中心线附近', () => {
+    const junction = pt(116.001, LAT);
+    const angle = (-12 * Math.PI) / 180;
+    const laneA = makeLane('laneA', [
+      [junction.x - 100 / mPerLng, junction.y],
+      [junction.x, junction.y],
+    ]);
+    const laneB = makeLane('laneB', [
+      [junction.x, junction.y],
+      [
+        junction.x + (100 * Math.cos(angle)) / mPerLng,
+        junction.y + (100 * Math.sin(angle)) / mPerLat,
+      ],
+    ]);
+
+    const features = stitch([laneA, laneB]);
+    const leftJoin = laneLine(features, 'laneA', 'laneEdgeLeft').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const [, dy] = offsetFrom(leftJoin, junction);
+
+    expect(dy).toBeGreaterThan(WIDTH * 0.8);
+  });
+
+  it('曲线 lane 接续时只移动边界端点，不裁掉曲线采样点形成长三角', () => {
+    const junction = pt(116.001, LAT);
+    const straight = makeLane('straight', [
+      [junction.x - 50 / mPerLng, junction.y],
+      [junction.x, junction.y],
+    ]);
+    const curve = makeBezierLane('curve', [
+      {
+        point: [junction.x, junction.y],
+        handleIn: null,
+        handleOut: [junction.x, junction.y + 35 / mPerLat],
+      },
+      {
+        point: [junction.x + 70 / mPerLng, junction.y + 70 / mPerLat],
+        handleIn: [junction.x + 25 / mPerLng, junction.y + 70 / mPerLat],
+        handleOut: null,
+      },
+    ]);
+
+    const original = [straight, curve].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([straight, curve]);
+    const straightLeft = laneLine(features, 'straight', 'laneEdgeLeft').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const straightRight = laneLine(features, 'straight', 'laneEdgeRight').geometry.coordinates.at(
+      -1,
+    ) as LngLat;
+    const originalLeft = laneLine(original, 'curve', 'laneEdgeLeft').geometry.coordinates;
+    const stitchedLeft = laneLine(features, 'curve', 'laneEdgeLeft').geometry.coordinates;
+    const originalRight = laneLine(original, 'curve', 'laneEdgeRight').geometry.coordinates;
+    const stitchedRight = laneLine(features, 'curve', 'laneEdgeRight').geometry.coordinates;
+
+    const originalLeftNext = originalLeft[1] as LngLat;
+    const stitchedLeftNext = stitchedLeft[1] as LngLat;
+    const originalRightNext = originalRight[1] as LngLat;
+    const stitchedRightNext = stitchedRight[1] as LngLat;
+
+    expect(stitchedLeft.length).toBe(originalLeft.length);
+    expect(stitchedRight.length).toBe(originalRight.length);
+    expect(stitchedLeft[0]![0]).toBeCloseTo(straightLeft[0], 10);
+    expect(stitchedLeft[0]![1]).toBeCloseTo(straightLeft[1], 10);
+    expect(stitchedRight[0]![0]).toBeCloseTo(straightRight[0], 10);
+    expect(stitchedRight[0]![1]).toBeCloseTo(straightRight[1], 10);
+    expect(stitchedLeftNext[0]).toBeCloseTo(originalLeftNext[0], 10);
+    expect(stitchedLeftNext[1]).toBeCloseTo(originalLeftNext[1], 10);
+    expect(stitchedRightNext[0]).toBeCloseTo(originalRightNext[0], 10);
+    expect(stitchedRightNext[1]).toBeCloseTo(originalRightNext[1], 10);
+  });
+
+  it('无 source 的密集曲线 lane 接续时也不能裁掉曲线采样点', () => {
+    const junction = pt(116.001, LAT);
+    const straight = makeLane('straight', [
+      [junction.x - 50 / mPerLng, junction.y],
+      [junction.x, junction.y],
+    ]);
+    const curve = withoutSource(
+      makeBezierLane('curve', [
+        {
+          point: [junction.x, junction.y],
+          handleIn: null,
+          handleOut: [junction.x, junction.y + 35 / mPerLat],
+        },
+        {
+          point: [junction.x + 70 / mPerLng, junction.y + 70 / mPerLat],
+          handleIn: [junction.x + 25 / mPerLng, junction.y + 70 / mPerLat],
+          handleOut: null,
+        },
+      ]),
+    );
+
+    const original = [straight, curve].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([straight, curve]);
+    const originalLeft = laneLine(original, 'curve', 'laneEdgeLeft').geometry.coordinates;
+    const stitchedLeft = laneLine(features, 'curve', 'laneEdgeLeft').geometry.coordinates;
+    const originalRight = laneLine(original, 'curve', 'laneEdgeRight').geometry.coordinates;
+    const stitchedRight = laneLine(features, 'curve', 'laneEdgeRight').geometry.coordinates;
+    const originalLeftNext = originalLeft[1] as LngLat;
+    const stitchedLeftNext = stitchedLeft[1] as LngLat;
+    const originalRightNext = originalRight[1] as LngLat;
+    const stitchedRightNext = stitchedRight[1] as LngLat;
+
+    expect(stitchedLeft.length).toBe(originalLeft.length);
+    expect(stitchedRight.length).toBe(originalRight.length);
+    expect(stitchedLeftNext[0]).toBeCloseTo(originalLeftNext[0], 10);
+    expect(stitchedLeftNext[1]).toBeCloseTo(originalLeftNext[1], 10);
+    expect(stitchedRightNext[0]).toBeCloseTo(originalRightNext[0], 10);
+    expect(stitchedRightNext[1]).toBeCloseTo(originalRightNext[1], 10);
+  });
+
+  it('无 source 的密集直切线 lane 接续时也不能按 sparse polyline 裁点', () => {
+    const junction = pt(116.001, LAT);
+    const straight = makeLane('straight', [
+      [junction.x, junction.y - 50 / mPerLat],
+      [junction.x, junction.y],
+    ]);
+    const denseCoords = Array.from({ length: 24 }, (_, i) => {
+      const xMeters = i * 1.2;
+      const yMeters = i < 10 ? 0 : -((i - 9) * (i - 9) * 0.18);
+      return [junction.x + xMeters / mPerLng, junction.y + yMeters / mPerLat] as LngLat;
+    });
+    const dense = makeLane('dense', denseCoords);
+
+    const original = [straight, dense].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([straight, dense]);
+    const originalRight = laneLine(original, 'dense', 'laneEdgeRight').geometry.coordinates;
+    const stitchedRight = laneLine(features, 'dense', 'laneEdgeRight').geometry.coordinates;
+    const originalRightNext = originalRight[1] as LngLat;
+    const stitchedRightNext = stitchedRight[1] as LngLat;
+
+    expect(stitchedRight.length).toBe(originalRight.length);
+    expect(stitchedRightNext[0]).toBeCloseTo(originalRightNext[0], 10);
+    expect(stitchedRightNext[1]).toBeCloseTo(originalRightNext[1], 10);
   });
 
   it('不同左右宽度时，左右 join 使用各自边界宽度', () => {
@@ -265,6 +421,98 @@ describe('applyLaneJunctions', () => {
     expect(leftAfter[1]).toBeCloseTo(originalLeft[1], 10);
     expect(rightAfter[0]).toBeCloseTo(originalRight[0], 10);
     expect(rightAfter[1]).toBeCloseTo(originalRight[1], 10);
+  });
+
+  it('start-start 分叉不强行缝左右边界', () => {
+    const junction = pt(116.001, LAT);
+    const laneA = makeLane('laneA', [
+      [junction.x, junction.y],
+      [junction.x + 100 / mPerLng, junction.y],
+    ]);
+    const laneB = makeLane('laneB', [
+      [junction.x, junction.y],
+      [junction.x, junction.y + 100 / mPerLat],
+    ]);
+
+    const original = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([laneA, laneB]);
+
+    for (const id of ['laneA', 'laneB']) {
+      for (const role of ['laneEdgeLeft', 'laneEdgeRight'] as const) {
+        const before = laneLine(original, id, role).geometry.coordinates[0] as LngLat;
+        const after = laneLine(features, id, role).geometry.coordinates[0] as LngLat;
+        expect(after[0]).toBeCloseTo(before[0], 10);
+        expect(after[1]).toBeCloseTo(before[1], 10);
+      }
+    }
+  });
+
+  it('end-end 合流不强行缝左右边界', () => {
+    const junction = pt(116.001, LAT);
+    const laneA = makeLane('laneA', [
+      [junction.x - 100 / mPerLng, junction.y],
+      [junction.x, junction.y],
+    ]);
+    const laneB = makeLane('laneB', [
+      [junction.x, junction.y - 100 / mPerLat],
+      [junction.x, junction.y],
+    ]);
+
+    const original = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([laneA, laneB]);
+
+    for (const id of ['laneA', 'laneB']) {
+      for (const role of ['laneEdgeLeft', 'laneEdgeRight'] as const) {
+        const beforeCoords = laneLine(original, id, role).geometry.coordinates;
+        const afterCoords = laneLine(features, id, role).geometry.coordinates;
+        const before = beforeCoords[beforeCoords.length - 1] as LngLat;
+        const after = afterCoords[afterCoords.length - 1] as LngLat;
+        expect(after[0]).toBeCloseTo(before[0], 10);
+        expect(after[1]).toBeCloseTo(before[1], 10);
+      }
+    }
+  });
+
+  it('导入 lane 有显式边界时不做端点 stitching，只保留边界装饰', () => {
+    const junction = pt(116.001, LAT);
+    const laneA = makeLane('laneA', [
+      [junction.x - 100 / mPerLng, junction.y],
+      [junction.x, junction.y],
+    ]);
+    const laneB = makeLane('laneB', [
+      [junction.x, junction.y],
+      [junction.x, junction.y + 100 / mPerLat],
+    ]);
+    laneA.leftBoundary.curve = pointsToCurve([
+      { x: junction.x - 100 / mPerLng, y: junction.y + 2 / mPerLat },
+      { x: junction.x, y: junction.y + 2 / mPerLat },
+    ]);
+    laneA.rightBoundary.curve = pointsToCurve([
+      { x: junction.x - 100 / mPerLng, y: junction.y - 2 / mPerLat },
+      { x: junction.x, y: junction.y - 2 / mPerLat },
+    ]);
+    laneB.leftBoundary.curve = pointsToCurve([
+      { x: junction.x - 2 / mPerLng, y: junction.y },
+      { x: junction.x - 2 / mPerLng, y: junction.y + 100 / mPerLat },
+    ]);
+    laneB.rightBoundary.curve = pointsToCurve([
+      { x: junction.x + 2 / mPerLng, y: junction.y },
+      { x: junction.x + 2 / mPerLng, y: junction.y + 100 / mPerLat },
+    ]);
+    laneA.leftBoundary.boundaryType = [{ s: 0, types: ['SOLID_YELLOW'] }];
+    laneB.leftBoundary.boundaryType = [{ s: 0, types: ['SOLID_YELLOW'] }];
+
+    const original = [laneA, laneB].flatMap((lane) => compileApolloFeatures(lane));
+    const features = stitch([laneA, laneB]);
+
+    for (const id of ['laneA', 'laneB']) {
+      for (const role of ['laneEdgeLeft', 'laneEdgeRight'] as const) {
+        expect(laneLine(features, id, role).geometry.coordinates).toEqual(
+          laneLine(original, id, role).geometry.coordinates,
+        );
+      }
+      expect(laneDecorLines(features, id, 'left').length).toBeGreaterThan(0);
+    }
   });
 
   it('左右边界按各自 boundaryType 渲染，不再共用同一种样式', () => {

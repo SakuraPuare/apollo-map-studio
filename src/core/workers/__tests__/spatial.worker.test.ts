@@ -266,6 +266,35 @@ describe('spatial.worker — INCREMENTAL', () => {
     expect(ids.has('a')).toBe(true);
     expect(ids.has('b')).toBe(true); // junction graph 把 b 拉进 affected set
   });
+
+  it('connect 后新共享端点的目标 lane 也进入 COLD_DELTA.changed', async () => {
+    const w = await loadWorker();
+    const a = makeLane('a', [
+      [116.0, 30.0],
+      [116.0009, 30.0],
+    ]);
+    const b = makeLane('b', [
+      [116.001, 30.0],
+      [116.002, 30.0],
+    ]);
+    w.send({ type: 'SYNC', requestId: rid(), entities: [a, b] });
+
+    const aConnected = makeLane('a', [
+      [116.0, 30.0],
+      [116.001, 30.0],
+    ]);
+    const resp = w.send({
+      type: 'INCREMENTAL',
+      requestId: rid(),
+      added: [],
+      removed: [],
+      updated: [aConnected],
+    });
+    if (resp.type !== 'COLD_DELTA') throw new Error('expected COLD_DELTA');
+    const ids = new Set(resp.changed.map((g: EntityFeatureGroup) => g.id));
+    expect(ids.has('a')).toBe(true);
+    expect(ids.has('b')).toBe(true);
+  });
 });
 
 // ── HIT_TEST ─────────────────────────────────────────────────

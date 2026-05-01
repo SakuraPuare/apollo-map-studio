@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { laneCorridorPolygon } from '../laneCorridor';
+import { pointsToCurve } from '@/core/geometry/apolloCompile';
 import type { LaneEntity } from '@/types/apollo';
 
 function makeLane(points: { x: number; y: number }[]): LaneEntity {
@@ -99,5 +100,31 @@ describe('laneCorridorPolygon', () => {
     const rightEdgeReversed = ring.slice(2, 4);
     expect(leftEdge.every((p) => p.y > 39.9)).toBe(true);
     expect(rightEdgeReversed.every((p) => p.y < 39.9)).toBe(true);
+  });
+
+  it('uses imported left/right boundary polylines when present', () => {
+    const lane = makeLane([
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9002 },
+      { x: 116.001, y: 39.9 },
+    ]);
+    lane.leftBoundary.curve = pointsToCurve([
+      { x: 116.0, y: 39.901 },
+      { x: 116.001, y: 39.901 },
+    ]);
+    lane.rightBoundary.curve = pointsToCurve([
+      { x: 116.0, y: 39.899 },
+      { x: 116.0005, y: 39.8988 },
+      { x: 116.001, y: 39.899 },
+    ]);
+
+    expect(laneCorridorPolygon(lane)).toEqual([
+      { x: 116.0, y: 39.901 },
+      { x: 116.001, y: 39.901 },
+      { x: 116.001, y: 39.899 },
+      { x: 116.0005, y: 39.8988 },
+      { x: 116.0, y: 39.899 },
+      { x: 116.0, y: 39.901 },
+    ]);
   });
 });

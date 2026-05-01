@@ -2,9 +2,41 @@ import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { pointsToCoords } from '@/core/geometry/coords';
 import { polylineLengthMeters } from '@/lib/geo';
-import type { ApolloEntity } from '@/types/apollo';
+import type { ApolloEntity, Curve, LaneBoundary } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
+import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
 import { offsetPolylineDeg } from './offsetPolyline';
+
+function translatePoint(point: GeoPoint, dx: number, dy: number): GeoPoint {
+  return {
+    x: point.x + dx,
+    y: point.y + dy,
+    ...(point.z !== undefined ? { z: point.z } : {}),
+  };
+}
+
+function translateCurve(curve: Curve, dx: number, dy: number): Curve {
+  return {
+    segments: curve.segments.map((segment) => {
+      const points = segment.lineSegment.points.map((point) => translatePoint(point, dx, dy));
+      const startPosition = segment.startPosition ??
+        segment.lineSegment.points[0] ?? { x: 0, y: 0 };
+      return {
+        ...segment,
+        startPosition: translatePoint(startPosition, dx, dy),
+        lineSegment: { points },
+      };
+    }),
+  };
+}
+
+function emptyBoundaryCurve(boundary: LaneBoundary): LaneBoundary {
+  return {
+    ...boundary,
+    curve: { segments: [] },
+    length: 0,
+  };
+}
 
 export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
   switch (entity.entityType) {
@@ -21,7 +53,7 @@ export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
     case 'signal':
       return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? entity.boundary.points;
     case 'lane':
-      return entity.centralCurve.segments[0]?.lineSegment.points ?? [];
+      return curvePoints(entity.centralCurve);
     case 'stopSign':
       return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? [];
     case 'speedBump':
@@ -78,6 +110,8 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
       return {
         ...entity,
         centralCurve: { segments: segs },
+        leftBoundary: emptyBoundaryCurve(entity.leftBoundary),
+        rightBoundary: emptyBoundaryCurve(entity.rightBoundary),
         length: polylineLengthMeters(points),
       };
     }
@@ -138,13 +172,23 @@ export function setApolloEditPoint(
 export function moveApolloEntity(entity: ApolloEntity, dx: number, dy: number): ApolloEntity {
   const pts = getApolloEditPoints(entity);
   if (pts.length === 0) return entity;
+  if (entity.entityType === 'lane') {
+    return {
+      ...entity,
+      centralCurve: translateCurve(entity.centralCurve, dx, dy),
+      leftBoundary: {
+        ...entity.leftBoundary,
+        curve: translateCurve(entity.leftBoundary.curve, dx, dy),
+      },
+      rightBoundary: {
+        ...entity.rightBoundary,
+        curve: translateCurve(entity.rightBoundary.curve, dx, dy),
+      },
+    };
+  }
   return setAllApolloEditPoints(
     entity,
-    pts.map((p) => ({
-      x: p.x + dx,
-      y: p.y + dy,
-      ...(p.z !== undefined ? { z: p.z } : {}),
-    })),
+    pts.map((p) => translatePoint(p, dx, dy)),
   );
 }
 
@@ -165,6 +209,12 @@ export function apolloEntityCoords(entity: ApolloEntity): LngLat[] {
   const pts = getApolloEditPoints(entity);
   if (pts.length === 0) return [];
   if (entity.entityType === 'lane') {
+    const explicitEdges = explicitLaneBoundaryEdges(entity);
+    if (explicitEdges) {
+      return [...explicitEdges.left, ...[...explicitEdges.right].reverse()].map(
+        (point) => [point.x, point.y] as LngLat,
+      );
+    }
     const leftW = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
     const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
     const left = offsetPolylineDeg(pts, leftW, 'left');

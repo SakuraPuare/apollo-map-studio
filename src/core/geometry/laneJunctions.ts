@@ -85,11 +85,21 @@ function uniquePair(endpoints: LaneEndpoint[]): [LaneEndpoint, LaneEndpoint] | n
   return [unique[0]!, unique[1]!];
 }
 
+function isContinuousJunction(a: LaneEndpoint, b: LaneEndpoint): boolean {
+  return a.isStart !== b.isStart;
+}
+
 function stitchLaneJunctions(
   junctions: EndpointJunction[],
   featureMap: Map<string, LaneFeatureRefs>,
 ): void {
   for (const { pt, a, b } of junctions) {
+    // Start-start forks and end-end merges are semantic lane junctions, but
+    // they are not a continuous lane-to-lane edge. Pulling left-left and
+    // right-right boundaries to one shared miter point corrupts the visible
+    // split/merge geometry; topology/overlap logic handles those cases.
+    if (!isContinuousJunction(a, b)) continue;
+
     const cosLat = Math.cos((pt.y * Math.PI) / 180);
     const dirA = endpointDirection(a, cosLat);
     const dirB = endpointDirection(b, cosLat);
@@ -103,10 +113,10 @@ function stitchLaneJunctions(
     const refsA = featureMap.get(a.id);
     const refsB = featureMap.get(b.id);
 
-    updateLineEndpoint(refsA?.left, a.isStart, leftJoin, dirA, cosLat);
-    updateLineEndpoint(refsB?.left, b.isStart, leftJoin, dirB, cosLat);
-    updateLineEndpoint(refsA?.right, a.isStart, rightJoin, dirA, cosLat);
-    updateLineEndpoint(refsB?.right, b.isStart, rightJoin, dirB, cosLat);
+    updateLineEndpoint(refsA?.left, a.isStart, leftJoin, dirA, cosLat, a.trimBoundaryOnStitch);
+    updateLineEndpoint(refsB?.left, b.isStart, leftJoin, dirB, cosLat, b.trimBoundaryOnStitch);
+    updateLineEndpoint(refsA?.right, a.isStart, rightJoin, dirA, cosLat, a.trimBoundaryOnStitch);
+    updateLineEndpoint(refsB?.right, b.isStart, rightJoin, dirB, cosLat, b.trimBoundaryOnStitch);
 
     syncPolygonFromEdges(refsA);
     syncPolygonFromEdges(refsB);

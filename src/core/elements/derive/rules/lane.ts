@@ -8,16 +8,17 @@
  *                             instead of `'UNKNOWN'`. Create-only.
  *
  * All three are pure functions; geometry source of truth is
- * `centralCurve.segments[0].lineSegment.points`.
+ * `centralCurve` line-segment points.
  */
 import type { LaneEntity, BoundaryLineType } from '@/types/apollo';
 import { DEFAULT_LANE_BOUNDARY_TYPE } from '@/config/mapConstants';
 import { polylineLengthMeters } from '@/lib/geo';
 import { inferLaneTurn } from '@/core/geometry/apolloCompile';
+import { curvePoints } from '@/core/geometry/apolloCompile/laneBoundaryGeometry';
 import type { DeriveRule } from '../types';
 
 function centerPoints(e: LaneEntity) {
-  return e.centralCurve.segments[0]?.lineSegment.points ?? [];
+  return curvePoints(e.centralCurve);
 }
 
 const lengthRule: DeriveRule<LaneEntity> = {

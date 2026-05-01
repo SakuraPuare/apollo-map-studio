@@ -18,6 +18,7 @@
 
 import type { GeoPoint } from '@/types/entities';
 import type { LaneEntity } from '@/types/apollo';
+import { curvePoints } from '@/core/geometry/apolloCompile/laneBoundaryGeometry';
 
 export type EndpointKey = string;
 
@@ -27,7 +28,7 @@ export function endpointKeyOf(pt: GeoPoint): EndpointKey {
 
 /** Extract a lane's [startKey, endKey] tuple, or null if the centerline is degenerate. */
 export function laneEndpointKeys(lane: LaneEntity): [EndpointKey, EndpointKey] | null {
-  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const pts = curvePoints(lane.centralCurve);
   if (pts.length < 2) return null;
   const start = pts[0]!;
   const end = pts[pts.length - 1]!;

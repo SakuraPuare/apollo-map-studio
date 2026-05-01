@@ -24,6 +24,7 @@ import type {
   SignalEntity,
   RoadEntity,
 } from '@/types/apollo';
+import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
 
 const DEG_TO_M = 111320;
 
@@ -127,13 +128,7 @@ function pushPolygonVertices(
 }
 
 function laneCenterPoints(lane: LaneEntity): GeoPoint[] {
-  const pts: GeoPoint[] = [];
-  for (const seg of lane.centralCurve.segments) {
-    if (seg.lineSegment) {
-      for (const p of seg.lineSegment.points) pts.push(p);
-    }
-  }
-  return pts;
+  return curvePoints(lane.centralCurve);
 }
 
 /**

@@ -22,6 +22,7 @@ import { polylineLengthMeters } from '@/lib/geo';
 import { anchorToRuntime } from './anchorConvert';
 import { coordsToPoints, toLngLat } from './coords';
 import { cubicBezier, threePointArc } from './interpolate';
+import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
 import { applyDerive } from '@/core/elements/derive';
 
 const DEG_TO_M = 111320;
@@ -49,11 +50,11 @@ export interface ConnectionPlan {
 }
 
 function laneStart(lane: LaneEntity): GeoPoint | null {
-  return lane.centralCurve.segments[0]?.lineSegment.points[0] ?? null;
+  return curvePoints(lane.centralCurve)[0] ?? null;
 }
 
 function laneEnd(lane: LaneEntity): GeoPoint | null {
-  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const pts = curvePoints(lane.centralCurve);
   return pts[pts.length - 1] ?? null;
 }
 
@@ -82,7 +83,7 @@ export function planConnection(a: LaneEntity, b: LaneEntity): ConnectionPlan | n
   const bE = laneEnd(b);
   if (!aS || !aE || !bS || !bE) return null;
 
-  const aPts = a.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const aPts = curvePoints(a.centralCurve);
   const aLast = aPts.length - 1;
 
   const candidates: Array<{
@@ -191,7 +192,7 @@ export function applyLaneConnection(lane: LaneEntity, plan: ConnectionPlan): Lan
   }
 
   // Polyline / unknown source: just overwrite the centerline endpoint.
-  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const pts = curvePoints(lane.centralCurve);
   if (pts.length === 0) return lane;
   const idx = isStartIndex(plan) ? 0 : pts.length - 1;
   if (idx < 0 || idx >= pts.length) return lane;

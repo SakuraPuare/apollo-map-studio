@@ -8,11 +8,13 @@
  * 修复：`[...left, ...right.reverse()]` 与 compileApolloFeatures 中渲染多边形构造一致。
  */
 import { describe, it, expect } from 'vitest';
-import { createApolloEntity } from '../apolloCompile';
+import { createApolloEntity, pointsToCurve } from '../apolloCompile';
 import { entityCoords } from '../compile';
 import { pointInPolygon } from '../hitTest';
 import type { LaneEntity } from '@/types/apollo';
 import type { LngLat } from '../interpolate';
+
+const pt = (x: number, y: number) => ({ x, y });
 
 describe('apolloEntityCoords — lane 多边形不自交', () => {
   it('车道中心线上的点（应在车道内部）pointInPolygon = true', () => {
@@ -44,5 +46,30 @@ describe('apolloEntityCoords — lane 多边形不自交', () => {
     const coords = entityCoords(lane);
     // 几公里以外
     expect(pointInPolygon([117.0, 40.0], coords)).toBe(false);
+  });
+
+  it('导入 lane 有显式边界时，hitTest 多边形使用原始边界多段线', () => {
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [116, 39.9],
+        [116.0005, 39.9002],
+        [116.001, 39.9],
+      ],
+      [],
+    ) as LaneEntity;
+    const leftBoundary = [pt(116, 39.901), pt(116.001, 39.901)];
+    const rightBoundary = [pt(116, 39.899), pt(116.0005, 39.8988), pt(116.001, 39.899)];
+    lane.leftBoundary.curve = pointsToCurve(leftBoundary);
+    lane.rightBoundary.curve = pointsToCurve(rightBoundary);
+
+    expect(entityCoords(lane)).toEqual([
+      [116, 39.901],
+      [116.001, 39.901],
+      [116.001, 39.899],
+      [116.0005, 39.8988],
+      [116, 39.899],
+    ]);
   });
 });

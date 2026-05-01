@@ -10,6 +10,7 @@ import type { LngLat } from '@/core/geometry/interpolate';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
 import { elementColor, laneTypeColor } from '@/core/elements';
 import type { ApolloEntity, ApolloPolygon, Curve } from '@/types/apollo';
+import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
 import { offsetPolylineDeg } from './offsetPolyline';
 import { computeSignalHeading, headingToIconRotate } from './signalHeading';
 
@@ -95,14 +96,15 @@ function renderLane(
   base: Record<string, unknown>,
 ): GeoJSON.Feature[] {
   const features: GeoJSON.Feature[] = [];
-  const centerPts = entity.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const centerPts = curvePoints(entity.centralCurve);
   if (centerPts.length < 2) return features;
   const laneColor = laneTypeColor(entity.type);
   const laneBase: Record<string, unknown> = { ...base, color: laneColor };
   const leftW = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
   const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
-  const leftEdge = offsetPolylineDeg(centerPts, leftW, 'left');
-  const rightEdge = offsetPolylineDeg(centerPts, rightW, 'right');
+  const explicitEdges = explicitLaneBoundaryEdges(entity);
+  const leftEdge = explicitEdges?.left ?? offsetPolylineDeg(centerPts, leftW, 'left');
+  const rightEdge = explicitEdges?.right ?? offsetPolylineDeg(centerPts, rightW, 'right');
   const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
   if (polyCoords.length >= 4) {
     features.push(

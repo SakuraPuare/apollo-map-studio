@@ -20,6 +20,7 @@ import type { JunctionEntity, LaneEntity } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
 import { METERS_PER_DEGREE } from '@/config/mapConstants';
 import { pointInPolygon } from './hitTest';
+import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
 
 /** 段相交（cross product 法），共线视为不相交 */
 function segmentsCross(
@@ -109,12 +110,12 @@ function endpointKey(x: number, y: number): string {
 }
 
 function laneStart(lane: LaneEntity): GeoPoint | null {
-  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const pts = curvePoints(lane.centralCurve);
   return pts[0] ?? null;
 }
 
 function laneEnd(lane: LaneEntity): GeoPoint | null {
-  const pts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const pts = curvePoints(lane.centralCurve);
   return pts[pts.length - 1] ?? null;
 }
 
@@ -223,7 +224,7 @@ function deriveJunctionId(
   lane: LaneEntity,
   junctionPolygons: readonly { id: string; polygon: [number, number][] }[],
 ): string | null {
-  const centralPts = lane.centralCurve.segments[0]?.lineSegment.points ?? [];
+  const centralPts = curvePoints(lane.centralCurve);
   const centralLine: [number, number][] = centralPts.map((p) => [p.x, p.y]);
   for (const j of junctionPolygons) {
     if (j.polygon.length < 3) continue;
