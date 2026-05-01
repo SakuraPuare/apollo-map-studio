@@ -4,6 +4,10 @@ import { Input, Section, Select, Value } from '@/components/ui/form-fields';
 import { regenerateSignalGeometry } from '@/core/geometry/apolloCompile/signalTemplate';
 import { getEnumLabel } from '@/lib/enumLabels';
 import {
+  areaSchema,
+  areaTypeOptions,
+  barrierGateSchema,
+  barrierGateTypeOptions,
   junctionSchema,
   junctionTypeOptions,
   parkingSpaceSchema,
@@ -15,6 +19,8 @@ import {
   subsignalTypeOptions,
   stopSignSchema,
   stopSignTypeOptions,
+  type AreaFormValues,
+  type BarrierGateFormValues,
   type JunctionFormValues,
   type ParkingSpaceFormValues,
   type RoadFormValues,
@@ -23,6 +29,8 @@ import {
 } from '@/lib/schemas';
 import { useMapStore } from '@/store/mapStore';
 import type {
+  AreaEntity,
+  BarrierGateEntity,
   JunctionEntity,
   ParkingSpaceEntity,
   RoadEntity,
@@ -283,7 +291,7 @@ export function SignalForm({ entity }: { entity: SignalEntity }) {
                   ))}
                 </select>
                 <span className="text-[10px] text-zinc-500 tabular-nums w-14 text-right">
-                  z={sub.location.z?.toFixed(2) ?? '—'}
+                  z={sub.location?.z?.toFixed(2) ?? '—'}
                 </span>
               </div>
             ))
@@ -426,6 +434,128 @@ export function RoadForm({ entity }: { entity: RoadEntity }) {
         </Section>
         <Section title="Topology">
           <Value label="Junction" value={entity.junctionId ?? '—'} />
+        </Section>
+      </form>
+    </FormProvider>
+  );
+}
+
+export function AreaForm({ entity }: { entity: AreaEntity }) {
+  const updateEntity = useMapStore((s) => s.updateEntity);
+  const entityRef = useRef(entity);
+  entityRef.current = entity;
+
+  const methods = useForm<AreaFormValues>({
+    resolver: zodResolverZ4<AreaFormValues>(areaSchema),
+    mode: 'onChange',
+    defaultValues: { type: entity.type, name: entity.name ?? '' },
+  });
+
+  useEffect(() => {
+    methods.reset({ type: entity.type, name: entity.name ?? '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.id]);
+
+  useEffect(() => {
+    if (methods.getValues('type') !== entity.type) {
+      methods.setValue('type', entity.type, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+    const desiredName = entity.name ?? '';
+    if ((methods.getValues('name') ?? '') !== desiredName) {
+      methods.setValue('name', desiredName, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity]);
+
+  useEffect(() => {
+    const subscription = methods.watch((value) => {
+      const liveEntity = entityRef.current;
+      const nextType = value.type;
+      const rawName = (value.name ?? '').trim();
+      const nextName = rawName.length > 0 ? rawName : undefined;
+      const typeChanged = nextType !== undefined && nextType !== liveEntity.type;
+      const nameChanged = nextName !== liveEntity.name;
+      if (!typeChanged && !nameChanged) return;
+      updateEntity(liveEntity.id, {
+        ...liveEntity,
+        type: typeChanged ? (nextType as AreaEntity['type']) : liveEntity.type,
+        name: nextName,
+      });
+    });
+    return () => subscription.unsubscribe();
+  }, [methods, updateEntity]);
+
+  return (
+    <FormProvider {...methods}>
+      <form>
+        <Section title="Attributes">
+          <Value label="ID" value={entity.id} />
+          <Select name="type" label="Type" options={areaTypeOptions} enumCategory="areaType" />
+          <Input name="name" label="Name" />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+        </Section>
+      </form>
+    </FormProvider>
+  );
+}
+
+export function BarrierGateForm({ entity }: { entity: BarrierGateEntity }) {
+  const updateEntity = useMapStore((s) => s.updateEntity);
+  const entityRef = useRef(entity);
+  entityRef.current = entity;
+
+  const methods = useForm<BarrierGateFormValues>({
+    resolver: zodResolverZ4<BarrierGateFormValues>(barrierGateSchema),
+    mode: 'onChange',
+    defaultValues: { type: entity.type },
+  });
+
+  useEffect(() => {
+    methods.reset({ type: entity.type });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity.id]);
+
+  useEffect(() => {
+    if (methods.getValues('type') !== entity.type) {
+      methods.setValue('type', entity.type, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity]);
+
+  useEffect(() => {
+    const subscription = methods.watch((value) => {
+      const liveEntity = entityRef.current;
+      if (value.type === liveEntity.type) return;
+      updateEntity(liveEntity.id, { ...liveEntity, type: value.type! });
+    });
+    return () => subscription.unsubscribe();
+  }, [methods, updateEntity]);
+
+  return (
+    <FormProvider {...methods}>
+      <form>
+        <Section title="Attributes">
+          <Value label="ID" value={entity.id} />
+          <Select
+            name="type"
+            label="Type"
+            options={barrierGateTypeOptions}
+            enumCategory="barrierGateType"
+          />
+          <Value label="Stop Lines" value={entity.stopLines.length || '—'} />
+          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
         </Section>
       </form>
     </FormProvider>

@@ -1,5 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import type {
+  AreaEntity,
+  BarrierGateEntity,
   JunctionEntity,
   LaneEntity,
   OverlapEntity,
@@ -15,6 +17,8 @@ import { LaneForm } from './InspectorForms/lane';
 import { OverlapForm } from './InspectorForms/overlap';
 import { PNCJunctionForm } from './InspectorForms/pncJunction';
 import {
+  AreaForm,
+  BarrierGateForm,
   JunctionForm,
   ParkingSpaceForm,
   RoadForm,
@@ -46,6 +50,10 @@ export function EntityForm({ entity }: { entity: MapEntity }) {
       return <PNCJunctionForm entity={entity as PNCJunctionEntity} />;
     case 'overlap':
       return <OverlapForm entity={entity as OverlapEntity} />;
+    case 'area':
+      return <AreaForm entity={entity as AreaEntity} />;
+    case 'barrierGate':
+      return <BarrierGateForm entity={entity as BarrierGateEntity} />;
     default:
       return <DrawingForm entity={entity} />;
   }

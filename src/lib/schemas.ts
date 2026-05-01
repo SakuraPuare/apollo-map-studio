@@ -139,3 +139,36 @@ export const roadSchema = z.object({
 });
 
 export type RoadFormValues = z.infer<typeof roadSchema>;
+
+// ─── Area Schemas ──────────────────────────────────────────
+
+export const areaTypeOptions = [
+  'Driveable',
+  'UnDriveable',
+  'Custom1',
+  'Custom2',
+  'Custom3',
+] as const;
+
+export const areaSchema = z.object({
+  type: z.enum(areaTypeOptions),
+  name: z.string().optional(),
+});
+
+export type AreaFormValues = z.infer<typeof areaSchema>;
+
+// ─── Barrier Gate Schemas ──────────────────────────────────
+
+export const barrierGateTypeOptions = [
+  'ROD',
+  'FENCE',
+  'ADVERTISING',
+  'TELESCOPIC',
+  'OTHER',
+] as const;
+
+export const barrierGateSchema = z.object({
+  type: z.enum(barrierGateTypeOptions),
+});
+
+export type BarrierGateFormValues = z.infer<typeof barrierGateSchema>;

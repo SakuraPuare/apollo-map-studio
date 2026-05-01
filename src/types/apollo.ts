@@ -47,7 +47,12 @@ export interface CurveSegment {
   lineSegment: LineSegment;
   /** start position (s-coordinate) */
   s: number;
-  startPosition: PointENU;
+  /**
+   * Optional in proto2; many real Apollo maps omit it on `stop_line` and
+   * `road.section.boundary` segments. Bridge must not emit `{0,0}` when
+   * the source had no value — that turns wire bytes into spurious data.
+   */
+  startPosition?: PointENU;
   /** start orientation (radians) */
   heading: number;
   /** segment length (meters) */
@@ -204,7 +209,12 @@ export type SubsignalType =
 export interface Subsignal {
   id: string;
   type: SubsignalType;
-  location: PointENU;
+  /**
+   * Optional in proto2 — Apollo's own comment is "now no data support".
+   * Real maps almost never write it; bridge must not synthesise `{0,0}`
+   * when the source had no value.
+   */
+  location?: PointENU;
 }
 
 export type SignInfoType = 'None' | 'NO_RIGHT_TURN_ON_RED';
@@ -351,7 +361,14 @@ export type ObjectOverlapInfo =
   | { objectType: 'pncJunction'; objectId: string }
   | { objectType: 'rsu'; objectId: string }
   | { objectType: 'area'; objectId: string }
-  | { objectType: 'barrierGate'; objectId: string };
+  | { objectType: 'barrierGate'; objectId: string }
+  /**
+   * Pass-through for source-data overlap entries whose `overlap_info`
+   * oneof is unset (legal proto2 — Apollo maps in the wild omit it for
+   * lane↔crosswalk pairs). Without this variant the bridge dropped them
+   * entirely, losing data on round-trip.
+   */
+  | { objectType: 'unknown'; objectId: string };
 
 export interface OverlapEntity {
   id: string;

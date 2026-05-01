@@ -73,23 +73,37 @@ function lineSegmentToProto(ls: LineSegment): RawLineSegment {
 }
 
 function curveSegmentFromProto(seg: RawCurveSegment): CurveSegment {
-  return {
+  // Proto2 `start_position` is optional; many real Apollo maps omit it on
+  // `stop_line` and `road.section.boundary` segments. Preserve absence — do
+  // NOT inject `{0,0}` here, otherwise re-encoding produces spurious wire
+  // bytes that diverge from the source map.
+  const out: CurveSegment = {
     lineSegment: lineSegmentFromProto(seg.line_segment),
     s: seg.s ?? 0,
-    startPosition: seg.start_position ? pointFromProto(seg.start_position) : { x: 0, y: 0 },
     heading: seg.heading ?? 0,
     length: seg.length ?? 0,
   };
+  if (seg.start_position !== undefined) {
+    out.startPosition = pointFromProto(seg.start_position);
+  }
+  return out;
 }
 
 function curveSegmentToProto(seg: CurveSegment): RawCurveSegment {
-  return {
+  // Only emit `start_position` when the source had one. Synthesis paths
+  // (e.g. user-drawn curves via apolloCompile/conversions.ts) supply a real
+  // value; round-tripped real-Apollo segments without `start_position` stay
+  // absent on the wire.
+  const out: RawCurveSegment = {
     line_segment: lineSegmentToProto(seg.lineSegment),
     s: seg.s,
-    start_position: pointToProto(seg.startPosition),
     heading: seg.heading,
     length: seg.length,
   };
+  if (seg.startPosition !== undefined) {
+    out.start_position = pointToProto(seg.startPosition);
+  }
+  return out;
 }
 
 export function curveFromProto(c: RawCurve | undefined): Curve {

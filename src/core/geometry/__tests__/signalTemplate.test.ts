@@ -33,14 +33,17 @@ describe('buildSignalTemplate', () => {
       heading: Math.PI / 2,
     });
     expect(subsignals).toHaveLength(3);
-    const zs = subsignals.map((s) => s.location.z!).sort((a, b) => a - b);
+    // Synthesis path always writes a real location (vs imported subsignals
+    // which may legitimately omit it — see subsignalFidelity.test.ts).
+    for (const s of subsignals) expect(s.location).toBeDefined();
+    const zs = subsignals.map((s) => s.location!.z!).sort((a, b) => a - b);
     // 0.40m spacing → adjacent diffs ≈ 0.4
     expect(zs[1]! - zs[0]!).toBeCloseTo(0.4, 6);
     expect(zs[2]! - zs[1]!).toBeCloseTo(0.4, 6);
     // xy of each subsignal = anchor (single column ⇒ no horizontal offset)
     for (const s of subsignals) {
-      expect(s.location.x).toBeCloseTo(ANCHOR.x, 9);
-      expect(s.location.y).toBeCloseTo(ANCHOR.y, 9);
+      expect(s.location!.x).toBeCloseTo(ANCHOR.x, 9);
+      expect(s.location!.y).toBeCloseTo(ANCHOR.y, 9);
     }
   });
 
@@ -51,12 +54,13 @@ describe('buildSignalTemplate', () => {
       heading: 0,
     });
     expect(subsignals).toHaveLength(3);
+    for (const s of subsignals) expect(s.location).toBeDefined();
     // Same z (single row)
-    const zs = subsignals.map((s) => s.location.z!);
+    const zs = subsignals.map((s) => s.location!.z!);
     expect(zs[0]).toBeCloseTo(zs[1]!, 6);
     expect(zs[1]).toBeCloseTo(zs[2]!, 6);
     // Spread perpendicular to heading=0 → along y
-    const ys = subsignals.map((s) => s.location.y).sort();
+    const ys = subsignals.map((s) => s.location!.y).sort();
     const spread = haversineMeters({ x: ANCHOR.x, y: ys[0]! }, { x: ANCHOR.x, y: ys[2]! });
     expect(spread).toBeCloseTo(0.8, 1); // (3-1) × 0.4
     // Boundary horizontal extent = 3 × 0.4 + 0.13 × 2 = 1.46m
@@ -117,8 +121,9 @@ describe('regenerateSignalGeometry', () => {
     expect(out.boundary.points).toHaveLength(4);
     expect(out.subsignals).toHaveLength(3);
     // anchor = midpoint of stop line ⇒ subsignal xy near the midpoint
-    expect(out.subsignals[0]!.location.x).toBeCloseTo(116.4074, 4);
-    expect(out.subsignals[0]!.location.y).toBeCloseTo(39.9042, 4);
+    expect(out.subsignals[0]!.location).toBeDefined();
+    expect(out.subsignals[0]!.location!.x).toBeCloseTo(116.4074, 4);
+    expect(out.subsignals[0]!.location!.y).toBeCloseTo(39.9042, 4);
   });
 
   it('returns the entity unchanged when no anchor is available', () => {

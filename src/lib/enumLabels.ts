@@ -23,6 +23,8 @@ import type {
   RoadType,
   PassageType,
   SubsignalType,
+  AreaType,
+  BarrierGateType,
 } from '@/types/apollo';
 
 export type EnumCategory =
@@ -36,7 +38,9 @@ export type EnumCategory =
   | 'subsignalType'
   | 'stopSignType'
   | 'roadType'
-  | 'passageType';
+  | 'passageType'
+  | 'areaType'
+  | 'barrierGateType';
 
 type Dict<V extends string> = Readonly<Record<V, string>>;
 
@@ -129,6 +133,22 @@ const passageType: Dict<PassageType> = {
   EXIT: 'Exit',
 };
 
+const areaType: Dict<AreaType> = {
+  Driveable: 'Driveable',
+  UnDriveable: 'Undriveable',
+  Custom1: 'Custom 1',
+  Custom2: 'Custom 2',
+  Custom3: 'Custom 3',
+};
+
+const barrierGateType: Dict<BarrierGateType> = {
+  ROD: 'Rod',
+  FENCE: 'Fence',
+  ADVERTISING: 'Advertising',
+  TELESCOPIC: 'Telescopic',
+  OTHER: 'Other',
+};
+
 const REGISTRY: Record<EnumCategory, Readonly<Record<string, string>>> = {
   laneType,
   laneTurn,
@@ -141,6 +161,8 @@ const REGISTRY: Record<EnumCategory, Readonly<Record<string, string>>> = {
   stopSignType,
   roadType,
   passageType,
+  areaType,
+  barrierGateType,
 };
 
 /**

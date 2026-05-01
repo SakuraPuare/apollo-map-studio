@@ -78,7 +78,13 @@ function objectOverlapInfoFromProto(raw: RawObjectOverlapInfo): ObjectOverlapInf
   if (raw.rsu_overlap_info) return { objectType: 'rsu', objectId };
   if (raw.area_overlap_info) return { objectType: 'area', objectId };
   if (raw.barrier_gate_overlap_info) return { objectType: 'barrierGate', objectId };
-  return null;
+  // Apollo proto2 leaves `overlap_info` oneof unset on real-world maps
+  // (e.g. sunnyvale_loop sim_map.txt: lane↔crosswalk overlaps emit one
+  // `object { id }`-only entry). Returning null here would silently drop
+  // the entry on round-trip — preserve it as `unknown` so re-export keeps
+  // the same id list and downstream reconcile can rebuild semantic info
+  // from geometry.
+  return { objectType: 'unknown', objectId };
 }
 
 function objectOverlapInfoToProto(info: ObjectOverlapInfo): RawObjectOverlapInfo {
@@ -133,6 +139,11 @@ function objectOverlapInfoToProto(info: ObjectOverlapInfo): RawObjectOverlapInfo
       break;
     case 'barrierGate':
       out.barrier_gate_overlap_info = {};
+      break;
+    case 'unknown':
+      // Pass-through bucket for source overlaps whose `overlap_info` oneof
+      // was unset upstream; emit just `{ id }` so the proto stays byte-equal
+      // to the input (no `*_overlap_info` field).
       break;
   }
   return out;

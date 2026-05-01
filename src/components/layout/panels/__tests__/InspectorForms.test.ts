@@ -367,3 +367,60 @@ describe('LaneInspectorSchema: schema-driven path', () => {
     );
   });
 });
+
+/**
+ * Smoke coverage for the area / barrier-gate inspector schemas.
+ *
+ * These two entity kinds gained their first inspector forms, so the
+ * dispatch in `EntityForm` now needs the matching zod schemas to
+ * accept the proto-aligned enum values. The schemas and option lists
+ * live in `@/lib/schemas`; we pin the option-set + happy-path /
+ * rejection contract here so a future enum rename in one place can't
+ * silently desync the inspector.
+ */
+import {
+  areaSchema,
+  areaTypeOptions,
+  barrierGateSchema,
+  barrierGateTypeOptions,
+} from '@/lib/schemas';
+
+describe('Area + BarrierGate inspector schemas', () => {
+  it('areaTypeOptions matches proto-aligned AreaType values', () => {
+    expect([...areaTypeOptions]).toEqual([
+      'Driveable',
+      'UnDriveable',
+      'Custom1',
+      'Custom2',
+      'Custom3',
+    ]);
+  });
+
+  it('areaSchema accepts a valid type with optional name', () => {
+    expect(areaSchema.safeParse({ type: 'Driveable' }).success).toBe(true);
+    expect(areaSchema.safeParse({ type: 'Custom2', name: 'Loading Zone' }).success).toBe(true);
+  });
+
+  it('areaSchema rejects an unknown type', () => {
+    expect(areaSchema.safeParse({ type: 'BOGUS' }).success).toBe(false);
+  });
+
+  it('barrierGateTypeOptions matches proto-aligned BarrierGateType values', () => {
+    expect([...barrierGateTypeOptions]).toEqual([
+      'ROD',
+      'FENCE',
+      'ADVERTISING',
+      'TELESCOPIC',
+      'OTHER',
+    ]);
+  });
+
+  it('barrierGateSchema accepts a valid type', () => {
+    expect(barrierGateSchema.safeParse({ type: 'ROD' }).success).toBe(true);
+    expect(barrierGateSchema.safeParse({ type: 'TELESCOPIC' }).success).toBe(true);
+  });
+
+  it('barrierGateSchema rejects an unknown type', () => {
+    expect(barrierGateSchema.safeParse({ type: 'GATE' }).success).toBe(false);
+  });
+});

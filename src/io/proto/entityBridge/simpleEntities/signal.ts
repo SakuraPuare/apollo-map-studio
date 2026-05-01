@@ -47,19 +47,29 @@ export interface RawSignal {
 }
 
 function subsignalFromProto(raw: RawSubsignal): Subsignal {
-  return {
+  // Subsignal.location is `optional` in proto2 — Apollo's own comment on the
+  // field says "now no data support" and real maps almost never write it.
+  // Defaulting absent values to {x:0, y:0} would round-trip-corrupt every
+  // imported subsignal (spurious zero-points re-emitted on export). Preserve
+  // wire fidelity by leaving location undefined when the source omits it.
+  const sub: Subsignal = {
     id: unwrapId(raw.id) ?? '',
     type: enumFromProto(SUBSIGNAL_TYPE, raw.type, 'UNKNOWN_SUBSIGNAL'),
-    location: raw.location ? pointFromProto(raw.location) : { x: 0, y: 0 },
   };
+  if (raw.location !== undefined) sub.location = pointFromProto(raw.location);
+  return sub;
 }
 
 function subsignalToProto(s: Subsignal): RawSubsignal {
-  return {
+  // Mirror subsignalFromProto: only emit `location` when it was authored.
+  // A user-drawn signal will have a real location from buildSignalTemplate;
+  // an imported signal whose source omitted location must NOT acquire one.
+  const raw: RawSubsignal = {
     id: wrapId(s.id),
     type: enumToProto(SUBSIGNAL_TYPE_INV, s.type),
-    location: pointToProto(s.location),
   };
+  if (s.location !== undefined) raw.location = pointToProto(s.location);
+  return raw;
 }
 
 function signInfoFromProto(raw: RawSignInfo): SignInfo {
