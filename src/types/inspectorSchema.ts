@@ -303,7 +303,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       min: 0,
       max: 50,
       step: 0.5,
-      read: (e) => e.speedLimit,
+      read: (e) => e.speedLimit ?? 0,
       write: (e, v) => ({ ...e, speedLimit: v ?? 0 }),
     }),
     LaneField.field({
@@ -362,7 +362,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       kind: 'readonly',
       label: 'Length',
       section: 'Boundaries',
-      compute: (e) => `${e.length.toFixed(2)} m`,
+      compute: (e) => `${(e.length ?? 0).toFixed(2)} m`,
     },
     {
       kind: 'readonly',

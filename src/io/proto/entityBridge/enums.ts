@@ -156,6 +156,21 @@ export function enumFromProto<T extends string>(
   return table[v] ?? fallback;
 }
 
+/**
+ * Like {@link enumFromProto} but returns `undefined` when the source
+ * field was unset. Use for entity fields where the wire-format default
+ * (`0`) is meaningful and should NOT be synthesised on export — the
+ * fidelity audit caught us emitting `road.type=0`/`junction.type=0`/
+ * `stop_sign.type=0` for ~8 K entities that had no source value.
+ */
+export function enumFromProtoOptional<T extends string>(
+  table: Record<number, T>,
+  v: number | undefined,
+): T | undefined {
+  if (v === undefined) return undefined;
+  return table[v];
+}
+
 export function enumToProto<T extends string>(table: Record<T, number>, v: T): number {
   return table[v];
 }

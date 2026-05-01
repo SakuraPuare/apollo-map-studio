@@ -110,7 +110,7 @@ describe('lane.length rule', () => {
     const single = rule.apply(makeLane([ORIGIN, { x: ORIGIN.x + 0.0001, y: ORIGIN.y }]), editCtx);
     const multi = rule.apply(lane, editCtx);
     // 3-point line should be approx 2x the 2-point line
-    expect(multi.length).toBeCloseTo(single.length * 2, 5);
+    expect(multi.length ?? 0).toBeCloseTo((single.length ?? 0) * 2, 5);
   });
 
   it('returns same reference (no-op) when length is already correct', () => {

@@ -51,11 +51,10 @@ function objectOverlapInfoFromProto(raw: RawObjectOverlapInfo): ObjectOverlapInf
     const out: ObjectOverlapInfo = {
       objectType: 'lane',
       objectId,
-      laneOverlapInfo: {
-        startS: info.start_s ?? 0,
-        endS: info.end_s ?? 0,
-      },
+      laneOverlapInfo: {},
     };
+    if (info.start_s !== undefined) out.laneOverlapInfo.startS = info.start_s;
+    if (info.end_s !== undefined) out.laneOverlapInfo.endS = info.end_s;
     if (info.is_merge !== undefined) out.laneOverlapInfo.isMerge = info.is_merge;
     const regionId = unwrapId(info.region_overlap_id);
     if (regionId) out.laneOverlapInfo.regionOverlapId = regionId;
@@ -91,10 +90,9 @@ function objectOverlapInfoToProto(info: ObjectOverlapInfo): RawObjectOverlapInfo
   const out: RawObjectOverlapInfo = { id: wrapId(info.objectId) };
   switch (info.objectType) {
     case 'lane': {
-      const li: RawLaneOverlapInfo = {
-        start_s: info.laneOverlapInfo.startS,
-        end_s: info.laneOverlapInfo.endS,
-      };
+      const li: RawLaneOverlapInfo = {};
+      if (info.laneOverlapInfo.startS !== undefined) li.start_s = info.laneOverlapInfo.startS;
+      if (info.laneOverlapInfo.endS !== undefined) li.end_s = info.laneOverlapInfo.endS;
       if (info.laneOverlapInfo.isMerge !== undefined) li.is_merge = info.laneOverlapInfo.isMerge;
       if (info.laneOverlapInfo.regionOverlapId)
         li.region_overlap_id = wrapId(info.laneOverlapInfo.regionOverlapId);

@@ -28,7 +28,11 @@ function shortId(id: string): string {
 function describeObject(o: ObjectOverlapInfo): string {
   if (o.objectType === 'lane') {
     const { startS, endS } = o.laneOverlapInfo;
-    return `Lane ${shortId(o.objectId)}  s=${startS.toFixed(1)}~${endS.toFixed(1)}m`;
+    const range =
+      startS === undefined || endS === undefined
+        ? 's=—'
+        : `s=${startS.toFixed(1)}~${endS.toFixed(1)}m`;
+    return `Lane ${shortId(o.objectId)}  ${range}`;
   }
   return `${o.objectType} ${shortId(o.objectId)}`;
 }

@@ -25,7 +25,7 @@ import {
   JUNCTION_TYPE_INV,
   STOP_SIGN_TYPE,
   STOP_SIGN_TYPE_INV,
-  enumFromProto,
+  enumFromProtoOptional,
   enumToProto,
 } from '../enums';
 
@@ -64,22 +64,25 @@ export interface RawJunction {
 export function rawJunctionToEntity(raw: RawJunction): JunctionEntity | null {
   const id = unwrapId(raw.id);
   if (!id) return null;
-  return {
+  const out: JunctionEntity = {
     id,
     entityType: 'junction',
     polygon: convertPolygonFromProto(raw.polygon),
-    type: enumFromProto(JUNCTION_TYPE, raw.type, 'UNKNOWN'),
     overlapIds: unwrapIdArray(raw.overlap_id),
   };
+  const t = enumFromProtoOptional(JUNCTION_TYPE, raw.type);
+  if (t !== undefined) out.type = t;
+  return out;
 }
 
 export function entityToRawJunction(e: JunctionEntity): RawJunction {
-  return {
+  const out: RawJunction = {
     id: wrapId(e.id),
     polygon: convertPolygonToProto(e.polygon),
-    type: enumToProto(JUNCTION_TYPE_INV, e.type),
     overlap_id: wrapIdArray(e.overlapIds),
   };
+  if (e.type !== undefined) out.type = enumToProto(JUNCTION_TYPE_INV, e.type);
+  return out;
 }
 
 export interface RawClearArea {
@@ -145,22 +148,25 @@ export interface RawStopSign {
 export function rawStopSignToEntity(raw: RawStopSign): StopSignEntity | null {
   const id = unwrapId(raw.id);
   if (!id) return null;
-  return {
+  const out: StopSignEntity = {
     id,
     entityType: 'stopSign',
     stopLines: curveArrayFromProto(raw.stop_line),
-    type: enumFromProto(STOP_SIGN_TYPE, raw.type, 'UNKNOWN_STOP_SIGN'),
     overlapIds: unwrapIdArray(raw.overlap_id),
   };
+  const t = enumFromProtoOptional(STOP_SIGN_TYPE, raw.type);
+  if (t !== undefined) out.type = t;
+  return out;
 }
 
 export function entityToRawStopSign(e: StopSignEntity): RawStopSign {
-  return {
+  const out: RawStopSign = {
     id: wrapId(e.id),
     stop_line: curveArrayToProto(e.stopLines),
-    type: enumToProto(STOP_SIGN_TYPE_INV, e.type),
     overlap_id: wrapIdArray(e.overlapIds),
   };
+  if (e.type !== undefined) out.type = enumToProto(STOP_SIGN_TYPE_INV, e.type);
+  return out;
 }
 
 export interface RawYieldSign {

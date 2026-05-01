@@ -73,36 +73,36 @@ function lineSegmentToProto(ls: LineSegment): RawLineSegment {
 }
 
 function curveSegmentFromProto(seg: RawCurveSegment): CurveSegment {
-  // Proto2 `start_position` is optional; many real Apollo maps omit it on
-  // `stop_line` and `road.section.boundary` segments. Preserve absence — do
-  // NOT inject `{0,0}` here, otherwise re-encoding produces spurious wire
-  // bytes that diverge from the source map.
+  // All four scalar fields (`s`, `start_position`, `heading`, `length`) are
+  // optional in proto2 and many real Apollo maps omit them — preserve
+  // absence end-to-end. Synthesising `0` on import causes the bridge to
+  // emit spurious wire bytes on export, which diverges from the source.
   const out: CurveSegment = {
     lineSegment: lineSegmentFromProto(seg.line_segment),
-    s: seg.s ?? 0,
-    heading: seg.heading ?? 0,
-    length: seg.length ?? 0,
   };
+  if (seg.s !== undefined) out.s = seg.s;
   if (seg.start_position !== undefined) {
     out.startPosition = pointFromProto(seg.start_position);
   }
+  if (seg.heading !== undefined) out.heading = seg.heading;
+  if (seg.length !== undefined) out.length = seg.length;
   return out;
 }
 
 function curveSegmentToProto(seg: CurveSegment): RawCurveSegment {
-  // Only emit `start_position` when the source had one. Synthesis paths
-  // (e.g. user-drawn curves via apolloCompile/conversions.ts) supply a real
-  // value; round-tripped real-Apollo segments without `start_position` stay
-  // absent on the wire.
+  // Only emit fields that were set on import. Synthesis paths (e.g.
+  // user-drawn curves via apolloCompile/conversions.ts) supply real values;
+  // round-tripped segments that lacked these fields on the wire stay
+  // absent on re-encode.
   const out: RawCurveSegment = {
     line_segment: lineSegmentToProto(seg.lineSegment),
-    s: seg.s,
-    heading: seg.heading,
-    length: seg.length,
   };
+  if (seg.s !== undefined) out.s = seg.s;
   if (seg.startPosition !== undefined) {
     out.start_position = pointToProto(seg.startPosition);
   }
+  if (seg.heading !== undefined) out.heading = seg.heading;
+  if (seg.length !== undefined) out.length = seg.length;
   return out;
 }
 

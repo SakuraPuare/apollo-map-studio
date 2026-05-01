@@ -45,18 +45,23 @@ export interface LineSegment {
 /** Generalization of a line segment (oneof curve_type) */
 export interface CurveSegment {
   lineSegment: LineSegment;
-  /** start position (s-coordinate) */
-  s: number;
+  /**
+   * start position (s-coordinate). Optional in proto2 — real Apollo maps
+   * omit it on `stop_line`, `road.section.boundary`, and many `lane.*`
+   * curves. Bridge must not synthesise `0` when the source had no value,
+   * otherwise re-encode produces spurious wire bytes.
+   */
+  s?: number;
   /**
    * Optional in proto2; many real Apollo maps omit it on `stop_line` and
    * `road.section.boundary` segments. Bridge must not emit `{0,0}` when
    * the source had no value — that turns wire bytes into spurious data.
    */
   startPosition?: PointENU;
-  /** start orientation (radians) */
-  heading: number;
-  /** segment length (meters) */
-  length: number;
+  /** start orientation (radians) — optional in proto2; preserve absence */
+  heading?: number;
+  /** segment length (meters) — optional in proto2; preserve absence */
+  length?: number;
 }
 
 /** An object similar to a line but that need not be straight */
@@ -83,7 +88,8 @@ export interface LaneBoundaryTypeEntry {
 
 export interface LaneBoundary {
   curve: Curve;
-  length: number;
+  /** Optional in proto2; bridge must not synthesise `0` on absent source. */
+  length?: number;
   /** indicate whether the lane boundary exists in real world */
   virtual?: boolean;
   /** in ascending order of s */
@@ -117,14 +123,15 @@ export interface LaneEntity {
   centralCurve: Curve;
   leftBoundary: LaneBoundary;
   rightBoundary: LaneBoundary;
-  length: number;
+  /** Optional in proto2; absent on import means absent on export. */
+  length?: number;
 
   // attributes
   type: LaneType;
   turn: LaneTurn;
   direction: LaneDirection;
-  /** speed limit in m/s */
-  speedLimit: number;
+  /** speed limit in m/s — optional in proto2; preserve absence */
+  speedLimit?: number;
 
   // topology (flat ID references)
   predecessorIds: string[];
@@ -170,7 +177,8 @@ export interface JunctionEntity {
   id: string;
   entityType: 'junction';
   polygon: ApolloPolygon;
-  type: JunctionType;
+  /** Optional in proto2; absent on import means absent on export. */
+  type?: JunctionType;
   overlapIds: string[];
 }
 
@@ -267,7 +275,8 @@ export interface StopSignEntity {
   id: string;
   entityType: 'stopSign';
   stopLines: Curve[];
-  type: StopSignType;
+  /** Optional in proto2; absent on import means absent on export. */
+  type?: StopSignType;
   overlapIds: string[];
   _source?: SourceDrawInfo;
 }
@@ -331,14 +340,17 @@ export interface RoadEntity {
   entityType: 'road';
   sections: RoadSection[];
   junctionId: string | null;
-  type: RoadType;
+  /** Optional in proto2; absent on import means absent on export. */
+  type?: RoadType;
 }
 
 // ─── map_overlap.proto ───────────────────────────────────────────────
 
 export interface LaneOverlapInfo {
-  startS: number;
-  endS: number;
+  /** Optional in proto2; preserve absence to avoid spurious `0` on wire. */
+  startS?: number;
+  /** Optional in proto2; preserve absence to avoid spurious `0` on wire. */
+  endS?: number;
   isMerge?: boolean;
   regionOverlapId?: string;
 }

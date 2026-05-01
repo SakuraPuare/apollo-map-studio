@@ -33,6 +33,7 @@ import {
   ROAD_TYPE,
   ROAD_TYPE_INV,
   enumFromProto,
+  enumFromProtoOptional,
   enumToProto,
 } from './enums';
 
@@ -95,12 +96,12 @@ function boundaryTypeEntryToProto(e: LaneBoundaryTypeEntry): RawLaneBoundaryType
 }
 
 function laneBoundaryFromProto(b: RawLaneBoundary | undefined): LaneBoundary {
-  if (!b) return { curve: { segments: [] }, length: 0, boundaryType: [] };
+  if (!b) return { curve: { segments: [] }, boundaryType: [] };
   const out: LaneBoundary = {
     curve: curveFromProto(b.curve),
-    length: b.length ?? 0,
     boundaryType: (b.boundary_type ?? []).map(boundaryTypeEntryFromProto),
   };
+  if (b.length !== undefined) out.length = b.length;
   if (b.virtual !== undefined) out.virtual = b.virtual;
   return out;
 }
@@ -108,9 +109,9 @@ function laneBoundaryFromProto(b: RawLaneBoundary | undefined): LaneBoundary {
 function laneBoundaryToProto(b: LaneBoundary): RawLaneBoundary {
   const out: RawLaneBoundary = {
     curve: curveToProto(b.curve),
-    length: b.length,
     boundary_type: b.boundaryType.map(boundaryTypeEntryToProto),
   };
+  if (b.length !== undefined) out.length = b.length;
   if (b.virtual !== undefined) out.virtual = b.virtual;
   return out;
 }
@@ -118,17 +119,15 @@ function laneBoundaryToProto(b: LaneBoundary): RawLaneBoundary {
 export function rawLaneToEntity(raw: RawLane): LaneEntity | null {
   const id = unwrapId(raw.id);
   if (!id) return null;
-  return {
+  const out: LaneEntity = {
     id,
     entityType: 'lane',
     centralCurve: curveFromProto(raw.central_curve),
     leftBoundary: laneBoundaryFromProto(raw.left_boundary),
     rightBoundary: laneBoundaryFromProto(raw.right_boundary),
-    length: raw.length ?? 0,
     type: enumFromProto(LANE_TYPE, raw.type, 'NONE'),
     turn: enumFromProto(LANE_TURN, raw.turn, 'NO_TURN'),
     direction: enumFromProto(LANE_DIRECTION, raw.direction, 'FORWARD'),
-    speedLimit: raw.speed_limit ?? 0,
     predecessorIds: unwrapIdArray(raw.predecessor_id),
     successorIds: unwrapIdArray(raw.successor_id),
     leftNeighborForwardIds: unwrapIdArray(raw.left_neighbor_forward_lane_id),
@@ -143,6 +142,9 @@ export function rawLaneToEntity(raw: RawLane): LaneEntity | null {
     leftRoadSamples: (raw.left_road_sample ?? []).map(sampleFromProto),
     rightRoadSamples: (raw.right_road_sample ?? []).map(sampleFromProto),
   };
+  if (raw.length !== undefined) out.length = raw.length;
+  if (raw.speed_limit !== undefined) out.speedLimit = raw.speed_limit;
+  return out;
 }
 
 export function entityToRawLane(e: LaneEntity): RawLane {
@@ -151,8 +153,6 @@ export function entityToRawLane(e: LaneEntity): RawLane {
     central_curve: curveToProto(e.centralCurve),
     left_boundary: laneBoundaryToProto(e.leftBoundary),
     right_boundary: laneBoundaryToProto(e.rightBoundary),
-    length: e.length,
-    speed_limit: e.speedLimit,
     overlap_id: wrapIdArray(e.overlapIds),
     predecessor_id: wrapIdArray(e.predecessorIds),
     successor_id: wrapIdArray(e.successorIds),
@@ -169,6 +169,8 @@ export function entityToRawLane(e: LaneEntity): RawLane {
     left_road_sample: e.leftRoadSamples.map(sampleToProto),
     right_road_sample: e.rightRoadSamples.map(sampleToProto),
   };
+  if (e.length !== undefined) out.length = e.length;
+  if (e.speedLimit !== undefined) out.speed_limit = e.speedLimit;
   if (e.junctionId !== null) out.junction_id = wrapId(e.junctionId);
   return out;
 }
@@ -250,21 +252,23 @@ function roadSectionToProto(s: RoadSection): RawRoadSection {
 export function rawRoadToEntity(raw: RawRoad): RoadEntity | null {
   const id = unwrapId(raw.id);
   if (!id) return null;
-  return {
+  const out: RoadEntity = {
     id,
     entityType: 'road',
     sections: (raw.section ?? []).map(roadSectionFromProto),
     junctionId: unwrapId(raw.junction_id),
-    type: enumFromProto(ROAD_TYPE, raw.type, 'UNKNOWN_ROAD'),
   };
+  const t = enumFromProtoOptional(ROAD_TYPE, raw.type);
+  if (t !== undefined) out.type = t;
+  return out;
 }
 
 export function entityToRawRoad(e: RoadEntity): RawRoad {
   const out: RawRoad = {
     id: wrapId(e.id),
     section: e.sections.map(roadSectionToProto),
-    type: enumToProto(ROAD_TYPE_INV, e.type),
   };
+  if (e.type !== undefined) out.type = enumToProto(ROAD_TYPE_INV, e.type);
   if (e.junctionId !== null) out.junction_id = wrapId(e.junctionId);
   return out;
 }
