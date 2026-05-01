@@ -28,18 +28,10 @@ export function pickFile(accept: string): Promise<File | null> {
       const file = input.files && input.files[0] ? input.files[0] : null;
       settle(file);
     });
-    // The browser does not always fire `change` when the dialog is cancelled,
-    // so listen for `cancel` (Chromium ≥113, modern Safari/Firefox) and treat
-    // a window-focus event without a file as a cancel.
+    // Use native events only. On macOS the window can regain focus before the
+    // selected file is committed to the input; inferring cancel from focus can
+    // race the later `change` event and make a real selection look cancelled.
     input.addEventListener('cancel', () => settle(null));
-    window.addEventListener(
-      'focus',
-      () => {
-        // Give the browser a tick to deliver the change event first.
-        setTimeout(() => settle(null), 200);
-      },
-      { once: true },
-    );
 
     document.body.appendChild(input);
     input.click();
