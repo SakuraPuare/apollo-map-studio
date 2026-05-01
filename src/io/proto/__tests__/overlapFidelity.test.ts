@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { decodeMapBin } from '../binCodec';
 import { apolloMapToLonLat, readHeaderProjString } from '../adapter';
 import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
+import { hasMapBin, resolveMapBin } from './mapDataPaths';
 
 /**
  * Round-trip fidelity for `overlap.object[]` lists.
@@ -15,10 +15,7 @@ import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
  * decode → encode). The bridge now preserves them as
  * `objectType: 'unknown'` so byte-for-byte counts and id lists match.
  */
-const APOLLO_BIN = path.resolve(
-  import.meta.dirname,
-  '../../../../map_data/map_data/sunnyvale_loop/base_map.bin',
-);
+const APOLLO_BIN = resolveMapBin('sunnyvale_loop');
 
 interface RawIdRef {
   id: string;
@@ -32,7 +29,7 @@ interface RawOverlapLite {
 }
 
 describe('overlap fidelity — sunnyvale_loop', () => {
-  it.runIf(existsSync(APOLLO_BIN))(
+  it.runIf(hasMapBin('sunnyvale_loop'))(
     'round-trips overlap.object[] lengths and ids exactly',
     { timeout: 120_000 },
     async () => {

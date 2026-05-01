@@ -14,12 +14,12 @@
  * a round trip through entityBridge must omit it too.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { decodeMapBin } from '../binCodec';
 import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
+import { hasMapBin, resolveMapBin } from './mapDataPaths';
 
-const JUNCTION_BIN = '/home/bob/apollo-map-studio/map_data/Junction_V1.0/base_map.bin';
+const JUNCTION_BIN = resolveMapBin('Junction_V1.0');
 
 interface RawSubsignal {
   id?: { id?: string };
@@ -54,7 +54,7 @@ function collectSubsignals(map: Record<string, unknown>): {
 }
 
 describe('Subsignal.location proto2-optional fidelity', () => {
-  it.runIf(existsSync(JUNCTION_BIN))(
+  it.runIf(hasMapBin('Junction_V1.0'))(
     'preserves "location absent" through a bridge round trip on Junction_V1.0',
     async () => {
       const bytes = new Uint8Array(readFileSync(JUNCTION_BIN));

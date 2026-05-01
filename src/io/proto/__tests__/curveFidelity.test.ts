@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { decodeMapBin } from '../binCodec';
 import { apolloMapToLonLat, readHeaderProjString } from '../adapter';
 import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
+import { hasMapBin, resolveMapBin } from './mapDataPaths';
 
 /**
  * Wire-byte fidelity for `apollo.hdmap.CurveSegment.start_position`.
@@ -21,10 +21,7 @@ import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
  * `start_position === undefined` before the bridge ⇒
  * `start_position === undefined` after the bridge.
  */
-const APOLLO_BIN = path.resolve(
-  import.meta.dirname,
-  '../../../../map_data/map_data/sunnyvale_loop/base_map.bin',
-);
+const APOLLO_BIN = resolveMapBin('sunnyvale_loop');
 
 interface RawPointLite {
   x?: number;
@@ -131,7 +128,7 @@ function collectAllSites(map: RawApolloMapLite): SegmentSite[] {
 }
 
 describe('curve segment fidelity — sunnyvale_loop', () => {
-  it.runIf(existsSync(APOLLO_BIN))(
+  it.runIf(hasMapBin('sunnyvale_loop'))(
     'preserves absent CurveSegment.start_position through entity bridge round-trip',
     { timeout: 240_000 },
     async () => {
