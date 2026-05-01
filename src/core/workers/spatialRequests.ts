@@ -57,6 +57,7 @@ function deltaIdsFor(req: Extract<WorkerRequest, { type: 'INCREMENTAL' }>, affec
   const deltaIds = new Set<string>(affected);
   for (const e of req.updated) deltaIds.add(e.id);
   for (const e of req.added) deltaIds.add(e.id);
+  for (const id of req.removed) deltaIds.delete(id);
   return deltaIds;
 }
 
