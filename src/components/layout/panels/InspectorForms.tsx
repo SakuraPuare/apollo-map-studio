@@ -2,14 +2,19 @@
 import type {
   AreaEntity,
   BarrierGateEntity,
+  ClearAreaEntity,
+  CrosswalkEntity,
   JunctionEntity,
   LaneEntity,
   OverlapEntity,
   ParkingSpaceEntity,
   PNCJunctionEntity,
   RoadEntity,
+  RSUEntity,
   SignalEntity,
+  SpeedBumpEntity,
   StopSignEntity,
+  YieldSignEntity,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 import { DrawingForm } from './InspectorForms/DrawingForm';
@@ -19,11 +24,16 @@ import { PNCJunctionForm } from './InspectorForms/pncJunction';
 import {
   AreaForm,
   BarrierGateForm,
+  ClearAreaForm,
+  CrosswalkForm,
   JunctionForm,
   ParkingSpaceForm,
   RoadForm,
+  RSUForm,
   SignalForm,
+  SpeedBumpForm,
   StopSignForm,
+  YieldSignForm,
 } from './InspectorForms/simpleForms';
 
 export {
@@ -54,6 +64,16 @@ export function EntityForm({ entity }: { entity: MapEntity }) {
       return <AreaForm entity={entity as AreaEntity} />;
     case 'barrierGate':
       return <BarrierGateForm entity={entity as BarrierGateEntity} />;
+    case 'crosswalk':
+      return <CrosswalkForm entity={entity as CrosswalkEntity} />;
+    case 'speedBump':
+      return <SpeedBumpForm entity={entity as SpeedBumpEntity} />;
+    case 'yieldSign':
+      return <YieldSignForm entity={entity as YieldSignEntity} />;
+    case 'clearArea':
+      return <ClearAreaForm entity={entity as ClearAreaEntity} />;
+    case 'rsu':
+      return <RSUForm entity={entity as RSUEntity} />;
     default:
       return <DrawingForm entity={entity} />;
   }

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useMapStore } from '@/store/mapStore';
 import type { MapEntity } from '@/types/entities';
+import { MapMetadataForm } from './MapMetadataForm';
 
 // Read-only structural outline of the current map: per-type counts +
 // orphan checks (entities whose FK targets are missing). Useful for
@@ -145,6 +146,13 @@ export function MapOutline() {
           </Section>
         </>
       )}
+
+      {/* Map.header metadata — surfaces version/date/projection/bounds/etc.
+          from the imported Apollo proto. Read-only; see MapMetadataForm
+          source for the cross-agent gap on editability. */}
+      <div className="mt-2 -mx-3 border-t border-white/10">
+        <MapMetadataForm />
+      </div>
     </div>
   );
 }

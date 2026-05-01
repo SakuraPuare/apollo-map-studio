@@ -31,35 +31,54 @@ import { useMapStore } from '@/store/mapStore';
 import type {
   AreaEntity,
   BarrierGateEntity,
+  ClearAreaEntity,
+  CrosswalkEntity,
   JunctionEntity,
   ParkingSpaceEntity,
   RoadEntity,
+  RSUEntity,
   SignalEntity,
   SignInfoType,
+  SpeedBumpEntity,
   StopSignEntity,
   SubsignalType,
+  YieldSignEntity,
 } from '@/types/apollo';
 import { zodResolverZ4 } from './resolver';
+
+const JUNCTION_TYPE_FALLBACK: JunctionFormValues['type'] = 'UNKNOWN';
+const STOP_SIGN_TYPE_FALLBACK: StopSignFormValues['type'] = 'UNKNOWN_STOP_SIGN';
+const ROAD_TYPE_FALLBACK: RoadFormValues['type'] = 'UNKNOWN_ROAD';
+
+function shouldSkipOptionalEnumWrite<T extends string>(
+  next: T | undefined,
+  current: T | undefined,
+  fallback: T,
+): boolean {
+  return next === undefined || next === current || (current === undefined && next === fallback);
+}
 
 export function JunctionForm({ entity }: { entity: JunctionEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
   const entityRef = useRef(entity);
   entityRef.current = entity;
+  const formType = entity.type ?? JUNCTION_TYPE_FALLBACK;
 
   const methods = useForm<JunctionFormValues>({
     resolver: zodResolverZ4<JunctionFormValues>(junctionSchema),
     mode: 'onChange',
-    defaultValues: { type: entity.type },
+    defaultValues: { type: formType },
   });
 
   useEffect(() => {
-    methods.reset({ type: entity.type });
+    methods.reset({ type: entity.type ?? JUNCTION_TYPE_FALLBACK });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id]);
 
   useEffect(() => {
-    if (methods.getValues('type') !== entity.type) {
-      methods.setValue('type', entity.type, {
+    const nextType = entity.type ?? JUNCTION_TYPE_FALLBACK;
+    if (methods.getValues('type') !== nextType) {
+      methods.setValue('type', nextType, {
         shouldDirty: false,
         shouldTouch: false,
         shouldValidate: false,
@@ -71,8 +90,8 @@ export function JunctionForm({ entity }: { entity: JunctionEntity }) {
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (value.type === liveEntity.type) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type! });
+      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, JUNCTION_TYPE_FALLBACK)) return;
+      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
     });
     return () => subscription.unsubscribe();
   }, [methods, updateEntity]);
@@ -332,21 +351,23 @@ export function StopSignForm({ entity }: { entity: StopSignEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
   const entityRef = useRef(entity);
   entityRef.current = entity;
+  const formType = entity.type ?? STOP_SIGN_TYPE_FALLBACK;
 
   const methods = useForm<StopSignFormValues>({
     resolver: zodResolverZ4<StopSignFormValues>(stopSignSchema),
     mode: 'onChange',
-    defaultValues: { type: entity.type },
+    defaultValues: { type: formType },
   });
 
   useEffect(() => {
-    methods.reset({ type: entity.type });
+    methods.reset({ type: entity.type ?? STOP_SIGN_TYPE_FALLBACK });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id]);
 
   useEffect(() => {
-    if (methods.getValues('type') !== entity.type) {
-      methods.setValue('type', entity.type, {
+    const nextType = entity.type ?? STOP_SIGN_TYPE_FALLBACK;
+    if (methods.getValues('type') !== nextType) {
+      methods.setValue('type', nextType, {
         shouldDirty: false,
         shouldTouch: false,
         shouldValidate: false,
@@ -358,8 +379,10 @@ export function StopSignForm({ entity }: { entity: StopSignEntity }) {
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (value.type === liveEntity.type) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type! });
+      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, STOP_SIGN_TYPE_FALLBACK)) {
+        return;
+      }
+      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
     });
     return () => subscription.unsubscribe();
   }, [methods, updateEntity]);
@@ -387,21 +410,23 @@ export function RoadForm({ entity }: { entity: RoadEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
   const entityRef = useRef(entity);
   entityRef.current = entity;
+  const formType = entity.type ?? ROAD_TYPE_FALLBACK;
 
   const methods = useForm<RoadFormValues>({
     resolver: zodResolverZ4<RoadFormValues>(roadSchema),
     mode: 'onChange',
-    defaultValues: { type: entity.type },
+    defaultValues: { type: formType },
   });
 
   useEffect(() => {
-    methods.reset({ type: entity.type });
+    methods.reset({ type: entity.type ?? ROAD_TYPE_FALLBACK });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity.id]);
 
   useEffect(() => {
-    if (methods.getValues('type') !== entity.type) {
-      methods.setValue('type', entity.type, {
+    const nextType = entity.type ?? ROAD_TYPE_FALLBACK;
+    if (methods.getValues('type') !== nextType) {
+      methods.setValue('type', nextType, {
         shouldDirty: false,
         shouldTouch: false,
         shouldValidate: false,
@@ -413,8 +438,8 @@ export function RoadForm({ entity }: { entity: RoadEntity }) {
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (value.type === liveEntity.type) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type! });
+      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, ROAD_TYPE_FALLBACK)) return;
+      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
     });
     return () => subscription.unsubscribe();
   }, [methods, updateEntity]);
@@ -504,6 +529,79 @@ export function AreaForm({ entity }: { entity: AreaEntity }) {
         </Section>
       </form>
     </FormProvider>
+  );
+}
+
+// ─── Read-only inspectors ─────────────────────────────────────────────
+//
+// proto messages for crosswalk / speedBump / yieldSign / clearArea / rsu
+// expose only an id + geometry/FK fields. Geometry is edited on the
+// canvas; FK fields (junction_id, overlap_id) are computed by the
+// topology / overlap reconciler. Showing a structured read-only summary
+// here is still strictly better than the generic DrawingForm placeholder
+// (which only knew how to count `polygon.points`).
+
+export function CrosswalkForm({ entity }: { entity: CrosswalkEntity }) {
+  return (
+    <form>
+      <Section title="Attributes">
+        <Value label="ID" value={entity.id} />
+        <Value label="Vertices" value={entity.polygon.points.length || '—'} />
+        <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+      </Section>
+    </form>
+  );
+}
+
+export function SpeedBumpForm({ entity }: { entity: SpeedBumpEntity }) {
+  const totalSegments = entity.position.reduce((sum, c) => sum + c.segments.length, 0);
+  return (
+    <form>
+      <Section title="Attributes">
+        <Value label="ID" value={entity.id} />
+        <Value label="Position Curves" value={entity.position.length || '—'} />
+        <Value label="Segments" value={totalSegments || '—'} />
+        <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+      </Section>
+    </form>
+  );
+}
+
+export function YieldSignForm({ entity }: { entity: YieldSignEntity }) {
+  const totalSegments = entity.stopLines.reduce((sum, c) => sum + c.segments.length, 0);
+  return (
+    <form>
+      <Section title="Attributes">
+        <Value label="ID" value={entity.id} />
+        <Value label="Stop Lines" value={entity.stopLines.length || '—'} />
+        <Value label="Segments" value={totalSegments || '—'} />
+        <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+      </Section>
+    </form>
+  );
+}
+
+export function ClearAreaForm({ entity }: { entity: ClearAreaEntity }) {
+  return (
+    <form>
+      <Section title="Attributes">
+        <Value label="ID" value={entity.id} />
+        <Value label="Vertices" value={entity.polygon.points.length || '—'} />
+        <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+      </Section>
+    </form>
+  );
+}
+
+export function RSUForm({ entity }: { entity: RSUEntity }) {
+  return (
+    <form>
+      <Section title="Attributes">
+        <Value label="ID" value={entity.id} />
+        <Value label="Junction" value={entity.junctionId ?? '—'} />
+        <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
+      </Section>
+    </form>
   );
 }
 
