@@ -16,12 +16,26 @@ import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
   ACTION_DEFS,
+  ACTION_MAP,
   getKeyBindingActions,
   matchesKeybinding,
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
+import { assertEditable } from '@/lib/editable-guard';
+
+/**
+ * Set of action ids that mutate map state — blocked when the license
+ * is not in an editable state. Categories `edit`, `tool`, `selection`
+ * are blocked wholesale; specific extras (`connectLanes`) blocked by id.
+ */
+function actionRequiresEdit(id: ActionId): boolean {
+  if (id === 'connectLanes') return true;
+  const def = ACTION_MAP.get(id);
+  if (!def) return false;
+  return def.category === 'edit' || def.category === 'tool' || def.category === 'selection';
+}
 
 export interface ActionDispatcher {
   /**
@@ -142,6 +156,9 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
 
   const execute = useCallback(
     (actionId: ActionId) => {
+      if (actionRequiresEdit(actionId) && !assertEditable(actionId)) {
+        return;
+      }
       const handler = handlers.get(actionId);
       if (handler) {
         handler();

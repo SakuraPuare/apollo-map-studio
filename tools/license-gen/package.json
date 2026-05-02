@@ -1,0 +1,12 @@
+{
+  "name": "@apollo-map-studio/license-gen",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline license generator for Apollo Map Studio. Holds the Ed25519 private key and produces signed activation codes bound to a specific machine fingerprint.",
+  "scripts": {
+    "gen-keys": "node gen-keys.mjs",
+    "issue": "node issue.mjs",
+    "verify": "node verify.mjs"
+  }
+}

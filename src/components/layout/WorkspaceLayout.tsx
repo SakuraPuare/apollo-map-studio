@@ -7,6 +7,9 @@ import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar } from './ActivityBar';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
+import { LicenseBanner } from '@/components/license/LicenseBanner';
+import { ActivationDialog } from '@/components/license/ActivationDialog';
+import { useLicenseSync } from '@/hooks/useLicense';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
@@ -36,6 +39,7 @@ import {
 // ─── Inner Layout ─────────────────────────────────────────
 
 function WorkspaceLayoutInner() {
+  useLicenseSync();
   const actorRef = useEditorActor();
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
@@ -115,6 +119,9 @@ function WorkspaceLayoutInner() {
       {/* Menu Bar — reads from Action Registry */}
       <MenuBar onExecute={execute} getToggleState={getToggleState} />
 
+      {/* License banner — shows when trial is short, expired, or tampered */}
+      <LicenseBanner />
+
       {/* Tool Strip */}
       <ToolStrip
         currentTool={currentState}
@@ -167,6 +174,9 @@ function WorkspaceLayoutInner() {
       </Suspense>
 
       <TaskProgressOverlay />
+
+      {/* Always-mounted activation dialog — opens via licenseStore.promptActivation */}
+      <ActivationDialog />
     </div>
   );
 }

@@ -1,7 +1,11 @@
 import path from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
 
+import { LicenseManager } from './license/manager.cjs';
+
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+
+let licenseManager: LicenseManager | null = null;
 
 function getPreloadPath() {
   return path.join(__dirname, 'preload.cjs');
@@ -75,6 +79,11 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    // Wire the license manager *before* creating any window so the renderer
+    // can request state from a fully-initialised IPC surface.
+    licenseManager = new LicenseManager();
+    licenseManager.start();
+
     void createMainWindow();
 
     app.on('activate', () => {
@@ -84,6 +93,10 @@ if (!gotSingleInstanceLock) {
     });
   });
 }
+
+app.on('before-quit', () => {
+  licenseManager?.stop();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

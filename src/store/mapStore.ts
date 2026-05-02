@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import { temporal } from 'zundo';
 import { enableMapSet } from 'immer';
 import type { MapEntity } from '@/types/entities';
+import { assertEditable } from '@/lib/editable-guard';
 import {
   reparent,
   cascadeDeleteRefsFull,
@@ -88,6 +89,7 @@ export const useMapStore = create<MapStore>()(
       entities: new Map(),
 
       addEntity(entity) {
+        if (!assertEditable('addEntity')) return;
         set((state) => {
           state.entities.set(entity.id, entity);
           // dirty 集要包含所有引用变化的实体 id —— 仅放新加 entity 会让
@@ -109,6 +111,7 @@ export const useMapStore = create<MapStore>()(
       },
 
       updateEntity(id, entity) {
+        if (!assertEditable('updateEntity')) return;
         const previous = get().entities.get(id);
         set((state) => {
           if (!state.entities.has(id)) return;
@@ -131,6 +134,7 @@ export const useMapStore = create<MapStore>()(
       },
 
       removeEntity(id) {
+        if (!assertEditable('removeEntity')) return;
         const all = get().entities;
         if (!all.has(id)) return;
         const removed = all.get(id);
@@ -212,6 +216,9 @@ export const useMapStore = create<MapStore>()(
       },
 
       reparentEntity(childId, target) {
+        if (!assertEditable('reparentEntity')) {
+          return { changes: new Map(), rejected: 'editing is disabled in read-only mode' };
+        }
         const child = get().entities.get(childId);
         if (!child) {
           return { changes: new Map(), rejected: `entity ${childId} not found` };
