@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main, v1]
+    tags: ['v*']
   pull_request:
     branches: [main, v1]
 
@@ -43,6 +44,9 @@ jobs:
       - name: Prettier formatting
         run: pnpm format:check
 
+      - name: Web production build
+        run: pnpm build:web
+
       - name: Unit tests
         run: pnpm test
 
@@ -51,3 +55,96 @@ jobs:
 
       - name: Perf budget guard
         run: node scripts/check-bench-budget.mjs bench-results.json
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apollo-map-studio-web
+          path: dist/
+          if-no-files-found: error
+
+  desktop-package:
+    name: Desktop package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            package-script: package:linux
+            artifact-name: apollo-map-studio-linux
+          - os: macos-latest
+            package-script: package:mac
+            artifact-name: apollo-map-studio-macos
+          - os: windows-latest
+            package-script: package:win
+            artifact-name: apollo-map-studio-windows
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop artifacts
+        run: pnpm ${{ matrix.package-script }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            !release/**/builder-debug.yml
+            !release/**/builder-effective-config.yaml
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [check, desktop-package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Archive web artifact
+        run: |
+          cd artifacts/apollo-map-studio-web
+          zip -r ../apollo-map-studio-web.zip .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/apollo-map-studio-web.zip
+            artifacts/apollo-map-studio-linux/*
+            artifacts/apollo-map-studio-macos/*
+            artifacts/apollo-map-studio-windows/*
