@@ -1,17 +1,27 @@
 {
   "name": "apollo-map-studio",
   "version": "1.0.0",
-  "description": "",
+  "description": "Desktop and web editor for Apollo HD map data.",
   "license": "ISC",
-  "author": "",
+  "author": "Apollo Map Studio",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:web": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build:desktop": "pnpm build:web && pnpm build:electron",
     "preview": "vite preview",
+    "electron:dev": "concurrently -k -n vite,electron -c cyan,magenta \"vite --host 127.0.0.1\" \"wait-on tcp:127.0.0.1:5173 && pnpm build:electron && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .\"",
+    "electron:start": "pnpm build:desktop && electron .",
+    "package": "pnpm build:desktop && electron-builder --dir --publish never",
+    "package:linux": "pnpm build:desktop && electron-builder --linux --x64 --publish never",
+    "package:mac": "pnpm build:desktop && electron-builder --mac --x64 --arm64 --publish never",
+    "package:win": "pnpm build:desktop && electron-builder --win --x64 --publish never",
     "test": "vitest run",
     "bench": "vitest bench --run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -58,6 +68,10 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "@vitest/coverage-v8": "4.1.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -71,6 +85,13 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
     "vite": "^8.0.7",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "wait-on": "^9.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller"
+    ]
   }
 }

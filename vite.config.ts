@@ -69,6 +69,7 @@ function getVendorChunkName(id: string) {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: './',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

@@ -4,5 +4,6 @@ pnpm-lock.yaml
 src/proto/**/*.proto
 .github
 coverage
+bench-results.json
 *.min.js
 *.min.css

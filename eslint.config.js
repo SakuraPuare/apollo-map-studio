@@ -15,6 +15,8 @@ export default tseslint.config(
   {
     ignores: [
       'dist',
+      'dist-electron',
+      'release',
       'node_modules',
       '.github',
       'src/proto/**',
@@ -146,9 +148,9 @@ export default tseslint.config(
       },
     },
   },
-  // Node CLI scripts (CI utilities) need node globals.
+  // Node CLI scripts (CI utilities and local tools) need node globals.
   {
-    files: ['scripts/**/*.{js,mjs,cjs}'],
+    files: ['scripts/**/*.{js,mjs,cjs}', 'tools/**/*.{js,mjs,cjs}'],
     languageOptions: {
       globals: {
         ...globals.node,
