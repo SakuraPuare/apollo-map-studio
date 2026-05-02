@@ -87,7 +87,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
-    "vite": "^8.0.7",
+    "vite": "^8.0.8",
     "vitepress": "^1.6.4",
     "vitest": "^4.1.4",
     "wait-on": "^9.0.5"
