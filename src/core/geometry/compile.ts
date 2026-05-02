@@ -22,6 +22,7 @@ const CURVE_COLORS: Record<string, string> = {
 function lineFeature(coords: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Feature {
   return {
     type: 'Feature',
+    id: featureId(props),
     properties: { ...props },
     geometry: { type: 'LineString', coordinates: coords },
   };
@@ -34,9 +35,20 @@ function polygonFeature(coords: LngLat[], props: Record<string, unknown> = {}): 
     first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return {
     type: 'Feature',
+    id: featureId(props),
     properties: { ...props },
     geometry: { type: 'Polygon', coordinates: [ring] },
   };
+}
+
+function featureId(props: Record<string, unknown>): string | undefined {
+  const id = props.id;
+  if (typeof id !== 'string') return undefined;
+  const role = typeof props.role === 'string' ? props.role : 'shape';
+  const noStroke = props.noStroke === true ? ':noStroke' : '';
+  const side = typeof props.boundarySide === 'string' ? `:${props.boundarySide}` : '';
+  const direction = typeof props.laneDirection === 'string' ? `:${props.laneDirection}` : '';
+  return `${id}:${role}${noStroke}${side}${direction}`;
 }
 
 /** 判断 entityType 是否为基础绘制图形 */

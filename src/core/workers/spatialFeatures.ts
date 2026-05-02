@@ -2,6 +2,24 @@ import { applyLaneJunctions } from '@/core/geometry/laneJunctions';
 import type { EntityFeatureGroup } from './protocol';
 import type { SpatialState } from './spatialState';
 
+function featureKey(feature: GeoJSON.Feature, fallbackIndex: number): string | number {
+  return feature.id ?? `${feature.properties?.id ?? 'feature'}:feature:${fallbackIndex}`;
+}
+
+function withUniqueFeatureIds(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
+  const seen = new Set<string | number>();
+  return features.map((feature, index) => {
+    const base = featureKey(feature, index);
+    let id = base;
+    let suffix = 1;
+    while (seen.has(id)) {
+      id = `${base}:${suffix++}`;
+    }
+    seen.add(id);
+    return feature.id === id ? feature : { ...feature, id };
+  });
+}
+
 /**
  * Group features by `properties.id` for the delta encoding path.
  * Features without a string id are bucketed into `__unkeyed` so they still
@@ -18,7 +36,23 @@ export function groupFeaturesByEntity(features: GeoJSON.Feature[]): EntityFeatur
     }
     bucket.push(f);
   }
-  return Array.from(buckets, ([id, fts]) => ({ id, features: fts }));
+  return Array.from(buckets, ([id, fts]) => ({ id, features: withUniqueFeatureIds(fts) }));
+}
+
+export function featureGroupsForState(
+  state: SpatialState,
+  excludeId?: string | null,
+): EntityFeatureGroup[] {
+  const groups: EntityFeatureGroup[] = [];
+  for (const [id, features] of state.featureCache) {
+    if (id === excludeId) continue;
+    const decoration = state.decorationCache.get(id);
+    groups.push({
+      id,
+      features: withUniqueFeatureIds(decoration ? [...features, ...decoration] : features),
+    });
+  }
+  return groups;
 }
 
 /**

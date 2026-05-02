@@ -67,6 +67,7 @@ function lineMid(coords: LngLat[]): LngLat {
 function mkLine(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
   return {
     type: 'Feature',
+    id: featureId(props),
     properties: props,
     geometry: { type: 'LineString', coordinates: coords },
   };
@@ -77,11 +78,31 @@ function mkPolygon(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Fe
   const last = coords[coords.length - 1];
   const ring =
     first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
-  return { type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [ring] } };
+  return {
+    type: 'Feature',
+    id: featureId(props),
+    properties: props,
+    geometry: { type: 'Polygon', coordinates: [ring] },
+  };
 }
 
 function mkPoint(coord: LngLat, props: Record<string, unknown>): GeoJSON.Feature {
-  return { type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: coord } };
+  return {
+    type: 'Feature',
+    id: featureId(props),
+    properties: props,
+    geometry: { type: 'Point', coordinates: coord },
+  };
+}
+
+function featureId(props: Record<string, unknown>): string | undefined {
+  const id = props.id;
+  if (typeof id !== 'string') return undefined;
+  const role = typeof props.role === 'string' ? props.role : 'shape';
+  const noStroke = props.noStroke === true ? ':noStroke' : '';
+  const side = typeof props.boundarySide === 'string' ? `:${props.boundarySide}` : '';
+  const direction = typeof props.laneDirection === 'string' ? `:${props.laneDirection}` : '';
+  return `${id}:${role}${noStroke}${side}${direction}`;
 }
 
 type EntityRenderer<E extends ApolloEntity = ApolloEntity> = (

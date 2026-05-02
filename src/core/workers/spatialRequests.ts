@@ -1,5 +1,9 @@
-import type { WorkerRequest, WorkerResponse } from './protocol';
-import { buildFeatureCollection, groupFeaturesByEntity } from './spatialFeatures';
+import type { SerializedEntity, WorkerRequest, WorkerResponse } from './protocol';
+import {
+  buildFeatureCollection,
+  featureGroupsForState,
+  groupFeaturesByEntity,
+} from './spatialFeatures';
 import { hitTest } from './spatialHitTest';
 import { insertEntity, removeEntity, syncEntities, type SpatialState } from './spatialState';
 
@@ -63,15 +67,51 @@ function deltaIdsFor(req: Extract<WorkerRequest, { type: 'INCREMENTAL' }>, affec
 
 function handleSync(
   state: SpatialState,
-  req: Extract<WorkerRequest, { type: 'SYNC' }>,
+  req: { requestId: string; entities: SerializedEntity[]; excludeId?: string | null },
   respond: Respond,
 ) {
   syncEntities(state, req.entities);
+  buildFeatureCollection(state, req.excludeId);
   respond({
     type: 'COLD_READY',
     requestId: req.requestId,
-    featureCollection: buildFeatureCollection(state, req.excludeId),
+    groups: featureGroupsForState(state, req.excludeId),
   });
+}
+
+function handleSyncBegin(state: SpatialState, req: Extract<WorkerRequest, { type: 'SYNC_BEGIN' }>) {
+  state.pendingSyncs.set(req.requestId, {
+    entities: [],
+    total: req.total,
+    excludeId: req.excludeId,
+  });
+}
+
+function handleSyncChunk(state: SpatialState, req: Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>) {
+  const pending = state.pendingSyncs.get(req.requestId);
+  if (!pending) throw new Error(`Unknown spatial SYNC request ${req.requestId}`);
+  pending.entities.push(...req.entities);
+  pending.total = req.total;
+}
+
+function handleSyncFinish(
+  state: SpatialState,
+  req: Extract<WorkerRequest, { type: 'SYNC_FINISH' }>,
+  respond: Respond,
+) {
+  const pending = state.pendingSyncs.get(req.requestId);
+  if (!pending) throw new Error(`Unknown spatial SYNC request ${req.requestId}`);
+  state.pendingSyncs.delete(req.requestId);
+  if (pending.entities.length !== pending.total) {
+    throw new Error(
+      `Spatial SYNC received ${pending.entities.length} entities; expected ${pending.total}.`,
+    );
+  }
+  handleSync(
+    state,
+    { requestId: req.requestId, entities: pending.entities, excludeId: pending.excludeId },
+    respond,
+  );
 }
 
 function handleIncremental(
@@ -100,6 +140,15 @@ export function handleRequest(state: SpatialState, req: WorkerRequest, respond: 
   switch (req.type) {
     case 'SYNC':
       handleSync(state, req, respond);
+      break;
+    case 'SYNC_BEGIN':
+      handleSyncBegin(state, req);
+      break;
+    case 'SYNC_CHUNK':
+      handleSyncChunk(state, req);
+      break;
+    case 'SYNC_FINISH':
+      handleSyncFinish(state, req, respond);
       break;
     case 'INCREMENTAL':
       handleIncremental(state, req, respond);

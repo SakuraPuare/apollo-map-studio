@@ -25,7 +25,7 @@ function addGridLayer(map: maplibregl.Map) {
 }
 
 function addColdLayers(map: maplibregl.Map) {
-  map.addSource('cold', { type: 'geojson', data: EMPTY_FC });
+  map.addSource('cold', { type: 'geojson', data: EMPTY_FC, promoteId: 'featureId' });
 
   map.addLayer({
     id: 'cold-fill',

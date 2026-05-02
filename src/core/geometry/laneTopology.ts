@@ -21,6 +21,8 @@ import type { GeoPoint, MapEntity } from '@/types/entities';
 import { METERS_PER_DEGREE } from '@/config/mapConstants';
 import { pointInPolygon } from './hitTest';
 import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
+import { SpatialIndex } from '@/core/elements/overlap/spatialIndex';
+import { bboxOfPoints } from '@/core/elements/overlap/intersect';
 
 /** 段相交（cross product 法），共线视为不相交 */
 function segmentsCross(
@@ -81,6 +83,7 @@ const NEIGHBOR_MIN_LATERAL_M = 1.0;
 const NEIGHBOR_MAX_LATERAL_M = 8.0;
 /** 两条 lane 的纵向投影必须互相覆盖至少 50%（按短的那条算） */
 const NEIGHBOR_MIN_OVERLAP_RATIO = 0.5;
+const NEIGHBOR_QUERY_PADDING_M = 12;
 
 /** 平行/反平行判定：cos(18°) ≈ 0.95 */
 const PARALLEL_DOT_THRESHOLD = 0.95;
@@ -107,16 +110,6 @@ interface LocalFrame {
 
 function endpointKey(x: number, y: number): string {
   return `${x.toFixed(COORD_KEY_PRECISION)},${y.toFixed(COORD_KEY_PRECISION)}`;
-}
-
-function laneStart(lane: LaneEntity): GeoPoint | null {
-  const pts = curvePoints(lane.centralCurve);
-  return pts[0] ?? null;
-}
-
-function laneEnd(lane: LaneEntity): GeoPoint | null {
-  const pts = curvePoints(lane.centralCurve);
-  return pts[pts.length - 1] ?? null;
 }
 
 /** 数组相等（忽略顺序、去重比较），用于判定是否需要写回。 */
@@ -163,6 +156,11 @@ export interface LaneTopologyDiff {
   changes: Map<string, LaneEntity>;
 }
 
+export interface LaneTopologyIncrementalOptions {
+  dirtyIds: ReadonlySet<string>;
+  previousEntities?: ReadonlyMap<string, MapEntity>;
+}
+
 interface NeighborBuckets {
   lF: string[];
   rF: string[];
@@ -197,6 +195,7 @@ function deriveSelfReverse(
   t: GeoPoint,
   endsByKey: ReadonlyMap<string, Endpoint[]>,
   lanesById: ReadonlyMap<string, LaneEntity>,
+  laneGeometry: ReadonlyMap<string, LaneGeometry>,
 ): string[] {
   const sKey = endpointKey(s.x, s.y);
   const tKey = endpointKey(t.x, t.y);
@@ -207,7 +206,7 @@ function deriveSelfReverse(
         .filter((ep) => {
           const other = lanesById.get(ep.laneId);
           if (!other) return false;
-          const os = laneStart(other);
+          const os = laneGeometry.get(other.id)?.start;
           return !!os && endpointKey(os.x, os.y) === tKey;
         })
         .map((ep) => ep.laneId),
@@ -221,11 +220,10 @@ function deriveSelfReverse(
  * 与自动派生的 OverlapEntity{lane,junction} 拓扑自相矛盾。
  */
 function deriveJunctionId(
-  lane: LaneEntity,
+  centerline: readonly GeoPoint[],
   junctionPolygons: readonly { id: string; polygon: [number, number][] }[],
 ): string | null {
-  const centralPts = curvePoints(lane.centralCurve);
-  const centralLine: [number, number][] = centralPts.map((p) => [p.x, p.y]);
+  const centralLine: [number, number][] = centerline.map((p) => [p.x, p.y]);
   for (const j of junctionPolygons) {
     if (j.polygon.length < 3) continue;
     if (polylineHitsPolygon(centralLine, j.polygon)) return j.id;
@@ -245,6 +243,12 @@ interface NeighborFrame {
   lyA: number;
 }
 
+interface LaneGeometry {
+  start: GeoPoint;
+  end: GeoPoint;
+  centerline: GeoPoint[];
+}
+
 /**
  * 对单条 other lane 在 A 的局部 frame 下做 (forward, left) 分类。
  * 返回 null 表示不构成 neighbor（方向不平行 / 重叠不足 / 横向超界）。
@@ -252,10 +256,11 @@ interface NeighborFrame {
 function classifyNeighbor(
   ctx: NeighborFrame,
   other: LaneEntity,
+  otherGeometry: LaneGeometry,
 ): { isForward: boolean; isLeft: boolean } | null {
   const { s, frame, aLen, lxA, lyA } = ctx;
-  const oStart = laneStart(other)!;
-  const oEnd = laneEnd(other)!;
+  const oStart = otherGeometry.start;
+  const oEnd = otherGeometry.end;
   const oStartLocal = projectInto(s.x, s.y, oStart);
   const oEndLocal = projectInto(s.x, s.y, oEnd);
 
@@ -300,6 +305,7 @@ function deriveNeighbors(
   frameA: LocalFrame,
   lanes: readonly LaneEntity[],
   frames: ReadonlyMap<string, LocalFrame>,
+  laneGeometry: ReadonlyMap<string, LaneGeometry>,
 ): NeighborBuckets {
   const lF: string[] = [];
   const rF: string[] = [];
@@ -318,7 +324,9 @@ function deriveNeighbors(
   for (const other of lanes) {
     if (other.id === lane.id) continue;
     if (!frames.has(other.id)) continue;
-    const cls = classifyNeighbor(ctx, other);
+    const otherGeometry = laneGeometry.get(other.id);
+    if (!otherGeometry) continue;
+    const cls = classifyNeighbor(ctx, other, otherGeometry);
     if (!cls) continue;
     if (cls.isForward) {
       if (cls.isLeft) lF.push(other.id);
@@ -337,18 +345,51 @@ function deriveNeighbors(
   };
 }
 
+function metersToLngDegrees(meters: number, latDeg: number): number {
+  const cosLat = Math.max(0.01, Math.abs(Math.cos((latDeg * Math.PI) / 180)));
+  return meters / (METERS_PER_DEGREE * cosLat);
+}
+
+function paddedLaneBBoxFromBBox(
+  bbox: NonNullable<ReturnType<typeof bboxOfPoints>>,
+  refLat: number,
+  paddingM: number,
+) {
+  const dx = metersToLngDegrees(paddingM, refLat);
+  const dy = paddingM / METERS_PER_DEGREE;
+  return {
+    minX: bbox.minX - dx,
+    minY: bbox.minY - dy,
+    maxX: bbox.maxX + dx,
+    maxY: bbox.maxY + dy,
+  };
+}
+
 interface TopologyIndices {
   lanes: LaneEntity[];
+  laneGeometry: Map<string, LaneGeometry>;
   frames: Map<string, LocalFrame>;
   startsByKey: Map<string, Endpoint[]>;
   endsByKey: Map<string, Endpoint[]>;
   junctionPolygons: { id: string; polygon: [number, number][] }[];
+  junctionById: Map<string, { id: string; polygon: [number, number][]; order: number }>;
+  junctionIndex: SpatialIndex;
   lanesById: Map<string, LaneEntity>;
+  laneIndex: SpatialIndex;
+}
+
+function geometryForLane(lane: LaneEntity): LaneGeometry | null {
+  const centerline = curvePoints(lane.centralCurve);
+  const start = centerline[0] ?? null;
+  const end = centerline[centerline.length - 1] ?? null;
+  if (!start || !end) return null;
+  return { start, end, centerline };
 }
 
 /** 1+2 阶段：收集 lane / junction、构 frame、端点倒排索引、junction polygon。 */
 function buildTopologyIndices(entities: ReadonlyMap<string, MapEntity>): TopologyIndices {
   const lanes: LaneEntity[] = [];
+  const laneGeometry = new Map<string, LaneGeometry>();
   const frames = new Map<string, LocalFrame>();
   const startEndpoints: Endpoint[] = [];
   const endEndpoints: Endpoint[] = [];
@@ -361,10 +402,11 @@ function buildTopologyIndices(entities: ReadonlyMap<string, MapEntity>): Topolog
     }
     if (e.entityType !== 'lane') continue;
     const lane = e;
-    const s = laneStart(lane);
-    const t = laneEnd(lane);
-    if (!s || !t) continue;
+    const geometry = geometryForLane(lane);
+    if (!geometry) continue;
+    const { start: s, end: t } = geometry;
     lanes.push(lane);
+    laneGeometry.set(lane.id, geometry);
     startEndpoints.push({ laneId: lane.id, isStart: true, x: s.x, y: s.y });
     endEndpoints.push({ laneId: lane.id, isStart: false, x: t.x, y: t.y });
     const frame = buildLocalFrame(s, t);
@@ -392,42 +434,181 @@ function buildTopologyIndices(entities: ReadonlyMap<string, MapEntity>): Topolog
     id: j.id,
     polygon: j.polygon.points.map((p) => [p.x, p.y] as [number, number]),
   }));
+  const junctionById = new Map<
+    string,
+    { id: string; polygon: [number, number][]; order: number }
+  >();
+  for (let i = 0; i < junctionPolygons.length; i++) {
+    const junction = junctionPolygons[i]!;
+    junctionById.set(junction.id, { ...junction, order: i });
+  }
 
   const lanesById = new Map<string, LaneEntity>();
   for (const lane of lanes) lanesById.set(lane.id, lane);
 
-  return { lanes, frames, startsByKey, endsByKey, junctionPolygons, lanesById };
+  const laneIndex = new SpatialIndex();
+  laneIndex.build(new Map(lanes.map((lane) => [lane.id, lane])));
+  const junctionIndex = new SpatialIndex();
+  junctionIndex.build(new Map(junctions.map((junction) => [junction.id, junction])));
+
+  return {
+    lanes,
+    laneGeometry,
+    frames,
+    startsByKey,
+    endsByKey,
+    junctionPolygons,
+    junctionById,
+    junctionIndex,
+    lanesById,
+    laneIndex,
+  };
 }
 
-/**
- * 扫描所有 lane + junction，从几何上重算所有 lane 的拓扑字段：
- * predecessor / successor / selfReverse / junctionId / 4 个 neighbor 数组。
- *
- * 不修改：overlapIds（语义是冲突区域，由专门的 overlap 抓手维护）、
- *        leftSamples/rightSamples 等纯几何派生字段（由 derive 引擎管）。
- */
-export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff {
-  // 1+2. 收集 lane / junction、构 frame、倒排索引。
-  const { lanes, frames, startsByKey, endsByKey, junctionPolygons, lanesById } =
-    buildTopologyIndices(entities);
+function addEndpointPeers(indices: TopologyIndices, point: GeoPoint, affected: Set<string>) {
+  const key = endpointKey(point.x, point.y);
+  for (const ep of indices.startsByKey.get(key) ?? []) affected.add(ep.laneId);
+  for (const ep of indices.endsByKey.get(key) ?? []) affected.add(ep.laneId);
+}
 
-  // 3. 对每条 lane 推导所有拓扑字段。
+function addSpatialLanePeers(
+  indices: TopologyIndices,
+  geometry: LaneGeometry,
+  affected: Set<string>,
+) {
+  const bbox = bboxOfPoints(geometry.centerline);
+  if (!bbox) return;
+  const padded = paddedLaneBBoxFromBBox(bbox, geometry.start.y, NEIGHBOR_QUERY_PADDING_M);
+  for (const node of indices.laneIndex.queryBBox(padded)) affected.add(node.id);
+}
+
+function addJunctionLanePeers(
+  indices: TopologyIndices,
+  junction: JunctionEntity,
+  affected: Set<string>,
+) {
+  const bbox = bboxOfPoints(junction.polygon.points);
+  if (!bbox) return;
+  for (const node of indices.laneIndex.queryBBox(bbox)) affected.add(node.id);
+}
+
+function collectAffectedLanes(
+  indices: TopologyIndices,
+  dirtyIds: ReadonlySet<string>,
+  previousEntities?: ReadonlyMap<string, MapEntity>,
+): Set<string> {
+  const affected = new Set<string>();
+  const dirtyJunctionIds = new Set<string>();
+
+  for (const id of dirtyIds) {
+    const current = indices.lanesById.get(id);
+    const previous = previousEntities?.get(id);
+
+    if (current) {
+      affected.add(current.id);
+      const geometry = indices.laneGeometry.get(current.id);
+      if (geometry) {
+        addEndpointPeers(indices, geometry.start, affected);
+        addEndpointPeers(indices, geometry.end, affected);
+        addSpatialLanePeers(indices, geometry, affected);
+      }
+    }
+
+    if (previous?.entityType === 'lane') {
+      affected.add(previous.id);
+      const geometry = geometryForLane(previous);
+      if (geometry) {
+        addEndpointPeers(indices, geometry.start, affected);
+        addEndpointPeers(indices, geometry.end, affected);
+        addSpatialLanePeers(indices, geometry, affected);
+      }
+    }
+
+    const previousJunction = previous?.entityType === 'junction' ? previous : null;
+    if (previousJunction) {
+      dirtyJunctionIds.add(previousJunction.id);
+      addJunctionLanePeers(indices, previousJunction, affected);
+    }
+  }
+
+  for (const id of dirtyIds) {
+    const junction = indices.junctionById.get(id);
+    if (junction) {
+      dirtyJunctionIds.add(id);
+      const entity = {
+        id: junction.id,
+        entityType: 'junction',
+        polygon: { points: junction.polygon.map(([x, y]) => ({ x, y })) },
+        overlapIds: [],
+      } as JunctionEntity;
+      addJunctionLanePeers(indices, entity, affected);
+    }
+  }
+
+  if (dirtyJunctionIds.size > 0) {
+    for (const lane of indices.lanes) {
+      if (lane.junctionId && dirtyJunctionIds.has(lane.junctionId)) affected.add(lane.id);
+    }
+  }
+
+  return affected;
+}
+
+function deriveChangesForLanes(
+  indices: TopologyIndices,
+  laneIds: Iterable<string>,
+): Map<string, LaneEntity> {
   const changes = new Map<string, LaneEntity>();
-  for (const lane of lanes) {
-    const s = laneStart(lane)!;
-    const t = laneEnd(lane)!;
+  for (const laneId of laneIds) {
+    const lane = indices.lanesById.get(laneId);
+    if (!lane) continue;
+    const geom = indices.laneGeometry.get(lane.id);
+    if (!geom) continue;
+    const { start: s, end: t } = geom;
 
-    const { pred: newPred, succ: newSucc } = derivePredSucc(lane, s, t, startsByKey, endsByKey);
-    const newSelfReverse = deriveSelfReverse(lane, s, t, endsByKey, lanesById);
-    const newJunctionId = deriveJunctionId(lane, junctionPolygons);
+    const { pred: newPred, succ: newSucc } = derivePredSucc(
+      lane,
+      s,
+      t,
+      indices.startsByKey,
+      indices.endsByKey,
+    );
+    const newSelfReverse = deriveSelfReverse(
+      lane,
+      s,
+      t,
+      indices.endsByKey,
+      indices.lanesById,
+      indices.laneGeometry,
+    );
 
-    const frameA = frames.get(lane.id);
+    const laneBBox = bboxOfPoints(geom.centerline);
+    const candidateJunctions =
+      laneBBox && indices.junctionPolygons.length > 0
+        ? indices.junctionIndex
+            .queryBBox(laneBBox)
+            .map((n) => indices.junctionById.get(n.id))
+            .filter((j): j is { id: string; polygon: [number, number][]; order: number } => !!j)
+            .sort((a, b) => a.order - b.order)
+        : [];
+    const newJunctionId = deriveJunctionId(geom.centerline, candidateJunctions);
+
+    const frameA = indices.frames.get(lane.id);
+    const neighborBBox =
+      frameA && laneBBox
+        ? paddedLaneBBoxFromBBox(laneBBox, geom.start.y, NEIGHBOR_QUERY_PADDING_M)
+        : null;
+    const neighborCandidates = neighborBBox
+      ? indices.laneIndex
+          .queryBBox(neighborBBox)
+          .map((n) => indices.lanesById.get(n.id))
+          .filter((e): e is LaneEntity => !!e && e.id !== lane.id)
+      : [];
     const neighbors: NeighborBuckets = frameA
-      ? deriveNeighbors(lane, s, frameA, lanes, frames)
+      ? deriveNeighbors(lane, s, frameA, neighborCandidates, indices.frames, indices.laneGeometry)
       : { lF: [], rF: [], lR: [], rR: [] };
     const { lF: newLF, rF: newRF, lR: newLR, rR: newRR } = neighbors;
 
-    // ── 写回 diff（任一字段变化即写） ──
     const dirty =
       !setEqual(lane.predecessorIds, newPred) ||
       !setEqual(lane.successorIds, newSucc) ||
@@ -453,5 +634,32 @@ export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>):
     }
   }
 
-  return { changes };
+  return changes;
+}
+
+/**
+ * 扫描所有 lane + junction，从几何上重算所有 lane 的拓扑字段：
+ * predecessor / successor / selfReverse / junctionId / 4 个 neighbor 数组。
+ *
+ * 不修改：overlapIds（语义是冲突区域，由专门的 overlap 抓手维护）、
+ *        leftSamples/rightSamples 等纯几何派生字段（由 derive 引擎管）。
+ */
+export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff {
+  const indices = buildTopologyIndices(entities);
+  return {
+    changes: deriveChangesForLanes(
+      indices,
+      indices.lanes.map((lane) => lane.id),
+    ),
+  };
+}
+
+export function reconcileLaneTopologyIncremental(
+  entities: ReadonlyMap<string, MapEntity>,
+  options: LaneTopologyIncrementalOptions,
+): LaneTopologyDiff {
+  if (options.dirtyIds.size === 0) return { changes: new Map() };
+  const indices = buildTopologyIndices(entities);
+  const affected = collectAffectedLanes(indices, options.dirtyIds, options.previousEntities);
+  return { changes: deriveChangesForLanes(indices, affected) };
 }

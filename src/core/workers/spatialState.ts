@@ -26,6 +26,7 @@ export interface SpatialState {
   featureCache: Map<string, GeoJSON.Feature[]>;
   decorationCache: Map<string, GeoJSON.Feature[]>;
   junctionGraph: LaneJunctionGraph;
+  pendingSyncs: Map<string, { entities: MapEntity[]; total: number; excludeId?: string | null }>;
   laneCount: number;
 }
 
@@ -37,6 +38,7 @@ export function createSpatialState(): SpatialState {
     featureCache: new Map(),
     decorationCache: new Map(),
     junctionGraph: new LaneJunctionGraph(),
+    pendingSyncs: new Map(),
     laneCount: 0,
   };
 }

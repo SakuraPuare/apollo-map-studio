@@ -97,6 +97,12 @@ function rid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function coldReadyFeatures(
+  resp: Extract<WorkerResponse, { type: 'COLD_READY' }>,
+): GeoJSON.Feature[] {
+  return resp.featureCollection?.features ?? resp.groups.flatMap((group) => group.features);
+}
+
 // ── SYNC ──────────────────────────────────────────────────────
 
 describe('spatial.worker — SYNC', () => {
@@ -107,8 +113,7 @@ describe('spatial.worker — SYNC', () => {
     expect(resp.type).toBe('COLD_READY');
     expect(resp.requestId).toBe(requestId);
     if (resp.type === 'COLD_READY') {
-      expect(resp.featureCollection.type).toBe('FeatureCollection');
-      expect(resp.featureCollection.features).toEqual([]);
+      expect(coldReadyFeatures(resp)).toEqual([]);
     }
   });
 
@@ -127,9 +132,10 @@ describe('spatial.worker — SYNC', () => {
     const resp = w.send({ type: 'SYNC', requestId: rid(), entities: lanes });
     expect(resp.type).toBe('COLD_READY');
     if (resp.type === 'COLD_READY') {
-      expect(resp.featureCollection.features.length).toBeGreaterThan(0);
+      const features = coldReadyFeatures(resp);
+      expect(features.length).toBeGreaterThan(0);
       // a / b 各自的 feature 都应出现
-      const ids = new Set(resp.featureCollection.features.map((f) => f.properties?.id));
+      const ids = new Set(features.map((f) => f.properties?.id));
       expect(ids.has('a')).toBe(true);
       expect(ids.has('b')).toBe(true);
     }
@@ -147,7 +153,7 @@ describe('spatial.worker — SYNC', () => {
     ]);
     const resp = w.send({ type: 'SYNC', requestId: rid(), entities: [lane] });
     if (resp.type !== 'COLD_READY') throw new Error('expected COLD_READY');
-    const decorFeatures = resp.featureCollection.features.filter(
+    const decorFeatures = coldReadyFeatures(resp).filter(
       (f) => f.properties?.role === 'laneBoundaryDecor',
     );
     expect(decorFeatures.length).toBeGreaterThan(0);
@@ -176,7 +182,7 @@ describe('spatial.worker — SYNC', () => {
       excludeId: 'drop',
     });
     if (resp.type !== 'COLD_READY') throw new Error('expected COLD_READY');
-    const ids = new Set(resp.featureCollection.features.map((f) => f.properties?.id));
+    const ids = new Set(coldReadyFeatures(resp).map((f) => f.properties?.id));
     expect(ids.has('keep')).toBe(true);
     expect(ids.has('drop')).toBe(false);
   });

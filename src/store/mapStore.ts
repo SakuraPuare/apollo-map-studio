@@ -9,7 +9,10 @@ import {
   type ParentTarget,
   type ReparentResult,
 } from '@/lib/entityOps';
-import { reconcileLaneTopology } from '@/core/geometry/laneTopology';
+import {
+  reconcileLaneTopology,
+  reconcileLaneTopologyIncremental,
+} from '@/core/geometry/laneTopology';
 import {
   reconcileOverlaps,
   invalidateLaneCaches,
@@ -42,6 +45,8 @@ interface MapActions {
    * incremental reconcile 的累积漂移。导入路径专用。
    */
   batchImport(entities: MapEntity[]): void;
+  replaceImportedEntities(entities: MapEntity[]): void;
+  replaceImportedEntityMap(entities: Map<string, MapEntity>): void;
   /**
    * Full overlap recompute via Web Worker —— 主线程不被阻塞。
    * 用法：导入完成 / 用户手动 "Recompute overlaps" / 导出前。
@@ -91,7 +96,9 @@ export const useMapStore = create<MapStore>()(
           // 一致性裂缝.
           const dirty = new Set<string>([entity.id]);
           if (topologyAffectingType(entity.entityType)) {
-            const { changes } = reconcileLaneTopology(state.entities);
+            const { changes } = reconcileLaneTopologyIncremental(state.entities, {
+              dirtyIds: dirty,
+            });
             for (const [cid, c] of changes) {
               state.entities.set(cid, c);
               dirty.add(cid);
@@ -102,12 +109,18 @@ export const useMapStore = create<MapStore>()(
       },
 
       updateEntity(id, entity) {
+        const previous = get().entities.get(id);
         set((state) => {
           if (!state.entities.has(id)) return;
           state.entities.set(id, entity);
           const dirty = new Set<string>([id]);
           if (topologyAffectingType(entity.entityType)) {
-            const { changes } = reconcileLaneTopology(state.entities);
+            const previousEntities =
+              previous && previous !== entity ? new Map([[id, previous]]) : undefined;
+            const { changes } = reconcileLaneTopologyIncremental(state.entities, {
+              dirtyIds: dirty,
+              previousEntities,
+            });
             for (const [cid, c] of changes) {
               state.entities.set(cid, c);
               dirty.add(cid);
@@ -149,7 +162,11 @@ export const useMapStore = create<MapStore>()(
           state.entities.delete(id);
           const dirty = new Set<string>([...cleanups.keys(), ...spatialNeighborLanes]);
           if (removed && topologyAffectingType(removed.entityType)) {
-            const { changes } = reconcileLaneTopology(state.entities);
+            dirty.add(removed.id);
+            const { changes } = reconcileLaneTopologyIncremental(state.entities, {
+              dirtyIds: dirty,
+              previousEntities: new Map([[removed.id, removed]]),
+            });
             for (const [cid, c] of changes) {
               state.entities.set(cid, c);
               dirty.add(cid);
@@ -174,6 +191,24 @@ export const useMapStore = create<MapStore>()(
           for (const oid of patch.removedOverlapIds) state.entities.delete(oid);
           for (const [oid, e] of patch.changes) state.entities.set(oid, e);
         });
+      },
+
+      replaceImportedEntities(entities) {
+        const next = new Map<string, MapEntity>();
+        for (const e of entities) next.set(e.id, e);
+        get().replaceImportedEntityMap(next);
+      },
+
+      replaceImportedEntityMap(entities) {
+        const temporal = useMapStore.temporal.getState();
+        temporal.pause();
+        try {
+          set({ entities });
+          temporal.clear();
+        } finally {
+          temporal.resume();
+        }
+        resetSharedSpatialIndex();
       },
 
       reparentEntity(childId, target) {
