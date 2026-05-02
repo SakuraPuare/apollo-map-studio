@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type maplibregl from 'maplibre-gl';
 import { useApolloMapStore } from '@/store/apolloMapStore';
-import { computeApolloMapBounds } from '@/io/proto/apolloGeoJson';
 
 /**
  * Render the imported (read-only) Apollo HD-map onto the canvas as a set
@@ -179,7 +178,7 @@ export function useApolloLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,
   mapLoadedRef: React.RefObject<boolean>,
 ) {
-  const rawMap = useApolloMapStore((s) => s.rawMap);
+  const bounds = useApolloMapStore((s) => s.bounds);
   const installedRef = useRef(false);
 
   useEffect(() => {
@@ -220,14 +219,8 @@ export function useApolloLayer(
         src?.setData(EMPTY_FC);
       }
 
-      // Auto-fit viewport to imported map bounds.
-      if (rawMap) {
-        const bounds = computeApolloMapBounds(
-          rawMap as Parameters<typeof computeApolloMapBounds>[0],
-        );
-        if (bounds) {
-          map.fitBounds(bounds, { padding: 60, animate: true, duration: 600 });
-        }
+      if (bounds) {
+        map.fitBounds(bounds, { padding: 60, animate: true, duration: 600 });
       }
     };
 
@@ -239,9 +232,7 @@ export function useApolloLayer(
       };
     }
     return undefined;
-  }, [rawMap, mapRef, mapLoadedRef]);
+  }, [bounds, mapRef, mapLoadedRef]);
 }
 
-// (Bounds for auto-fit are now computed by computeApolloMapBounds in
-// apolloGeoJson.ts directly from the raw map; the GeoJSON-feature walker
-// that used to live here is no longer needed.)
+// Bounds are computed in the Apollo IO worker during import.

@@ -22,9 +22,20 @@ export interface ApolloMapImportInfo {
   importedAt: number;
 }
 
+export type ApolloMapBounds = [[number, number], [number, number]];
+export type ApolloMapHeader = Record<string, unknown>;
+
 interface ApolloMapState {
-  /** Decoded `apollo.hdmap.Map` message; PointENU coordinates are lon/lat. */
+  /**
+   * Decoded `apollo.hdmap.Map` message; retained only for legacy in-process
+   * callers/tests. Browser import keeps the full tree inside the IO worker so
+   * React state does not clone or rescan 50-200MB maps on the main thread.
+   */
   rawMap: Record<string, unknown> | null;
+  /** Lightweight clone of Map.header for metadata UI. */
+  header: ApolloMapHeader | null;
+  /** WGS84 bounds precomputed during import, used for viewport fit. */
+  bounds: ApolloMapBounds | null;
   /** Diagnostic info for the most recent import. */
   info: ApolloMapImportInfo | null;
   /** Last error from import/export, surfaced to the UI. */
@@ -32,22 +43,40 @@ interface ApolloMapState {
 }
 
 interface ApolloMapActions {
-  setMap(rawMap: Record<string, unknown>, info: ApolloMapImportInfo): void;
+  setMap(rawMap: Record<string, unknown> | null, info: ApolloMapImportInfo): void;
+  setImported(
+    info: ApolloMapImportInfo,
+    bounds: ApolloMapBounds | null,
+    header?: ApolloMapHeader | null,
+  ): void;
   clear(): void;
   setError(message: string | null): void;
 }
 
 export const useApolloMapStore = create<ApolloMapState & ApolloMapActions>((set) => ({
   rawMap: null,
+  header: null,
+  bounds: null,
   info: null,
   lastError: null,
 
   setMap(rawMap, info) {
-    set({ rawMap, info, lastError: null });
+    const header = rawMap?.header;
+    set({
+      rawMap,
+      header: header && typeof header === 'object' ? (header as ApolloMapHeader) : null,
+      info,
+      bounds: null,
+      lastError: null,
+    });
+  },
+
+  setImported(info, bounds, header = null) {
+    set({ rawMap: null, header, info, bounds, lastError: null });
   },
 
   clear() {
-    set({ rawMap: null, info: null, lastError: null });
+    set({ rawMap: null, header: null, bounds: null, info: null, lastError: null });
   },
 
   setError(message) {

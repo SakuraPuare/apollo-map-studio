@@ -6,6 +6,7 @@ import { MenuBar } from './MenuBar';
 import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar } from './ActivityBar';
+import { TaskProgressOverlay } from './TaskProgressOverlay';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
@@ -164,6 +165,8 @@ function WorkspaceLayoutInner() {
       <Suspense fallback={null}>
         <LazyProjPickerDialog />
       </Suspense>
+
+      <TaskProgressOverlay />
     </div>
   );
 }

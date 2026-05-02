@@ -29,14 +29,16 @@ export interface Projection {
 /** Build a Projection from a PROJ.4 string (typically the value of Header.projection.proj). */
 export function makeProjection(projString: string): Projection {
   const clean = sanitizeProjString(projString);
+  const toWgs84 = proj4(clean, WGS84);
+  const fromWgs84 = proj4(WGS84, clean);
   return {
     projString: clean,
     toLonLat: ({ x, y, z }) => {
-      const [lon, lat] = proj4(clean, WGS84, [x, y]);
+      const [lon, lat] = toWgs84.forward([x, y]);
       return z === undefined ? { x: lon, y: lat } : { x: lon, y: lat, z };
     },
     fromLonLat: ({ x, y, z }) => {
-      const [ex, ey] = proj4(WGS84, clean, [x, y]);
+      const [ex, ey] = fromWgs84.forward([x, y]);
       return z === undefined ? { x: ex, y: ey } : { x: ex, y: ey, z };
     },
   };

@@ -106,3 +106,12 @@ body,
 .dockview-theme-dark .sash.active {
   background: rgba(34, 211, 238, 0.3);
 }
+
+@keyframes ams-indeterminate {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(330%);
+  }
+}
