@@ -1,71 +1,29 @@
-# export/buildSimMap
+# export / sim_map
 
-Produces a downsampled `ApolloMap` for Dreamview visualization, porting `sim_map_generator.cc`.
+当前源码没有 `buildSimMap()`、downsample pass 或 `sim_map.bin` 导出。旧文档中的 sim map 内容不是现有 API。
 
-## buildSimMap
+## Existing Export
 
-```ts
-function buildSimMap(baseMap: ApolloMap): ApolloMap;
-```
-
-Takes a fully-built base map and returns a new `ApolloMap` with:
-
-- All lane curves downsampled (fewer points)
-- `left_sample`, `right_sample`, `left_road_sample`, `right_road_sample` removed from all lanes
-- All non-lane elements preserved unchanged
-
-**Example**
+当前只有 base map 导出：
 
 ```ts
-const base = await buildBaseMap(state);
-const sim = buildSimMap(base);
-const bytes = await encodeMap(sim);
-downloadBinary(bytes, 'sim_map.bin');
+export async function exportApolloBin(): Promise<void>;
+export async function exportApolloText(): Promise<void>;
 ```
 
----
+两者都会输出完整 `apollo.hdmap.Map`，不会生成 Dreamview 专用降采样 map。
 
-## downsampleByAngle
+## Geometry Behavior Today
 
-```ts
-function downsampleByAngle(
-  points: number[][],
-  threshold?: number, // default: Math.PI / 180 (1°)
-): number[][];
-```
+- 导入 Apollo lane 时，渲染和 overlap 优先使用原始 `leftBoundary` / `rightBoundary` 点列。
+- 编辑器新建 lane 没有显式边界时，使用中心线和 sample width 通过 `offsetPolylineDeg()` 生成显示边界。
+- spatial worker 只生成 GeoJSON 渲染 feature，不写 sim map。
 
-Removes intermediate points whose bearing change from the previous to the next point is below `threshold`. Always keeps the first and last point.
+## Not Implemented
 
-**Algorithm (from `points_downsampler.h`)**
+不存在以下 API：
 
-```
-for i in 1..n-2:
-  delta_heading = |bearing(points[i-1]→points[i]) - bearing(points[i]→points[i+1])|
-  if delta_heading >= threshold: keep points[i]
-```
-
----
-
-## downsampleByDistance
-
-```ts
-function downsampleByDistance(
-  points: number[][],
-  normalInterval?: number, // default: 5 m
-  steepInterval?: number, // default: 1 m
-): number[][];
-```
-
-Keeps one point per `normalInterval` meters. On steep curves (heading change > π/4 = 45°), uses `steepInterval` instead to preserve curve fidelity.
-
----
-
-## Application scope
-
-Both passes are applied to every `CurveSegment.lineSegment.point[]` in:
-
-- `lane.central_curve`
-- `lane.left_boundary.curve`
-- `lane.right_boundary.curve`
-
-This reduces the point count of a typical city-driving lane from ~100+ points (1 m sampling) to ~20–30 points, significantly reducing the sim_map file size and Dreamview rendering load.
+- `buildSimMap`
+- `downsampleByAngle`
+- `downsampleByDistance`
+- `sim_map.bin` 下载入口

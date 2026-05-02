@@ -1,99 +1,90 @@
-# export/buildBaseMap
+# export / base_map
 
-Assembles a complete `apollo.hdmap.Map` proto object from editor state.
-
-## buildBaseMap
+当前导出入口是：
 
 ```ts
-async function buildBaseMap(params: {
-  project: ProjectConfig;
-  lanes: LaneFeature[];
-  junctions: JunctionFeature[];
-  signals: SignalFeature[];
-  stopSigns: StopSignFeature[];
-  crosswalks: CrosswalkFeature[];
-  clearAreas: ClearAreaFeature[];
-  speedBumps: SpeedBumpFeature[];
-  parkingSpaces: ParkingSpaceFeature[];
-  roads: RoadDefinition[];
-}): Promise<ApolloMap>;
+export async function exportApolloBin(): Promise<void>;
+export async function exportApolloText(): Promise<void>;
 ```
 
-Translates the editor's GeoJSON state into a complete `ApolloMap` object ready for encoding.
+源码中没有独立 `buildBaseMap()` API。导出在 `apolloIO.worker.ts` 内完成：拓扑和 overlap 重算、entity bridge 合并、坐标反投影、bin/text 编码。
 
-**Steps:**
+## Preconditions
 
-1. Call `setGlobalProjection(project.originLat, project.originLon)`
-2. Convert each `LaneFeature` → `ApolloLane` (see below)
-3. Group lanes into `ApolloRoad` objects by `roadId`
-4. Convert junctions, signals, stop signs, crosswalks, clear areas, speed bumps, parking spaces
-5. Run `computeAllOverlaps()` and distribute overlap IDs to lanes and elements
-6. Assemble `MapHeader` with projection string, version, date
-7. Return the complete `ApolloMap`
+`currentExportContext()` 要求已有导入信息：
 
-### Lane conversion detail
+- `useApolloMapStore.getState().info`
+- 当前 `useMapStore.getState().entities`
+- worker 内 `cachedRawLonLatMap`
+
+没有导入来源时会写入：
+
+```text
+Nothing to export - import a map first.
+```
+
+worker 缺少导入底稿时会抛：
+
+```text
+No imported Apollo map is cached in the IO worker.
+```
+
+## Main Thread Flow
+
+1. 读取导出上下文。
+2. 开始 task：`apollo-export`。
+3. 调用 `apolloIOBridge.exportBin()` 或 `exportText()`。
+4. worker 返回 `Uint8Array`。
+5. 复制 bytes，创建 Blob。
+6. `downloadBlob()` 下载。
+
+文件名为原文件名去后缀后追加时间戳：
 
 ```ts
-ApolloLane {
-  id: { id: lane.id }
+`${base}-${YYYYMMDDhhmmss}.${bin | txt}`;
+```
 
-  central_curve: {
-    segment: [{
-      line_segment: {
-        point: centerLine.coordinates.map(lngLatToENU)
-      }
-      s: 0
-      start_position: lngLatToENU(first coordinate)
-      heading: computeStartHeading(centerLine)
-      length: turf.length(centerLine, { units: 'meters' })
-    }]
-  }
+## Worker Protocol
 
-  left_boundary:  { curve: offsetCurve(+width/2), boundary_type: [...] }
-  right_boundary: { curve: offsetCurve(-width/2), boundary_type: [...] }
+导出采用分块发送：
 
-  length:        turf.length(centerLine)
-  speed_limit:   lane.speedLimit
-  type:          lane.laneType
-  turn:          lane.turn
-  direction:     lane.direction
-
-  predecessor_id:  lane.predecessorIds.map(id => ({ id }))
-  successor_id:    lane.successorIds.map(id => ({ id }))
-  left_neighbor_forward_lane_id:  lane.leftNeighborIds.map(...)
-  right_neighbor_forward_lane_id: lane.rightNeighborIds.map(...)
-
-  left_sample:  computeLaneSamples(centerLine, width/2)
-  right_sample: computeLaneSamples(centerLine, width/2)
-
-  junction_id: lane.junctionId ? { id: lane.junctionId } : undefined
-  overlap_id: [populated after overlap computation]
+```ts
+{
+  type: ('BEGIN_EXPORT', requestId, format, projString, total);
+}
+{
+  type: ('EXPORT_ENTITIES_CHUNK', requestId, entities, offset, total);
+}
+{
+  type: ('FINISH_EXPORT', requestId);
 }
 ```
 
-### Road grouping
+主线程每 2000 个实体发一块，并在块之间 `setTimeout(0)` 让出主线程。worker 收齐数量不等于 `total` 时抛错。
 
-`buildRoads()` groups lanes using `RoadDefinition` objects that carry a name and type:
+## Worker Pipeline
 
-```ts
-// Lanes assigned to a RoadDefinition are grouped into that road
-for (const [roadId, roadLanes] of roadLanesMap) {
-  const def = roadDefMap.get(roadId)!;
-  roads.push({
-    id: { id: roadId },
-    section: [{ id: { id: `${roadId}_section_0` }, lane_id: roadLanes.map((l) => ({ id: l.id })) }],
-    type: def.type, // RoadType from the definition (HIGHWAY, CITY_ROAD, PARK)
-  });
-}
+`runExport()`：
 
-// Unassigned lanes each get their own single-lane road
-for (const lane of unassignedLanes) {
-  roads.push({
-    id: { id: `road_${lane.id}` },
-    section: [{ id: { id: `road_${lane.id}_section_0` }, lane_id: [{ id: lane.id }] }],
-    type: RoadType.CITY_ROAD,
-  });
-}
-```
+1. 校验 `cachedRawLonLatMap`。
+2. `applyImportTopology(entities)`：
+   - `reconcileLaneTopology()`
+   - `reconcileOverlaps(..., { mode: 'full' }, new SpatialIndex())`
+3. `entitiesToApolloMap(cachedRawLonLatMap, processed.entities)` 合并当前实体。
+4. `apolloMapFromLonLat(merged, projString)` 把所有 `PointENU` 转回 Apollo ENU/UTM。
+5. 编码：
+   - bin：`encodeMapBin(enuMap)`，会 `Map.verify()`。
+   - text：`encodeMapText(enuMap)`，再 `TextEncoder`。
+6. transfer `bytes.buffer` 返回主线程。
 
-Header `bytes` fields (`version`, `date`, `district`, `vendor`) are encoded as `Uint8Array` via `TextEncoder` to satisfy protobuf's `bytes` wire type.
+## Entity Coverage
+
+导出覆盖 `crosswalk`、`junction`、`lane`、`stop_sign`、`signal`、`yield`、`overlap`、`clear_area`、`speed_bump`、`road`、`parking_space`、`pnc_junction`、`rsu`、`ad_area`、`barrier_gate`。其它 raw map 字段保留在导入底稿浅拷贝中。
+
+## Lane Fidelity
+
+`entityToRawLane()` 保留中心线、左右边界曲线、boundary type、长度、限速、拓扑 id、左右邻、反向邻、self reverse、junction id、overlap ids，以及 lane/road samples。enum 通过反查表转回 proto number。
+
+## Overlap Fidelity
+
+导出前 overlap 全量重算。id 使用 `overlap_<sortedParticipants...>`。lane overlap 写出 `start_s/end_s/is_merge/region_overlap_id`；`lane × crosswalk` 可生成 `region_overlap` polygon。用户 override 可 pin `isMerge` 和 `regionOverlaps`。

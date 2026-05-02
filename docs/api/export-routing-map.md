@@ -1,124 +1,47 @@
-# export/buildRoutingMap
+# export / routing_map
 
-Builds an `apollo.routing.Graph` topological map from lane connectivity, porting `topo_creator`.
+当前源码没有 `buildRoutingMap()`、`encodeGraph()`、`TopoGraph` 或 `routing_map.bin` 导出。旧文档中的 routing map 内容不是现有 API。
 
-## buildRoutingMap
+## Existing Topology API
+
+可复用的是 lane 拓扑派生：
 
 ```ts
-function buildRoutingMap(map: ApolloMap): TopoGraph;
+export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff;
+
+export function reconcileLaneTopologyIncremental(
+  entities: ReadonlyMap<string, MapEntity>,
+  options: LaneTopologyIncrementalOptions,
+): LaneTopologyDiff;
 ```
 
-Takes a fully built `ApolloMap` object (from `buildBaseMap()`) and returns a `TopoGraph` containing one `TopoNode` per lane and `TopoEdge` objects for each traversable transition.
-
-**Example**
+返回：
 
 ```ts
-const baseMap = await buildBaseMap({ ... })
-const graph = buildRoutingMap(baseMap)
-const bytes = await encodeGraph(graph)
-downloadBinary(bytes, 'routing_map.bin')
-```
-
----
-
-## TopoNode construction
-
-For each `LaneFeature`:
-
-```ts
-TopoNode {
-  lane_id: lane.id
-  road_id: lane.roadId ?? lane.id
-  length: turf.length(lane.centerLine, { units: 'meters' })
-  cost: length * Math.sqrt(BASE_SPEED / lane.speedLimit) + turnPenalty(lane.turn)
-  is_virtual: isInsideJunction && !hasNeighbors
-  left_out: CurveRange[]   // populated by buildOutBoundary() if boundary allows lane change
-  right_out: CurveRange[]
+interface LaneTopologyDiff {
+  changes: Map<string, LaneEntity>;
 }
 ```
 
-### Turn penalties
+会派生 pred/succ、左右邻、反向邻、self reverse 和 junctionId。
 
-| `LaneTurn`   | Penalty (seconds equivalent) |
-| ------------ | ---------------------------- |
-| `NO_TURN`    | 0                            |
-| `LEFT_TURN`  | 50                           |
-| `RIGHT_TURN` | 20                           |
-| `U_TURN`     | 100                          |
+## Rules
 
-### Virtual node condition
+- pred/succ：端点 `toFixed(6)` 后共享。
+- selfReverse：两端互为反向。
+- junctionId：中心线端点在 polygon 内，或线段穿越 polygon 边。
+- neighbor：局部米空间中平行、纵向重叠至少 50%，横向距离约 1 到 8 米。
+- 平行阈值约为 `cos(18deg)`。
 
-```ts
-is_virtual =
-  lane.junctionId !== undefined &&
-  lane.leftNeighborIds.length === 0 &&
-  lane.rightNeighborIds.length === 0;
-```
+## Export Relationship
 
----
+base_map 导入后和导出前都会运行 `reconcileLaneTopology()`，所以 `base_map.bin` 的 lane 拓扑字段会随几何更新。但这不等于生成 Apollo `routing_map.bin`。
 
-## TopoEdge construction
+## Not Implemented
 
-### FORWARD edges
+不存在以下 API 或文件输出：
 
-One `FORWARD` edge per `successorId`:
-
-```ts
-TopoEdge {
-  from_lane_id: lane.id
-  to_lane_id: successorId
-  cost: 0
-  direction: EdgeDirection.FORWARD
-}
-```
-
-### LATERAL edges (lane change)
-
-For each left/right neighbor, if the shared boundary permits lane changes:
-
-```ts
-const allowedBoundaries = [BoundaryType.DOTTED_WHITE, BoundaryType.DOTTED_YELLOW];
-
-if (allowedBoundaries.includes(sharedBoundaryType)) {
-  const changingLen = BASE_CHANGING_LENGTH; // 50 m
-  const cost = CHANGE_PENALTY * Math.pow(changingLen / BASE_CHANGING_LENGTH, -1.5);
-  // = 500 * 1^-1.5 = 500
-
-  edges.push({
-    from_lane_id: lane.id,
-    to_lane_id: neighborId,
-    cost,
-    direction: side === 'left' ? EdgeDirection.LEFT : EdgeDirection.RIGHT,
-  });
-}
-```
-
-Boundaries that **block** lane-change edges: `SOLID_WHITE`, `SOLID_YELLOW`, `DOUBLE_YELLOW`, `CURB`, `UNKNOWN`.
-
----
-
-## Configuration constants
-
-```ts
-const BASE_SPEED = 4.167; // m/s  (15 km/h)
-const LEFT_TURN_PENALTY = 50;
-const RIGHT_TURN_PENALTY = 20;
-const UTURN_PENALTY = 100;
-const CHANGE_PENALTY = 500;
-const BASE_CHANGING_LENGTH = 50; // meters
-```
-
-Source: `modules/routing/conf/routing_config.pb.txt`
-
----
-
-## TopoGraph structure
-
-```ts
-TopoGraph {
-  hdmap_version: project.version
-  hdmap_district: project.name
-  node: TopoNode[]
-  edge: TopoEdge[]
-}
-```
+- `buildRoutingMap`
+- `TopoNode` / `TopoEdge`
+- `encodeGraph`
+- `routing_map.bin` 下载入口

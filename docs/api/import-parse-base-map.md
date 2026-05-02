@@ -1,99 +1,93 @@
-# import/parseBaseMap
+# import / Apollo base_map
 
-Decodes a `base_map.bin` binary buffer and restores it as editor GeoJSON state.
-
-## parseBaseMap
+当前导入入口是 `src/io/mapIO.ts` 的 `pickAndImportApollo()`，不是旧版 `parseBaseMap()`。
 
 ```ts
-async function parseBaseMap(buffer: Uint8Array): Promise<ParsedMapState>;
+export async function pickAndImportApollo(): Promise<ApolloMapImportInfo | null>;
 ```
 
-**Parameters**
+## Main Thread
 
-| Name     | Type         | Description                        |
-| -------- | ------------ | ---------------------------------- |
-| `buffer` | `Uint8Array` | Raw bytes of a `base_map.bin` file |
+流程：
 
-**Returns**
+1. `pickFile('.bin,.txt,.pb.txt,application/octet-stream,text/plain')`。
+2. `readFileAsBytes(file)` 读成 `Uint8Array`。
+3. 文件名匹配 `.(pb.txt|txt)` 时走 `apolloIOBridge.importText()`，否则走 `importBin()`。
+4. 用 task id `apollo-import` 展示 progress。
+5. 成功后：
+   - `useApolloMapStore.getState().setImported(result.info, result.bounds, result.header)`
+   - `useMapStore.getState().replaceImportedEntities(result.entities)`
+6. 失败时写入 `Import failed: ...` 并返回 `null`。
+
+## Worker Protocol
 
 ```ts
-interface ParsedMapState {
-  project: ProjectConfig;
-  lanes: LaneFeature[];
-  junctions: JunctionFeature[];
-  signals: SignalFeature[];
-  stopSigns: StopSignFeature[];
-  crosswalks: CrosswalkFeature[];
-  clearAreas: ClearAreaFeature[];
-  speedBumps: SpeedBumpFeature[];
-  parkingSpaces: ParkingSpaceFeature[];
-  roads: RoadDefinition[];
+type ApolloIORequest =
+  | { type: 'IMPORT_BIN'; requestId: string; filename: string; bytes: Uint8Array }
+  | { type: 'IMPORT_TEXT'; requestId: string; filename: string; bytes: Uint8Array }
+  | { type: 'RESOLVE_PROJECTION'; requestId: string; projString: string };
+```
+
+导入响应包括：
+
+- `PROGRESS`
+- `NEEDS_PROJECTION`
+- `IMPORT_ENTITIES_CHUNK`
+- `IMPORT_RESULT`
+- `ERROR`
+
+实体按 2000 个一块返回。`ApolloIOBridge` 为请求设置 10 分钟超时。
+
+## Worker Pipeline
+
+`runImport()` 的真实步骤：
+
+1. 解码。
+   - bin：`decodeMapBin(bytes)`。
+   - text：`decodeMapText(TEXT_DECODER.decode(bytes))`。
+2. 读取 `header.projection.proj`。
+   - `readHeaderProjString()` 支持 string、`Uint8Array`、number array。
+   - 缺失时发送 `NEEDS_PROJECTION`，主线程用户取消则 fallback 到 `UTM_PRESETS.beijing`。
+3. 投影到 lon/lat。
+   - `apolloMapToLonLat(decodedEnu, projString)` 递归转换所有 schema 类型为 `apollo.common.PointENU` 的点。
+   - 导入后的编辑器约定：`PointENU.x = longitude`，`PointENU.y = latitude`。
+4. 缓存 lon/lat raw map。
+   - `cachedRawLonLatMap = lonLatMap`。
+   - 当前导出依赖这份导入底稿。
+5. bridge 到 `MapEntity[]`。
+   - `apolloMapToEntities(lonLatMap)`。
+6. 计算 bounds。
+   - `computeApolloMapBounds(lonLatMap)`。
+7. 重算拓扑与 overlap。
+   - `reconcileLaneTopology(entityMap)`。
+   - `reconcileOverlaps(entityMap, { mode: 'full' }, new SpatialIndex())`。
+8. 分块发送实体，再发送 `IMPORT_RESULT`。
+
+## Result
+
+```ts
+interface ApolloImportWorkerResult {
+  info: ApolloMapImportInfo;
+  header: ApolloMapHeader | null;
+  bounds: ApolloMapBounds | null;
+  entities: MapEntity[];
+  stats: ApolloImportStats;
 }
 ```
 
-**Steps**
+`info` 包含文件名、顶层数组浅计数、实际使用的清洗后 PROJ 字符串和导入时间。`stats` 包含 `decodeMs`、`projectMs`、`bridgeMs`、`topologyMs`、`overlapMs`、`totalMs`。
 
-1. `decodeMap(buffer)` — binary → `ApolloMap` JS object
-2. Extract `originLat` / `originLon` from `map.header.projection.proj`
-3. `setGlobalProjection(originLat, originLon)`
-4. For each `ApolloLane`:
-   - Convert `central_curve` PointENU → WGS84 `LineString`
-   - Estimate width from `left_sample` + `right_sample` averages
-   - Extract boundary types from `left_boundary.boundary_type[0].types[0]`
-   - Restore topology IDs from `predecessor_id`, `successor_id`, etc.
-5. For each polygon element (junction, crosswalk, clear area, parking space):
-   - Convert `polygon.point[]` PointENU → WGS84 `Polygon`
-6. For each line element (stop sign, speed bump):
-   - Convert `stop_line[0]` or `position[0]` curve → WGS84 `LineString`
-7. For each signal:
-   - Convert stop line → WGS84 `LineString`
-   - Derive position from stop line midpoint
+## Boundaries
 
-**Example**
+- 文件内容不做魔数检查，后缀只决定 text/bin 解码器。
+- text proto 未知字段跳过，已知字段类型错误抛异常。
+- raw entity 缺失 id 时对应 bridge 返回 `null` 并跳过。
+- `z` 坐标投影时原样保留。
+- 导入后 overlap 会被当前几何规则重算，源 overlap id 顺序不作为保真目标。
 
-```ts
-const buffer = new Uint8Array(await file.arrayBuffer());
-const parsed = await parseBaseMap(buffer);
+## Tests
 
-useMapStore.getState().setProject(parsed.project);
-useMapStore.getState().loadState({
-  lanes: Object.fromEntries(parsed.lanes.map((l) => [l.id, l])),
-  // ...
-});
-```
-
----
-
-## parseProjString (internal)
-
-```ts
-function parseProjString(projStr: string): { lat: number; lon: number } | null;
-```
-
-Extracts `+lat_0` and `+lon_0` values from a proj4 string using regex. Returns `null` if the string is absent or malformed.
-
----
-
-## Width estimation
-
-```ts
-const widthSamples = lane.leftSample.map((s, i) => {
-  const rightS = lane.rightSample[i];
-  return s.width + (rightS?.width ?? s.width);
-});
-const width = mean(widthSamples) || 3.75;
-```
-
-This produces a single uniform width value, which is acceptable for lanes with approximately constant width.
-
----
-
-## Header bytes decoding
-
-Proto `Header` fields `version`, `date`, `district`, and `vendor` are `bytes` type. The `bytesToString()` helper decodes them from base64 (protobufjs `toObject` output) or `Uint8Array` back to UTF-8 strings.
-
-## Known limitations
-
-- `overlap_id` arrays are not restored (recomputed on next export)
-- Signal `subsignal` geometry is not restored
-- `z` coordinates are discarded (editor is 2D)
+- `src/io/__tests__/endToEnd.test.ts`：fixture 导入、投影、bridge、bin/text 再编码。
+- `src/io/proto/__tests__/projection.test.ts`：投影清洗与往返。
+- `src/io/proto/__tests__/mapDataPerformance.test.ts`：真实 map_data 性能阶段。
+- `curveFidelity`、`subsignalFidelity`、`overlapFidelity`：关键结构保真。

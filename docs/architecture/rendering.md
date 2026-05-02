@@ -1,144 +1,182 @@
 # Rendering Pipeline
 
-Apollo Map Studio renders map elements as MapLibre GL layers, reacting to Zustand store changes.
+Apollo Map Studio renders through MapLibre GL, but the render path is not a
+single React component that rebuilds all GeoJSON on every edit. The current
+pipeline is split into three visual lanes:
 
-## Map initialization
+1. **Cold layer**: committed entities in `mapStore.entities`.
+2. **Hot layer**: the selected entity and in-flight drag preview.
+3. **Overlay layer**: draft drawing, snap indicator, grid and helper geometry.
 
-`MapEditor.tsx` initializes MapLibre with a blank dark background style (no tile server):
+`src/components/map/MapCanvas.tsx` is the composition point. It creates the
+`SpatialWorkerBridge`, initializes MapLibre, then mounts the hooks that own
+each part of the pipeline:
 
 ```ts
-const style: StyleSpecification = {
+useMapLibreInit(containerRef);
+useDrawCommit(actorRef);
+useMapEventRouter(mapRef, actorRef, bridgeRef);
+useOverlayLayer(mapRef, mapLoadedRef, actorRef);
+useColdLayer(mapRef, mapLoadedRef, actorRef, bridgeRef);
+useHotLayer(mapRef, mapLoadedRef, actorRef);
+useGridLayer(mapRef, mapLoadedRef);
+useApolloLayer(mapRef, mapLoadedRef);
+useCursorManager(mapRef, actorRef);
+useDragPan(mapRef, actorRef);
+```
+
+## Map Initialization
+
+`useMapLibreInit` creates a MapLibre map with a self-contained dark style:
+
+```ts
+const DARK_STYLE = {
   version: 8,
+  name: 'dark-blank',
+  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
   sources: {},
   layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#1a1a2e' } }],
 };
 ```
 
-After the `load` event fires:
+The initial center and zoom come from `settingsStore` readers, not from React
+state. On `load`, `addEditorLayers(map)` registers all runtime images, sources
+and layers. `laneArrowSpacing` is the one layout property that updates from
+settings after load.
 
-1. Pattern images are registered (`addImage`) for crosswalk zebra, clear-area cross-hatch, speed-bump bars, parking-space grid
-2. Icon images are registered for the signal light, stop-sign `×`, direction chevron, parking `P`
-3. All GeoJSON sources and layers are added via `addMapElementLayers()`
-4. `mapbox-gl-draw` is initialized and its event handlers are wired up
+## Runtime Images
 
-## Source → layer mapping
+`src/hooks/mapLibreInit/assets.ts` registers images at runtime:
 
-Each element type gets a dedicated GeoJSON source that is updated on every store change.
+| Image id       | Source                           | Used by                                              |
+| -------------- | -------------------------------- | ---------------------------------------------------- |
+| `zebra-stripe` | generated RGBA stripe pattern    | crosswalk fill                                       |
+| `red-hatch`    | generated diagonal hatch pattern | clear area fill                                      |
+| `lane-arrow`   | generated SDF triangle           | lane direction arrows                                |
+| map icons      | `registerMapIcons(map)`          | signal, stop sign, parking, barrier and other labels |
 
-| Source ID              | Content                                                       |
-| ---------------------- | ------------------------------------------------------------- |
-| `lanes-center`         | Lane centerline `LineString` features                         |
-| `lanes-fill`           | Lane polygon features (centerline buffered to width)          |
-| `lanes-left-boundary`  | Left boundary `LineString` features                           |
-| `lanes-right-boundary` | Right boundary `LineString` features                          |
-| `junctions`            | Junction `Polygon` features                                   |
-| `signals`              | Signal `Point` features (position) + `LineString` (stop line) |
-| `stop-signs`           | Stop sign `LineString` features                               |
-| `crosswalks`           | Crosswalk `Polygon` features                                  |
-| `clear-areas`          | Clear area `Polygon` features                                 |
-| `speed-bumps`          | Speed bump `LineString` features                              |
-| `parking-spaces`       | Parking space `Polygon` features                              |
-| `connections`          | Synthetic `LineString` features from lane topology            |
-| `lane-midpoints`       | Lane midpoint `Point` features for direction arrows           |
+No external sprite sheet is required. The only networked style asset is the
+MapLibre glyph endpoint used for symbol text support.
 
-## Layer stack (bottom to top)
+## Sources And Layers
 
-```
-background (dark blue-grey fill)
-│
-├── lanes-fill          fill, color per LaneType, opacity 0.25
-├── crosswalks-fill     fill-pattern: zebra canvas image
-├── clear-areas-fill    fill-pattern: cross-hatch canvas image
-├── parking-fill        fill-pattern: grid canvas image
-│
-├── junctions-fill      fill, orange, opacity 0.3
-├── junctions-outline   line, orange, width 1.5
-│
-├── lanes-left-boundary  line, color/dash per BoundaryType
-├── lanes-right-boundary line, color/dash per BoundaryType
-├── speed-bumps          line, yellow, width 4
-│
-├── signals-stop-line    line, red, dashed
-├── stop-signs-line      line, red, width 2
-│
-├── connections          line, cyan, dashed arrows
-├── lane-direction       symbol, chevron icon rotated to heading
-│
-├── signals-icon         symbol, traffic-light icon
-├── stop-signs-icon      symbol, × icon
-└── parking-icon         symbol, P icon
+The current renderer uses a small number of shared sources:
+
+| Source    | Owner hook        | Payload                                                 |
+| --------- | ----------------- | ------------------------------------------------------- |
+| `cold`    | `useColdLayer`    | committed entity features generated in `spatial.worker` |
+| `hot`     | `useHotLayer`     | selected entity edit handles and drag preview           |
+| `overlay` | `useOverlayLayer` | draft drawing and helper handles                        |
+| `snap`    | `useOverlayLayer` | current snap target ring/dot                            |
+| `grid`    | `useGridLayer`    | viewport grid line features                             |
+
+The cold source fans out into fill, line, dotted line, dashed line, label and
+lane-arrow layers. Layer filters are centralized in
+`src/components/map/coldLayerConfig.ts`; selection filters are updated by
+`useColdLayer` so the cold layer does not draw the selected entity under the
+hot edit handles.
+
+## Cold Layer
+
+The cold path is optimized for large Apollo maps:
+
+```text
+mapStore.entities
+  -> useColdLayer diffEntities()
+  -> SpatialWorkerBridge SYNC / INCREMENTAL
+  -> spatial.worker feature cache
+  -> COLD_READY / COLD_DELTA
+  -> GeoJSONSource.setData / updateData
 ```
 
-## Reactive updates
+Important details:
 
-`MapEditor` subscribes to `mapStore` with a selector that returns a serialized snapshot of all elements. When the snapshot changes (deep equality via Zustand's `subscribeWithSelector`), the component calls `map.getSource(id).setData(geojson)` for each affected source.
+- Initial render sends a full `SYNC`.
+- Full sync payloads larger than 2,000 entities are chunked as
+  `SYNC_BEGIN` / `SYNC_CHUNK` / `SYNC_FINISH`.
+- Incremental edits send only `added`, `updated` and `removed`.
+- Worker responses use `EntityFeatureGroup[]`, keyed by entity id.
+- The main thread keeps a per-entity feature cache and applies `updateData`
+  diffs when possible.
+- If more than 5,000 entities changed at once, `useColdLayer` falls back to a
+  full worker sync.
+- Cold source updates are chunked in 4,000-feature batches to keep MapLibre
+  responsive.
 
-```ts
-useEffect(() => {
-  const unsub = useMapStore.subscribe(
-    (s) => s.lanes, // selector
-    () => updateLaneSources(map),
-    { equalityFn: shallow },
-  );
-  return unsub;
-}, [map]);
-```
+`spatial.worker` also owns a lane endpoint graph and a boundary-decoration
+cache. When a lane endpoint changes, only the lane and lanes sharing its
+endpoint have junction boundary decoration refreshed.
 
-Separate subscriptions for each element collection mean only the relevant sources are updated on each edit, not the entire map.
+## Hot Layer
 
-## Canvas pattern images
+The hot layer is the selected entity overlay. It renders from the FSM context,
+not from a worker:
 
-Pattern images for fills are generated at runtime using the browser Canvas API:
+- `selectedEntityId`
+- `dragPointIndex`
+- `dragPointType`
+- `dragCurrentPoint`
+- `dragAltKey`
 
-```ts
-function makeCrosswalkPattern(size = 32): ImageData {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#ffffff22';
-  ctx.fillRect(0, 0, size, size);
-  ctx.strokeStyle = '#ffffffcc';
-  ctx.lineWidth = 3;
-  // Draw horizontal stripes
-  for (let y = 4; y < size; y += 8) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(size, y);
-    ctx.stroke();
-  }
-  return ctx.getImageData(0, 0, size, size);
-}
+During a drag, `useHotLayer` applies `applyDrag()` to a display copy so the
+user sees the final geometry before `mapStore.updateEntity()` commits on
+mouse up. `sameHotRenderState()` skips redundant renders when neither the
+selected entity reference nor the drag state changed.
 
-map.addImage('crosswalk-pattern', makeCrosswalkPattern());
-```
+## Overlay, Snap And Grid
 
-This approach requires no image assets and keeps the editor fully self-contained.
+The overlay source renders draft geometry from the editor FSM. It covers:
 
-## mapbox-gl-draw integration
+- polyline, Bezier, arc, rectangle and polygon drafts;
+- Bezier handles and handle lines;
+- selected snap indicator;
+- drawing helper points before a real entity exists.
 
-`MapEditor` initializes `MapboxDraw` in `simple_select` mode and casts it to `IControl` for MapLibre compatibility:
+Snap state lives in `uiStore.currentSnapTarget`. `setSnapTarget()` deduplicates
+equal targets because mousemove can run at pointer frequency. When snap is
+toggled off, `useMapEventRouter` clears the target immediately so the ring does
+not linger until the next mousemove.
 
-```ts
-const draw = new MapboxDraw({ displayControlsDefault: false });
-map.addControl(draw as unknown as maplibregl.IControl);
-```
+The grid source is separate because it is view-derived, not entity-derived.
+It reacts to `gridEnabled`, zoom and current viewport.
 
-The draw instance is stored in a ref. When `uiStore.drawMode` changes, `MapEditor` calls:
+## Event Routing
 
-```ts
-switch (drawMode) {
-  case 'draw_lane':
-    draw.changeMode('draw_line_string');
-    break;
-  case 'draw_junction':
-    draw.changeMode('draw_polygon');
-    break;
-  case 'select':
-    draw.changeMode('simple_select');
-    break;
-  // ...
-}
-```
+`useMapEventRouter` is the bridge between MapLibre input and the XState editor
+machine:
 
-On `draw.create` events, the new GeoJSON feature is wrapped into the appropriate editor type and dispatched to `mapStore.addElement()`.
+- mouse down starts Bezier drawing or selected-entity drag;
+- click selects entities or adds draw points;
+- double-click confirms drawing;
+- mouse move updates cursor state, snap target and hot draft points;
+- mouse up commits drag edits to `mapStore`;
+- keydown routes Escape, Enter and Delete;
+- connect mode intercepts lane clicks before normal selection.
+
+Hit testing is worker-backed through `SpatialWorkerBridge` and uses an RBush
+index. The worker sorts hits by pick tier so small symbols beat large polygons
+under them.
+
+## Performance Rules
+
+- Keep committed feature generation inside `core/workers`.
+- Keep in-flight edits in `hot` / `overlay`; do not wait for worker round-trips
+  to preview a drag.
+- Use entity identity changes as the diff signal. Mutating an entity object in
+  place without changing the reference will bypass cold-layer updates.
+- Prefer `GeoJSONSource.updateData` for deltas and reserve `setData` for empty
+  resets or large full rebuilds.
+- Keep render-specific constants out of domain modules unless they are pure
+  constants; `coldLayerConfig.ts` is the current render filter authority.
+
+## Tests
+
+Relevant tests:
+
+- `src/hooks/__tests__/useColdLayer.test.ts`
+- `src/hooks/__tests__/useHotLayer.test.ts`
+- `src/hooks/__tests__/useOverlayLayer.test.ts`
+- `src/hooks/__tests__/useGridLayer.test.ts`
+- `src/hooks/__tests__/useMapEventRouter.test.ts`
+- `src/core/workers/__tests__/spatial.worker.test.ts`
+- `src/core/workers/__tests__/laneJunctionGraph.test.ts`

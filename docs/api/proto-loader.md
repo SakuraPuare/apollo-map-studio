@@ -1,64 +1,53 @@
-# io/proto/loader
+# proto / loader
 
-Apollo `.proto` loading using `protobufjs`.
+`src/io/proto/loader.ts` 用 `protobufjs` 加载 Apollo HD Map schema。
+
+```ts
+export function loadApolloProtoRoot(): Promise<protobuf.Root>;
+export async function getMapType(): Promise<protobuf.Type>;
+```
 
 ## loadApolloProtoRoot
 
-```ts
-function loadApolloProtoRoot(): Promise<protobuf.Root>;
-```
-
-Loads the bundled Apollo HD map schema from `src/proto/`, returning a resolved
-`protobuf.Root`. The root is cached after the first call.
-
-**Example**
+加载器使用：
 
 ```ts
-const root = await loadApolloProtoRoot();
-const MapType = root.lookupType('apollo.hdmap.Map');
+import.meta.glob('/src/proto/**/*.proto', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
 ```
 
-## Path Resolution
+所有 proto 在 Vite 构建和 Vitest 中都作为 raw text 可用，不依赖运行时网络或文件读取。首次加载后的 Promise 缓存在模块变量 `cached` 中。
 
-The loader uses `import.meta.glob('/src/proto/**/*.proto', { query: '?raw' })`
-so Vite bundles every proto file as raw text. Apollo imports use paths such as:
+Apollo import 类似：
 
 ```proto
 import "map_msgs/map_lane.proto";
 ```
 
-`protobufjs` would normally resolve that relative to the importing file. The
-loader instead treats every import as root-relative:
+protobufjs 默认会相对当前文件目录解析，可能得到 `map_msgs/map_msgs/map_lane.proto`。当前实现覆盖：
 
 ```ts
 root.resolvePath = (_origin, target) => target;
 ```
 
+把 target 视为 `src/proto` 根目录路径，再通过 `/src/proto/${filename}` 从 glob 表取文本。
+
+`root.fetch` 的 callback 故意用 `Promise.resolve().then(...)` 延后触发，避免 protobufjs 在 import tree 尚未遍历完成时提前 `resolveAll()`。
+
 ## getMapType
 
 ```ts
-async function getMapType(): Promise<protobuf.Type>;
+const root = await loadApolloProtoRoot();
+return root.lookupType('apollo.hdmap.Map');
 ```
 
-Loads the bundled schema and returns the `apollo.hdmap.Map` type.
+bin/text codec 和投影 adapter 都通过它获取顶层 Map schema。当前源码没有 lookup `apollo.routing.Graph` 的路径。
 
-## Proto Files
+## Boundaries
 
-Files are bundled from `src/proto/`:
-
-| File                      | Top-level type                         |
-| ------------------------- | -------------------------------------- |
-| `map.proto`               | `apollo.hdmap.Map`                     |
-| `map_lane.proto`          | `apollo.hdmap.Lane`                    |
-| `map_road.proto`          | `apollo.hdmap.Road`                    |
-| `map_junction.proto`      | `apollo.hdmap.Junction`                |
-| `map_signal.proto`        | `apollo.hdmap.Signal`                  |
-| `map_stop_sign.proto`     | `apollo.hdmap.StopSign`                |
-| `map_crosswalk.proto`     | `apollo.hdmap.Crosswalk`               |
-| `map_clear_area.proto`    | `apollo.hdmap.ClearArea`               |
-| `map_speed_bump.proto`    | `apollo.hdmap.SpeedBump`               |
-| `map_parking_space.proto` | `apollo.hdmap.ParkingSpace`            |
-| `map_overlap.proto`       | `apollo.hdmap.Overlap`                 |
-| `map_geometry.proto`      | `apollo.hdmap.Curve`, `PointENU`, etc. |
-| `map_id.proto`            | `apollo.hdmap.Id`                      |
-| `geometry.proto`          | `apollo.common.PointENU`               |
+- 加载入口固定为 `map_msgs/map.proto`。
+- `keepCase: true` 保留 proto 字段名，如 `central_curve`、`stop_sign`。
+- bundle 缺文件时报 `Proto file not found in bundle: ...`。
