@@ -13,7 +13,15 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'node_modules', '.github', 'src/proto/**', '.husky', 'pnpm-lock.yaml', '.claude/**'],
+    ignores: [
+      'dist',
+      'node_modules',
+      '.github',
+      'src/proto/**',
+      '.husky',
+      'pnpm-lock.yaml',
+      '.claude/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -57,7 +65,10 @@ export default tseslint.config(
       // 超出阈值通常意味着模块责任不单一——拆成兄弟子目录（参考
       // WorkspaceLayout/、mapEventRouter/、mapLibreInit/ 三处既有模式）。
       'max-lines': ['warn', { max: 400, skipBlankLines: true, skipComments: true }],
-      'max-lines-per-function': ['warn', { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true }],
+      'max-lines-per-function': [
+        'warn',
+        { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true },
+      ],
       complexity: ['warn', 15],
       'max-depth': ['warn', 4],
       'max-params': ['warn', 5],
@@ -69,18 +80,26 @@ export default tseslint.config(
       ],
       // 禁掉 `as unknown as X`——AI 卡住时最爱的"让 TS 闭嘴"模式。
       // 强制走类型化访问器/类型守卫/`in` 收敛（参考 2026-04 _source 清理）。
-      'no-restricted-syntax': ['error', {
-        selector: "TSAsExpression > TSAsExpression[typeAnnotation.type='TSUnknownKeyword']",
-        message: 'Avoid `as unknown as X`. Use a typed accessor, type guard, or `in` narrowing — see src/types/apollo.ts getSource/getSourceRect.',
-      }],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "TSAsExpression > TSAsExpression[typeAnnotation.type='TSUnknownKeyword']",
+          message:
+            'Avoid `as unknown as X`. Use a typed accessor, type guard, or `in` narrowing — see src/types/apollo.ts getSource/getSourceRect.',
+        },
+      ],
       // 深相对路径 (`../../../`) 文件一移就断，AI 还得数点。强制用 `@/`。
-      'no-restricted-imports': ['warn', {
-        patterns: [{
-          group: ['../../../*', '../../../../*'],
-          message: 'Use the `@/` path alias instead of deep relative imports.',
-        }],
-      }],
-
+      'no-restricted-imports': [
+        'warn',
+        {
+          patterns: [
+            {
+              group: ['../../../*', '../../../../*'],
+              message: 'Use the `@/` path alias instead of deep relative imports.',
+            },
+          ],
+        },
+      ],
 
       // Plain JS rules we actively use.
       'no-console': ['warn', { allow: ['warn', 'error'] }],
