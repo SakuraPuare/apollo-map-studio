@@ -1,445 +1,275 @@
-# Elements: overlap pipeline
+---
+title: elements/overlap — Overlap 重算管线
+description: 从几何派生 OverlapEntity 的纯函数管线：reconcileOverlaps + SpatialIndex + pairTable + 语义化 id + 用户钉位保护。
+---
 
-> Source: `src/core/elements/overlap/{index,reconcile,types,...}.ts` (12 files)
+# `elements/overlap` — Overlap 重算管线
 
-## Overview
+> 源码：`src/core/elements/overlap/`（12 文件）
+> 测试：`src/core/elements/overlap/__tests__/`
+> 关键文件：`reconcile.ts` / `spatialIndex.ts` / `pairTable.ts` / `intersect.ts`
 
-The overlap pipeline derives `OverlapEntity` instances from the _intersections_
-between lanes and other map entities (junctions, crosswalks, signals, stop
-signs, signal lines, parking spaces, …). Apollo's HD Map proto stores
-overlap metadata as a first-class entity (`OverlapEntity`) carrying
-`ObjectOverlapInfo[]` — for each participant, where the overlap starts /
-ends along the lane (`laneOverlapInfo.startS / endS`) plus auxiliary
-flags like `isMerge`. This module is the single owner of that derivation:
-nothing else writes overlap entities.
+## Purpose & Invariants
 
-The pipeline is **pure**: `(entities, mode) → patch`. The store applies
-the patch in one zundo transaction.
+Apollo HD Map 的 `OverlapEntity` 描述 lane 与其它实体（junction、crosswalk、
+signal、stopSign、signalLine、parkingSpace、…）相交的元数据：参与 id、
+lane 上的弧长区间 `start_s/end_s`、合流标记 `is_merge`、可选的 region 多边形。
 
-```mermaid
-flowchart TD
-    A[mapStore.entities] --> B[reconcileOverlaps]
-    B --> C[SpatialIndex.syncDirty / syncFromEntities]
-    C --> D[per-lane bbox query]
-    D --> E[detectPair / detectLaneLanePair]
-    E --> F[laneCorridorPolygon × secondary.polygon]
-    F --> G[polygon-clipping intersection]
-    E --> H[buildDerivedOverlap]
-    H --> I[diffWithExisting]
-    I --> J[ReconcilePatch]
-```
+这条管线把这件事变成**纯函数**：`(entities, mode) → patch`。
 
-Two operating modes:
+- 输入：`ReadonlyMap<id, MapEntity>` + `ReconcileMode`
+- 输出：`ReconcilePatch { changes, removedOverlapIds, stats }`
+- store 在主线程一次性 apply patch（保持 zundo 单事务）
 
-- **`full`** — rebuild every lane × neighbour pair. Used for cold
-  start / undo-redo / import / pre-export validation.
-- **`incremental`** — only re-test the lanes in `dirtyIds` (or lanes
-  that share an endpoint with a dirty non-lane entity). Used for in-edit
-  reconcile, kept under ~6 ms per call so it can run on the main thread
-  inside the 16 ms frame budget.
+### 不变量
 
-::: info Single id system (B.3 refactor)
-Every overlap id is the semantic form `overlap_<sortedParticipants...>`.
-Imported Apollo data has its `overlap_signal_0_lane_35`-style ids
-coerced into this canonical sorted shape on first reconcile. There is no
-"imported preserve" branch — overlap is treated as a derived geometric
-fact owned by reconcile. Manual edits to `isMerge` / region polygons
-survive via `_userOverrides` pinning (see [override paths](#override-paths)).
-:::
+1. **id 单一体系（B.3 重构后）**：所有 overlap 的 id 都是
+   `overlap_<sortedParticipants...>`。导入 Apollo 数据后第一次 reconcile 会把
+   原 id 顺序统一到 sorted 形式，之后 set-diff 一致。**没有** "imported preserve"
+   分支——overlap = 几何派生事实，由 reconcile 全权管理。
+2. **手工修改用 `_userOverrides` 钉位保护**：`isMerge` 和 `regionOverlaps`
+   是允许用户覆盖的字段；overrides 路径走 `parseLaneIsMergeOverride` 与
+   `REGION_OVERLAPS_OVERRIDE_PATH`。reconcile 不动这些字段。
+3. **lane 是 primary**：proto 的 `LaneOverlapInfo` 是唯一携带 `start_s/end_s`
+   的 oneof 分支，所以扫描循环的抓手是 "per lane × neighbors"，O(L · k_avg)
+   而非 O(N²)。
+4. **每个对子最多一条 OverlapEntity**：dedup 由 `makeOverlapId([a,b])`
+   语义 id 完成。
+5. **lane × lane 同 junction / 跨 junction 行为不同**（GAP-2/GAP-7）：
+   - 同 junction：穿越 / 端点合流 / 端点分流都计为 overlap（路口内轨迹冲突）
+   - 跨 junction：只有"中心线穿越且不是单纯端点共享"才计；端点共享归 pred/succ 拓扑
+   - `is_merge` 仅在 end-end 重合时为真（其它端点共享是 split / 拓扑链接）
 
-## Module map
+## 文件地图
 
-| File                  | Role                                                                                 |
+| 文件                  | 职责                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------ |
-| `index.ts`            | Public re-exports                                                                    |
-| `types.ts`            | `BBox`, `IndexNode`, `ReconcileMode`, `ReconcilePatch`, `PairHit`, `ResolvedOverlap` |
-| `reconcile.ts`        | Main entry point + diff vs existing + override merge                                 |
-| `spatialIndex.ts`     | RBush wrapper; bbox-signature-keyed sync                                             |
-| `geometryAdapters.ts` | Entity → centerline / polygon / stopLines / polylines                                |
-| `intersect.ts`        | Pure geometric primitives (bbox, segment cross, point-in-poly, etc.)                 |
-| `pairTable.ts`        | Data-driven config: which entity pairs with what geometry                            |
-| `computeLaneS.ts`     | Lane arc-length cache + segment-param projection                                     |
-| `polyClip.ts`         | `polygon-clipping` wrapper (intersection / largest ring)                             |
-| `laneCorridor.ts`     | Build the lane's geographic footprint polygon                                        |
-| `overlapId.ts`        | `makeOverlapId(participantIds)` — semantic id derivation                             |
-| `regionId.ts`         | `makeRegionId(participantIds, slot)` — for `RegionOverlapInfo`                       |
-| `overridePaths.ts`    | Pin-path encoding shared with inspector                                              |
+| `index.ts`            | 公开 API barrel（`reconcileOverlaps` + `SpatialIndex` + `makeOverlapId` 等）         |
+| `reconcile.ts`        | 主流程                                                                               |
+| `spatialIndex.ts`     | RBush 包装；bbox 签名增量同步；模块级 singleton                                      |
+| `intersect.ts`        | 几何相交基元（segments, polyline×polyline, polyline×polygon, point-in-polygon）      |
+| `pairTable.ts`        | lane × secondary 配对规则 + `detectLaneLanePair` + emitter 工厂                      |
+| `geometryAdapters.ts` | proto → 几何适配（`getCenterline` / `getPolygon` / `getStopLines` / `getPolylines`） |
+| `computeLaneS.ts`     | lane 弧长缓存 + `projectSegmentParam`（segIdx,t → s 米）                             |
+| `overlapId.ts`        | 语义化派生 id（`overlap_<sortedParts>`）                                             |
+| `regionId.ts`         | 区域 id（`makeRegionId([a,b], idx)`）                                                |
+| `overridePaths.ts`    | `_userOverrides` 路径解析                                                            |
+| `laneCorridor.ts`     | lane corridor 多边形（GAP-5：lane × crosswalk 区域相交）                             |
+| `polyClip.ts`         | polygon-clipping 包装（`intersectPolygons` / `largestRing`）                         |
+| `types.ts`            | `BBox` / `IndexNode` / `ReconcileMode` / `ReconcilePatch` / `PairHit`                |
 
-## Public API (index.ts)
+## Public API
 
-```ts
-export { reconcileOverlaps, invalidateLaneCaches } from './reconcile';
-export {
-  SpatialIndex,
-  bboxForEntity,
-  getSharedSpatialIndex,
-  resetSharedSpatialIndex,
-} from './spatialIndex';
-export { makeOverlapId, isDerivedOverlapId } from './overlapId';
-export type { ReconcileMode, ReconcilePatch, BBox, IndexNode } from './types';
-```
-
-Internal modules (`pairTable`, `intersect`, `polyClip`, …) are
-implementation details — do not import them from outside `overlap/`.
-
-## Types (types.ts)
+### Types
 
 ```ts
-interface BBox {
-  minX;
-  minY;
-  maxX;
-  maxY: number;
-}
-interface IndexNode extends BBox {
-  id: string;
-  entityType: MapEntity['entityType'];
-}
+export type ReconcileMode =
+  | { mode: 'incremental'; dirtyIds: ReadonlySet<string> }
+  | { mode: 'full' };
 
-type ReconcileMode = { mode: 'incremental'; dirtyIds: ReadonlySet<string> } | { mode: 'full' };
-
-interface ReconcilePatch {
-  changes: Map<string, MapEntity>; // overlap entities + overlapIds writes-back
-  removedOverlapIds: Set<string>; // ids to delete
+export interface ReconcilePatch {
+  changes: Map<string, MapEntity>;
+  removedOverlapIds: Set<string>;
   stats: {
-    pairsTested;
+    pairsTested: number;
     pairsMatched: number;
-    overlapsCreated;
+    overlapsCreated: number;
     overlapsRemoved: number;
     durationMs: number;
   };
 }
-```
 
-`PairHit` (internal) carries the result of a single pair scan, including
-optional `laneInterval` (start_s / end_s) and `regionPolygon` (for
-`crosswalk` × lane corridor clipping).
-
-## reconcile.ts
-
-### `reconcileOverlaps(entities, mode, index?): ReconcilePatch`
-
-Main entry. The `index` parameter is optional; without it, the module
-uses `getSharedSpatialIndex()` and syncs it according to mode (full →
-`syncFromEntities`, incremental → `syncDirty`).
-
-Algorithm:
-
-1. **Sync index** — bbox signatures detect which entities' geometry
-   actually changed; ref-equal entries skip tree mutation.
-2. **Collect dirty lanes** — full mode = every lane; incremental =
-   lanes in `dirtyIds`, plus lanes near a dirty non-lane (RBush
-   `queryBBox`).
-3. **Per-lane scan** — query neighbours by bbox, dedup pairs by
-   `makeOverlapId([a, b])`, dispatch to `detectLaneLanePair` (lane × lane)
-   or `detectPair` (lane × secondary).
-4. **Build derived overlaps** — `{ id, participantIds, objects, regions }`.
-5. **Diff vs existing** — produces `changes` (overlap entities + lanes
-   with updated `overlapIds`) and `removedOverlapIds`.
-
-::: warning Incremental scope is narrow
-In incremental mode, an existing overlap is only candidate for removal
-if **at least one** participant id is in `mode.dirtyIds`. Without this
-guard a far-away overlap whose lane wasn't edited would be deleted
-because it didn't appear in this round's `derived` map.
-:::
-
-### `invalidateLaneCaches(removedLaneIds)`
-
-Clears the per-lane arc-length cache for deleted lanes.
-
-### Override merge
-
-`mergeWithOverrides(existing, derivedObjects)` reads
-`existing._userOverrides` and rebuilds the `objects` array preserving:
-
-- `isMerge` flag — when path matches `objects.<i>.laneOverlapInfo.isMerge`
-- `regionOverlapId` reference — when path equals `regionOverlaps`
-
-The geometric fields (`startS` / `endS`) always follow derivation.
-
-## spatialIndex.ts
-
-### `SpatialIndex` class
-
-RBush-backed; keys nodes by entity id and tracks the last-seen bbox via
-a string signature `"minX|minY|maxX|maxY"`.
-
-| Method                          | Cost                      | Use                      |
-| ------------------------------- | ------------------------- | ------------------------ |
-| `build(entities)`               | O(N)                      | bulk load (cold start)   |
-| `syncFromEntities(entities)`    | O(N)                      | full reconcile / undo    |
-| `syncDirty(entities, dirtyIds)` | O(\|dirtyIds\|)           | edit-time                |
-| `insert(entity)`                | O(log N) skip if sig same | single-entity update     |
-| `remove(id)`                    | O(log N)                  | delete                   |
-| `queryBBox(bbox)`               | O(log N + k)              | neighbour scan           |
-| `queryNeighbors(id)`            | O(log N + k)              | shorthand                |
-| `getBBox(id)`                   | O(1)                      | reconcile dedup          |
-| `clear()`                       | O(N)                      | worker terminate / tests |
-| `size()`                        | O(1)                      | telemetry                |
-
-::: info Why bbox signatures, not entity references
-An earlier revision cached entity references and compared `prev === e`.
-But when entities flow through immer producers, the draft proxy is
-replaced by a frozen object on producer exit — every subsequent
-`syncFromEntities` was a ref-miss, forcing a full cold rebuild.
-Switching to bbox signature-keyed comparison means non-geometric field
-edits (e.g. `lane.junctionId` change with the same centerline) skip the
-tree mutation entirely, and immer's freeze-swap doesn't trigger false
-invalidations.
-:::
-
-### Singleton
-
-`getSharedSpatialIndex()` lazy-creates a module-level `SpatialIndex`.
-Reconcile reuses this so the index survives between calls; `zundo`
-undo / redo just swaps `entities` references and `syncFromEntities`'s
-bbox-signature comparison invalidates only the actually-changed nodes.
-`resetSharedSpatialIndex()` is the test escape hatch.
-
-### `bboxForEntity(entity): BBox | null`
-
-Computes a bbox by entity type:
-
-- `lane` → centerline
-- area-shaped entities → polygon
-- signals / stopSigns / yieldSigns / barrierGate → `bboxUnion(stopLines)` padded by `OVERLAP_STOPLINE_PROBE_DEG`
-- speedBump → `bboxUnion(polylines)`
-- otherwise → `null` (entity does not enter the index)
-
-## intersect.ts
-
-Pure geometric primitives. Inputs are `GeoPoint[]` (lng/lat degrees);
-outputs are degrees, except `endpointsCoincide` which works in metres
-via cosLat correction.
-
-| Function                                      | Returns            | Notes                                      |
-| --------------------------------------------- | ------------------ | ------------------------------------------ |
-| `bboxOfPoints(points, pad?)`                  | `BBox \| null`     | empty array → `null` (caller guards)       |
-| `bboxUnion(boxes)`                            | `BBox \| null`     | empty → `null`                             |
-| `bboxOverlap(a, b)`                           | `boolean`          | inclusive on edges                         |
-| `segmentsIntersect(a1, a2, b1, b2)`           | `GeoPoint \| null` | cross-product; collinear → null            |
-| `pointInPolygon(point, polygon)`              | `boolean`          | half-open ray cast, skips horizontal edges |
-| `polylinesIntersect(a, b)`                    | `boolean`          | any pair of segments                       |
-| `polylineIntersectsPolygon(line, polygon)`    | `boolean`          | endpoints inside count as hit              |
-| `polylinePolygonCrossings(line, polygon)`     | `SegmentParam[]`   | for `start_s` / `end_s` derivation         |
-| `polylinePolylineCrossings(a, b)`             | `SegmentParam[]`   | for stopLine × lane intersections          |
-| `endpointsCoincide(a, b, cosLat, toleranceM)` | `boolean`          | metre space                                |
-
-`SegmentParam = { segmentIndex, t }` — segment index along the _first_
-polyline plus parametric `t ∈ [0, 1]`.
-
-## pairTable.ts
-
-Data-driven configuration: which entity types pair with which, and what
-geometry primitive to use.
-
-```ts
-interface PairRule {
-  secondaryType: MapEntity['entityType'];
-  geometry: 'polygon' | 'stopLines' | 'polylines' | 'lane';
-  computeRegion?: boolean;
-  emitObjects(lane, other, hit, opts?): ObjectOverlapInfo[];
+export interface BBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+export interface IndexNode extends BBox {
+  id: string;
+  entityType: MapEntity['entityType'];
 }
 ```
 
-Registered rules:
+### `reconcileOverlaps(entities, mode, index?) => ReconcilePatch`
 
-| Secondary                                           | Geometry  | computeRegion |
-| --------------------------------------------------- | --------- | ------------- |
-| `junction`                                          | polygon   | —             |
-| `crosswalk`                                         | polygon   | **yes**       |
-| `clearArea`                                         | polygon   | —             |
-| `parkingSpace`                                      | polygon   | —             |
-| `pncJunction`                                       | polygon   | —             |
-| `area`                                              | polygon   | —             |
-| `signal` / `stopSign` / `yieldSign` / `barrierGate` | stopLines | —             |
-| `speedBump`                                         | polylines | —             |
+主入口（`reconcile.ts:57`）。流程：
 
-`detectPair(lane, other, rule)` dispatches to the right primitive
-(`detectPolygonHit` / `detectLineGroupHit`) and, when `computeRegion` is
-set, additionally computes the lane corridor × secondary polygon
-intersection via `polyClip.intersectPolygons` and stores the largest
-ring on `hit.regionPolygon`.
+1. 取 `idx = index ?? getSharedSpatialIndex()`，按 mode 同步：
+   - `'full'` → `idx.syncFromEntities(entities)`（O(N) 全表 bbox 签名比对）
+   - `'incremental'` → `idx.syncDirty(entities, dirtyIds)`（O(|dirtyIds|)）
+2. `collectDirtyLanes` 拿到本轮要 rescan 的 lane 集合。
+3. for each lane：bbox 索引查邻居 → 对每个邻居：
+   - 邻居也是 lane → `detectLaneLanePair`
+   - 否则 → `findPairRule(other.entityType)` + `detectPair`
+4. 对子 `(lane, other)` 用 `makeOverlapId([lane.id, other.id])` 派生稳定 id；
+   set-based dedup（symmetric in (A,B)）。
+5. `diffWithExisting`：与现有 `OverlapEntity` 比对，得到 `changes` +
+   `removedOverlapIds`；mergeWithOverrides 保留 `isMerge` / `regionOverlaps`
+   钉位字段。
+6. `applyOverlapIdsBack`：把派生 overlap id 同步回每个参与实体的
+   `overlapIds: string[]` 字段（incremental 模式只动 dirtyIds 的 entity）。
 
-### Lane × lane (detectLaneLanePair)
+### `invalidateLaneCaches(removedLaneIds: Iterable<string>): void`
 
-Has its own branch — proto's `LaneOverlapInfo` is the only oneof slot
-that carries `start_s` / `end_s`, so the scan loop is "per lane × neighbours"
-not "per pair".
+清除 `computeLaneS` 中已删除 lane 的弧长缓存。配合 `mapStore.deleteEntity`
+使用，避免 lane id 复用时拿到旧弧长。
 
-Trigger conditions (GAP-2 revision):
+### `SpatialIndex`
 
-1. **Same junction** (both `junctionId` non-null and equal) → crossings
-   _or_ end-end merge _or_ start-start fork all count as overlap (path
-   conflicts inside the junction itself).
-2. **Different junction** → only **real centerline crossings** count;
-   pure endpoint touches (succ/pred / fork / merge / selfReverse) are
-   topology, not overlap.
+RBush 包装类。核心方法：
 
-`isMerge` (proto field) follows GAP-7 semantics: only true when the
-_ends_ coincide — i.e. lanes converge to a shared exit. Start-start
-forks (lanes diverging) are not merges.
+- `build(entities)` — 全量构建，O(N) load
+- `syncFromEntities(entities)` — 全量比对，bbox 签名变化才重 insert/remove
+- `syncDirty(entities, dirtyIds)` — O(|dirtyIds|) 增量
+- `insert(entity)` / `remove(id)` — 单条
+- `queryBBox(bbox) => IndexNode[]` — 邻居查询
+- `queryNeighbors(id) => IndexNode[]` — 单实体邻居（不含自身）
+- `clear()`、`size()`、`getBBox(id)`
 
-`cosLat` is taken from the start latitude of `laneA`, not a global mean —
-avoids miss/over-detect on multi-degree maps.
+### `bboxForEntity(entity) => BBox | null`
 
-## computeLaneS.ts
+按 entityType 拿 bbox：
 
-Lane arc-length cache: prefix sums over the centerline polyline, keyed
-by lane id with reference identity of `getCenterline(lane)` as the
-revision marker.
+- lane → `bboxOfPoints(centerline)`
+- 多边形类 → `bboxOfPoints(polygon.points)`
+- stopLines / polylines 类 → 多 bbox 并集
+- 没有几何 → null（不进索引）
 
-```ts
-laneArcLength(lane: LaneEntity): number          // total metres
-projectSegmentParam(lane, segmentIndex, t): number  // (segIdx, t) → cumulative metres
-invalidateLaneArcLength(laneId)                  // delete cache entry
-clearLaneArcLengthCache()                        // tests
-```
+### `getSharedSpatialIndex() / resetSharedSpatialIndex()`
 
-Invalidation is automatic on geometry edit: when `lane.centralCurve` is
-mutated, `getCenterline` returns a fresh array reference, so the cached
-entry's `centerline === points` check fails and the prefix sum is
-rebuilt on next access. Manual invalidation is only needed when a lane
-is deleted (`reconcile.invalidateLaneCaches`).
+模块级 singleton。store 复用同一实例避免每次 reconcile new + load N 节点。
+worker 内独立 V8 isolate，自己持有 singleton（`overlap.worker.ts` 启动时
+`resetSharedSpatialIndex()` 一次）。
 
-## geometryAdapters.ts
-
-Bridges 14 Apollo entity types to four geometric primitives:
-
-| Function                       | Output               | Used by                                              |
-| ------------------------------ | -------------------- | ---------------------------------------------------- |
-| `getCenterline(lane)`          | `GeoPoint[]`         | lane scan core                                       |
-| `getPolygon(entity)`           | `GeoPoint[] \| null` | polygon-shaped pairs                                 |
-| `getStopLines(entity)`         | `GeoPoint[][]`       | signal / stopSign / yieldSign / barrierGate          |
-| `getPolylines(entity)`         | `GeoPoint[][]`       | speedBump                                            |
-| `isOverlapParticipant(entity)` | `boolean`            | filter                                               |
-| `curveToPolyline(curve)`       | `GeoPoint[]`         | helper — concatenates `Curve` segments, dedups joins |
-
-## polyClip.ts
-
-Polygon boolean wrapper around `polygon-clipping` (Martinez algorithm).
+### `makeOverlapId / isDerivedOverlapId`
 
 ```ts
-intersectPolygons(a: GeoPoint[], b: GeoPoint[]): GeoPoint[][]
-largestRing(rings: GeoPoint[][]): GeoPoint[] | null
+makeOverlapId(['lane_3', 'junction_1']) === 'overlap_junction_1__lane_3';
+isDerivedOverlapId('overlap_a__b') === true;
 ```
 
-- Returns 0..n disjoint outer rings, **drops holes** (Apollo
-  `RegionOverlapInfo` polygons are simple).
-- Operates in lng/lat degrees — boolean ops are position relations,
-  units don't matter.
-- `largestRing` picks the largest by approximate metre-space area
-  (cosLat-corrected).
-- `polygon-clipping` can throw on self-intersecting input; we log and
-  return `[]` rather than swallowing silently — this surfaces real bugs
-  in upstream sanitisation.
+排序后用 `__` 连接，对 (A,B)/(B,A) 对称。
 
-## laneCorridor.ts
+## 算法详解
 
-```ts
-laneCorridorPolygon(lane: LaneEntity): GeoPoint[]
+### 配对扫描循环
+
+```mermaid
+flowchart TD
+    M[reconcileOverlaps] --> SI[idx sync]
+    SI --> CL[collectDirtyLanes]
+    CL --> LP[for each lane]
+    LP --> BB[bboxOfPoints centerline]
+    BB --> Q[idx.queryBBox]
+    Q --> N[for each neighbor]
+    N -->|other.entityType=lane| LL[detectLaneLanePair]
+    N -->|otherwise| FP[findPairRule]
+    FP --> DP[detectPair]
+    LL --> EM[emitLaneLaneObjects]
+    DP --> ER[rule.emitObjects]
+    EM --> D[derived map]
+    ER --> D
+    D --> DI[diffWithExisting]
+    DI --> AB[applyOverlapIdsBack]
+    AB --> P[ReconcilePatch]
 ```
 
-Builds the lane's geographic footprint as a closed ring (first point
-duplicated at the end). Used as the _subject_ polygon for `crosswalk × lane`
-region clipping.
+### 几何相交策略矩阵
 
-Source priority:
+| secondary type                                           | geometry           | 触发条件                                          |
+| -------------------------------------------------------- | ------------------ | ------------------------------------------------- |
+| junction / pncJunction / clearArea / parkingSpace / area | polygon            | `polylineIntersectsPolygon`                       |
+| crosswalk                                                | polygon (+ region) | 同上 + `laneCorridor × polygon` 计算精确区域      |
+| signal / stopSign / yieldSign / barrierGate              | stopLines          | `polylinesIntersect(centerline, line)` 任意一条   |
+| speedBump                                                | polylines          | `polylinesIntersect(centerline, line)`            |
+| lane                                                     | special            | `detectLaneLanePair`（同 junction 内/外不同规则） |
 
-1. **Explicit Apollo boundaries** — when `leftBoundary.curve` and
-   `rightBoundary.curve` both have ≥ 2 points and form a non-degenerate
-   ring (via `explicitLaneBoundaryEdges`), use them.
-2. **Centerline offset** — fall back to
-   `offsetPolylineDeg(centerline, leftWidth, 'left')` plus the right
-   side, using the first sample's width (`lane.leftSamples[0]?.width`)
-   or `DEFAULT_LANE_HALF_WIDTH`.
+### `detectLaneLanePair` 规则（GAP-2/GAP-7）
 
-Returns `[]` if the centerline has fewer than 2 points or any width is
-≤ 0.
-
-## overlapId.ts
-
-```ts
-makeOverlapId(participantIds): string  // 'overlap_<sortedParticipants...>'
-isDerivedOverlapId(id): boolean        // startsWith('overlap_')
+```mermaid
+flowchart TD
+    S[start] --> EP[计算 4 个端点对距离]
+    EP --> J{同 junction?}
+    J -->|是| IN[crosses OR mergeAtEnd OR mergeAtStart]
+    J -->|否| OUT[crosses AND not anyEndpointTouch]
+    IN --> M{is_merge?}
+    OUT --> M
+    M -->|mergeAtEnd 为真| Y[is_merge=true]
+    M -->|否| N2[is_merge=false]
+    Y --> R[返回 PairGeoHit]
+    N2 --> R
 ```
 
-Throws if `participantIds` is empty. Sorts and dedups participants —
-order- and duplicate-invariant. Format mirrors Apollo Dreamview's real
-data convention (`overlap_signal_0_lane_35`).
+cosLat 用 laneA 起点纬度局部计算，避免大范围跨纬度地图全图均值带来的米空间偏差。
 
-## regionId.ts
+### bbox 签名增量同步
 
-```ts
-makeRegionId(participantIds, slot = 0): string
-isDerivedRegionId(id): boolean
-```
+`SpatialIndex.bboxSig: Map<id, "minX|minY|maxX|maxY">` —— 缓存的是 bbox 的字符串
+签名而**不是** entity reference。原因：immer producer 退出时会把 draft proxy
+冻结成新 reference，旧版用 `prev === e` 比对会全图 ref-miss → cold-rebuild。
+改用签名后：
 
-Format:
+- `lane.junctionId` 这种非几何字段变更 → 签名不变 → 跳过 tree mutation
+- `centralCurve` 内容变了 → 签名变 → 重 insert
+- immer freeze 切 ref → 签名不变 → 跳过
 
-- `slot=0` → `region_<sortedIds.join('_')>`
-- `slot>0` → `region_<sortedIds.join('_')>__<slot>`
+### 用户钉位保护（`mergeWithOverrides`）
 
-The `__<slot>` suffix uses double underscore to avoid ambiguity with
-underscore-separated participant ids. Throws on empty
-`participantIds` or non-integer / negative `slot`.
+`OverlapEntity._userOverrides` 可能包含：
 
-`region_*` and `overlap_*` namespaces are mutually exclusive — a quick
-prefix check tells you which kind of derived id you're looking at.
+| 路径                                    | 含义                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `'objects.<i>.laneOverlapInfo.isMerge'` | 第 i 条 ObjectOverlapInfo 的 isMerge 钉位（手工切换合流标记）         |
+| `'regionOverlaps'`                      | 整个 regionOverlaps 数组钉位（lane × crosswalk 多边形手工调整后保留） |
 
-## overridePaths.ts
+reconcile 仍重新计算所有 derived objects，但在 `mergeOneObject` 里：
 
-The single contract source for `_userOverrides[]` strings. Inspector
-forms write paths via these helpers; reconcile reads via
-`parseLaneIsMergeOverride`. Hardcoding the path on either side would
-silently desync the two halves.
+- 若 i 在 isMerge 钉位 set → 把 derived.isMerge 替换回 existing 旧值
+- 若 region 钉位 → 保留 existing.regionOverlaps + 同步 regionOverlapId 引用
 
-```ts
-laneIsMergeOverridePath(objectIndex: number): string
-// 'objects.<index>.laneOverlapInfo.isMerge'
+## 复杂度
 
-REGION_OVERLAPS_OVERRIDE_PATH = 'regionOverlaps' as const
-parseLaneIsMergeOverride(path): number | null
-```
+| 操作                            | 复杂度       | 备注                             |
+| ------------------------------- | ------------ | -------------------------------- | ---- | -------------- |
+| `reconcileOverlaps` full        | O(L · k)     | L=lane 数；k=平均邻居数（RBush） |
+| `reconcileOverlaps` incremental | O(           | dirty                            | · k) | dirty 通常 1~3 |
+| `idx.syncFromEntities`          | O(N)         | 签名比对                         |
+| `idx.syncDirty`                 | O(           | dirtyIds                         | )    |                |
+| `idx.queryBBox`                 | O(log N + k) | RBush                            |
+| `detectLaneLanePair`            | O(M·M)       | M=segment 数；典型 < 100         |
+| `polylineIntersectsPolygon`     | O(M·V)       | V=polygon 边                     |
 
-## Examples
+5w 实体规模实测：
 
-Full reconcile after import:
+- 编辑期 incremental（dirty=1）< 6ms
+- 全量 reconcile ~450ms（走 worker，主线程不阻塞）
 
-```ts
-import { reconcileOverlaps } from '@/core/elements/overlap';
+## 测试覆盖
 
-const patch = reconcileOverlaps(entities, { mode: 'full' });
-for (const id of patch.removedOverlapIds) entities.delete(id);
-for (const [id, e] of patch.changes) entities.set(id, e);
-```
+`src/core/elements/overlap/__tests__/` 关键覆盖：
 
-Incremental edit (called by `mapStore.applyEntityMutations`):
+- `reconcile.test.ts` — full/incremental 双模式、各类 secondary 类型
+- `spatialIndex.test.ts` — bbox 签名增量、immer reference 切换不误更新
+- `intersect.test.ts` — 半开射线 / segment 共线 / polygon 退化
+- `pairTable.test.ts` — 每条 PairRule 都能 emit 正确的 ObjectOverlapInfo
+- `detectLaneLanePair` — 同 junction / 跨 junction / 4 种端点共享组合
+- `mergeWithOverrides` — isMerge 钉位、regionOverlaps 钉位、引用一致性
 
-```ts
-const patch = reconcileOverlaps(entities, {
-  mode: 'incremental',
-  dirtyIds: new Set([editedLaneId]),
-});
-// patch.stats.durationMs typically < 6 ms for a single-lane edit
-// on a 50k-entity map.
-```
+## 主线程 vs Worker 分流
 
-Off-thread full mode via the overlap worker bridge:
+| 触发                                              | 路径               | 原因                                 |
+| ------------------------------------------------- | ------------------ | ------------------------------------ |
+| 编辑期 dirty                                      | 主线程 incremental | < 6ms，worker postMessage 开销不划算 |
+| 导入完成 / 用户 "Recompute overlaps" / 导出前校验 | overlap.worker     | 5w 实体 ~450ms，主线程会卡帧         |
 
-```ts
-import { OverlapWorkerBridge } from '@/core/workers/overlapBridge';
+`overlap.worker.ts` 是 full 模式的封装；主线程通过 `OverlapWorkerBridge`
+（参见 [workers-overlap](./workers-overlap)）发起请求。
 
-const bridge = new OverlapWorkerBridge();
-const patch = await bridge.reconcileFull(entities);
-applyPatch(patch);
-bridge.dispose();
-```
+## See also
 
-## Related
-
-- [Workers: overlap](/api/core/workers-overlap) — off-thread `reconcileFull`
-- [Workers: spatial](/api/core/workers-spatial) — independent spatial index for cold-layer features
-- [Geometry: laneTopology](/api/core/geometry-lane-topology) — uses the same `SpatialIndex` class
-- [lib/entityOps](/api/lib/entity-ops) — applies reconcile patches to the store
+- [elements/derive](./elements-derive) — 同样的 `_userOverrides` 钉位语义
+- [workers/overlap](./workers-overlap) — Overlap Worker bridge 与协议
+- [geometry/laneTopology](./geometry-lane-topology) — pred/succ/neighbor 派生
+  （和 overlap pipeline 在端点共享判断上职责互补）
+- [lib/entityOps](/api/lib/entity-ops) — store mutation 时的 dirty 计算入口

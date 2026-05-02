@@ -1,381 +1,280 @@
-# Issuing License Keys
+---
+title: 签发离线激活码
+description: tools/license-gen 流程、私钥管理、过期策略、与 machineId 绑定。
+---
 
-The desktop build enforces an offline activation system using Ed25519
-signatures, machine-id binding, and a tamper-detecting time guard. The
-private key never ships with the app — only the matching public key is
-embedded in `electron/license/public-key.cts`.
+# 签发离线激活码
 
-This recipe walks through:
+Apollo Map Studio 桌面版用 Ed25519 签名做离线激活：客户端生成
+machineCode → 你用私钥签发 activationCode → 客户端验签放行。整个过程
+**不需要联网**，特别适合内网 / 涉密场景。
 
-1. Generating the keypair.
-2. Embedding the public key into the desktop bundle.
-3. Issuing an activation code for a customer machine.
-4. Verifying the code against the embedded key.
-5. Threat-model boundaries — what the system protects against and what
-   it doesn't.
+::: danger 私钥唯一性
+私钥泄漏 = 任何人都能签发激活码。永远不要把 `tools/license-gen/keys/private.pem`
+提交到 git；keys/ 目录已在 `.gitignore`。生产私钥必须保存在 HSM /
+1Password Vault / 离线机器中。
+:::
 
-## File map
+## 目标 (Goal)
 
-```text
-tools/license-gen/
-  gen-keys.mjs         # generate / rotate Ed25519 keypair
-  issue.mjs            # sign an activation code for a machine
-  verify.mjs           # offline sanity-check a code against the embedded key
-  package.json         # `npm run gen-keys | issue | verify`
-  keys/
-    .gitkeep
-    private.pem        # CREATED — must stay off the device that ships builds
-    public.pem         # human-readable copy of the embedded key
+为客户 "Customer Inc." 签发一张 365 天的桌面激活码，绑定 machineCode
+`ABCD-EFGH-JKLM-NPQR`。
 
-electron/license/
-  public-key.cts       # embedded public key + APP_PEPPER + TOKEN_PREFIX
-  manager.cts          # main-process activation state machine + IPC
-  crypto.cts           # Ed25519 / AES-GCM / HMAC / HKDF
-  machine-id.cts       # machine-code derivation
-  storage.cts          # three-file mirrored license storage
-  time-guard.cts       # tamper / time-rollback detection
-  types.cts            # token payload + renderer state types
-```
+## 前置条件 (Prerequisites)
 
-## Token format
+- 已生成密钥对（`pnpm --filter license-gen gen-keys`）。
+- 公钥 `tools/license-gen/keys/public.pem` 已嵌入 Electron 主进程
+  （`electron/license/manager.cts`）。
+- 私钥 `tools/license-gen/keys/private.pem` 仅在签发机器上存在。
 
-Activation codes are printable strings:
-
-```text
-APMS1.<base64url(payload)>.<base64url(ed25519-signature)>
-```
-
-Payload (decoded):
-
-```ts
-interface LicensePayload {
-  v: 1;
-  lic: string; // license id, e.g. LIC-2026-05-02-3F2A91
-  machine: string; // machine code, e.g. ABCD-EFGH-JKLM-NPQR
-  issued: number; // epoch ms
-  expires: number; // epoch ms; 0 = perpetual (avoid)
-  features?: string[];
-  name?: string;
-  nonce: string;
-}
-```
-
-The signature covers the `bodyB64` string, not the JSON. The desktop
-app verifies signature with `LICENSE_PUBLIC_KEY_PEM` from
-`electron/license/public-key.cts`.
-
-## End-to-end issue + verify
+## 离线激活总览
 
 ```mermaid
 sequenceDiagram
-  participant Customer
-  participant App as Apollo Map Studio
-  participant Issuer as Issue desk (license-gen)
-  participant Build as Release build
-  participant Signed as Signed bundle
+    participant Client as 客户机
+    participant Vendor as 你（签发方）
+    participant Code as activationCode
 
-  Note over Build,Signed: Bootstrap (once)
-  Build->>Issuer: node gen-keys.mjs
-  Issuer-->>Build: keys/private.pem (0600)
-  Issuer-->>Signed: patch electron/license/public-key.cts
-  Build->>Customer: ship installer with embedded public key
-
-  Note over Customer,App: Activation
-  Customer->>App: launch
-  App->>App: TimeGuard.firstSeen = now (trial)
-  App-->>Customer: ActivationDialog shows machine code
-  Customer->>Issuer: send machine code (email / portal)
-  Issuer->>Issuer: node issue.mjs --machine <code> --days 365
-  Issuer-->>Customer: APMS1.<body>.<sig>
-  Customer->>App: paste code
-  App->>App: verify sig with embedded public key
-  App->>App: check machine binding + expiry + replay
-  App->>App: persist license (encrypted + HMAC + shadow)
-  App-->>Customer: state = activated, canEdit = true
+    Client->>Client: 启动桌面版
+    Client->>Client: 生成 machineCode<br/>（CPU id + MAC + diskUUID 哈希）
+    Client->>Vendor: 把 machineCode 发给你（邮件/工单）
+    Vendor->>Vendor: 用私钥签发 activationCode
+    Vendor->>Code: APMS1.<base64-payload>.<base64-sig>
+    Code-->>Client: 邮件/打印
+    Client->>Client: 粘贴 activationCode
+    Client->>Client: 用嵌入的公钥验签 + 比对 machineCode + 检查过期
+    Client->>Client: 通过 → 写 ~/.apollo-map-studio/license.json
 ```
 
-## Step 1 — Generate the keypair (once)
+## 步骤 (Step-by-step)
 
-On a controlled signing machine:
+### 1. 一次性：生成密钥对
 
-```sh
-node tools/license-gen/gen-keys.mjs
+在签发专用机器上：
+
+```bash
+cd tools/license-gen
+pnpm install
+node gen-keys.mjs --out keys/
 ```
 
-Effects:
+输出：
 
-- Writes `tools/license-gen/keys/private.pem` with mode `0600`.
-- Writes `tools/license-gen/keys/public.pem` (informational copy).
-- **Atomically rewrites** `electron/license/public-key.cts` so the
-  bundled public key matches the new private key.
-
-If `private.pem` already exists, the script refuses to overwrite. Pass
-`--rotate` to force regeneration — this is a release-grade event (see
-"Rotating keys" below).
-
-::: danger Private key handling
-
-- Never check `tools/license-gen/keys/private.pem` into git.
-  `keys/.gitkeep` is the only file in that directory that should be
-  tracked.
-- Never copy the private key onto build infrastructure, customer
-  machines, demo bundles, or bug-report attachments.
-- Treat the signing host like a CA — minimal access, audited usage,
-  encrypted backups.
-  :::
-
-## Step 2 — Commit the embedded public key
-
-The `gen-keys.mjs` script patches `electron/license/public-key.cts`
-in place. **Commit the patched file** with the next release. If you
-forget, the shipped app still uses the previous public key and rejects
-codes issued from the new private key.
-
-```sh
-git diff electron/license/public-key.cts
-git add electron/license/public-key.cts
-git commit -m "chore(license): rotate Ed25519 keypair"
+```
+keys/private.pem   # 仅你保存
+keys/public.pem    # 嵌入 Electron 包
 ```
 
-## Step 3 — Get the customer's machine code
+::: warning 永远不要复用私钥
+每个产品线 / 主版本 一对密钥。`v1` 与 `v2` 升级时换私钥，能让旧激活码
+作废。
+:::
 
-The customer launches the desktop app and copies the code from the
-activation dialog. Format:
+### 2. 嵌入公钥
 
-```text
-ABCD-EFGH-JKLM-NPQR
+```ts
+// electron/license/manager.cts
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const PUBLIC_KEY_PEM = readFileSync(
+  path.join(__dirname, '../../tools/license-gen/keys/public.pem'),
+  'utf8',
+);
 ```
 
-The code is derived in `electron/license/machine-id.cts`:
+build 时 Electron Builder 会把公钥打进 asar。验证打包结果：
 
-1. Collect platform / arch / OS release major / hostname.
-2. Collect CPU model + count + memory bucket.
-3. Pick a stable non-virtual MAC; fall back if unavailable.
-4. Read `/etc/machine-id` (Linux), `IOPlatformUUID` (macOS), or
-   `wmic csproduct UUID` (Windows).
-5. HMAC-SHA256 with `APP_PEPPER`, take 80 bits, base32-encode,
-   group into four blocks of four.
+```bash
+pnpm package:linux
+# 解压 release/linux-unpacked/resources/app.asar
+# 公钥应当在内
+```
 
-The first computation is persisted to `userData/.lic-machine.dat` so
-later launches detect machine-id drift.
+### 3. 客户提供 machineCode
 
-## Step 4 — Issue the code
+桌面版启动后，未激活时会弹出对话框显示：
 
-```sh
+```
+Machine Code: ABCD-EFGH-JKLM-NPQR
+```
+
+让客户复制并发给你。
+
+::: tip machineCode 不可逆
+machineCode = `sha256(cpu-id || mac || disk-uuid)` 截断 + 分组。**不能**
+反推机器信息——你拿到的只是个不透明的标识。
+:::
+
+### 4. 签发激活码
+
+```bash
 node tools/license-gen/issue.mjs \
   --machine ABCD-EFGH-JKLM-NPQR \
   --days 365 \
-  --name "Customer Inc."
+  --name "Customer Inc." \
+  --lic LIC-2026-0042
 ```
 
-Arguments (full table in `tools/license-gen/README.md`):
+输出（缩短示例）：
 
-| Flag               | Default                              | Notes                                                                 |
-| ------------------ | ------------------------------------ | --------------------------------------------------------------------- |
-| `--machine` / `-m` | required                             | Customer's machine code; must match `^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$`. |
-| `--days`           | `365`                                | Days to expiry; range `(0, 36525]`.                                   |
-| `--expires`        | absent                               | ISO-8601 absolute expiry; overrides `--days` when supplied.           |
-| `--name`           | empty                                | Customer name displayed in the activation dialog.                     |
-| `--lic`            | auto `LIC-YYYY-MM-DD-XXXXXX`         | License id; reuse the same id when renewing.                          |
-| `--features`       | empty                                | Reserved.                                                             |
-| `--key`            | `tools/license-gen/keys/private.pem` | Override the signing key path.                                        |
-| `--quiet`          | false                                | Suppress preamble; print only the code.                               |
+```
+APMS1.eyJsaWMiOiJMSUMtMjAyNi0wMDQyIi...eyJleHAiOjE3...AaBbCc...
+```
 
-Output: the activation code on stdout, the human-readable summary on
-stderr. Redirect stdout to capture the code:
+### 5. 把激活码发给客户
 
-```sh
+邮件 / 工单 / 加密附件均可。激活码包含：
+
+- license id（用于撤销追踪）
+- machineCode（绑定机器）
+- expiresAt（过期时间，UTC ISO）
+- features（保留给将来）
+- 签名
+
+::: tip 激活码可以公开
+没有匹配的 machineCode，攻击者无法在另一台机器使用。所以激活码本身
+不是秘密，但 machineCode + activationCode 同时泄漏 = 多设备复用。
+建议在邮件里只放激活码，machineCode 由客户自己保留。
+:::
+
+### 6. 客户激活
+
+桌面版"激活"对话框 → 粘贴 activationCode → "验证"。
+通过时落地 `~/.apollo-map-studio/license.json`，下次启动直接通过。
+
+### 7. 续期 / 替换机器
+
+到期前 30 天客户端弹通知。用同样的命令重新签发：
+
+```bash
 node tools/license-gen/issue.mjs \
   --machine ABCD-EFGH-JKLM-NPQR \
   --days 365 \
-  --quiet > code.txt
+  --name "Customer Inc." \
+  --lic LIC-2027-0042
 ```
 
-## Step 5 — Sanity-check with `verify.mjs`
+换机器时让客户提供新 machineCode，签发新激活码即可。
 
-Before sending the code, verify against the **embedded** public key —
-this confirms the customer's installed app will accept it:
+## 命令行参数 (CLI flags)
 
-```sh
-node tools/license-gen/verify.mjs --code "$(cat code.txt)"
+| Flag         | 说明                                        |
+| ------------ | ------------------------------------------- |
+| `--machine`  | 客户机器码（必填）                          |
+| `--days`     | 有效天数；与 `--expires` 二选一             |
+| `--expires`  | 绝对过期时间，ISO8601                       |
+| `--name`     | 客户名称（落进激活码 metadata，非签名内容） |
+| `--features` | 逗号列表，保留给未来 feature flag           |
+| `--lic`      | license id；默认按 `LIC-YYYY-NNNN` 自动分配 |
+| `--key`      | 私钥路径，默认 `keys/private.pem`           |
+| `--quiet`    | 只输出激活码，无前导 banner                 |
+
+## 修改的文件 (Files modified)
+
+签发本身不改代码。涉及代码改动通常是：
+
+| 文件                                | 何时改                           |
+| ----------------------------------- | -------------------------------- |
+| `tools/license-gen/issue.mjs`       | 加新 feature flag / 自定义元数据 |
+| `tools/license-gen/verify.mjs`      | 同步验签逻辑                     |
+| `electron/license/manager.cts`      | 客户端验签策略                   |
+| `electron/license/storage.cts`      | 持久化路径 / 加密                |
+| `tools/license-gen/keys/public.pem` | 主版本升级换密钥时               |
+
+## 测试清单 (Testing checklist)
+
+- [ ] `node tools/license-gen/verify.mjs --machine X --code Y` 本地验签通过。
+- [ ] 在干净机器上启动桌面版，输入激活码，能进入主界面。
+- [ ] 改一个字符的激活码 / machineCode → 验证失败。
+- [ ] 把系统时间调到过期日之后 → 桌面版应回到激活界面（grace period
+      可配，默认 24h）。
+- [ ] 同一激活码在另一台机器输入 → 拒绝。
+
+## 常见坑 (Common pitfalls)
+
+### 验签通过但客户端报 "expired"
+
+服务器签发时用 `--expires` 而你机器时区不对。永远用 ISO UTC：
+`2027-01-01T00:00:00Z`，不要用本地时间。
+
+### 私钥误提交到 git
+
+立刻：
+
+```bash
+# 1. 历史擦除（对所有 fork、镜像同时执行）
+git filter-repo --path tools/license-gen/keys/private.pem --invert-paths
+# 2. 立即生成新密钥对
+node tools/license-gen/gen-keys.mjs --out keys/
+# 3. 发布带新公钥的紧急版本
+# 4. 旧激活码全部作废，重新签发
 ```
 
-Output:
-
-```json
-{
-  "valid": true,
-  "payload": {
-    "v": 1,
-    "lic": "LIC-2026-05-02-3F2A91",
-    "machine": "ABCD-EFGH-JKLM-NPQR",
-    "issued": 1714694400000,
-    "expires": 1746230400000,
-    "name": "Customer Inc.",
-    "nonce": "…"
-  }
-}
-```
-
-Exit codes:
-
-| Code | Meaning                                                   |
-| ---- | --------------------------------------------------------- |
-| `0`  | Signature valid.                                          |
-| `1`  | `--code` missing.                                         |
-| `2`  | Token format malformed.                                   |
-| `3`  | Cannot extract embedded public key from `public-key.cts`. |
-| `4`  | Signature invalid.                                        |
-
-If exit `4` after a key rotation, you're verifying with the old
-embedded key — make sure the rotation commit is on the branch you
-verify from.
-
-## Step 6 — Send the code
-
-The activation code is safe to email / print / paste in tickets —
-without the matching machine code, an attacker cannot use it. The
-customer pastes it into the activation dialog; the main-process
-`LicenseManager` validates and persists it.
-
-## Renewals
-
-Renewing reuses the same `lic` id with a later `expires`:
-
-```sh
-node tools/license-gen/issue.mjs \
-  --machine ABCD-EFGH-JKLM-NPQR \
-  --lic LIC-2026-05-02-3F2A91 \
-  --days 365
-```
-
-The desktop `LicenseManager` accepts an upgrade — replacing an
-existing license with a later expiry — but **rejects downgrades** of
-the same `lic` (a shorter expiry on the same id is treated as replay).
-
-## Rotating keys
-
-Rotation invalidates every code signed with the old private key:
-
-```sh
-node tools/license-gen/gen-keys.mjs --rotate
-```
-
-After rotation:
-
-1. Commit the new `electron/license/public-key.cts`.
-2. Release a new build (old installers still trust the old key).
-3. Re-issue codes for every active customer.
-4. Existing installs of older builds keep working with their existing
-   codes until they upgrade.
-
-::: warning Don't rotate `APP_PEPPER`
-`APP_PEPPER` (in `electron/license/public-key.cts`) participates in
-local storage encryption and HMAC key derivation. Changing it
-invalidates every customer's locally stored license and clock state.
-There is currently no migration path; treat `APP_PEPPER` as
-permanent until a deliberate migration is designed.
+::: danger 这是 P0 事故
+立即拉群、立刻轮换、不要犹豫。
 :::
 
-## Threat model
+### 客户的 machineCode 每次启动都变
 
-```mermaid
-flowchart TB
-  subgraph Defended[Defended against]
-    A[Forging a code without the private key]
-    B[Using one machine's code on another]
-    C[Editing the local license file by hand]
-    D[Rolling system clock backwards]
-    E[Replaying an older code over a newer one for the same lic]
-  end
-  subgraph NotDefended[Not defended against]
-    F[Attacker fully controlling the machine and patching Electron binaries]
-    G[Cloning a complete VM / disk image so machine signals match]
-    H[Private-key leak — anyone with private.pem can issue codes]
-  end
+可能客户使用了虚机 + 没有持久化 MAC。建议给虚机用户单独 SKU，绑定
+licenseSeed 而非 machineCode。或要求客户固定 MAC。
+
+### 激活后还是反复弹激活窗
+
+`~/.apollo-map-studio/license.json` 写盘失败（权限 / 磁盘满）。检查
+路径：`echo $HOME` + `ls -la ~/.apollo-map-studio/`。Windows 上对应
+`%APPDATA%\apollo-map-studio\`。
+
+### 多个 license 文件冲突
+
+如果客户复制了 license.json 到另一台机器，本地 machineCode 不匹配会
+报错。教育客户每次新机器要重新激活；不要复制 license 文件。
+
+## 相关源码 (Source links)
+
+- [`tools/license-gen/issue.mjs`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/tools/license-gen/issue.mjs)
+- [`tools/license-gen/verify.mjs`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/tools/license-gen/verify.mjs)
+- [`tools/license-gen/gen-keys.mjs`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/tools/license-gen/gen-keys.mjs)
+- [`tools/license-gen/README.md`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/tools/license-gen/README.md)
+- [`electron/license/manager.cts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/electron/license/manager.cts)
+
+## 进阶 (Advanced)
+
+### Feature flag
+
+```bash
+node issue.mjs --machine X --days 365 --features draw,export,pncJunction
 ```
 
-What the layered defenses give you:
+电脑端在 `electron/license/manager.cts` 解出 `features` 数组，UI 用
+`useLicenseFeatures()` 控制按钮可见性：
 
-- **Ed25519 signature** — without `private.pem`, fake codes won't
-  verify. Cost: zero runtime overhead.
-- **Machine binding** — codes carry the destination's machine code.
-  A code for machine A is rejected on machine B.
-- **Three-file mirrored storage** (`license.dat`, `.lic-state.json`,
-  `.lic-shadow.dat` in `userData/`) — tampering with one file is
-  caught by cross-checks; missing or mismatched files mark the
-  install `tampered` and force re-activation.
-- **TimeGuard** — encrypted clock state (`userData/.lic-clock.dat`)
-  records the high-water mark, anchors mtime against the install dir,
-  and detects rollbacks larger than a 5-minute grace window.
-- **Replay protection** — same `lic` with shorter expiry rejected.
+```ts
+const { has } = useLicenseFeatures();
+{has('pncJunction') && <DrawPncJunctionButton />}
+```
 
-What the system **cannot** prevent:
+### 撤销列表（CRL）
 
-- A determined attacker with full machine control patches the
-  Electron main process, removes the verifier call, or modifies the
-  embedded public key. This is the inherent limit of offline
-  activation; mitigation is out-of-band (legal / commercial).
-- Private-key leak — once `private.pem` is out, key rotation +
-  re-issuing is the only remedy.
-- VM / image cloning that preserves all hardware signals — machine
-  code may collide.
+私钥泄漏前都做不到精确撤销。可选方案：
 
-## Trial period and tamper sticky-flag
+1. 内嵌 `revoked: ['LIC-2026-0042']` 列表，每次发版更新（粗粒度）。
+2. 客户端定期联网拉 CRL（破坏离线属性）。
 
-`LicenseManager` defaults to a 7-day trial. `TimeGuard` writes
-`firstSeen` on first launch. While no valid license is installed:
-
-| Condition                          | State           | `canEdit` |
-| ---------------------------------- | --------------- | --------- |
-| `now < firstSeen`                  | `not_started`   | false     |
-| `firstSeen ≤ now < firstSeen + 7d` | `trial`         | true      |
-| `now ≥ firstSeen + 7d`             | `expired_trial` | false     |
-
-`tampered` is **sticky** — once raised, the install stays read-only
-even if the underlying signal returns to normal. Production IPC has no
-reset; recovery is a support flow that clears
-`userData/license.dat` / `.lic-state.json` / `.lic-shadow.dat` /
-`.lic-clock.dat` and re-activates.
-
-## Read-only enforcement
-
-The license gate is enforced at three layers:
-
-1. `useActionDispatcher.execute()` — calls `assertEditable()` before
-   running edit-category, tool, selection, or `connectLanes` actions.
-2. `mapStore.addEntity / updateEntity / removeEntity / reparentEntity`
-   — `assertEditable()` again, defensive against any caller that
-   bypasses the dispatcher.
-3. UI affordances — `LicenseBanner` and the `ActivationDialog` give
-   visible feedback when `canEdit === false`.
-
-::: warning Import-replace path
-The "import Apollo map" code path replaces the entire entity map at
-once. It currently does **not** route through `assertEditable()`. If
-you expose new bulk-replacement APIs, add an `assertEditable()` call
-or document the gap explicitly so support can audit it.
+::: tip 当前策略
+本项目当前不实现 CRL。靠 `--days` 短期签发（1 年）+ 紧急版本换公钥
+应对极端情况。
 :::
 
-## Verification checklist
+### 时间证明
 
-1. After running `gen-keys.mjs`, `git status` should show
-   `electron/license/public-key.cts` modified and
-   `tools/license-gen/keys/private.pem` **untracked**.
-2. `node tools/license-gen/verify.mjs --code "$(cat code.txt)"` exits
-   `0` for codes you just issued.
-3. The machine code printed in the activation dialog matches the
-   `payload.machine` shown in the verify output.
-4. After activation, `LicenseState.canEdit` is `true` and the banner
-   disappears.
-5. Manually advance the system clock past `expires` — the next launch
-   reports `expired_license` and `canEdit` flips to `false`.
+担心客户改本地时间绕开过期？写入 license.json 时同时记录上次启动时间，
+新启动时间 < 上次启动时间 = 时钟回拨，警告并退出。本项目已实现
+"monotonic launch timestamp"。
 
-## Cross-references
-
-- `tools/license-gen/README.md` — complete reference, troubleshooting,
-  ops guidance
-- [packaging-desktop-builds](./packaging-desktop-builds.md) — how the
-  embedded public key reaches the installer
-- [/api/electron](../api/electron/) — `LicenseManager`, `TimeGuard`,
-  storage internals
+::: warning 不是真正的 DRM
+任何客户端验证都可被反编译绕过。激活码的目的是 **合规 + 计费**，不是
+防止盗版。盗版用户从来不是付费用户的潜在转化群体——把精力放在易用性
+上更划算。
+:::

@@ -1,213 +1,136 @@
+---
+title: ActivationDialog
+description: 激活弹窗——展示机器码 + 接受激活码（Ed25519 签名 token），通过 licenseBridge 在 Electron 主进程做验证、回收/绑定校验并落地状态。
+---
+
 # ActivationDialog
 
-> Source: `src/components/license/ActivationDialog.tsx`
+> 源码：`src/components/license/ActivationDialog.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`ActivationDialog` is the modal that lets the user activate a license.
-It shows the device's machine code (with a copy-to-clipboard button)
-and accepts a pasted activation token. Submission round-trips to the
-main process, which performs Ed25519 signature verification, machine
-binding, expiry, and replay protection — see
-[license manager](/api/electron/license-manager).
+`ActivationDialog` 是离线激活流程的 UI 端：
 
-The dialog is **always-mounted** by `WorkspaceLayout` so any code can
-trigger it via `useLicenseStore.getState().promptActivation()`. The
-dialog registers its own opener on mount; consumers never need a ref.
+1. **显示机器码**：从 `licenseStore.state.machineCode` 读取，单选 + Copy 按钮（带 1.5s "Copied" 反馈）。
+2. **粘贴激活码**：textarea 接受 `APMS1.eyJ…` 格式的 Ed25519 签名 token。
+3. **提交激活**：调用 `licenseBridge.activate(trimmed)` → IPC → 主进程做：
+   - Ed25519 公钥验签
+   - replay 检测（machine 绑定、过期）
+   - 落地 `~/.config/apollo-map-studio/license.bin`
+   - 回写新的 `state` 给 renderer
+4. **错误回显**：rose 提示框显示主进程返回的 `errorMessage`。
+5. **已激活状态展示**：成功后显示 emerald `Activated · {license.name}` + 过期时间。
+6. **tampered 状态特殊提示**：底部 amber 提示用户检查系统时钟。
 
-## Component props
+它**自注册全局触发器**——在 mount 时调 `registerPromptActivation(...)`，使得任何地方调 `licenseStore.promptActivation()` 都能打开此 dialog（例如 LicenseBanner 按钮、过期 modal、main 进程心跳）。
+
+## 组件接口
+
+`ActivationDialog` 不接受 props：
 
 ```ts
 export function ActivationDialog(): JSX.Element | null;
 ```
 
-No props. The component is self-controlled and reads everything it
-needs from `licenseStore`.
+未打开时返回 `null`——关闭即从 DOM 移除。
 
-## Behavior
+## 内部状态
 
-### Self-registration as the prompt target
+| `useState` / `useRef` | 类型/初值         | 用途                                 |
+| --------------------- | ----------------- | ------------------------------------ |
+| `open`                | `false`           | 控制可见性                           |
+| `code`                | `''`              | 用户输入的激活码                     |
+| `busy`                | `false`           | activate 进行中——禁用 close + button |
+| `copied`              | `false`           | 复制反馈（1.5s 自动恢复）            |
+| `error`               | `null \| string`  | 提交错误回显                         |
+| `textareaRef`         | `React.RefObject` | open 时聚焦                          |
 
-```ts
-useEffect(() => {
-  registerPromptActivation(() => {
-    setOpen(true);
-    setError(null);
-  });
-}, [registerPromptActivation]);
+| `useLicenseStore` 字段     | 用途                       |
+| -------------------------- | -------------------------- |
+| `state`                    | 当前许可状态               |
+| `setState`                 | 主进程返回新状态时回写     |
+| `registerPromptActivation` | 注册"打开 dialog" callback |
+
+## 副作用
+
+| 时机                                    | 行为                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `useEffect([registerPromptActivation])` | 注册 `() => { setOpen(true); setError(null); }` 作为全局触发器                           |
+| `useEffect([open, handleClose])` Esc    | open 时挂 `keydown` 监听，Esc → `handleClose`                                            |
+| `useEffect([open])` 聚焦                | open 时 `setTimeout(() => textareaRef.current?.focus(), 50)`（让 dialog 动画完成再聚焦） |
+| `handleCopy`                            | `navigator.clipboard.writeText(state.machineCode)`，失败 silent fallback                 |
+| `handleActivate`                        | `licenseBridge.activate(code)` → 处理 `result.ok` / `result.errorMessage`                |
+| `handleClose`                           | `busy=true` 时拒绝关闭；否则 close + 清空 code/error                                     |
+
+## 渲染骨架
+
+```jsx
+<div className="fixed inset-0 z-[100] flex items-center justify-center">
+  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+  <div className="relative w-full max-w-xl bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+    <Header title="Apollo Map Studio License" hint={`status: ${status} · ${reason}`} onClose={handleClose} disabled={busy} />
+    <div className="px-5 py-4 space-y-5">
+      <Section title="This machine's code">
+        <code className="…">{state.machineCode}</code>
+        <button onClick={handleCopy}>Copy / Copied</button>
+      </Section>
+      {isActivated && license && (
+        <Section emerald>
+          <p>Activated · {license.name}</p>
+          <p>id: {license.id} · expires: {license.expires === 0 ? 'never' : new Date(license.expires).toLocaleString()}</p>
+        </Section>
+      )}
+      <Section title="Paste activation code">
+        <textarea ref={textareaRef} … />
+        {error && <ErrorBox icon={FaCircleExclamation}>{error}</ErrorBox>}
+      </Section>
+      {state.status === 'tampered' && <p className="text-amber">…re-activation required after correcting system clock…</p>}
+    </div>
+    <Footer onClose={handleClose} onActivate={handleActivate} busy={busy} disabled={code.trim().length === 0} />
+  </div>
+</div>
 ```
 
-`licenseStore.registerPromptActivation(fn)` overwrites the store's
-internal callback. `licenseStore.promptActivation()` then invokes
-that callback. This indirection keeps the trigger reachable from
-non-React code paths (zustand mutators, action dispatchers,
-`editable-guard.ts`).
+z-[100] 与 [TaskProgressOverlay](./task-progress-overlay.md) 同层——但 ActivationDialog 是**用户主动触发**，TaskProgress 是阻塞性进度条，两者不会并存。
 
-### Activation flow
+## 性能注释
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Dialog as ActivationDialog
-    participant Bridge as licenseBridge
-    participant Main as LicenseManager (main process)
-    participant Store as licenseStore
+- **always-mounted at root**：`WorkspaceLayout.tsx:179` 总是渲染 `<ActivationDialog />`，但 `open=false` 时返回 null。**这是必须的**——否则 `registerPromptActivation` 的 effect 不会运行，全局触发器永远不可用。
+- 输入 textarea 不做实时校验；提交后由主进程返回 `errorMessage` 才显示——避免给用户反馈"格式不对"的 false positive。
 
-    User->>Dialog: paste activation code
-    User->>Dialog: click Activate
-    Dialog->>Dialog: trim whitespace
-    Dialog->>Bridge: activate(token)
-    Bridge->>Main: ipcRenderer.invoke('license:activate', token)
-    Main->>Main: parseToken + verifyToken (Ed25519)
-    Main->>Main: machine match + expiry + replay
-    Main->>Main: persist via LicenseStorage
-    Main-->>Bridge: ActivationResult { ok, state, errorCode? }
-    Bridge-->>Dialog: result
-    Dialog->>Store: setState(result.state)
-    alt ok
-        Dialog->>Dialog: close, clear input
-    else
-        Dialog->>Dialog: show errorMessage
-    end
-```
+## 安全注释
 
-### Machine code copy
+- 客户端**不做** Ed25519 验签——所有验签都在主进程（参考 v1 commit 142ece9 "feat(license): add offline activation system with machine binding"）。客户端拿到的 `code` 只做 `trim().replace(/\s+/g, '')` 清理。
+- `state.machineCode` 由主进程在启动时计算并暴露——不会因为 renderer 篡改而改变。
 
-```tsx
-<button onClick={handleCopy}>
-  {copied ? <FaCheck /> : <FaCopy />}
-  {copied ? 'Copied' : 'Copy'}
-</button>
-```
+## 已知缺口
 
-`handleCopy` writes `state.machineCode` to the clipboard via
-`navigator.clipboard.writeText`. The "Copied" state lasts 1.5 seconds
-then reverts.
+- 没有"重新申请"流程——用户必须重新走"复制机器码 → 联系供应商 → 拿新 token"路径。
+- 没有过期续期续费 UI——目前 expired_license 和 trial expired 走同一激活流程。
+- 没有多语言——所有提示都是英文。
 
-### State summary
+## 源码索引
 
-The header shows the current status inline:
+| 关注点               | 文件位置                       |
+| -------------------- | ------------------------------ |
+| 主组件               | `ActivationDialog.tsx:15-214`  |
+| 全局触发器注册       | `ActivationDialog.tsx:35-40`   |
+| Esc 监听             | `ActivationDialog.tsx:43-53`   |
+| 自动聚焦             | `ActivationDialog.tsx:56-62`   |
+| `handleCopy`         | `ActivationDialog.tsx:64-72`   |
+| `handleActivate`     | `ActivationDialog.tsx:74-96`   |
+| Activated state 显示 | `ActivationDialog.tsx:148-158` |
+| Tampered 提示        | `ActivationDialog.tsx:184-190` |
+| `licenseBridge`      | `src/lib/license-bridge.ts`    |
+| 主进程激活实现       | `electron/main/license/*`      |
 
-```tsx
-<h2>
-  Apollo Map Studio License
-  <span>
-    status: {state.status} · {state.reason}
-  </span>
-</h2>
-```
+## 跨页参考
 
-When `status === 'activated'`, an emerald banner shows the license id
-and expiry timestamp:
+- [WorkspaceLayout](./workspace-layout.md) — `<ActivationDialog />` 始终挂载于根
+- [LicenseBanner](./license-banner.md) — 弹出该 dialog 的常规入口
+- [`licenseStore`](/api/store) — 状态机
+- License IPC 协议 → [`/api/electron`](/api/electron)
 
-```tsx
-<section className="bg-emerald-500/10 border border-emerald-500/30">
-  Activated · {license.name || 'unnamed license'}
-  id: {license.id} · expires:{' '}
-  {license.expires === 0 ? 'never' : new Date(license.expires).toLocaleString()}
-</section>
-```
+## 英文镜像
 
-### Tampered banner
-
-When `status === 'tampered'`, the dialog shows an amber explanation:
-
-> The licensing layer detected tampering with the system clock or
-> stored license files. Re-activation is required after correcting
-> your system clock and removing any modified license files.
-
-The user must fix the underlying tampering (clock rollback or
-modified storage) before activation can re-establish state — see
-[time guard](/api/electron/license-time-guard).
-
-### Input handling
-
-```tsx
-<textarea
-  value={code}
-  onChange={(e) => setCode(e.target.value)}
-  spellCheck={false}
-  autoCorrect="off"
-  autoCapitalize="off"
-  rows={5}
-/>
-```
-
-A 5-row textarea so multi-line tokens paste cleanly. Whitespace and
-newlines are stripped on submit:
-
-```ts
-const trimmed = code.trim().replace(/\s+/g, '');
-```
-
-### ESC and backdrop
-
-```ts
-useEffect(() => {
-  if (!open) return;
-  const handler = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      handleClose();
-    }
-  };
-  window.addEventListener('keydown', handler);
-  return () => window.removeEventListener('keydown', handler);
-}, [open, handleClose]);
-```
-
-`handleClose` no-ops while `busy` is true so the user can't close the
-dialog mid-IPC.
-
-### Auto-focus
-
-```ts
-useEffect(() => {
-  if (open) {
-    const t = setTimeout(() => textareaRef.current?.focus(), 50);
-    return () => clearTimeout(t);
-  }
-}, [open]);
-```
-
-50ms delay so the focus call lands after the modal has painted —
-otherwise the underlying app's key handler can swallow the focus.
-
-## Examples
-
-### Triggering from anywhere
-
-```ts
-import { useLicenseStore } from '@/store/licenseStore';
-
-if (!useLicenseStore.getState().state.canEdit) {
-  useLicenseStore.getState().promptActivation();
-}
-```
-
-### Reading activation result programmatically
-
-```ts
-import { licenseBridge } from '@/lib/license-bridge';
-
-const result = await licenseBridge.activate(token);
-if (!result.ok) console.error(result.errorCode, result.errorMessage);
-```
-
-The dialog already does this; you'd only call it directly from a
-custom CLI / smoke test.
-
-### Tools that issue tokens
-
-The repo includes `tools/license-gen/` — a Node CLI that signs a
-payload with the matching Ed25519 private key. The desktop app never
-holds the private key.
-
-## Related
-
-- [License manager](/api/electron/license-manager)
-- [License crypto](/api/electron/license-crypto)
-- [License banner](/api/components/license-banner)
-- [licenseStore](/api/store/license-store)
-- [useLicenseSync](/api/hooks/use-license)
-- [Architecture: license system](/architecture/license-system)
+[/en/api/components/activation-dialog](/en/api/components/activation-dialog)

@@ -1,32 +1,47 @@
-# Actions Registry
+---
+title: actions/registry — 动作注册表
+description: 用户可执行动作的单一事实源——菜单、命令面板、ToolStrip 与快捷键的统一抓手。
+---
 
-> Source: `src/core/actions/registry.ts` + `src/core/actions/registry/{definitions,helpers,types}.ts`
+# `actions/registry` — 动作注册表
 
-## Overview
+> 源码：`src/core/actions/registry.ts`（barrel）
+>
+> - `src/core/actions/registry/{definitions,helpers,types}.ts`
+>   测试：`src/core/actions/__tests__/registry.test.ts`
 
-`registry.ts` is a barrel that re-exports everything; the real code lives
-in three sibling files:
+## Purpose & Invariants
 
-| File                      | Responsibility                                                                               |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| `registry/types.ts`       | `ActionId` literal union, `ActionDef` shape, `KeyBinding`, `ActionCategory`, `ToolStripSlot` |
-| `registry/definitions.ts` | The `ACTION_DEFS` array — single source of truth for every user-executable action            |
-| `registry/helpers.ts`     | `ACTION_MAP`, getter functions, `matchesKeybinding`, `formatShortcut`, `isMacPlatform`       |
+动作注册表是 Apollo Map Studio 中**所有**用户可执行操作的单一事实源（R5 规范）。
+任何带按钮、菜单、快捷键的功能都先在 `ACTION_DEFS` 表里注册一行，再由各消费方
+（MenuBar、CommandPalette、ToolStrip、键盘 handler）通过 helpers 拉取。
 
-This is the R5 single-source-of-truth fix: every menu, command palette
-entry, toolstrip slot, and keyboard shortcut reads from `ACTION_DEFS`.
-Adding a new action means appending one row to `definitions.ts` (and
-optionally pointing `drawTool` at a new FSM state). MenuBar / CommandPalette
-/ ToolStrip / keyboard handlers all pick it up automatically.
+### 为什么集中注册？
 
-## Exports
+历史上，菜单字符串、键盘 dispatcher 的 `if (e.key === 'p')`、ToolStrip 的图标列表
+是三处独立硬编码。新增一个绘图工具要改 5 个文件，且经常漏改 menu 排序或快捷键提示。
+
+集中后规则简化为：
+
+> 加新动作 = 改 1 个文件（`registry/definitions.ts`），所有消费方自动同步。
+
+### 不变量（必须保持）
+
+1. **`ActionDef.id` 全局唯一**：`ACTION_MAP` 用它做 O(1) 反查。
+2. **`drawTool` 字段对应 FSM 中的 `DrawTool`**：`getToolAction(drawTool)` 倒查的就是这条。
+3. **`shortcut` 用 Mac glyph 形式**（`⌘S`、`⇧⌘Z`）：`formatShortcut` 在非 Mac 平台
+   把 `⌘` 转成 `Ctrl+`、`⇧` 转成 `Shift+`、`⌥` 转成 `Alt+`。
+4. **`keybinding.ctrl: true` 在 `matchesKeybinding` 中匹配 `ctrlKey || metaKey`**：
+   一份配置同时跑 macOS 的 ⌘ 和 Windows/Linux 的 Ctrl。
+5. **`category` 是封闭枚举**（`'file' | 'edit' | 'view' | 'tool' | 'selection'`）：
+   命令面板和分组按它呈现。
+
+## Public API
 
 ### Types
 
-#### `ActionId`
-
 ```ts
-type ActionId =
+export type ActionId =
   | 'importApollo'
   | 'exportApolloBin'
   | 'exportApolloText'
@@ -46,273 +61,253 @@ type ActionId =
   | 'tool:drawRotatedRect'
   | 'tool:drawPolygon'
   | 'tool:drawCatmullRom';
-```
 
-A literal union — TypeScript catches typos in dispatcher switches at
-compile time.
+export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
+export type ToolStripSlot = 'selection' | 'view';
 
-#### `ActionCategory`
-
-```ts
-type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
-```
-
-#### `ToolStripSlot`
-
-```ts
-type ToolStripSlot = 'selection' | 'view';
-```
-
-Toolstrip slots that the registry reuses for non-draw actions (currently
-only the View slot for grid/snap toggles).
-
-#### `KeyBinding`
-
-```ts
-interface KeyBinding {
-  key: string; // case-insensitive, matched via toLowerCase()
-  ctrl?: boolean; // ctrl OR meta — matchesKeybinding treats them as one modifier
+export interface KeyBinding {
+  key: string;
+  ctrl?: boolean;
   shift?: boolean;
   alt?: boolean;
-  global?: boolean; // true = consumed even when an input is focused
+  global?: boolean;
 }
-```
 
-#### `ActionDef`
-
-```ts
-interface ActionDef {
+export interface ActionDef {
   id: ActionId;
   label: string;
   category: ActionCategory;
-  shortcut?: string; // canonical Mac glyph form, e.g. '⇧⌘Z'
-  keybinding?: KeyBinding; // matcher input
-  icon?: IconType; // react-icons component (FaPencil, FaGear, …)
-  inCommandPalette: boolean; // does it show up in ⌘K?
-  menu?: string; // menubar parent: 'File' | 'Edit' | 'View'
-  menuOrder?: number; // ascending sort within menu
-  isToggle?: boolean; // shown with a check mark when active
-  drawTool?: DrawTool; // FSM tool this action selects
+  shortcut?: string; // Mac glyph form: '⌘S', '⇧⌘Z', '⌫', 'P'
+  keybinding?: KeyBinding;
+  icon?: IconType;
+  inCommandPalette: boolean;
+  menu?: string; // 'File' | 'Edit' | 'View'
+  menuOrder?: number; // 同 menu 内升序，未指定按 99 兜底
+  isToggle?: boolean;
+  drawTool?: DrawTool; // 仅 category='tool' 使用
   uiSlot?: ToolStripSlot;
   uiOrder?: number;
 }
 ```
 
-### Constants
+文件位置：`src/core/actions/registry/types.ts`。
 
-#### `ACTION_DEFS: ActionDef[]`
+### `ACTION_DEFS: ActionDef[]`
 
-The full registry. Every consumer derives from this array.
+`registry/definitions.ts` 中的静态数组，**当前 19 条**：
 
-#### `ACTION_MAP: Map<ActionId, ActionDef>`
+| id                     | category  | shortcut | menu      | drawTool        |
+| ---------------------- | --------- | -------- | --------- | --------------- |
+| `importApollo`         | file      | —        | File / 1  | —               |
+| `exportApolloBin`      | file      | ⌘S       | File / 11 | —               |
+| `exportApolloText`     | file      | ⇧⌘S      | File / 12 | —               |
+| `settings`             | file      | ⌘,       | File / 90 | —               |
+| `undo`                 | edit      | ⌘Z       | Edit / 10 | —               |
+| `redo`                 | edit      | ⇧⌘Z      | Edit / 20 | —               |
+| `delete`               | edit      | ⌫        | Edit / 40 | —               |
+| `connectLanes`         | edit      | C        | Edit / 50 | —               |
+| `toggleGrid`           | view      | ⌘G       | View / 20 | —               |
+| `toggleSnap`           | view      | —        | View / 30 | —               |
+| `resetLayout`          | view      | —        | View / 10 | —               |
+| `commandPalette`       | view      | ⌘K       | —         | —               |
+| `defaultMode`          | selection | H        | —         | —               |
+| `tool:drawPolyline`    | tool      | P        | —         | drawPolyline    |
+| `tool:drawBezier`      | tool      | B        | —         | drawBezier      |
+| `tool:drawArc`         | tool      | A        | —         | drawArc         |
+| `tool:drawRotatedRect` | tool      | R        | —         | drawRotatedRect |
+| `tool:drawPolygon`     | tool      | G        | —         | drawPolygon     |
+| `tool:drawCatmullRom`  | tool      | —        | —         | drawCatmullRom  |
 
-`new Map(ACTION_DEFS.map((a) => [a.id, a]))`. Constant-time lookup by id.
+来源：`src/core/actions/registry/definitions.ts:22-222`。
 
-### Functions
+### `ACTION_MAP: Map<ActionId, ActionDef>`
 
-#### `getActionsByCategory(category: ActionCategory): ActionDef[]`
+`new Map(ACTION_DEFS.map((a) => [a.id, a]))` —— O(1) id 反查。
+`ToolStrip` 处理 `tool:drawX` action 时直接 `ACTION_MAP.get(id)?.drawTool`。
 
-Filter the registry by category (no sort).
+文件位置：`src/core/actions/registry/helpers.ts:10`。
 
-#### `getMenuActions(menu: string): ActionDef[]`
+### `getActionsByCategory(category) => ActionDef[]`
 
-Returns all actions whose `menu === menu`, sorted by `menuOrder` (default
-99 if absent). MenuBar consumes this.
+按 category 过滤，**不排序**（保留 definitions 中的声明顺序）。
+（`helpers.ts:12-14`）
 
-#### `getMenuNames(): string[]`
+### `getMenuActions(menu: string) => ActionDef[]`
 
-Returns the unique set of `menu` strings across `ACTION_DEFS`. Drives
-the menubar's top-level entries.
-
-#### `getCommandPaletteActions(): ActionDef[]`
-
-Filter by `inCommandPalette: true`. CommandPalette renders these as a
-flat list with fuzzy search.
-
-#### `getKeyBindingActions(): ActionDef[]`
-
-Filter by `keybinding != null`. The keyboard handler iterates this list
-and runs `matchesKeybinding(event, action.keybinding!)` against each.
-
-#### `getToolAction(drawTool: DrawTool): ActionDef | undefined`
-
-Reverse-lookup: given an FSM `DrawTool` string, return the `ActionDef`.
-ToolStrip uses this to render the active tool's icon and shortcut.
-
-#### `getToolStripSlotActions(slot: ToolStripSlot): ActionDef[]`
-
-Filter by `uiSlot`, sorted by `uiOrder`. Used to render slot-specific
-buttons (e.g. grid/snap in the view slot).
-
-#### `matchesKeybinding(e: KeyBindingEvent, kb: KeyBinding): boolean`
-
-```ts
-type KeyBindingEvent = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>;
-```
-
-Returns true iff every modifier matches and the lowercased key matches.
-Treats `ctrl` and `meta` as the same modifier — `⌘S` and `Ctrl+S` both
-fire `exportApolloBin`. Modifier flags must match exactly: a binding
-without `shift` will reject events where Shift is held.
-
-#### `isMacPlatform(): boolean`
-
-Memoised platform check. Tries `navigator.userAgentData.platform` first
-(Chromium UA-CH), falls back to deprecated `navigator.platform`, finally
-sniffs `navigator.userAgent` (catches iPad masquerading as desktop
-Safari). Cached after the first call.
-
-#### `_resetIsMacCache(): void`
-
-Test-only escape hatch that clears the memoised mac flag.
-
-#### `formatShortcut(shortcut: string | undefined): string`
-
-Renders the canonical Mac glyph string for the current platform. Mac
-returns the input unchanged; non-Mac maps `⌘ ⌃ → Ctrl+`, `⇧ → Shift+`,
-`⌥ → Alt+`. Non-modifier glyphs (`⌫`, `⏎`) pass through.
-
-::: info Why glyphs, not strings
-Registry authors write `'⇧⌘Z'` once. The keybinding matcher already
-normalises `ctrl|meta`, so we only need to fix the _display_ per
-platform — not the dispatch path.
-:::
-
-## Behavior
-
-- Every menu/command-palette/toolstrip consumer pulls from `ACTION_DEFS`
-  via the typed getters; no module imports `ACTION_MAP` from outside
-  helpers (avoid cycles).
-- `ActionId` is a literal union, so TypeScript catches typos in
-  dispatcher switches at compile time.
-- Shortcuts are written once in canonical Mac glyph form; `formatShortcut`
-  rewrites to platform on render.
-- Keybinding matching is case-insensitive on the key, exact on
-  modifiers, with `ctrl|meta` collapsed to one bit.
-
-## Action catalogue
-
-### File
-
-| id                 | shortcut | menuOrder | inCommandPalette |
-| ------------------ | -------- | --------- | ---------------- |
-| `importApollo`     | —        | 1         | yes              |
-| `exportApolloBin`  | `⌘S`     | 11        | yes              |
-| `exportApolloText` | `⇧⌘S`    | 12        | yes              |
-| `settings`         | `⌘,`     | 90        | yes              |
-
-### Edit
-
-| id             | shortcut | menuOrder | toggle |
-| -------------- | -------- | --------- | ------ |
-| `undo`         | `⌘Z`     | 10        | —      |
-| `redo`         | `⇧⌘Z`    | 20        | —      |
-| `delete`       | `⌫`      | 40        | —      |
-| `connectLanes` | `C`      | 50        | yes    |
-
-### View
-
-| id               | shortcut | menuOrder | toggle | uiSlot |
-| ---------------- | -------- | --------- | ------ | ------ |
-| `resetLayout`    | —        | 10        | —      | —      |
-| `toggleGrid`     | `⌘G`     | 20        | yes    | view   |
-| `toggleSnap`     | —        | 30        | yes    | view   |
-| `commandPalette` | `⌘K`     | —         | —      | —      |
-
-### Selection
-
-| id            | shortcut | toggle |
-| ------------- | -------- | ------ |
-| `defaultMode` | `H`      | yes    |
-
-### Tool (drawTool)
-
-| id                     | shortcut | drawTool          |
-| ---------------------- | -------- | ----------------- |
-| `tool:drawPolyline`    | `P`      | `drawPolyline`    |
-| `tool:drawBezier`      | `B`      | `drawBezier`      |
-| `tool:drawArc`         | `A`      | `drawArc`         |
-| `tool:drawRotatedRect` | `R`      | `drawRotatedRect` |
-| `tool:drawPolygon`     | `G`      | `drawPolygon`     |
-| `tool:drawCatmullRom`  | —        | `drawCatmullRom`  |
-
-::: warning Shortcut conflict
-`G` is bound to **both** `toggleGrid` (`{ key: 'g', ctrl: true }`) and
-`tool:drawPolygon` (`{ key: 'g' }`). Modifier specificity in
-`matchesKeybinding` keeps them disjoint — Ctrl+G hits the toggle, plain
-G picks the polygon tool. Adding a third `g`-bound action would silently
-collide.
-:::
-
-## Examples
-
-Adding a new action — say a "Toggle Inspector" action:
+按 `a.menu === menu` 过滤、按 `menuOrder` 升序（未填按 99 兜底）。MenuBar 渲染 File/Edit/View
+菜单时调用。
+（`helpers.ts:16-20`）
 
 ```ts
-// registry/types.ts: extend the union
-type ActionId = /* ... */ | 'toggleInspector';
-
-// registry/definitions.ts: append one row
-{
-  id: 'toggleInspector',
-  label: 'Toggle Inspector',
-  category: 'view',
-  shortcut: '⌘I',
-  keybinding: { key: 'i', ctrl: true, global: true },
-  icon: FaSidebar,
-  inCommandPalette: true,
-  menu: 'View',
-  menuOrder: 40,
-  isToggle: true,
-}
+getMenuActions('Edit');
+// → [undo, redo, delete, connectLanes]  (按 menuOrder 10/20/40/50)
 ```
 
-The MenuBar, CommandPalette, and keyboard handler will pick it up after
-the dispatcher in `useActionDispatcher.ts` adds a case for the new id.
+### `getMenuNames() => string[]`
 
-Wiring the keyboard handler:
+收集所有出现过的 menu 名（去重）。MenuBar 用它枚举顶层菜单。
+（`helpers.ts:22-28`）
+
+### `getCommandPaletteActions() => ActionDef[]`
+
+`a.inCommandPalette === true` 的子集。CommandPalette 用它构建可搜索条目。
+（`helpers.ts:30-32`）
+
+### `getKeyBindingActions() => ActionDef[]`
+
+带 `keybinding` 的子集，键盘 handler 遍历它做 `matchesKeybinding`。
+（`helpers.ts:34-36`）
+
+### `getToolAction(drawTool: DrawTool) => ActionDef | undefined`
+
+DrawTool → ActionDef 反查。FSM 退出 draw state 时，`useDrawCommit` 用这个把
+`drawTool` 还原成 actionId 上报埋点。
+（`helpers.ts:38-40`）
+
+### `getToolStripSlotActions(slot: ToolStripSlot) => ActionDef[]`
+
+按 `uiSlot === slot` 过滤、按 `uiOrder` 升序。`ToolStrip` 用它渲染顶部按钮组
+（当前 slot：`'selection' | 'view'`）。
+（`helpers.ts:42-46`）
+
+### `matchesKeybinding(e: KeyBindingEvent, kb: KeyBinding) => boolean`
+
+键盘事件匹配规则：
 
 ```ts
-// useGlobalKeydown.ts (excerpt)
-import { getKeyBindingActions, matchesKeybinding, ACTION_MAP } from '@/core/actions/registry';
-
-const actions = getKeyBindingActions();
-
-window.addEventListener('keydown', (e) => {
-  for (const action of actions) {
-    if (!action.keybinding) continue;
-    if (!matchesKeybinding(e, action.keybinding)) continue;
-    if (!action.keybinding.global && isInputFocused()) continue;
-    e.preventDefault();
-    dispatch(action.id);
-    return;
-  }
-});
+key.toLowerCase() === kb.key.toLowerCase() &&
+  !!kb.ctrl === (e.ctrlKey || e.metaKey) && // ⌘ === Ctrl
+  !!kb.shift === e.shiftKey &&
+  !!kb.alt === e.altKey;
 ```
 
-Rendering a menu (excerpt from `MenuBar.tsx`):
+关键点：`kb.ctrl` 同时匹配 macOS 的 `metaKey` 和 Win/Linux 的 `ctrlKey`，所以
+一条 `{ key: 's', ctrl: true }` 在两边都触发。
+（`helpers.ts:48-54`）
 
-```ts
-import { getMenuActions, formatShortcut } from '@/core/actions/registry';
+### `formatShortcut(shortcut: string | undefined) => string`
 
-function FileMenu() {
-  return (
-    <Menu>
-      {getMenuActions('File').map((action) => (
-        <MenuItem
-          key={action.id}
-          onClick={() => dispatch(action.id)}
-          rightSlot={formatShortcut(action.shortcut)}
-        >
-          {action.label}
-        </MenuItem>
-      ))}
-    </Menu>
-  );
-}
+平台感知的快捷键展示。Mac 保留 glyph（`⌘S`），其它平台替换：
+
+| Glyph | 替换为   |
+| ----- | -------- |
+| `⌘`   | `Ctrl+`  |
+| `⌃`   | `Ctrl+`  |
+| `⇧`   | `Shift+` |
+| `⌥`   | `Alt+`   |
+
+非 modifier glyph（`⌫` Backspace、`⏎` Return）原样透传。
+（`helpers.ts:98-108`）
+
+### `isMacPlatform() => boolean`
+
+记忆化的平台检测。优先 `navigator.userAgentData.platform`，回退
+`navigator.platform` + `navigator.userAgent`。iPad 伪装桌面 Safari 也能识别。
+测试时通过 `_resetIsMacCache()` 清除缓存。
+（`helpers.ts:69-91`）
+
+## 算法 / 流程
+
+### 注册一条新动作
+
+```mermaid
+flowchart LR
+    A[改 registry/definitions.ts] -->|新增 ActionDef| B[ACTION_DEFS]
+    B --> C[ACTION_MAP 自动包含]
+    B --> D[getMenuActions 自动出现]
+    B --> E[getCommandPaletteActions 自动出现]
+    B --> F[getKeyBindingActions 自动出现]
+    A2[types.ts ActionId 加新字面量]
 ```
 
-## Related
+如果新动作是 draw 工具，还要在 `fsm/editorMachine.ts` 的 `DrawTool` union 里
+加一个字面量 + 在 `DRAW_STATES` 数组里加上 state 名。
 
-- [FSM: editorMachine](/api/core/fsm-editor-machine) — `drawTool` ids match `DrawTool` state node names
-- [Architecture: action registry](/architecture/cold-hot-layers#action-registry-r5)
+### 键盘分发链
+
+```mermaid
+sequenceDiagram
+    participant K as keydown event
+    participant H as keyboard handler hook
+    participant R as getKeyBindingActions
+    participant M as matchesKeybinding
+    participant D as useActionDispatcher
+
+    K->>H: KeyboardEvent
+    H->>R: enumerate registered actions
+    R-->>H: ActionDef[]
+    loop each action
+        H->>M: matchesKeybinding(event, kb)
+        M-->>H: boolean
+    end
+    H->>D: dispatch(matched.id)
+```
+
+`KeyBinding.global` 字段保留给「需要在输入框焦点时也响应」的场景（如 `⌘S`）；
+默认行为由消费 hook 决定，`registry` 本身不读这个字段。
+
+### 平台展示链
+
+```
+ActionDef.shortcut = '⇧⌘Z'
+        │
+        ├── isMacPlatform() === true  → '⇧⌘Z'      （MenuBar / 命令面板）
+        └── isMacPlatform() === false → 'Shift+Ctrl+Z'
+```
+
+## 复杂度
+
+| 函数                       | 复杂度         | 备注                            |
+| -------------------------- | -------------- | ------------------------------- |
+| `ACTION_MAP.get(id)`       | O(1)           | Map                             |
+| `getActionsByCategory`     | O(N)           | 不排序                          |
+| `getMenuActions`           | O(N log N)     | 排序，但 N=19，常数级           |
+| `getCommandPaletteActions` | O(N)           | filter                          |
+| `getKeyBindingActions`     | O(N)           | filter                          |
+| `getToolAction(drawTool)`  | O(N)           | find；N=6 时常数级              |
+| `matchesKeybinding`        | O(1)           | 4 个布尔比较                    |
+| `formatShortcut`           | O(L)           | 4 个 replace；L = shortcut 长度 |
+| `isMacPlatform`            | O(1) amortized | 首次扫 UA 字符串后缓存          |
+
+## 测试覆盖
+
+`src/core/actions/__tests__/registry.test.ts` 覆盖：
+
+- 每个 `ActionId` 都对应到 `ACTION_DEFS` 中**唯一**的一条
+- `getMenuActions` 排序符合 `menuOrder`
+- `matchesKeybinding` 的 4 个布尔字段穷举（有 ctrl 没 shift / 有 ctrl + shift…）
+- `formatShortcut` 在 Mac / 非 Mac 路径分别快照
+- `isMacPlatform` 在 `userAgentData.platform`、`navigator.platform`、UA 三档兜底
+- `getToolAction` 对每个 `DrawTool` 都能拿回非空
+
+## 消费者清单
+
+| 消费方                                            | 调用                                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `src/components/layout/MenuBar.tsx`               | `getMenuNames()` + `getMenuActions(menu)`                                                        |
+| `src/components/layout/panels/CommandPalette.tsx` | `getCommandPaletteActions()`                                                                     |
+| `src/components/layout/ToolStrip.tsx`             | `getToolStripSlotActions('view' / 'selection')` + `ACTION_MAP.get(id)?.drawTool`                 |
+| `src/hooks/useActionDispatcher.ts`                | `getKeyBindingActions()` + `matchesKeybinding(e, kb)`，并 switch on `ActionId`（编译期检查穷举） |
+
+## 加新动作的 checklist
+
+1. `registry/types.ts`：在 `ActionId` union 加字面量。
+2. `registry/definitions.ts`：在 `ACTION_DEFS` 数组加一条 `ActionDef`，**至少**填
+   `id` / `label` / `category` / `inCommandPalette`。如果要在菜单出现，加 `menu` +
+   `menuOrder`；要走快捷键，加 `shortcut` + `keybinding`。
+3. `useActionDispatcher.ts` 的 switch 加一个 case（TS 会强制提示穷举不全）。
+4. 测试：在 `registry.test.ts` 加一条「新 id 出现且属性符合期望」。
+
+如果是新绘图工具，还要：
+
+5. `fsm/editorMachine.ts` 的 `DrawTool` 加字面量、`DRAW_STATES` 加状态名、
+   补 `states[name].on` 的 transition map。
+6. 在 `useDrawCommit.ts` 中处理对应的 commit 路径。
+7. `core/elements.ts`：让某个 `MapElementDef.tools` 含这个新工具。
+
+## See also
+
+- [FSM / editorMachine](./fsm-editor-machine) — `DrawTool` 类型与 draw state 列表
+- [elements](./elements) — `MAP_ELEMENTS` 中每个元素的允许工具
+- [hooks/useActionDispatcher](/api/hooks/use-action-dispatcher) — action id → effect 的桥
+- [components/MenuBar](/api/components/menu-bar) — 顶层消费者

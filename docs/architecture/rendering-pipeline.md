@@ -1,188 +1,324 @@
-# Rendering Pipeline
+---
+title: 渲染流水线深度解析
+description: 冷管线（mapStore→useColdLayer→spatial.worker→GeoJSONSource）、热管线、RAF 合并、postMessage 克隆边界、WASM 钩子（暂无）的完整链路。
+---
 
-The renderer uses MapLibre GL 5 for all map drawing. The editor wires four
-named GeoJSON sources and a fixed stack of layers on top of them; React
-hooks own the lifecycle of each source.
+# 渲染流水线深度解析（Rendering Pipeline Deep Dive）
 
-## Sources
+本页把渲染流水线拆到"每一次 postMessage、每一次 RAF tick"的颗粒度。
+读者群：需要在性能/正确性边界上做修改的工程师 —— 比如想把贝塞尔编译
+搬进 WASM、或者想替换 worker 协议为 SharedArrayBuffer。
 
-| Source id | Updated by                     | What it carries                                             |
-| --------- | ------------------------------ | ----------------------------------------------------------- |
-| `cold`    | `useColdLayer` (worker output) | committed entity geometry — lanes, junctions, signals, etc. |
-| `hot`     | `useHotLayer` (FSM context)    | live drag preview, selected entity edit handles             |
-| `grid`    | `useGridLayer`                 | adaptive grid lines based on `currentZoom`                  |
-| `overlay` | `useOverlayLayer`              | snap indicator, helper lines, transient guides              |
+## 一、流水线总览
 
-All four are populated with empty `FeatureCollection` data at map init and
-filled by their hook on the next React effect cycle.
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Store as mapStore
+  participant Cold as useColdLayer
+  participant RAF as requestAnimationFrame
+  participant Bridge as SpatialWorkerBridge
+  participant Worker as spatial.worker
+  participant Map as MapLibre cold source
 
-## Layer stack
+  Store->>Cold: subscribe (state.entities !== prev)
+  Cold->>RAF: scheduleSync()
+  RAF->>Cold: syncColdLayer()
+  Cold->>Cold: diffEntities(prev, next)
+  alt first sync OR diffSize > 5_000
+    Cold->>Bridge: send({ type: SYNC, entities })
+    Bridge->>Worker: postMessage(SYNC | SYNC_BEGIN+CHUNK+FINISH)
+    Worker->>Worker: syncEntities + buildFeatureCollection
+    Worker-->>Bridge: COLD_READY { groups }
+    Bridge-->>Cold: COLD_READY
+    Cold->>Map: setData(features) + chunked updateData
+  else delta path
+    Cold->>Bridge: send({ type: INCREMENTAL, added, updated, removed })
+    Bridge->>Worker: postMessage(INCREMENTAL)
+    Worker->>Worker: collect dependents → applyMutations → re-decorate
+    Worker-->>Bridge: COLD_DELTA { changed, removed }
+    Bridge-->>Cold: COLD_DELTA
+    Cold->>Map: updateData remove + add
+  end
+```
 
-Layers are added in this order (bottom to top, in
-`src/hooks/mapLibreInit/layers.ts`):
+## 二、冷管线（cold pipeline）
 
-1. `grid-line` — minor / major grid
-2. `cold-fill` — junction polygons, area polygons, parking polygons
-3. `cold-fill-crosswalk` — zebra-stripe pattern fill
-4. `cold-fill-cleararea` — red-hatch pattern fill
-5. `cold-line` — lane centerlines, road outlines, basic shapes
-6. `cold-line-dotted` — boundary segments tagged DOTTED
-7. `cold-line-dashed` — boundary segments tagged DASHED
-8. `cold-symbol` — lane direction arrows
-9. `cold-icon` — signals, stop signs, yield signs, RSUs, barrier gates
-10. `overlay-line` — snap helper, connect-mode preview line
-11. `hot-fill` — selected polygon highlight
-12. `hot-line` — selected polyline highlight
-13. `hot-edit-points` — drag handles
-14. `hot-bezier-handles` — bezier tangent visualisation
+### 2.1 触发点
 
-Layer filters are declared once in
-`src/components/map/coldLayerConfig.ts` and applied at layer-creation time.
-The `useColdLayer` hook adjusts only the selection filter (`buildColdLayerFilter`)
-to hide the selected entity from cold rendering when the hot layer takes over.
+`useColdLayer` 注册两个订阅：
 
-## MapLibre init
+```ts
+// src/hooks/useColdLayer.ts:296-300
+const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
+  if (state.entities !== prevState.entities) {
+    scheduleSync();
+  }
+});
+```
 
-`src/hooks/mapLibreInit/` contains the boot sequence:
+外加 `actorRef.subscribe(onActorChange)` 来响应 `selectedEntityId`
+变化（用于 cold layer 的选中态 filter）。`scheduleSync` 不直接同步，
+而是把工作推进 RAF：
 
-| File        | Owns                                                     |
-| ----------- | -------------------------------------------------------- |
-| `assets.ts` | image registry, sprite registration, `EMPTY_FC` constant |
-| `layers.ts` | adds all sources + layers to a fresh map                 |
+```ts
+// src/hooks/useColdLayer.ts:278-281
+const scheduleSync = () => {
+  if (syncFrameRef.current !== null) return;
+  syncFrameRef.current = requestAnimationFrame(syncColdLayer);
+};
+```
 
-`useMapLibreInit` (top-level hook in `src/hooks/useMapLibreInit.ts`) is the
-orchestrator:
+**RAF coalescing 的意义**：连续多次 `addEntity` / `updateEntity`（例
+如批量导入或 reconcileOverlaps）只触发一次 worker 调用。
 
-1. Construct `maplibregl.Map` with the no-tiles default style.
-2. Install icons via `registerRuntimeImages` (icons are SVGs encoded inline).
-3. Add sources + layers via `addAllLayers`.
-4. Mark `mapLoadedRef.current = true` once `'load'` fires.
-5. Return `mapRef`, `mapLoadedRef` for downstream hooks to subscribe to.
+### 2.2 Diff 与策略路径
 
-## Hook responsibilities
+`diffEntities(prev, next)` 返回 `{ added, updated, removed }`，全部以
+**引用比较**（`previousEntity !== entity`）判定 update —— Zustand +
+Immer 保证了未修改实体的引用稳定。
 
-| Hook               | Trigger                                    | What it writes to                                                     |
-| ------------------ | ------------------------------------------ | --------------------------------------------------------------------- |
-| `useMapLibreInit`  | on mount                                   | constructs the map, populates `mapRef`                                |
-| `useColdLayer`     | `mapStore.entities` change                 | `cold` source via worker                                              |
-| `useHotLayer`      | FSM transitions                            | `hot` source synchronously                                            |
-| `useGridLayer`     | `currentZoom` change, `gridEnabled` toggle | `grid` source                                                         |
-| `useOverlayLayer`  | snap target / connect mode change          | `overlay` source                                                      |
-| `useApolloLayer`   | (legacy)                                   | currently a no-op shell, retained for future Apollo-specific overlays |
-| `useDragPan`       | map style ready                            | wires MapLibre's drag-pan handlers                                    |
-| `useCursorManager` | FSM state                                  | sets the canvas cursor (`crosshair` for draw, `move` for drag, etc.)  |
+阈值决策：
 
-Each hook reads `mapRef.current` and `mapLoadedRef.current` defensively —
-the map is created in the same React tree as the hooks but layers can only
-be added once `'load'` fires.
+| 条件                                                   | 路径              |
+| ------------------------------------------------------ | ----------------- |
+| `prevEntitiesRef === null`（首次）                     | 全量 SYNC         |
+| `diffSize > FULL_SYNC_ENTITY_CHANGE_THRESHOLD = 5_000` | 全量 SYNC         |
+| 其它                                                   | INCREMENTAL delta |
 
-## Apollo layer styling
+源码：`src/hooks/useColdLayer.ts:227-247`。
 
-Apollo entities go through the cold path. The styling decisions live in two
-places:
+### 2.3 postMessage 克隆边界
 
-- `src/core/geometry/apolloCompile/features.ts` — emits per-entity GeoJSON
-  feature lists with styling hints in `properties` (color, lineWidth,
-  lineOpacity, fillOpacity, role).
-- `src/hooks/mapLibreInit/layers.ts` — paint expressions read those
-  properties (`['get', 'color']`, `['coalesce', ['get', 'lineWidth'], 2]`).
+主线程与 worker 通过结构化克隆传输 `SerializedEntity[]`。**没有
+ArrayBuffer transfer，也没有 WASM 共享内存** —— 这是当前最大的开销点
+（5w 实体 SYNC ~ 200ms 在普通笔记本上）。`SpatialWorkerBridge` 的对策：
 
-This lets the worker emit features without holding a MapLibre paint
-expression — the styling is data-driven from per-feature properties.
+1. 阈值切片：`SYNC_ENTITY_CHUNK_SIZE = 2_000`，超过则走
+   `SYNC_BEGIN → SYNC_CHUNK*N → SYNC_FINISH`。
+2. 每个 chunk 之间 `await yieldToMain()` 让主线程能插帧响应输入。
+3. INCREMENTAL 不切片（典型 dirtyIds 小于 50）。
 
-::: tip Why properties-driven, not stylesheet-driven?
-Properties-driven styling means a single layer can render lanes, roads, and
-boundaries with different colors/widths from the same source. Without it,
-each entity type would need its own MapLibre layer, multiplying layer count
-into the dozens. With ~14 layers we cover every Apollo type.
-:::
+worker 反向也有切片：`COLD_GROUP_CHUNK_SIZE = 1_000`，
+`spatial.worker.ts:respondChunked` 把超过该阈值的 `COLD_READY` 拆成
+`COLD_GROUPS_CHUNK[]` 顺序回包，bridge 端 `mergeChunks` 合并。
 
-## Icon registry
+### 2.4 Worker 内部
 
-`src/lib/mapIcons.ts` declares the icons surfaced as MapLibre symbols (signals
-in their various 3-bulb / 2-bulb / mixed orientations, stop signs, yield
-signs, RSUs, barrier gates).
+```mermaid
+flowchart TB
+  Req[INCREMENTAL request] --> Pre[collectPreMutationDependents<br/>via junctionGraph.getDependents]
+  Pre --> Mut[applyIncrementalMutations<br/>insert/remove + featureCache 更新]
+  Mut --> Post[collectPostMutationDependents]
+  Post --> Build[buildFeatureCollection<br/>only re-decorate affected lanes]
+  Build --> Group[groupFeaturesByEntity<br/>filter by deltaIds]
+  Group --> Resp[respond COLD_DELTA]
+```
 
-Each icon is rendered server-style at boot: an SVG string is rasterized to an
-HTMLImageElement and uploaded into MapLibre's image registry via
-`map.addImage(name, imageEl)`. The registry is keyed by a string id; cold
-features reference icons via `properties.iconId` and the layer expression
-resolves it.
+关键文件：
 
-`MAP_ICON_PX` (referenced from `layers.ts`) is the rasterization target size
-for crisp rendering at typical zoom levels.
+| 步骤                            | 文件:行                                       |
+| ------------------------------- | --------------------------------------------- |
+| dispatch                        | `src/core/workers/spatialRequests.ts:139-164` |
+| 受影响 lane 收集                | `src/core/workers/spatialRequests.ts:12-58`   |
+| feature 缓存 + RBush            | `src/core/workers/spatialState.ts:76-115`     |
+| 构造 FC                         | `src/core/workers/spatialFeatures.ts:65-118`  |
+| junction stitching + decoration | `src/core/geometry/laneJunctions.ts:150-165`  |
 
-## Hot layer selection rendering
+### 2.5 主线程应用
 
-When the FSM is in `selected` or `editingPoint`, `useHotLayer`:
+`useColdLayer` 收到响应后：
 
-1. Reads the selected entity from `mapStore.entities`.
-2. Compiles its GeoJSON via `entityRenderCoords` + `entityCoords` (from the
-   geometry engine).
-3. Adds drag-handle features at each edit point from
-   `entityOps.getEditPoints(entity)`.
-4. For `editingPoint`, applies the live drag delta via
-   `entityOps.setEditPoint(entity, idx, dragCurrentPoint)` and renders the
-   _modified_ entity until DRAG_END.
+- `COLD_READY`：`groupsToFeatureMap(groups)` 写回 `entityFeatureCacheRef`，
+  然后清空 source 并按 4 000 一批 `updateData({ add })`。
+- `COLD_DELTA`：从缓存计算 `previousFeatures`（待删除），合并 `changed`
+  到缓存，调用 `applyColdDeltaToSource`：先 `updateData({ remove })`
+  再分批 `updateData({ add })`。
 
-Cold layer simultaneously suppresses the selected entity via filter so the
-two don't double-render.
+```ts
+// src/hooks/useColdLayer.ts:96-115
+const remove = previousFeatures.map(featureId).filter(...);
+if (remove.length > 0) await updateColdSourceChunk(src, { remove });
+let add: GeoJSON.Feature[] = [];
+for (const group of changed) {
+  for (const feature of group.features) {
+    add.push(withPromotedFeatureId(feature));
+    if (add.length >= SOURCE_UPDATE_CHUNK_SIZE) {
+      await updateColdSourceChunk(src, { add });
+      add = [];
+    }
+  }
+}
+if (add.length > 0) await updateColdSourceChunk(src, { add });
+```
 
-## Grid layer
+`promoteId` 配合 `withPromotedFeatureId` 保证 MapLibre 在 delta
+更新时能稳定追踪每个 feature。
 
-`useGridLayer` recomputes grid lines whenever zoom changes. Major grid lines
-fire every 10 minor lines; the spacing in degrees is `2^-(zoom + offset)`,
-chosen so screen-pixel spacing stays approximately constant across zoom.
+### 2.6 版本号防回包错乱
 
-`uiStore.gridEnabled` toggles layer visibility via
-`map.setLayoutProperty('grid-line', 'visibility', enabled ? 'visible' : 'none')`
-without re-emitting features.
+`useColdLayer` 维护 `syncVersionRef`。每次 `syncColdLayer` 启动时
+`++syncVersionRef.current`，把版本号闭包到 `requestVersion`，回调里
+`if (cancelled || requestVersion !== syncVersionRef.current) return;`。
+意义：用户连点 5 下导致并发 5 次 INCREMENTAL，只有最后一次的响应被
+应用 —— 中间的过期回包被丢弃，避免"加上去又被旧 delta 覆盖"。
 
-## Overlay layer
+## 三、热管线（hot pipeline）
 
-`useOverlayLayer` handles transient visual indicators:
+### 3.1 触发点
 
-- **Snap indicator**: a small ring at `currentSnapTarget.point` when `uiStore.snapEnabled`
-  and the FSM is mid-draw.
-- **Connect-mode preview**: a dashed line from the first picked lane's endpoint
-  to the cursor, while `uiStore.connectMode.active` and one lane is picked.
-- **Validation warning lines**: red strokes for self-intersecting polygons in
-  `drawPolygon` state.
+`useHotLayer` 同时订阅 FSM（`actorRef.subscribe`）与 mapStore。每次
+变化都 `scheduleRender`，进入 RAF。
 
-The overlay source is rebuilt from scratch on every relevant state change —
-the data set is small (typically 1-3 features) and identity caching is not
-worth the complexity.
+### 3.2 渲染状态去重
 
-## Map event router
+构造一个 `HotRenderState`，用 `sameHotRenderState` 比对前后状态；
+**完全相同则提前 return**，不进 setData。
 
-`src/hooks/useMapEventRouter.ts` is the single attachment point for MapLibre
-event handlers. It fans events into:
+```ts
+// src/hooks/useHotLayer.ts:30-41
+function sameHotRenderState(a, b) {
+  return (
+    !!a &&
+    a.selectedEntityId === b.selectedEntityId &&
+    a.entity === b.entity && // 引用相等就是 OK
+    a.isEditingPoint === b.isEditingPoint &&
+    a.dragPointIndex === b.dragPointIndex &&
+    a.dragPointType === b.dragPointType &&
+    a.dragAltKey === b.dragAltKey &&
+    samePoint(a.dragCurrentPoint, b.dragCurrentPoint)
+  );
+}
+```
 
-- The FSM (`MOUSE_DOWN`, `MOUSE_MOVE`, `DOUBLE_CLICK`, `MOUSE_UP`).
-- The hit-test pipeline (`mapEventRouter/hitTest.ts`).
-- The connect-mode handler (`mapEventRouter/connectMode.ts`).
-- The selection-drag scheduler (`mapEventRouter/selectionDrag.ts`).
-- Input dedup (`mapEventRouter/inputDedup.ts`) — the click-vs-dblclick
-  guard that keeps `DOUBLE_CLICK` from eating points (see [FSM Design](./fsm-design.md)).
+### 3.3 拖拽预览
 
-## Performance levers
+```mermaid
+flowchart LR
+  A[FSM editingPoint state] --> B[dragCurrentPoint, dragPointIndex, dragPointType]
+  B --> C[applyDrag entity, idx, pType, pt, alt]
+  C --> D[entityToHotFeatures]
+  D --> E[setData on hot source]
+```
 
-| Pressure                     | Mitigation                                                                            |
-| ---------------------------- | ------------------------------------------------------------------------------------- |
-| Many entities (cold)         | worker offload, decoration cache, COLD_DELTA                                          |
-| Many features per entity     | `withPromotedFeatureId` so `updateData({add, remove})` can match by id                |
-| Dense layer stack            | layer filters keep each layer stylistically homogeneous                               |
-| Selected-entity render fight | cold filter + hot replacement, never double-rendered                                  |
-| Symbol density               | `cold-icon` with `iconAllowOverlap`, `iconIgnorePlacement` for non-occluding overlays |
+- `applyDrag` 是**纯函数**：返回新实体（不写 store），所以预览不会
+  污染数据层，松手时由 `onMouseUp` 一次性 `updateEntity` 落盘。
+- `entityToHotFeatures` 把实体编译成"几何体 + 顶点 + 控制柄"三类
+  GeoJSON。
 
-## Related Modules
+### 3.4 不走 worker 的理由
 
-- `src/components/map/MapCanvas.tsx` — the React component that owns the
-  canvas DOM node.
-- `src/components/map/coldLayerConfig.ts` — layer ids + filter expressions.
-- `src/hooks/mapLibreInit/{assets,layers}.ts` — boot-time setup.
-- `src/hooks/mapEventRouter/*.ts` — input event fan-out.
+热层只画 1 个实体，几何体编译开销 < 0.5ms（贝塞尔 48 段采样），
+postMessage clone 反而成为瓶颈。把热层放主线程能稳定 60fps。
 
-See [Cold / Hot Layers](./cold-hot-layers.md) for the data flow and
-[Geometry Engine](./geometry-engine.md) for what the cold features actually
-contain.
+## 四、Overlay / Snap / Grid 管线
+
+| 管线              | 触发源                                                               | 频率      | 同步原语                   |
+| ----------------- | -------------------------------------------------------------------- | --------- | -------------------------- |
+| `useOverlayLayer` | FSM `currentState` + `drawPoints` + `bezierAnchors` + `previewPoint` | mousemove | RAF                        |
+| `useGridLayer`    | `uiStore.gridEnabled` + `moveend`/`zoomend`                          | 视口变化  | 同步（无 RAF；事件低频）   |
+| Snap 指示器       | `uiStore.currentSnapTarget`                                          | mousemove | UI store dedup             |
+| `useApolloLayer`  | `apolloMapStore.bounds`                                              | 导入完成  | 同步（一次性 `fitBounds`） |
+
+`useOverlayLayer` 内部 `OVERLAY_BUILDERS` 把每个绘制态映射到 builder：
+
+```ts
+// src/hooks/useOverlayLayer.ts:157-164
+const OVERLAY_BUILDERS: Record<string, OverlayBuilder> = {
+  drawPolyline: buildPolylineFeatures,
+  drawCatmullRom: buildCatmullRomFeatures,
+  drawBezier: buildBezierFeatures,
+  drawArc: buildArcFeatures,
+  drawRotatedRect: buildRotatedRectFeatures,
+  drawPolygon: buildPolygonFeatures,
+};
+```
+
+## 五、Public surface
+
+`useColdLayer` / `useHotLayer` / `useOverlayLayer` 都返回 `void`；它们
+是"effect hook"，副作用（订阅 + setData）在 `useEffect` 里完成。
+
+供测试与诊断用的导出（在测试里用 vitest mock）：
+
+| 导出                    | 文件                         | 用途                             |
+| ----------------------- | ---------------------------- | -------------------------------- |
+| `groupFeaturesByEntity` | `useColdLayer.ts:20-32`      | 按 `properties.id` 重组 features |
+| `diffEntities`          | `useColdLayer.ts:121-144`    | 测试 add/update/remove 路径      |
+| `flattenEntityFeatures` | `useColdLayer.ts:70-76`      | 把每实体 feature buckets 拍平    |
+| `sameHotRenderState`    | `useHotLayer.ts:30-41`       | 单测 render 去重                 |
+| `buildOverlayFeatures`  | `useOverlayLayer.ts:166-169` | dispatch table 直查              |
+| `metersForZoom`         | `useGridLayer.ts:9-21`       | grid step 选档                   |
+
+## 六、性能预算
+
+| 阶段                              | 预算         | 实测来源                                    |
+| --------------------------------- | ------------ | ------------------------------------------- |
+| INCREMENTAL（dirty=1 lane）       | < 5ms 端到端 | `pnpm bench` + `scripts/bench-budgets.json` |
+| `applyDrag` 在 Catmull-Rom 实体上 | < 1ms        | hot layer 60fps 反推                        |
+| postMessage SYNC（5k entities）   | < 50ms 单段  | 切片后单段 < 25ms                           |
+| RBush hitTest（1k entities）      | < 0.5ms      | rbush 4.x benchmark                         |
+
+## 七、WASM 钩子
+
+**当前没有 WASM**。曾评估过把 `applyLaneJunctions` 与 RBush 搬到 Rust
+
+- wasm-bindgen，被推迟到 P3：
+
+* 收益边际：JS rbush 已能撑 5w 实体；postMessage clone 才是瓶颈。
+* WASM 共享内存（SharedArrayBuffer + Atomics）需要 COOP/COEP，
+  Electron 打包会添加复杂度。
+* TS 端代码已 < 700 LOC（spatial 全栈），可读性优于跨语言混编。
+
+如未来需要切 WASM：worker `handleRequest` 的 dispatch 是天然边界。
+建议先把 `intersect.ts` / `polyClip.ts` 搬过去，因为它们 CPU-bound 且
+已被 overlapper 多次调用。
+
+## 八、Pitfalls
+
+1. **不要在 React 组件里直读 `featureCache`**：缓存在 worker 里。
+   主线程的 `entityFeatureCacheRef` 是镜像，仅供 delta apply 路径使用，
+   不是 source of truth。
+2. **避免在 `requestAnimationFrame` 回调里 await 太多**：`updateData`
+   返回 `Promise`，但分块 await 太长会让多帧合并失效（一帧塞两次
+   SOURCE_UPDATE_CHUNK_SIZE 的 add 队列）。
+3. **prev snapshot vs cleanup**：`prevEntitiesRef.current = snapshot`
+   在 schedule 之前赋值，所以即使 worker 调用失败，下次也不会"双倍重发"。
+4. **`syncVersionRef` 单调递增**：不是按 ID 路由；如果未来加并发
+   worker pool，需要改成 `Map<workerId, version>`。
+
+## 九、Source map
+
+| 概念                  | 文件                                  | 行      |
+| --------------------- | ------------------------------------- | ------- |
+| Cold hook             | `src/hooks/useColdLayer.ts`           | 161-334 |
+| Cold helper utilities | `src/hooks/useColdLayer.ts`           | 20-159  |
+| Hot hook              | `src/hooks/useHotLayer.ts`            | 43-132  |
+| Overlay hook          | `src/hooks/useOverlayLayer.ts`        | 219-285 |
+| Bridge                | `src/core/workers/spatialBridge.ts`   | 1-143   |
+| Worker entry          | `src/core/workers/spatial.worker.ts`  | 1-38    |
+| Request dispatch      | `src/core/workers/spatialRequests.ts` | 1-165   |
+| Worker state          | `src/core/workers/spatialState.ts`    | 1-116   |
+| Feature builder       | `src/core/workers/spatialFeatures.ts` | 1-118   |
+| Hit test              | `src/core/workers/spatialHitTest.ts`  | 1-81    |
+| Protocol types        | `src/core/workers/protocol.ts`        | 1-74    |
+
+## 十、调试
+
+- **冷层 stale**：在 `useColdLayer` 里加 `console.log(diff)` 打印每次
+  diffEntities 结果；如果 `added/updated/removed` 都为空但 store 有
+  变化，说明 `state.entities` reference 未变 —— 检查 mutate 路径是否
+  返回新 Map。
+- **Worker 死锁**：`SpatialWorkerBridge` 的 timeout 默认 120s；如果
+  请求挂起，bridge 会 reject 并清空 pending 表。chrome devtools 的
+  workers 子页签能看每个 in-flight message。
+- **`COLD_DELTA` add 出现重复 feature id**：`withPromotedFeatureId`
+  必须保证每个 feature 有 unique id；旧版未调时会出现幽灵。
+
+## 十一、See also
+
+- [Cold / Hot Layers](./cold-hot-layers.md)
+- [Spatial Index](./spatial-index.md)
+- [Junction Graph](./junction-graph.md)
+- [Junction Stitching](./junction-stitching.md)
+- [Worker Protocol](./worker-protocol.md)

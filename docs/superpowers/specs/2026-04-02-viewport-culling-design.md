@@ -1,26 +1,42 @@
-# Viewport Culling Design
+---
+title: 视口裁剪设计
+description: 面向大规模 Apollo 地图的视口级渲染裁剪方案，说明 RBush 空间索引、可见集 diff、MapLibre source 更新与验证方式。
+---
 
-## Problem
+# 视口裁剪设计
 
-With 50K+ lanes, sending all features to MapLibre GeoJSON sources is expensive. Even though MapLibre tiles internally, the `setData()`/`updateData()` cost scales with total feature count. We need application-level viewport culling: only features within the current viewport (+ padding) are present in MapLibre sources.
+## 背景
 
-## Approach
+当地图包含 5 万条以上车道时，把全部 GeoJSON feature 一次性交给 MapLibre 会让 `setData()` / `updateData()` 成本随总数据量增长。MapLibre 内部会做瓦片化，但应用层仍然需要把数据推入 source。视口裁剪的目标是：MapLibre source 中只保留当前视口及其缓冲区域内的元素，视口外元素保留在编辑器数据层和空间索引中。
 
-RBush spatial index over all map elements. On viewport change or data mutation, query the index for visible elements, diff against the previous visible set, and use `updateData()` to incrementally add/remove features entering/leaving the viewport.
+## 方案概述
 
-## Architecture
+系统为全部地图元素维护一棵 RBush 空间索引。视口移动或地图数据变化时，查询当前视口外扩后的范围，与上一次可见集合做 diff，只为进入或离开视口的元素增删 feature。
 
-### New module: `src/map/viewportCuller.ts`
+```mermaid
+flowchart TD
+  Store[地图数据变化] --> Index[更新 RBush 索引]
+  Move[moveend 事件] --> Query[查询外扩视口]
+  Index --> Query
+  Query --> Diff[与上一帧可见集合 diff]
+  Diff --> Build[为进入视口的元素构建 GeoJSON]
+  Diff --> Remove[移除离开视口的 feature]
+  Build --> Source[MapLibre updateData]
+  Remove --> Source
+  Source --> Selection[恢复选中态 feature-state]
+```
 
-Single module that owns:
+## 核心模块
 
-- A global RBush index of all element bboxes
-- The current visible set (`Set<string>` of element IDs per source)
-- The sole authority to write to MapLibre GeoJSON sources (replaces `updateBoundaryLayers`, `updateElementLayers`, and `sourceDiffEngine` as source update paths)
+建议由 `src/map/viewportCuller.ts` 统一管理视口裁剪。它负责三件事：
 
-### Index entry
+- 维护所有元素 bbox 的 RBush 索引。
+- 记录每个 source 当前可见的元素 ID 集合。
+- 统一向 MapLibre GeoJSON source 写入数据，替代散落的边界层、元素层和 source diff 更新路径。
 
-```typescript
+### 索引条目
+
+```ts
 interface SpatialEntry {
   minX: number;
   minY: number;
@@ -39,133 +55,98 @@ interface SpatialEntry {
 }
 ```
 
-One entry per element. Lane bbox is derived from the cached boundary polygon. Other elements use their polygon/linestring coordinates (reuse `buildBBox` from `overlapCalc.ts`).
+每个地图元素对应一条索引记录。车道 bbox 来自已缓存的边界多边形，其它元素使用自身 polygon 或 linestring 坐标计算 bbox。bbox 计算逻辑应抽成共享工具，避免重叠计算、命中测试和视口裁剪各自维护一份实现。
 
-### Index lifecycle
+## 索引生命周期
 
-| Event                           | Operation                                  |
-| ------------------------------- | ------------------------------------------ |
-| Import complete                 | `rbush.load(allEntries)` — bulk build      |
-| Add element                     | `rbush.insert(entry)`                      |
-| Edit element (geometry changed) | `rbush.remove(old)` + `rbush.insert(new)`  |
-| Delete element                  | `rbush.remove(entry)`                      |
-| Clear / re-import               | `rbush.clear()` + `rbush.load(newEntries)` |
+| 事件           | 操作                                     |
+| -------------- | ---------------------------------------- |
+| 导入完成       | 使用 `rbush.load(allEntries)` 批量建索引 |
+| 新增元素       | `rbush.insert(entry)`                    |
+| 编辑几何       | 移除旧 bbox，再插入新 bbox               |
+| 删除元素       | `rbush.remove(entry)`                    |
+| 清空或重新导入 | `rbush.clear()` 后重新 `load`            |
 
-The index is maintained incrementally by listening to store changes and diffing per-element references (same Immer identity pattern used elsewhere).
+索引随 store 变化增量维护。实现上可以复用现有的引用 diff 思路：只有几何引用变化的元素才重新计算 bbox。
 
-### Viewport query
+## 视口同步流程
 
-```typescript
-function syncViewport(map: MapLibreMap): void;
-```
+`syncViewport(map)` 在两类场景执行：
 
-Called on:
+1. 用户平移或缩放后触发 `moveend`。
+2. 导入、绘制、编辑、删除、撤销或重做导致地图数据变化。
 
-1. `moveend` — user panned/zoomed
-2. After any store data mutation (via the existing `renderData` subscription)
+同步步骤如下：
 
-Steps:
+1. 读取 `map.getBounds()`，按视口宽高各外扩 50%，得到带缓冲的查询范围。
+2. 用 RBush 查询范围内的 `SpatialEntry`。
+3. 与上一轮 `_visibleIds` 做集合差异：
+   - 新进入视口：构建 GeoJSON feature 并通过 `updateData({ add })` 加入 source。
+   - 离开视口：通过 `updateData({ remove })` 从 source 删除。
+   - 仍在视口：跳过，避免重复写入。
+4. 更新 `_visibleIds`。
+5. 对受影响 source 重新应用选中态和高亮态。
 
-1. `map.getBounds()` → expand by 50% of viewport width/height on each side (query area = 2x viewport in each dimension)
-2. `rbush.search(paddedBounds)` → list of `SpatialEntry` in viewport
-3. Diff against `_visibleIds` (per-source `Set<string>` from last sync):
-   - **Entering** (in query result but not in `_visibleIds`): build GeoJSON features, `updateData({ add })`
-   - **Leaving** (in `_visibleIds` but not in query result): `updateData({ remove })`
-   - **Unchanged**: skip
-4. Update `_visibleIds`
-5. `reapplySelectionState()` for sources that changed
+## Feature 构建
 
-### Feature building
+车道通常会生成填充、中心线、边界、箭头、连接关系等多类 feature，应复用已有的车道 feature 构建函数。其它元素继续复用当前元素层的转换逻辑。
 
-`syncViewport` needs to convert elements to GeoJSON features for MapLibre. For lanes, each lane produces features in 5 sources (fills, centers, boundaries, arrows, connections). The existing `buildLaneFeaturesInto()` helper is reused.
+车道连接关系需要单独处理：连接线跨越两条车道，只要源车道或目标车道在可见集合中，连接线就应该可见。由于连接线很轻量，可以在每次同步时基于可见车道重建，而不是单独维护复杂索引。
 
-For other elements, the `toFeature` lambdas from the current `updateElementLayers` are reused.
+## 选中元素
 
-### Connections
+当前选中的元素应始终进入可见集合，即使它已经被平移到视口外。这样可以保持 selection `feature-state` 和后续定位行为一致。选中状态变化时，如果新选中的元素尚未加载到 source，需要立即补入对应 feature。
 
-Lane connections (successor links) span two lanes. A connection is visible if either the source or target lane is visible. When building visible connections, iterate visible lanes' `successorIds` and also check if any visible lane is a target of an off-screen lane. For simplicity, connections are rebuilt fully for all visible lanes on each sync (they are lightweight — just 2-coordinate linestrings).
+## 首次导入体验
 
-### Selected elements
+大地图首次导入时不再逐步加载全量 feature，而是：
 
-Elements that are currently selected (via `useUIStore.selectedIds`) are always included in the visible set, even if outside the viewport. This preserves their `feature-state` for selection highlighting. When selection changes, the newly selected element is added to sources if not already visible.
+1. 分块构建 RBush 索引。
+2. 查询初始视口。
+3. 只把初始视口内的 feature 写入 source。
+4. 用户平移到新区域时再加载对应元素。
 
-### Progressive initial load
+这样地图可以更快进入可交互状态，且 MapLibre source 的 feature 数量稳定受视口大小约束。
 
-On first import (50K+ elements):
+## 与现有渲染管线的关系
 
-1. Build RBush index from all elements (async chunked, ~50ms)
-2. Query initial viewport
-3. Only load visible features into sources (few hundred to few thousand)
-4. Map is interactive almost immediately — remaining elements are never loaded until the user pans to them
+| 现有能力                  | 处理方式                        |
+| ------------------------- | ------------------------------- |
+| `buildLaneFeaturesInto()` | 继续复用，用于车道 feature 构建 |
+| `boundaryCache`           | 继续复用，用于车道边界和 bbox   |
+| `selectionStateManager`   | 继续复用，用于恢复选中态        |
+| `updateData()`            | 继续作为增量写 source 的通道    |
+| 全量边界/元素层更新       | 由 `syncViewport()` 接管        |
+| source diff engine        | 可被视口可见集 diff 替代        |
 
-This replaces the current `updateBoundaryLayersProgressive` which loads ALL features progressively. With viewport culling, we only ever load what's visible.
+## 性能预期
 
-## Data flow
+| 操作              | 复杂度                | 5 万车道估计耗时 |
+| ----------------- | --------------------- | ---------------- |
+| 构建索引          | O(n)                  | 约 50 ms         |
+| 查询视口          | O(log n + k)          | 约 1-5 ms        |
+| 可见集 diff       | O(k)                  | 约 1 ms          |
+| 构建新增 feature  | O(entering)           | 约 1-5 ms        |
+| `updateData` 增删 | O(entering + leaving) | 约 5-10 ms       |
+| 单元素编辑        | O(log n)              | 小于 1 ms        |
+| 单次平移/缩放同步 | -                     | 约 10-20 ms      |
 
-```
-Store mutation
-  ├─→ Update RBush index (insert/remove changed entries)
-  └─→ syncViewport()
-        ├─→ query RBush with padded viewport bounds
-        ├─→ diff vs _visibleIds
-        ├─→ build features for entering elements
-        ├─→ updateData({ add: entering, remove: leaving })
-        └─→ reapplySelectionState()
+这里的 `k` 是视口内元素数量，通常为数百到数千。
 
-moveend event
-  └─→ syncViewport() (same flow)
-```
+## 边界情况
 
-## Integration with existing code
+- **缩放到全图**：如果一次查询返回超过 1 万个元素，可以切换到全量加载模式；当查询数量低于 8000 时再恢复裁剪，避免在阈值附近频繁抖动。
+- **元素跨越视口边界**：外扩查询范围可以覆盖部分可见元素，减少边缘 pop-in。
+- **撤销/重做**：大规模状态变化可以触发索引重建和一次完整 `syncViewport()`。
+- **fitBounds**：最终会触发 `moveend`，由同一同步流程处理。
+- **图层可见性切换**：隐藏类型不构建 feature；重新显示后在下一轮同步中补入可见元素。
 
-### Replaced
+## 验证清单
 
-- `updateBoundaryLayers()` / `updateBoundaryLayersIncremental()` / `updateBoundaryLayersProgressive()` — replaced by `syncViewport()` for lane sources
-- `updateElementLayers()` — replaced by `syncViewport()` for element sources
-- `sourceDiffEngine.ts` `diffAndApply()` — no longer needed, `viewportCuller` manages all source writes
-
-### Kept
-
-- `buildLaneFeaturesInto()` — reused for feature building
-- `boundaryCache.ts` — reused for lane geometry
-- `selectionStateManager.ts` — reused for feature-state
-- `buildBBox()` from `overlapCalc.ts` — extracted/shared for bbox computation
-- `updateData()` API — the delivery mechanism for incremental source updates
-
-### Modified
-
-- `MapEditor.tsx` render subscription: calls `syncViewport()` instead of `updateBoundaryLayers` + `updateElementLayers`
-- `MapEditor.tsx` moveend handler: calls `syncViewport()` in addition to `updateGridFromViewport()`
-- `overlapCalc.ts`: extract `buildBBox()` to a shared utility (`src/geo/bbox.ts`) so both modules can use it
-
-## Performance characteristics
-
-| Operation                  | Complexity            | Est. time (50K lanes) |
-| -------------------------- | --------------------- | --------------------- |
-| Build index (`rbush.load`) | O(n)                  | ~50ms                 |
-| Viewport query             | O(log n + k)          | ~1-5ms                |
-| Visible set diff           | O(k)                  | ~1ms                  |
-| Feature build for entering | O(entering)           | ~1-5ms                |
-| `updateData` add/remove    | O(entering + leaving) | ~5-10ms               |
-| Single element edit        | O(log n)              | <1ms                  |
-| Pan/zoom total             | —                     | ~10-20ms              |
-
-k = number of visible elements (typically hundreds to low thousands in a viewport).
-
-## Edge cases
-
-- **Zoom out to see all**: if `rbush.search()` returns > 10K entries, switch to "uncullled mode" — call `setData()` with all features and stop tracking `_visibleIds`. When the user zooms back in and the query count drops below 8K (hysteresis to avoid flapping), re-enable culling.
-- **Element spans viewport boundary**: bbox padding (50%) ensures partially visible elements are included.
-- **Undo/redo**: large state change detected → rebuild index + full `syncViewport()`.
-- **fitBounds**: triggers `moveend` → `syncViewport()` handles naturally.
-- **Layer visibility toggle**: `syncViewport()` checks `layerVisibility` from UIStore. Hidden element types are skipped entirely (no features built or added to sources). When a type is toggled visible, its visible features are built and added in the next sync.
-
-## Verification
-
-1. Import a 50K+ lane map — only viewport-visible features should appear in MapLibre sources (check via devtools: source feature count << total)
-2. Pan around — new features appear smoothly at edges, no pop-in within the padded region
-3. Click to select — selection works for visible elements; selected element stays highlighted when panned partially off-screen
-4. Edit a lane — change is reflected immediately, index updated
-5. Undo/redo — map updates correctly
-6. Zoom out fully — fallback to full load kicks in, all features visible
-7. Performance: pan/zoom should feel smooth (< 20ms per syncViewport call)
+1. 导入 5 万条以上车道的地图，确认 MapLibre source 中只包含视口附近的 feature。
+2. 平移地图，新区域元素应平滑出现，缓冲区内不应明显闪烁。
+3. 选中元素后平移，选中态应保持。
+4. 编辑车道后，几何和索引应立即更新。
+5. 撤销/重做后，地图显示与数据状态一致。
+6. 缩放到全图时，全量模式应接管；缩回局部视图后恢复裁剪。
+7. 平移/缩放同步耗时应保持在约 20 ms 以内。

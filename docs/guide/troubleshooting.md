@@ -1,320 +1,361 @@
-# Troubleshooting
+---
+title: 故障排查
+description: AMS 已知问题汇总：worker 启动失败、WASM/proto 加载错误、PROJ 不匹配、撤销异常、许可证过期、dockview 重置、绘制 FSM 卡死、地图渲染消失等。
+---
 
-Common issues and how to diagnose them. If you don't see your problem
-here, the bug template at the [GitHub issues](https://github.com/<owner>/apollo-map-studio/issues)
-page captures the right info to file a fresh report.
+# 故障排查 / Troubleshooting
 
-## Import / Export issues
+> 以下问题按 **首次看到的位置** 与 **真实根因** 整理。每条都附最小复现条件、诊断要点、立即缓解、根治方案。如果你的问题不在表中：先看 DevTools console 第一条红色 stacktrace，再 [GitHub Issues](https://github.com/apollo-map-studio/apollo-map-studio/issues) 搜关键词。
 
-### Imported map appears at the wrong location
+::: tip 提 issue 时附带
 
-**Cause:** Wrong projection. Either the imported header has a stale or
-incorrect `+proj` string, or you picked the wrong UTM zone in the
-projection picker.
+1. AMS 版本（`Help → About` 或 `package.json#version`）
+2. 浏览器/Electron 版本
+3. console 完整 stacktrace
+4. 操作复现步骤
+5. 涉及的 base_map 文件大小（如脱敏后能附最好）
+   :::
 
-**Diagnosis:**
+## 1. Worker 启动失败 / Worker boot failures
 
-1. Hover the apollo info indicator in the StatusBar to see the
-   resolved PROJ string.
-2. Compare to your fleet's expected projection.
-3. Look at the bounds — are they where you expect them on the basemap?
+### 症状
 
-**Fix:** Re-import with the correct projection. Press Cancel on the
-picker only if you've reviewed the [Cancel = fallback projection
-warning](/guide/coordinate-system#projection-picker-dialog).
+页面空白，console 报：
 
-### "Failed to parse PROJ.4 string"
+```
+Failed to construct 'Worker': Module script's response has type 'text/html'
+DOMException: Failed to construct 'Worker': Script at … cannot be accessed from origin 'null'
+```
 
-**Cause:** The Apollo header's projection string contains characters
-proj4 can't handle.
+### 真因
 
-**Fix:** Re-import; the picker should appear. Paste a clean PROJ.4
-string. If a clean string doesn't work, the issue may be in
-`sanitizeProjString()` (`src/io/proto/projection.ts:10`) — file an
-issue with the offending file.
+Vite 在 dev 模式下以模块化 worker 加载，`new Worker(new URL('...', import.meta.url), { type: 'module' })` 路径解析依赖 `import.meta.url`。本地直接打开 HTML（file:// 协议）会失败。
 
-### Import succeeds, but no entities appear
+### 立即缓解
 
-**Cause:** Either the file is a `routing_map` (topology only, no
-geometry) or the bounds are far from your viewport.
+- 用 `pnpm dev`，永远走 http://localhost:5173。
+- 桌面端用打包后的 Electron exe，不要直接打开 dist/index.html。
 
-**Diagnosis:**
+### 根治
 
-1. Check the StatusBar entity count. If it's > 0, the entities are
-   loaded but off-screen.
-2. Check the Activity bar → Explorer panel. The Apollo HD-Map section
-   shows per-type counts. If a type expected to be present (e.g.
-   `lane`) shows 0, you imported the wrong file.
+不要绕开 dev server / Electron loader。如真要静态部署，请用 `pnpm build` 并通过任意 HTTP server 提供（不能 file://）。
 
-**Fix:** Pan/zoom to where the bounds are; or re-import a `base_map`
-file.
+## 2. WASM / Proto 加载失败 / WASM & Proto loader
 
-### Export fails with "Nothing to export"
+### 症状
 
-**Cause:** No imported map; the editor has no projection to use for
-the UTM round-trip.
+`import` 或 `apolloIO.worker.ts` 启动时：
 
-**Fix:** Import a sample Apollo map first (any one with the right
-projection). The editor needs the projection in `apolloMapStore.info`
-before exporting. Greenfield "draw from blank" is on the roadmap.
+```
+Error loading map.proto: net::ERR_FAILED
+GET .../map_geometry.proto 404
+```
 
-### Re-export of the same map produces different bytes
+### 真因
 
-**Expected.** Apollo proto2 serialization is order-sensitive in some
-cases, and the timestamp in the filename always changes. For
-byte-equivalent diffs, use the `.txt` format instead — text proto is
-line-stable.
+`proto/loader.ts` 用 `protobufjs/light` 在运行时加载 `.proto` 文件。Vite 通过 `?url` 或 `?raw` import 拷贝；如果有人手动改动了 `vite.config.ts` 资源处理，可能漏掉 .proto。
 
-## Drawing / FSM issues
+### 立即缓解
 
-### Click on the canvas does nothing
+- 确认 `vite.config.ts` 内 `assetsInclude: ['**/*.proto']` 仍存在。
+- 检查 `dist/assets/` 下是否有 hash 化的 .proto 文件。
 
-**Possible causes:**
+### 根治
 
-1. License is in read-only mode. Check the LicenseBanner.
-2. You're in `selected` state and clicked off the entity (which
-   deselects but doesn't draw).
-3. You clicked while in `Connect Lanes` mode but haven't picked a
-   second lane yet.
-4. The polygon tool rejected your click as a self-intersection
-   (silent rejection — see [Drawing tools / Polygon](/guide/drawing-tools#tool-6-polygon)).
+恢复 `assetsInclude`，重新 build。
 
-**Fix:** Check the StatusBar's mode indicator. If it doesn't say
-"Draw: …", press your tool's shortcut (`B`, `A`, `R`, `G`, `P`).
+## 3. PROJ 投影不匹配 / Projection mismatch
 
-### Double-click commits but loses my last point
+### 症状
 
-**Was a bug.** The fix is in `src/core/fsm/editorMachine.ts:82-87`: the
-input dedup now lives in `useMapEventRouter.isDuplicateInput`, and the
-FSM no longer slices `drawPoints` on `DOUBLE_CLICK`. If you still see
-this on the latest build, file a regression with the gesture details.
+- 导入后地图位置偏离正常位置（漂到南极洲、海里）
+- 状态栏 `lane=… road=…` 数量正确，但地图上看不到任何车道
+- 导出后 Apollo runtime 报 “lat/lng out of range”
 
-### Bezier handle drag never releases
+### 真因
 
-**Cause:** Mouse-up fired outside the canvas (over the menu bar or a
-panel), so the FSM never received `MOUSE_UP`. Subsequent
-`MOUSE_MOVE` events keep updating the handle.
+Apollo `Header.projection.proj` 字段是 PROJ.4 字符串。AMS 用 `proj4` 把 UTM 米反投影到 WGS84 经纬度。若 .bin 文件 header 缺失 / 字段被改 / 模板占位符 `{37.413082}` 没被解析，结果会偏。
 
-**Fix:** Press `Esc` to send `CANCEL`. The lane is discarded. Restart
-the draw with the mouse-up inside the canvas.
+`projection.ts:10-12` 的 `sanitizeProjString` 已处理花括号；但若文件根本没 PROJ，会回退到 `UTM_PRESETS.beijing`（zone 50N）。
 
-### Arc commits at the wrong location
+### 立即缓解
 
-**Cause:** Arc geometry uses three points: start, mid, end. The
-mid-point must be **inside** the arc (between start and end along the
-curve). If you put it on the wrong side, you get the major arc.
+1. 看状态栏的 `PROJ:` 提示（鼠标悬停 `apolloInfo.filename` 区域）。
+2. 如显示的 PROJ 与你的地图实际位置不一致：
+   - 删除 import → 等待 `ProjPickerDialog` 弹出 → 手动指定。
+   - 或用 `UTM_PRESETS` 中的 sunnyvale/shanghai/shenzhen/beijing。
 
-**Fix:** Re-draw with the mid-point on the correct side. There's no
-flip affordance.
+### 根治
 
-### Polygon won't accept a click
+确保上游 base_map 文件的 `Header.projection.proj` 字段填好。详见 [Coordinate System](./coordinate-system.md)。
 
-**Cause:** Self-intersection guard. The proposed segment from the last
-point to the cursor would cross an existing segment.
+## 4. 撤销异常 / Undo Glitch
 
-**Fix:** Move the cursor and try a different point. The cursor not
-advancing is the affordance.
+### 症状
 
-### Snap doesn't engage
+`Ctrl+Z` 之后：
 
-**Possible causes:**
+- 地图上 lane 还原了；
+- Inspector 显示旧字段；
+- **下一次绘制 confirm 后实体形状错乱**（控制点叠在一起、长度为 0）。
 
-1. Snap is disabled (magnet icon in the ToolStrip). Toggle it on.
-2. You're not in a draw or `editingPoint` state. Snap only fires in
-   those states (see `src/hooks/mapEventRouter/snap.ts:11-13`).
-3. The cursor is more than 8 pixels from any candidate. Zoom in to
-   reduce the meter-equivalent of the snap radius.
+### 真因（已修复，本节作为回归说明）
 
-**Fix:** Confirm via the StatusBar — when snap is on, it shows cyan;
-off, it's gray. Zoom in past the cluttered region until candidates
-are clearly within range.
+旧版本的 undo 不发 FSM `CANCEL`，导致 `editorMachine.context.drawPoints` 仍保留绘制中数据，但 `mapStore.entities` 已回滚——下一次 CONFIRM 把陈旧的 drawPoints 落到新 entity 上。
 
-### Lane endpoints "snap" but pred/succ aren't set
+修复在 `useActionDispatcher.ts:76-82`：
 
-**Cause:** You snapped to a non-endpoint point on the existing lane,
-or the snap was a `kind: 'edge'` snap rather than `kind: 'vertex'`.
-Topology only writes pred/succ for endpoint-to-endpoint snaps.
+```ts
+case 'undo': {
+  actorRef.send({ type: 'CANCEL' });   // ← R1 闭环
+  useMapStore.temporal.getState().undo();
+  return;
+}
+```
 
-**Fix:** Re-draw, ending exactly at the existing lane's start or end.
-Or use [Connect Lanes](/guide/topology-and-junctions#a-connect-lanes-c)
-to stitch the topology after the fact.
+### 验证
 
-### Connect Lanes "fork" warning never appears
+跑 `src/hooks/__tests__/undoCancel.test.ts` 必须绿。如果再次出现，说明该 case 又被错误改动。
 
-**Expected behavior.** The `AstartToBstart` (fork) and `AendToBend`
-(merge) modes silently skip pred/succ writing. There's no UI warning
-today. To verify which mode the editor chose, watch the lane's
-predecessor / successor in the Inspector after Connect Lanes runs.
+## 5. 许可证过期 / License Expired
 
-## Performance issues
+### 症状
 
-### Drag handle drag is laggy
+- 顶部出现红色 banner：`License expired — read-only mode`。
+- Inspector 输入框灰色不可写。
+- 绘制工具仍可点击但 commit 不进 store。
 
-**Cause:** Cold-layer rebuild on every frame. With ≥ 5k entities, the
-naive rebuild costs ~3 ms × N. The Phase E incremental decoration
-(`ARCHITECTURE.md:150-164`) keeps this under 50 ms by re-decorating
-only affected lanes.
+### 真因
 
-**Diagnose:**
+`license.json.expires < Date.now()`，`canEdit=false`。
 
-1. Open the dev console.
-2. Watch for `[useColdLayer]` log lines reporting incremental vs full.
-3. If full sync is firing on drag, file an issue — you've found a
-   case where the junction graph isn't reusable.
+### 立即缓解
 
-### Import takes 30+ seconds
+- 联系厂商续期。
+- 临时抢救：`File → Export Apollo Map (.bin)` **仍可用**（导出不被 license 阻断），先保存当前 entities。
 
-**Cause:** A large map (typically 10k+ lanes). Most of the cost is
-proj4 transforms.
+### 根治
 
-**Fix:** Check the progress overlay; the "Projecting coordinates"
-phase is the dominant one. Wait it out. Long-term: split the map into
-sub-maps geographically, or pre-process via Apollo's `dreamview` tools
-to a smaller `sim_map`.
+详见 [License Activation](./license-activation.md)：粘贴新激活码，banner 转绿。
 
-### "Failed to construct 'Worker': resource was blocked"
+## 6. Dockview 状态损坏 / Dockview corruption
 
-**Cause:** Worker scripts blocked by Content-Security-Policy or by an
-unsigned source on Electron.
+### 症状
 
-**Fix on web build:** check your reverse proxy / dev server for CSP
-headers; whitelist `worker-src 'self' blob:`.
+- 加载后界面只剩 MenuBar；中央空白。
+- console: `Cannot read properties of null (reading 'addPanel')` 或类似。
+- 切 Drawing/Scene 后症状不变。
 
-**Fix on Electron build:** ensure `webPreferences.contextIsolation` is
-true and worker scripts ship inside the app bundle (the build
-configuration handles this; if you're customizing, check
-`electron/main.ts`).
+### 真因
 
-### Memory growing unbounded across edits
+`localStorage` 里的 `ams-layout-v3-drawing` 或 `ams-layout-v3-scene` JSON 损坏（手动改、跨版本不兼容）。
 
-**Cause:** Undo history. Every edit pushes a snapshot of
-`mapStore.entities`. With `historyLimit = 1000` and a 10k-entity map,
-each snapshot is ~10 MB.
+### 立即缓解
 
-**Fix:** Reduce `historyLimit` in [Settings](/guide/settings). The
-default of 100 is conservative; 50 is reasonable for huge maps.
+`View → Reset Layout`。如菜单已不可点：
 
-## License issues
+```js
+// DevTools console
+localStorage.removeItem('ams-layout-v3-drawing');
+localStorage.removeItem('ams-layout-v3-scene');
+localStorage.removeItem('ams-layout-v2');
+location.reload();
+```
 
-### Activation succeeds but banner still says "expired"
+### 根治
 
-**Cause:** Race between the renderer state hydration and the dialog
-close.
+不要手动改 layout 键；版本升级时 dockview 会自动 fallback，但极端版本跨度仍可能不兼容，必要时清键。
 
-**Fix:** Click another tab in the activity bar (forces a re-render),
-or wait 1–2 seconds for `licenseBridge.onChange` to push the new
-state.
+## 7. 绘制 FSM 卡死 / FSM Stuck
 
-### "Bound to a different machine"
+### 症状
 
-**Cause:** Your machine code changed since the token was issued.
-Common triggers: network card replacement, OS reinstall, container
-hash change.
+- 鼠标点击地图但不出控制点；
+- 状态栏左 2 显示 `Draw: Polyline` 但圆点不闪烁；
+- 任意 ESC / H / 工具切换都无响应。
 
-**Fix:** Open the activation dialog, copy the new machine code, send
-to your vendor for a re-issued token.
+### 真因
 
-### "Tampering detected"
+`editorMachine` 已经 transition 到 `editingPoint` 但 React 没重新渲染（极少见，多由 lazy MapCanvas 在 Suspense fallback 状态下事件队列错位导致）。
 
-**Cause:** System clock moved backward, or license files in
-`userData/license/` were modified outside the editor.
+### 立即缓解
 
-**Fix:**
+- 按 `H` 切回 Default Mode（即便看不到反馈，event 会被发出）。
+- 不行就刷新页面。
 
-1. Correct your system clock to current real-world time.
-2. Quit the editor.
-3. Remove `userData/license/` (the file path varies by OS — see
-   [License activation](/guide/license-activation)).
-4. Restart and re-activate with your token.
+### 诊断
 
-::: warning Don't use NTP correction during a session
-If your clock was off when the editor started, the tampered state
-sticks for the session even if NTP corrects it. Restart after the
-clock is right.
-:::
+DevTools console：
 
-### Trial expired but I just installed
+```js
+// 看当前 FSM state
+window.__editorActor?.getSnapshot().value;
+```
 
-**Cause:** Clock skew at install time put the trial start in the
-future, then NTP correction moved it past the 7-day window in a
-single jump.
+（仅 dev build 暴露 `__editorActor`）
 
-**Fix:** Remove `userData/license/` and restart. The trial restarts
-fresh.
+## 8. 地图突然消失 / Map disappears
 
-### Banner shows but Activate button does nothing
+### 症状
 
-**Cause:** `promptActivation()` was registered before the dialog
-mounted, then the registration didn't take. Should be impossible
-given current code in `WorkspaceLayout.tsx`.
+平移 / 缩放后画布全黑。
 
-**Fix:** File a regression. Capture: license status from StatusBar,
-console errors on banner click, and the Electron main-process log
-output.
+### 真因
 
-## Electron-specific issues
+MapLibre WebGL context lost（GPU 驱动异常 / 浏览器 tab 后台过久）。
 
-### White screen on launch
+### 立即缓解
 
-**Cause:** The Electron renderer loaded before Vite was ready (in dev
-mode), or before the renderer bundle was unpacked (in production).
+- 拖动滚轮一次（强制 invalidate）。
+- 不行就 `View → Reset Layout`（重建 DockviewReact 实例 → 重建 MapLibre）。
 
-**Fix (dev):** Restart `pnpm electron:dev`. The combined script waits
-for Vite to be ready before launching Electron.
+### 根治
 
-**Fix (production):** Reinstall the build. If it persists, the asar
-unpacking failed — check disk permissions.
+升级浏览器 / 显卡驱动；Electron 端用最新版本。
 
-### File picker shows no files of expected type
+## 9. 导入超时 / Import timeout
 
-**Cause:** macOS QuickLook may not classify Apollo `.bin` files
-correctly. The accept filter is permissive enough to allow
-`application/octet-stream`, but the Finder may not show them by
-default.
+### 症状
 
-**Fix:** Enable "Show all files" in the file picker, or rename to a
-`.txt` if the file is text proto.
+导入大文件 (>100MB) 后 10 分钟报 `Apollo IO request timed out after 600000ms`。
 
-### Crash on import of a 50k-lane map
+### 真因
 
-**Cause:** Default heap size insufficient.
+`apolloIOBridge.ts:14` 的 `DEFAULT_TIMEOUT_MS = 10 * 60_000`。
 
-**Fix (dev):** Bump the renderer's heap with
-`NODE_OPTIONS="--max-old-space-size=4096" pnpm electron:dev`.
+### 立即缓解
 
-**Fix (production):** Bumping the heap requires a custom build
-configuration. Pre-decimate the map before importing, or split into
-sub-maps.
+- 增大 timeout：source build 改 14 行，或在浏览器 console `apolloIOBridge` 实例上动态打补丁（仅 dev）。
+- 把大图离线拆分（用 Apollo 工具 `bazel run //modules/map/tools:map_split`）。
 
-### Auto-update fails after first run
+## 10. CommandPalette 不打开 / Palette dead
 
-**Cause:** Code signing certificate revoked or expired.
+### 症状
 
-**Fix:** Manual download of the latest installer from the GitHub
-release page.
+按 `⌘K` 没反应。
 
-## Build / dev issues
+### 真因
 
-See [Installation / Common install issues](/guide/installation#common-install-issues)
-for `pnpm install`, Vite, and worker-related build issues.
+- 焦点在 contentEditable / iframe 内事件被吃掉。
+- License 状态 `tampered`，`useLicenseSync` 抛错阻塞 dispatcher。
 
-## Diagnostic information to include in bug reports
+### 立即缓解
 
-When filing an issue, capture:
+- 鼠标点 map 一下，重按 `⌘K`。
+- 看 console 是否有红色 stacktrace；如有，先解决 license。
 
-1. **OS and version** (e.g. macOS 15.2, Ubuntu 24.04, Windows 11).
-2. **Editor surface** (web `pnpm dev`, or Electron desktop build).
-3. **Editor version** (commit hash or release tag).
-4. **License status** (from StatusBar / LicenseBanner; redact tokens).
-5. **Reproduction steps** — minimum sequence of clicks/keys.
-6. **Expected vs actual** behavior.
-7. **DevTools console output** — copy stack traces verbatim.
-8. **Map file (if relevant)** — small reproducer if the bug is map-data
-   driven. Anonymize or sanitize as needed.
+## 11. Inspector 不更新 / Inspector stale
 
-## Where to next
+### 症状
 
-- [Architecture overview](/architecture/overview) — design rationale
-  for the editor's surfaces.
-- [License activation](/guide/license-activation) — full state machine.
-- [Installation](/guide/installation) — install-time issues.
+地图上选中 lane A，但 Inspector 还显示 lane B。
+
+### 真因
+
+`mapStore` 与 `editorMachine.context.selectedEntityId` 异步更新，存在竞态。极少见；通常 1 秒内自洽。
+
+### 立即缓解
+
+- 再次单击 A。
+- 切到 Default Mode 再选。
+
+## 12. 导出文件下载未触发 / Download silent
+
+### 症状
+
+`exportApolloBin` 走完进度条到 100%，但浏览器没下载。
+
+### 真因
+
+`downloadBlob` 用 `<a download>`；浏览器站点权限被拒。
+
+### 立即缓解
+
+- 浏览器右上角的下载图标，点 “Allow”。
+- Chrome 设置 → 隐私 → 站点设置 → 自动下载允许。
+
+## 13. macOS Gatekeeper / Notarization
+
+### 症状
+
+桌面 dmg 安装后双击 .app 报：
+
+```
+"Apollo Map Studio" cannot be opened because the developer cannot be verified.
+```
+
+### 真因
+
+未签名 / 未公证。
+
+### 立即缓解
+
+`xattr -d com.apple.quarantine /Applications/Apollo\ Map\ Studio.app`（终端命令）。
+
+### 根治
+
+使用官方签名包；详见 [Installation](./installation.md)。
+
+## 14. Linux AppImage 无图标 / AppImage no icon
+
+### 症状
+
+`./AppImage` 启动后任务栏无图标。
+
+### 真因
+
+KDE/GNOME 不一定从 AppImage 内取 desktop entry。
+
+### 立即缓解
+
+```bash
+sudo apt install libfuse2
+chmod +x AMS-x.y.z.AppImage
+./AMS-x.y.z.AppImage --appimage-extract-and-run
+```
+
+或安装 [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) 自动注册。
+
+## 排查流程 / Diagnose Flow
+
+```mermaid
+flowchart TD
+  A[问题出现] --> B{Console 有红色 stacktrace?}
+  B -->|是| C[先解决 stacktrace]
+  B -->|否| D{是导入相关?}
+  D -->|是| E[检查 PROJ + 文件大小]
+  D -->|否| F{是 UI 不响应?}
+  F -->|是| G[Reset Layout / 刷新]
+  F -->|否| H{是 license 相关?}
+  H -->|是| I[激活/续期]
+  H -->|否| J[Issue + log + 复现]
+```
+
+## 配置存储位置 / Persistence
+
+排错时常需要清的键：
+
+| 键                      | 排错场景      |
+| ----------------------- | ------------- |
+| `ams-layout-v3-drawing` | dockview 损坏 |
+| `ams-layout-v3-scene`   | 同            |
+| `ams-layout-v2`         | 旧版本残留    |
+| `apollo-map-studio:*`   | 设置错乱      |
+
+## 相关源码 / Source
+
+- `src/io/apolloIO.worker.ts` — worker 异常源头
+- `src/io/apolloIOBridge.ts:108-122` — worker.onerror
+- `src/io/proto/loader.ts` — proto/wasm 加载
+- `src/io/proto/projection.ts` — PROJ.4 解析
+- `src/hooks/useActionDispatcher.ts:76-82` — Undo R1 闭环
+- `electron/main/license/` — license 主进程
+- `src/components/layout/WorkspaceLayout/dockviewLayout.ts` — layout 持久化
+
+## 相关文档 / See also
+
+- [Importing](./importing.md) — 完整导入流水线
+- [Exporting](./exporting.md) — 完整导出流水线
+- [License Activation](./license-activation.md) — 许可证排错
+- [Activity Bar & Panels](./activity-bar-and-panels.md) — Reset Layout
+- [Settings](./settings.md) — 配置项

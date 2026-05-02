@@ -1,177 +1,177 @@
-# Geometry: snap
+---
+title: geometry/snap — 吸附（顶点 + 边段）
+description: findSnapTarget 在本地 ENU 米空间里搜顶点优先 / 边段次之的吸附目标，lane 端点带 endpointRole 反向触发 pred/succ。
+---
 
-> Source: `src/core/geometry/snap.ts`
+# `geometry/snap` — 吸附
 
-## Overview
+> 源码：`src/core/geometry/snap.ts`
+> 测试：`src/core/geometry/__tests__/snap.test.ts`（~9.9 KB）
 
-Pure-geometry snap module: given the cursor position and the current
-entity collection, find the best snap target (vertex or edge segment)
-within a metre radius. Used by the drawing tools' "magnet" preview, by
-endpoint snapping during lane connection, and by the inspector's
-"connect to nearest endpoint" affordance.
+## Purpose & Invariants
 
-Three contracts the module deliberately enforces:
+`findSnapTarget` 是一个**纯几何**模块：给定一个 cursor / drag 点、所有 entity、
+半径，返回最佳吸附位置 + 来源实体 + 类型（vertex / edge）。
 
-- **No store coupling.** Caller passes in `entities`, `excludeId`,
-  `radiusMeters`. The module does not import zustand, MapLibre, or any
-  worker. Tests run with plain `Map` instances.
-- **No spatial index.** Each call scans every candidate. Map sizes in
-  the editor stay under ~10⁴ entities and mousemove runs at 60 fps with
-  sub-millisecond budget; an RBush is overhead.
-- **Lane endpoints only.** Lanes have direction. Topology
-  (predecessor / successor) is only meaningful at the centerline
-  endpoints — interior vertex snaps would produce coincident geometry
-  without a topological link, leaving the user with what looks like a
-  connection but acts like a stray point.
+设计准则：
 
-::: info Latitude-aware projection
-Distance comparison and edge projection happen in a local ENU plane:
-each candidate is multiplied by `(cosLat × DEG_TO_M, DEG_TO_M)` on the
-fly. cosLat is taken from the cursor's latitude — a single rad·degree
-correction that keeps the metric "1 m" stable regardless of viewport.
-:::
+- **顶点优先**：同距离条件下顶点 wins over edge（"贴到那个端点" 比 "贴到附近线段" 更合用户意图）
+- **lane 端点特殊待遇**：lane 顶点候选**只**收 `endpointRole: 'start' | 'end'`，
+  不收中间点。理由：拓扑（pred/succ）只在端点有意义；如果允许吸附到 lane 内部
+  顶点，结果是几何重叠但 reconcile 不识别，看起来连了实际没有连——典型 footgun。
+- **不直接 import store / hooks / maplibre**：调用方自己拉数据传进来。
+- **不维护索引**：`Iterable<MapEntity>` 全扫；mousemove 60fps 下 1k entity < 1ms。
 
-## Exports
+### 不变量
+
+1. **半径单位为米**：`pixelsToMeters(px, lat, zoom)` 把像素阈值转成米半径。
+2. **`excludeId` 排除自身**：拖动时不能贴到正在被拖的实体的旧端点。
+3. **lane 边段仍然贡献 edge snap**：mid-lane 拖动可以走 edge snap（不会误触发
+   pred/succ）。
+
+## Public API
 
 ### Types
 
-#### `SnapKind`
-
 ```ts
-type SnapKind = 'vertex' | 'edge';
-```
+export type SnapKind = 'vertex' | 'edge';
+export type LaneEndpointRole = 'start' | 'end';
 
-#### `LaneEndpointRole`
-
-```ts
-type LaneEndpointRole = 'start' | 'end';
-```
-
-Drives the pred/succ decision in `reconcileLaneTopology`. Snapping a
-new lane's start to an existing lane's end means
-"existing → new" (existing.successor += new); snapping to an existing
-lane's start means "fork" (no pred/succ). Only `start` / `end` snaps
-establish topology.
-
-#### `SnapTarget`
-
-```ts
-interface SnapTarget {
+export interface SnapTarget {
   kind: SnapKind;
-  point: GeoPoint; // the snapped lng/lat
+  point: GeoPoint; // 吸附后的 lng/lat 位置
   entityId: string;
   entityType: string;
-  vertexIndex?: number; // for kind === 'vertex'
-  endpointRole?: LaneEndpointRole; // only on lane vertex hits
+  vertexIndex?: number; // vertex hit 时的源索引
+  endpointRole?: LaneEndpointRole;
 }
 ```
 
-### Functions
-
-#### `pixelsToMeters(pixels, lat, zoom): number`
-
-Web-Mercator pixel-to-metre at a given latitude / zoom (MapLibre's
-512-px tile sizing). Used by callers to derive the metre-space
-`radiusMeters` from a pixel threshold (typical: 12 px tolerance).
+### `findSnapTarget(point, entities, radiusMeters, excludeId?) => SnapTarget | null`
 
 ```ts
-const EARTH_CIRC = 40_075_016.686; // metres
-const metersPerPixel = (cos(lat) * EARTH_CIRC) / (512 * 2 ** zoom);
+findSnapTarget(
+  point: GeoPoint,
+  entities: Iterable<MapEntity>,
+  radiusMeters: number,
+  excludeId: string | null = null,
+): SnapTarget | null;
 ```
 
-#### `collectCandidates(entities, excludeId)`
+流程：
 
-```ts
-{ vertices: VertexCandidate[]; edges: EdgeCandidate[] }
+```mermaid
+flowchart TD
+    P[input point] --> COS[cosLat = cos point.y]
+    COS --> CC[collectCandidates entities, excludeId]
+    CC --> V[vertices: VertexCandidate]
+    CC --> E[edges: EdgeCandidate]
+    V --> VS[投影到米空间，找最小距离 vertex]
+    VS --> VW{在半径内?}
+    VW -->|是| RV[返回 vertex SnapTarget]
+    VW -->|否| ES[投影后找最近 edge segment]
+    ES --> EW{在半径内?}
+    EW -->|是| RE[返回 edge SnapTarget]
+    EW -->|否| RN[null]
 ```
 
-Sweeps over all entities and produces two flat lists of candidates.
-Switch on `entityType`:
+vertex pass 优先；只有所有 vertex 都不在半径内才走 edge pass。
 
-- **`lane`** — endpoint vertices only (start + end with `endpointRole`),
-  but **all** segments as edge candidates so mid-lane proximity can
-  produce an `edge` snap (without claiming a topological connection).
-- **`junction` / `pncJunction` / `parkingSpace` / `crosswalk` /
-  `signal`** — every polygon vertex, every polygon edge.
-- **`road`** — skipped (its geometry comes from its lanes already
-  harvested).
-- **default** — generic geometry entities (polyline / bezier / polygon /
-  rect / arc): expose `points: GeoPoint[]` if present, else
-  `anchors[].point`.
+### `pixelsToMeters(pixels, lat, zoom) => number`
 
-The function is exported for tests; production code calls
-`findSnapTarget` instead.
+Web-Mercator 像素转米：
 
-#### `findSnapTarget(point, entities, radiusMeters, excludeId = null): SnapTarget | null`
+```
+metersPerPixel ≈ cos(lat) · earth_circumference / (512 · 2^zoom)
+```
 
-Main entry. Two-pass search:
+512px tile 是 MapLibre 的 GL 默认（不是 raster 256px）。
+（`snap.ts:87-91`）
 
-1. **Vertices** — pick the vertex with the smallest squared distance
-   inside `radiusMeters`. If any vertex is within range, return it.
-2. **Edges** — only run if no vertex hit. Project the cursor onto each
-   edge segment (`closestOnSegment`), pick the smallest distance.
-
-Vertex-first is intentional: a vertex within range wins over a closer
-edge. This matches user intent ("connect to that endpoint" beats "snap
-to the line near it").
-
-## Behavior
-
-- The exclude id is the actively-edited entity — pass `null` when
-  drawing a fresh entity.
-- `radiusMeters <= 0` returns `null` (snap disabled).
-- All distance comparisons use squared distance until the winner is
-  picked — no `sqrt` in the inner loop.
-- Vertices and edges are picked from the **same** projection (cosLat
-  taken from the cursor latitude, not per-candidate). Errors at the
-  scale of a viewport are negligible.
-- Polygon entities expose every vertex (interior insertion is useful
-  for rough-trace alignment workflows).
-
-::: warning Lane interior snap
-A new lane drawn whose endpoint cursor lands on an existing lane's
-_interior_ will produce an `edge` snap (rendering coincidence) but not
-a vertex snap. There is no topological link. The drawing tool may
-still elect to insert a midpoint into the existing lane via a different
-flow, but that is the caller's responsibility.
-:::
-
-## Examples
-
-Mouse-move handler in `useMapEventRouter`:
+调用端典型用法：
 
 ```ts
-import { findSnapTarget, pixelsToMeters } from '@/core/geometry/snap';
+const radiusM = pixelsToMeters(8, cursor.lat, currentZoom);
+const snap = findSnapTarget(cursor, entities.values(), radiusM, excludeId);
+```
 
-function onMouseMove(e: MapMouseEvent) {
-  const cursor: GeoPoint = { x: e.lngLat.lng, y: e.lngLat.lat };
-  const radiusMeters = pixelsToMeters(12, cursor.y, map.getZoom());
-  const target = findSnapTarget(
-    cursor,
-    mapStore.getState().entities.values(),
-    radiusMeters,
-    fsm.context.selectedEntityId,
-  );
-  if (target) {
-    snapPreview.show(target.point, target.kind);
-  }
+### `collectCandidates(entities, excludeId) => { vertices, edges }`
+
+按 entityType 分发收集候选：
+
+| entityType                                        | vertex 候选                                                  | edge 候选    |
+| ------------------------------------------------- | ------------------------------------------------------------ | ------------ |
+| lane                                              | **仅**端点（start / end），带 `endpointRole`                 | 全中心折线段 |
+| junction / pncJunction / parkingSpace / crosswalk | 多边形所有顶点                                               | 闭合环边     |
+| signal                                            | `boundary.points` 的顶点                                     | 闭合环边     |
+| road                                              | (跳过；几何由其下属 lane 提供)                               | (同)         |
+| 其它                                              | `points: GeoPoint[]` 或 `anchors: BezierAnchor[]` 的所有顶点 | 折线段       |
+
+来源：`snap.ts:185-249`。
+
+## 算法详解
+
+### 投影到米空间
+
+```ts
+function project(p, cosLat) {
+  return { x: p.x * cosLat * DEG_TO_M, y: p.y * DEG_TO_M }; // DEG_TO_M = 111320
 }
 ```
 
-Endpoint snap during draw, deciding whether to commit a topology link
-later:
+把 lng/lat 度数转成米空间欧氏。距离比较直接 `dx*dx + dy*dy <= radiusSq`。
 
-```ts
-const target = findSnapTarget(cursor, entities, radius, null);
-if (target?.endpointRole === 'end') {
-  // Snapping new lane start to an existing lane's end →
-  // reconcileLaneTopology will write succ on the existing side.
-  newLanePoints[0] = target.point;
-}
+### 边段最近点
+
+`closestOnSegment(p, a, b)` 标准的"点到线段"投影：
+
+1. 算 segLenSq = |b-a|²；为 0 时退化到点
+2. t = clamp((p-a)·(b-a) / segLenSq, 0, 1)
+3. 返回 (a + t·(b-a), distSq)
+
+边段距离用 `closestOnSegment(p, a, b).distSq`。
+
+### lane 端点 role 反向触发 pred/succ
+
+```mermaid
+flowchart LR
+    DR[拖动新 lane 起点] --> SN[findSnapTarget]
+    SN -->|kind=vertex, endpointRole=end| C[connect new.start ≡ old.end]
+    SN -->|kind=vertex, endpointRole=start| F[fork: 不写 pred/succ]
+    SN -->|kind=vertex, role=undefined<br/>非 lane| G[只贴坐标，不动拓扑]
+    SN -->|kind=edge| E[只贴线上，不动拓扑]
 ```
 
-## Related
+`endpointRole` 是 `useConnectLanes` / `useDrawCommit` 之类 hook 决定要不要派
+pred/succ 的关键。
 
-- [Geometry: connectLanes](/api/core/geometry-connect-lanes) — uses similar endpoint-pair logic for the explicit "Connect" command
-- [Geometry: laneTopology](/api/core/geometry-lane-topology) — consumes the start/end snap convention to derive `predecessorIds` / `successorIds`
-- [Apollo compile: laneBoundaryGeometry](/api/core/geometry-apollo-compile) — `curvePoints` powers the lane endpoint extraction
+## 复杂度
+
+| 函数                | 复杂度                                         |
+| ------------------- | ---------------------------------------------- |
+| `pixelsToMeters`    | O(1)                                           |
+| `collectCandidates` | O(N · V_avg)；N = entities，V_avg = 平均顶点数 |
+| `findSnapTarget`    | O(\|vertices\|) + O(\|edges\|) per call        |
+
+实测：1000 entity 平均 30 顶点 / 30 edge，单次 < 1ms。
+
+## 测试覆盖
+
+`snap.test.ts` 覆盖：
+
+- vertex 优先于同半径 edge
+- lane 中心折线**中间**顶点不出现在 vertex 候选（只有端点）
+- lane edge candidate 仍包括全段
+- excludeId 排除自身的所有顶点 + 边
+- 半径外不返回任何 SnapTarget
+- bezier `anchors` 字段的实体退回到 anchor.point 顶点
+- pixelsToMeters 在不同 lat 与 zoom 给出物理正确的米数
+
+## See also
+
+- [geometry/hitTest](./geometry-hit-test) — 同样的 cosLat 米空间换算 / 半径比较
+- [geometry/laneTopology](./geometry-lane-topology) — 端点 endpointRole='end' 配
+  另一条 lane 的 'start' 派生 pred/succ
+- [hooks/useDrawCommit](/api/hooks/use-draw-commit) — commit 时把 snap 结果作为
+  drawPoints 最后一个点
+- [config/mapConstants](/api/config) — `SNAP_RADIUS_PX` 等阈值

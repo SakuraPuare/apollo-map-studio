@@ -1,163 +1,165 @@
-# 拓扑与车道连接
+---
+title: 拓扑
+description: Lane 拓扑字段（前驱、后继、邻居、反向孪生、路口归属）的派生规则与几何依据。
+---
 
-当前拓扑不是通过手工填写 predecessor/successor 列表完成，而是由几何重算规则维护。`mapStore.addEntity()`、`updateEntity()`、`removeEntity()` 在 lane 或 junction 受影响时会调用 `reconcileLaneTopologyIncremental()`；导入和导出 worker 会调用全量 `reconcileLaneTopology()`。
+# 拓扑 / Topology
 
-## 当前维护的 lane 拓扑字段
+> Apollo Map Studio 的 lane 拓扑字段不是手工填写，而是由几何重算规则**派生**：`mapStore.addEntity / updateEntity / removeEntity` 受影响时调 `reconcileLaneTopologyIncremental()`；导入 / 导出 worker 调全量 `reconcileLaneTopology()`。
 
-| 字段                      | 语义          | 来源                                              |
-| ------------------------- | ------------- | ------------------------------------------------- |
-| `predecessorIds`          | 上游车道      | 其它 lane 的终点与当前 lane 起点重合              |
-| `successorIds`            | 下游车道      | 当前 lane 终点与其它 lane 起点重合                |
-| `leftNeighborForwardIds`  | 同向左邻车道  | 几何方向近似平行、横向在左、纵向重叠足够          |
-| `rightNeighborForwardIds` | 同向右邻车道  | 几何方向近似平行、横向在右、纵向重叠足够          |
-| `leftNeighborReverseIds`  | 反向左邻车道  | 几何方向近似反向、横向在左、纵向重叠足够          |
-| `rightNeighborReverseIds` | 反向右邻车道  | 几何方向近似反向、横向在右、纵向重叠足够          |
-| `selfReverseLaneIds`      | 反向孪生车道  | A.start 与 B.end 重合，并且 A.end 与 B.start 重合 |
-| `junctionId`              | 所属 junction | lane 中心线与 junction 多边形几何相交             |
+## 概览 / Overview
 
-拓扑重算不直接修改 `overlapIds`；overlap 由专门的 overlap reconcile 维护。
-
-## predecessor / successor 判定
-
-端点使用 `toFixed(6)` 后的经纬度字符串作为 key，大约是厘米量级。
-
-```text
-A.end == B.start  ->  A.successorIds 包含 B，B.predecessorIds 包含 A
-B.end == A.start  ->  A.predecessorIds 包含 B，B.successorIds 包含 A
+```mermaid
+flowchart LR
+  Geom[lane.centralCurve + junction.polygon] --> Rec[reconcileLaneTopology]
+  Rec --> P[predecessorIds]
+  Rec --> S[successorIds]
+  Rec --> Self[selfReverseLaneIds]
+  Rec --> LF[leftNeighborForwardIds]
+  Rec --> RF[rightNeighborForwardIds]
+  Rec --> LR[leftNeighborReverseIds]
+  Rec --> RR[rightNeighborReverseIds]
+  Rec --> J[junctionId]
 ```
 
-这也是 Connect Lanes 和 Snap 的核心意义：让两条 lane 的端点精确重合，然后由拓扑重算派生关系。
+## 字段定义 / Field reference
 
-## 使用 Connect Lanes
+来自 `src/types/apollo.ts:118-164`：
 
-Connect Lanes 是工具条左侧的连接按钮，也可按 `C`。
+| 字段                      | 几何依据                                         |
+| ------------------------- | ------------------------------------------------ |
+| `predecessorIds`          | 起点（s=0）落到另一 lane 的终点                  |
+| `successorIds`            | 终点落到另一 lane 的起点                         |
+| `selfReverseLaneIds`      | 中心线在空间上重合、方向相反                     |
+| `leftNeighborForwardIds`  | 左侧、heading 同向                               |
+| `rightNeighborForwardIds` | 右侧、heading 同向                               |
+| `leftNeighborReverseIds`  | 左侧、heading 反向                               |
+| `rightNeighborReverseIds` | 右侧、heading 反向                               |
+| `junctionId`              | 端点在某 junction.polygon 内（point-in-polygon） |
 
-1. 点击 **Connect Lanes**，或按 `C`。
-2. 点击第一条 lane。该 lane 会被记录为 `firstLaneId` 并选中。
-3. 点击第二条 lane。
-4. 系统计算第一条 lane 与第二条 lane 的四种端点组合距离。
-5. 选择距离最近的一组，把第一条 lane 的对应端点移动到第二条 lane 对应端点。
-6. 更新第一条 lane 后退出连接模式，并选中第一条 lane。
-7. `mapStore.updateEntity()` 触发 topology/overlap 增量重算。
+## 派生规则 / Derivation rules
 
-四种端点组合：
+### 1. predecessor / successor
 
-| 模式             | 几何效果              | 是否形成连续 pred/succ       |
-| ---------------- | --------------------- | ---------------------------- |
-| `AendToBstart`   | A 的终点贴到 B 的起点 | 是                           |
-| `AstartToBend`   | A 的起点贴到 B 的终点 | 是                           |
-| `AstartToBstart` | 两条 lane 起点重合    | 否，通常是 fork/merge 类几何 |
-| `AendToBend`     | 两条 lane 终点重合    | 否，通常是 fork/merge 类几何 |
+```mermaid
+flowchart LR
+  A[lane A end] -. distance < epsilon .-> B[lane B start]
+  A --> succA[A.successorIds += B]
+  B --> predB[B.predecessorIds += A]
+```
 
-当前 UI 不弹出确认，也不显示距离阈值；它总是选择最近端点对。连接前建议放大地图，确认第一条 lane 是你希望被移动端点的 lane。
+阈值 epsilon 是「同点」距离（约 1e-6 度，~11 cm）。重合判定后双向写。
 
-## Connect Lanes 对曲线源的处理
+### 2. selfReverse
 
-- Bezier 源：移动首/末锚点，同时平移该锚点的控制柄，再重新采样中心线。
-- Arc 源：替换三点圆弧的起点或终点，再重新采样中心线。
-- 无源或折线源：直接替换中心线首/末点。
+`selfReverseLaneIds`：两条 lane 中心线**完全重合**且**方向相反**。最常见的场景是双向单车道路在 Apollo 表达为两条反向 lane 共享同一段几何。
 
-处理结束后会调用 `applyDerive(..., { cause: 'editGeometry' })`，从而更新 lane length 和 turn 等派生字段。
+### 3. neighbor 四类
 
-## 取消连接模式
+对每条 lane 取中心线方向（首尾差），与候选 lane 比较：
 
-| 操作                   | 行为                                 |
-| ---------------------- | ------------------------------------ |
-| 再次点击 Connect Lanes | 切换关闭连接模式                     |
-| `Escape`               | 退出连接模式，并向 FSM 发送 `CANCEL` |
-| `H` / Default (Pan)    | 退出连接模式并回到默认模式           |
-| 完成第二次 lane 点击   | 自动退出连接模式                     |
+```mermaid
+flowchart TD
+  L1[lane A heading θa] --> Diff{|θa-θb| 比较}
+  Diff -- "< 90°" --> Same[同向]
+  Diff -- "> 90°" --> Rev[反向]
+  Same --> SideS{lane B 在左/右?}
+  Rev --> SideR{lane B 在左/右?}
+  SideS -- 左 --> LF[leftNeighborForward]
+  SideS -- 右 --> RF[rightNeighborForward]
+  SideR -- 左 --> LR[leftNeighborReverse]
+  SideR -- 右 --> RR[rightNeighborReverse]
+```
 
-连接模式只接受 lane 命中。点击非 lane 或空白区域不会提交连接。
+### 4. junctionId
 
-## neighbor 判定
+对 lane 起点 + 终点做 point-in-polygon。如果两端都在某 junction，写入 `junctionId`；只有一端在通常按业务定义为「不算」（实现按 reconcile 规则）。
 
-邻接关系由几何自动推断，不通过 Inspector 手工添加。当前规则：
+## 操作步骤 / Steps
 
-1. 两条 lane 方向点积必须大于约 `cos(18deg)` 才算同向，或小于 `-cos(18deg)` 才算反向。
-2. 横向距离必须在 1-8 米之间。太近视为重叠/冲突，不算邻接；太远不算相邻。
-3. 纵向投影重叠至少达到较短 lane 长度的 50%。
-4. 根据相对当前 lane 左法向的正负区分 left/right。
+### 1. 自动派生
 
-这套规则适合手绘车道端点不完全对齐的场景，比“端点必须整齐并排”的规则更宽容。
+正常使用：画车道、画路口、移动控制点 → 拓扑字段自动重算。无需手填。
 
-## junctionId 判定
+### 2. Connect Lanes 模式
 
-`junctionId` 由 lane 中心线与 junction polygon 的几何关系决定：
+在 ToolStrip 点 `C`（`connectLanes` action），进入连接模式：
 
-- 起点在 polygon 内。
-- 终点在 polygon 内。
-- 任一中心线线段穿越 polygon 边。
+```mermaid
+sequenceDiagram
+  User->>Toolbar: 按 C / 点 Connect
+  Toolbar->>FSM: connectLanes 模式 on
+  User->>Canvas: 点 lane A
+  Canvas->>Router: 记录第一条
+  User->>Canvas: 点 lane B
+  Canvas->>Router: 写 A.successorIds += B；B.predecessorIds += A
+  Router->>Store: mapStore.update
+  Store->>Rec: reconcileLaneTopologyIncremental
+```
 
-满足任一条件就认为 lane 属于该 junction。多个 junction 命中时，按当前索引顺序取第一个。这条规则与 overlap pipeline 中“lane centerline x polygon”的语义对齐，避免 `lane.junctionId` 和 `OverlapEntity{lane,junction}` 互相矛盾。
+适用于：几何上没接续但你确认是逻辑后继的特殊情况（汇流车道、虚线连接等）。
 
-## Road / Section / Junction 归属
+### 3. Inspector 中显示
 
-Road 归属不是通过地图点击工具完成，而是在 Layer Tree 中通过拖拽完成。
+选中 lane 后右侧 Inspector 列出所有拓扑列表，点击列表项可跳转到对应 lane（参见 `src/components/layout/panels/LaneRefList.tsx`）。
 
-| 拖拽对象 | 目标                  | 效果                                             |
-| -------- | --------------------- | ------------------------------------------------ |
-| lane     | road                  | 放入 road 的第一个 section                       |
-| lane     | road section          | 放入指定 section，并清除 lane.junctionId         |
-| lane     | junction              | 设置 lane.junctionId，并从所有 road section 移除 |
-| lane     | unparented lane group | 清除 junctionId，并从所有 road section 移除      |
-| road     | junction              | 设置 road.junctionId                             |
-| road     | unparented road group | 清除 road.junctionId                             |
-| rsu      | junction              | 设置 rsu.junctionId                              |
-| rsu      | unparented rsu group  | 清除 rsu.junctionId                              |
+## 选项与参数表 / Options Table
 
-Layer Tree 顶部还可以新建 Road 和 RSU。新建 Road 会带一个初始 Section。
+| 字段                      | 类型         | 派生 / 手填             | 备注                                                                       |
+| ------------------------- | ------------ | ----------------------- | -------------------------------------------------------------------------- |
+| `predecessorIds`          | string[]     | 几何派生 + Connect 手填 | 双向写                                                                     |
+| `successorIds`            | string[]     | 同上                    | 双向写                                                                     |
+| `selfReverseLaneIds`      | string[]     | 几何派生                | 几何重合 + 方向相反                                                        |
+| `leftNeighborForwardIds`  | string[]     | 几何派生                | heading 差 < 90°                                                           |
+| `rightNeighborForwardIds` | string[]     | 几何派生                | 同上                                                                       |
+| `leftNeighborReverseIds`  | string[]     | 几何派生                | heading 差 > 90°                                                           |
+| `rightNeighborReverseIds` | string[]     | 几何派生                | 同上                                                                       |
+| `junctionId`              | string\|null | 几何派生                | 两端 point-in-polygon                                                      |
+| `overlapIds`              | string[]     | 由 reconcileOverlaps    | 不属于 reconcileLaneTopology，见 [拓扑与路口](./topology-and-junctions.md) |
 
-::: warning lane.junctionId 可能被几何重算覆盖
-把 lane 拖入 junction 会写入 `junctionId`，但之后如果 lane/junction 几何变化触发拓扑重算，`junctionId` 会再次按几何相交规则派生。最终应以几何覆盖关系为准。
-:::
+## 键盘鼠标速查表 / Shortcut Cheatsheet
 
-## 删除时的引用清理
+| 操作              | 快捷键 / 鼠标      | 说明                         |
+| ----------------- | ------------------ | ---------------------------- |
+| 进入 Connect 模式 | `C`                | `connectLanes` action toggle |
+| 退出 Connect 模式 | `C` 再按 / `Esc`   | toggle off                   |
+| 跳转到引用        | Inspector 列表点击 | `LaneRefList`                |
+| 选中 lane         | 单击 lane 中心线   | `SELECT_ENTITY`              |
 
-删除实体时，`mapStore.removeEntity()` 会：
+## 常见问题 / Troubleshooting
 
-1. 删除目标实体。
-2. 通过 cascade delete 清理其它实体中对它的引用。
-3. 如果删除 lane，会使 lane cache 失效。
-4. 对受影响实体执行 topology/overlap 增量修正。
+### Q1. 我画了两条 lane 端点对齐，但 successor 没写上
 
-因此不建议绕过 store 直接改实体 Map；否则可能留下悬空引用。
+可能是端点距离超过 epsilon。检查 `applySnap` 是否真的把端点拉到同一点。
 
-## Inspector 中如何查看拓扑
+### Q2. `leftNeighborForward` 写到了反向那条
 
-选中 lane 后，Inspector 的 Topology 分组显示 Junction、Predecessors、Successors、四类 Neighbors、Self-Reverse 和 Overlaps。这些行是只读的，适合快速核对自动派生结果。
+`reconcileLaneTopology` 用 lane 的中心线 heading 决定同向/反向。如果 `LaneEntity.direction` 字段反了，会被识别成反向。先纠正 direction。
 
-## 常见拓扑流程
+### Q3. 删掉一条 lane 后，旁边 lane 的 predecessor 还指着它
 
-### 绘制连续道路
+`removeEntity` 应当触发 incremental reconcile，把过期 ID 从 neighbor / predecessor / successor 中移除。如果残留，可能是 incremental 漏掉了某条，重启 worker。
 
-1. 打开 Snap。
-2. 画第一条 lane。
-3. 画第二条 lane，并尽量让起点吸附到第一条终点。
-4. 如果没吸附准，按 `C` 使用 Connect Lanes，先点第一条再点第二条。
-5. 选中第一条 lane，确认 Successors 显示第二条 ID。
-6. 选中第二条 lane，确认 Predecessors 显示第一条 ID。
+### Q4. 进入 Connect 模式画连接看不见线
 
-### 绘制路口
+实现细节：当前 Connect 模式只写 ID 不画临时线。提交后通过 cold layer 渲染。
 
-1. 先绘制进入路口、路口内部转向、驶出路口的 lane。
-2. 使用 Connect Lanes 让进入段、转向段、驶出段端点重合。
-3. 使用 junction polygon 覆盖内部转向区域。
-4. 选中转向 lane，确认 Junction 字段被派生。
-5. 检查 approach -> turn -> exit 的 predecessor/successor。
+### Q5. 导出后第三方校验工具（Apollo `dreamview`）报 lane orphan
 
-### 维护 Road 结构
+通常是 `road.section.laneIds` 缺当前 lane。Topology reconcile 不维护 road 归属（那是 LayerTree 的拖拽职责）。
 
-1. 打开 Layer Tree。
-2. 点击 `+ Road` 创建 road。
-3. 展开 Road 的 Section。
-4. 将普通道路 lane 拖到 Section 下。
-5. 如果 road 属于 junction，可把 road 拖到 junction 下。
-6. Outline 中检查 Unparented Lanes。
+## 相关源码 / Source links
 
-## 注意事项
+- 字段：`src/types/apollo.ts:118-164`
+- 派生 rules：`src/core/elements/derive/`
+- incremental reconcile：`src/core/elements/derive/index.ts`
+- worker 全量：`src/io/apolloIO.worker.ts`
+- LayerTree references：`src/components/layout/panels/LaneRefList.tsx`
+- Connect 模式：`src/hooks/mapEventRouter/connectMode.ts`
 
-- 当前没有“Add Left Neighbor”或“Add Right Neighbor”按钮；邻接关系来自几何。
-- Connect Lanes 只移动第一条 lane，第二条 lane 不动。
-- fork/merge 端点重合可能产生 overlap 语义，但不一定产生 predecessor/successor。
-- 导出前 worker 会再次全量重算 topology 和 overlap，因此最终导出的拓扑以导出时几何为准。
+## 相关文档 / See also
+
+- [拓扑与路口](./topology-and-junctions.md)
+- [车道绘制](./drawing-lanes.md)
+- [图层树](./layer-tree.md)
+- [地图元素](./map-elements.md)

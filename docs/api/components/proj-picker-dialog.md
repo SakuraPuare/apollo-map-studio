@@ -1,164 +1,140 @@
+---
+title: ProjPickerDialog
+description: 导入无 Header.projection.proj 的 Apollo 地图时弹出的投影选择 modal——三种模式：region preset / UTM zone / custom PROJ.4。
+---
+
 # ProjPickerDialog
 
-> Source: `src/components/dialogs/ProjPickerDialog.tsx`
+> 源码：`src/components/dialogs/ProjPickerDialog.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`ProjPickerDialog` is the modal that opens whenever an Apollo `.bin`
-or `.txt` map is imported without a `Header.projection.proj` value.
-The user picks one of three modes — region preset, UTM zone number,
-or a custom PROJ.4 string — and the dialog resolves the pending
-import promise so the worker can finish projection.
+`ProjPickerDialog` 是 Apollo `.bin/.txt` 导入流水线的**最后一道护栏**。Apollo 的 `Map.header.projection.proj` 是 PROJ.4 字符串，承载所有 lane corridor / road / signal 几何的本地坐标→WGS84 转换。如果文件缺失这个字段，编辑器无法决定如何把本地米坐标变成经纬度——这时 dialog 弹出，让用户选：
 
-It's the only modal that's conditionally mounted by
-`WorkspaceLayout` rather than the action dispatcher, because it's
-triggered from a non-React caller (the IO worker bridge).
+1. **Region preset**：4 个预设（Sunnyvale / Beijing / Shanghai / Shenzhen，对应常见的 Apollo borregas + 中国车队）。
+2. **UTM zone**：手动输入 UTM 区号（1–60）+ 半球（N/S）。
+3. **Custom PROJ**：粘贴任意 PROJ.4 字符串；自动 sanitize（去除 Apollo 模板括号 `+lat_0={37.4}`）。
 
-## Component props
+底部预览框实时显示**最终生效的 PROJ 字符串**，方便对照。
+
+## 组件接口
+
+`ProjPickerDialog` 不接受 props——通过 `useProjDialogStore` 与外部通信：
 
 ```ts
 export function ProjPickerDialog(): JSX.Element | null;
+
+// 外部调用方：
+const { resolve } = useProjDialogStore.getState();
+useProjDialogStore.getState().request(); // 返回 Promise<string | null>
 ```
 
-No props. Reads `useProjDialogStore` for the pending request and
-calls `resolve(string | null)` when the user chooses or cancels.
+| Store 字段           | 说明                                              |
+| -------------------- | ------------------------------------------------- |
+| `pending: boolean`   | 是否有正在等待的请求                              |
+| `resolve(s \| null)` | 用户提交时调用——返回 PROJ.4 字符串或 null（取消） |
 
-## Behavior
+`resolve(null)` 后导入流水线 abort，文件不会进入 mapStore。
 
-### Three modes
-
-| Mode     | Resolves to                                                       |
-| -------- | ----------------------------------------------------------------- |
-| `preset` | One of `UTM_PRESETS[id]` (Sunnyvale, Beijing, Shanghai, Shenzhen) |
-| `utm`    | `utmProjString(zone, hemisphere)`                                 |
-| `custom` | `sanitizeProjString(text)` — strips Apollo `{template}` braces    |
-
-### Region presets
+## 内部状态
 
 ```ts
-const PRESETS: PresetEntry[] = [
-  { id: 'sunnyvale', label: 'Sunnyvale, CA (UTM 10N)', hint: 'Apollo borregas demo' },
-  { id: 'beijing', label: 'Beijing (UTM 50N)', hint: 'Most common Chinese fleet' },
-  { id: 'shanghai', label: 'Shanghai (UTM 51N)' },
-  { id: 'shenzhen', label: 'Shenzhen (UTM 50N)' },
-];
+type Mode = 'preset' | 'utm' | 'custom';
 ```
 
-The radio list defaults to Beijing — the most common case for the
-target user base. The hint column documents notable demos / fleets.
+| `useState`                  | 初值        | 说明            |
+| --------------------------- | ----------- | --------------- |
+| `mode: Mode`                | `'preset'`  | tab 切换        |
+| `preset: PresetEntry['id']` | `'beijing'` | 当前选中预设    |
+| `zone: number`              | `50`        | UTM 区号        |
+| `hemisphere: 'N' \| 'S'`    | `'N'`       | 半球            |
+| `custom: string`            | `''`        | 用户粘贴的 PROJ |
 
-### UTM mode
+每次 dialog 打开（`pending` 由 false → true），通过 `useEffect([pending])` 重置以上 5 个 state（`ProjPickerDialog.tsx:38-46`），避免上次操作残留。
 
-```tsx
-<input type="number" min={1} max={60} value={zone} onChange={...} />
-<button>Northern (N)</button>
-<button>Southern (S)</button>
-```
+## 副作用
 
-The zone input is bounded to `[1, 60]`. Hemisphere is a two-button
-segmented control.
+| 时机                                | 行为                                         |
+| ----------------------------------- | -------------------------------------------- |
+| `useEffect([pending])` reset        | 打开时重置全部状态                           |
+| `useEffect([pending, resolve])` Esc | 挂全局 `keydown` 监听，Esc → `resolve(null)` |
+| `submit()` 按钮 / Enter             | `canSubmit` 为 true 时 `resolve(computed)`   |
+| backdrop click                      | `resolve(null)`                              |
 
-### Custom mode
-
-```tsx
-<textarea
-  value={custom}
-  placeholder="+proj=utm +zone=50 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
-/>
-```
-
-The dialog runs `sanitizeProjString(text)` on resolve. The sanitiser
-strips Apollo's template-style braces (e.g. `+lat_0={37.4}` → `+lat_0=37.4`)
-so unfilled-in templates round-trip cleanly.
-
-### Live preview
-
-```tsx
-<div className="text-zinc-500">Resolved</div>
-<div className="font-mono break-all">{computed || '— enter a PROJ string above —'}</div>
-```
-
-Each keystroke / radio change recomputes the resolved PROJ string
-live so the user sees exactly what the IO worker will receive.
-
-### Reset on open
+`computed` 派生（`ProjPickerDialog.tsx:63-67`）：
 
 ```ts
-useEffect(() => {
-  if (pending) {
-    setMode('preset');
-    setPreset('beijing');
-    setZone(50);
-    setHemisphere('N');
-    setCustom('');
-  }
-}, [pending]);
+const computed =
+  mode === 'preset'
+    ? UTM_PRESETS[preset]
+    : mode === 'utm'
+      ? utmProjString(zone, hemisphere)
+      : sanitizeProjString(custom);
 ```
 
-Each new request starts from a clean Beijing preset, so a previous
-custom entry doesn't bleed into the next import.
+## 渲染骨架
 
-### Resolve / cancel
-
-| Action                        | Effect                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------- |
-| Click "Use this projection"   | `resolve(computed)` — IO worker proceeds with this PROJ                         |
-| Click Cancel / backdrop / ESC | `resolve(null)` — IO worker aborts the import (or falls back per-bridge policy) |
-
-## ProjDialog store contract
-
-```ts
-interface ProjDialogStore {
-  pending: boolean; // dialog open/closed
-  resolve: (s: string | null) => void;
-  request(): Promise<string | null>; // called from IO worker bridge
-}
+```jsx
+<div className="fixed inset-0 z-50 flex items-center justify-center">
+  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => resolve(null)} />
+  <div className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+    <Header title="Choose Coordinate System" hint="imported map has no Header.projection.proj" onClose={() => resolve(null)} />
+    <div className="px-5 py-4 space-y-4">
+      <ModeTabs mode={mode} setMode={setMode} />
+      {mode === 'preset' && <PresetList … />}
+      {mode === 'utm' && <UTMInputs … />}
+      {mode === 'custom' && <CustomTextarea … />}
+      <ResolvedPreview computed={computed} />
+    </div>
+    <Footer cancel={() => resolve(null)} submit={submit} canSubmit={canSubmit} />
+  </div>
+</div>
 ```
 
-`request()` returns a promise that the dialog resolves. The IO
-worker awaits it; on `null` it gives up the import.
+## 工具函数
 
-## Examples
+来自 `@/io/proto/projection`：
 
-### Mounting
+- `UTM_PRESETS: Record<id, projString>` — 预设字典
+- `utmProjString(zone, hemisphere)` — `+proj=utm +zone={n} +ellps=WGS84 +datum=WGS84 +units=m +no_defs`（北半球省略 `+south`）
+- `sanitizeProjString(custom)` — 去除 `{...}` 模板，trim 空白，验证基本结构
 
-```tsx
-<Suspense fallback={null}>
-  <LazyProjPickerDialog />
-</Suspense>
-```
+## 性能注释
 
-The dialog is lazy-loaded so its bundle stays out of the initial
-render — most sessions never trigger an import.
+- 单 modal，几乎不存在性能问题。
+- Esc 监听仅在 `pending=true` 时挂载，关闭时立即解绑。
+- preset 列表是常量数组（4 项），无虚拟化需求。
 
-### Triggering from a worker bridge
+## 已知缺口
 
-```ts
-import { useProjDialogStore } from '@/store/projDialogStore';
+- **没有 EPSG 代码输入**：如 `EPSG:32650`。要完整支持需调用 proj4 库做 lookup。
+- 没有"测试投影"——预览仅是字符串拼接，不做 forward/inverse 试算。
+- preset 列表硬编码，未来可加上"最近使用"或"项目级保存"。
 
-const proj = await useProjDialogStore.getState().request();
-if (proj) {
-  return await projectMap(rawProto, proj);
-}
-throw new Error('No projection chosen — import aborted');
-```
+## 源码索引
 
-### UTM helpers
+| 关注点               | 文件位置                       |
+| -------------------- | ------------------------------ |
+| 主组件               | `ProjPickerDialog.tsx:27-230`  |
+| `PRESETS` 常量       | `ProjPickerDialog.tsx:14-19`   |
+| `useEffect` reset    | `ProjPickerDialog.tsx:38-46`   |
+| Esc 监听             | `ProjPickerDialog.tsx:48-59`   |
+| `computed` 派生      | `ProjPickerDialog.tsx:63-67`   |
+| Mode tabs            | `ProjPickerDialog.tsx:103-117` |
+| 预设列表             | `ProjPickerDialog.tsx:119-144` |
+| UTM 输入             | `ProjPickerDialog.tsx:146-179` |
+| Custom textarea      | `ProjPickerDialog.tsx:181-196` |
+| Resolved preview     | `ProjPickerDialog.tsx:198-204` |
+| Footer cancel/submit | `ProjPickerDialog.tsx:206-227` |
+| Projection helpers   | `src/io/proto/projection.ts`   |
 
-```ts
-import { UTM_PRESETS, utmProjString, sanitizeProjString } from '@/io/proto/projection';
+## 跨页参考
 
-UTM_PRESETS.beijing; // pre-baked PROJ.4 string
-utmProjString(50, 'N'); // dynamic zone build
-sanitizeProjString('+proj=utm +zone={50} +north'); // strips braces
-```
+- [WorkspaceLayout](./workspace-layout.md) — `LazyProjPickerDialog` 在此挂载
+- [`projDialogStore`](/api/store) — request/resolve API
+- Apollo import → `src/io/mapIO.ts` → `src/io/apolloIO.worker.ts`（消息契约见 `src/io/apolloIOProtocol.ts`）
+- 投影 helpers → `src/io/proto/projection.ts`
 
-These are imported by both the dialog and the IO worker — single
-source of truth for PROJ generation.
+## 英文镜像
 
-## Related
-
-- [Apollo IO pipeline](/api/io/import-parse-base-map)
-- [projection module](/api/io/proto-loader)
-- [useApolloLayer](/api/hooks/use-apollo-layer)
-- [apolloMapStore](/api/store/apollo-map-store)
+[/en/api/components/proj-picker-dialog](/en/api/components/proj-picker-dialog)

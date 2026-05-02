@@ -1,318 +1,197 @@
-# Drawing tools
+---
+title: 绘制工具
+description: ToolStrip 中每个绘制工具（贝塞尔 / 圆弧 / 矩形 / 多边形 / 折线 / Catmull-Rom）的鼠标与键盘交互、FSM 转换、源码定位。
+---
 
-Six geometric tools, each implemented as a state in the editor FSM. This
-page walks through what each does, when to reach for it, and the per-tool
-keyboard semantics.
+# 绘制工具 / Drawing Tools
 
-## Source map
+> 本页讲 ToolStrip 上每一个工具的具体交互。每个工具对应一个 FSM `drawXxx` 状态（`src/core/fsm/editorMachine.ts:10-16`），由 `useMapEventRouter` 把 maplibre 的鼠标/键盘事件分发给状态机。
 
-| Concern                          | File                                       |
-| -------------------------------- | ------------------------------------------ |
-| FSM state machine                | `src/core/fsm/editorMachine.ts`            |
-| Commit pipeline                  | `src/hooks/useDrawCommit.ts`               |
-| Action registry (drawTool field) | `src/core/actions/registry/definitions.ts` |
-| Geometry interpolation           | `src/core/geometry/interpolate.ts`         |
-| Anchor conversion                | `src/core/geometry/anchorConvert.ts`       |
-| Validation (self-intersect)      | `src/core/geometry/validation.ts`          |
-| Element-tool mapping             | `MAP_ELEMENTS` in `src/core/elements.ts`   |
+## 概览 / Overview
 
-## Common shape
+```mermaid
+flowchart LR
+  ToolStrip[ToolStrip 元素 + 工具] -->|onSelectTool| FSM[editorMachine SELECT_TOOL]
+  Canvas[MapCanvas mousedown/move/up/dblclick] --> Router[useMapEventRouter]
+  Router -->|MOUSE_DOWN/MOVE/UP/DOUBLE_CLICK| FSM
+  FSM -->|context.drawPoints/bezierAnchors| HotLayer[useHotLayer]
+  HotLayer --> ML[MapLibre setData hot]
+  FSM -->|target idle on commit| Commit[useDrawCommit]
+  Commit --> Store[mapStore.addEntity]
+  Store --> Cold[useColdLayer → spatial.worker]
+```
 
-Every drawing tool is an XState state with the same lifecycle:
+绘制工具共 6 种，由 `DrawTool` 类型穷举：
+
+```ts
+export type DrawTool =
+  | 'drawPolyline'
+  | 'drawCatmullRom'
+  | 'drawBezier'
+  | 'drawArc'
+  | 'drawRotatedRect'
+  | 'drawPolygon';
+```
+
+（`editorMachine.ts:10-16`）
+
+## 工具一览 / Tool index
+
+| 工具            | 快捷键 | commit 事件       | 最少点数     | 适用元素                                                             |
+| --------------- | ------ | ----------------- | ------------ | -------------------------------------------------------------------- |
+| drawPolyline    | `P`    | DOUBLE_CLICK      | ≥ 2          | （基础几何，Apollo 元素未直接使用）                                  |
+| drawCatmullRom  | （无） | DOUBLE_CLICK      | ≥ 2          | （基础几何）                                                         |
+| drawBezier      | `B`    | DOUBLE_CLICK      | ≥ 2 anchors  | lane / signal / stopSign / yieldSign / speedBump / barrierGate       |
+| drawArc         | `A`    | 第三次 MOUSE_DOWN | exactly 3    | lane                                                                 |
+| drawRotatedRect | `R`    | 第三次 MOUSE_DOWN | exactly 3    | parkingSpace / crosswalk / clearArea                                 |
+| drawPolygon     | `G`    | DOUBLE_CLICK      | ≥ 3 + 不自交 | junction / pncJunction / parkingSpace / crosswalk / clearArea / area |
+
+（行动定义：`src/core/actions/registry/definitions.ts:164-221`；元素表：`src/core/elements.ts:49-158`）
+
+## 操作步骤 / Steps
+
+### 1. 选元素 → 选工具
+
+ToolStrip 是「先选元素，再选工具」的二级联动。选元素时 `ElementBar.onSelect(type)` 调用 `onSelectTool(def.defaultTool, type)`，`SELECT_TOOL` 事件携带 `element` 字段，`resetDraw` action 同步把 `activeElement` 写进 context（`editorMachine.ts:158-164`）。
+
+### 2. drawPolyline / drawCatmullRom
 
 ```mermaid
 stateDiagram-v2
   [*] --> idle
-  idle --> drawX : SELECT_TOOL
-  drawX --> drawX : MOUSE_DOWN (addPoint)
-  drawX --> drawX : MOUSE_MOVE (updatePreview)
-  drawX --> idle : DOUBLE_CLICK (commit)
-  drawX --> idle : CONFIRM (commit, ↵)
-  drawX --> idle : CANCEL (resetDraw, Esc)
+  idle --> drawPolyline: SELECT_TOOL P
+  drawPolyline --> drawPolyline: MOUSE_DOWN addPoint
+  drawPolyline --> drawPolyline: MOUSE_MOVE updatePreview
+  drawPolyline --> idle: DOUBLE_CLICK [minPointsReached]
+  drawPolyline --> idle: CANCEL resetDraw
 ```
 
-Once the FSM enters `idle`, `useDrawCommit.ts:96-117` reads the
-post-transition snapshot and calls `mapStore.addEntity(...)` if the
-geometry passes its tool-specific minimum.
+- 落点：单击；
+- 预览：`previewPoint` 跟随光标；
+- commit：双击（guard `minPointsReached: drawPoints.length >= 2`，`editorMachine.ts:135-137`）；
+- 取消：`Esc`。
 
-::: warning Read the post-transition snapshot
-The commit transition does **not** carry `resetDraw` as an action — it just
-targets `idle`. This is deliberate: the post-snapshot must still contain
-`drawPoints` / `bezierAnchors` so `useDrawCommit` can read them. After
-commit, `useDrawCommit` itself sends `RESET` to clear `activeElement` and
-the buffers. Editing the FSM and forgetting this rule will produce empty
-entities.
-:::
+### 3. drawBezier
 
-## Tool 1 — Polyline
-
-|                  |                                              |
-| ---------------- | -------------------------------------------- |
-| FSM state        | `drawPolyline`                               |
-| Action id        | `tool:drawPolyline`                          |
-| Shortcut         | `P`                                          |
-| Min points       | 2                                            |
-| Commit           | `↵` or double-click                          |
-| Cancel           | `Esc`                                        |
-| Element override | None — produces a `PolylineEntity` primitive |
-
-Click points in sequence. The cursor draws a rubber-band segment from the
-last placed point to the current cursor (the "preview" point). Double-click
-to commit; the final commit click is consumed by `isDuplicateInput` so the
-FSM only counts it once.
+每次 mousedown 在落锚点的同时进入「拖把手」状态：
 
 ```mermaid
-flowchart LR
-  C1((click 1)) --> C2((click 2)) --> Cn((click N)) --> DC((double-click))
-  DC --> Commit[mapStore.addEntity polyline]
+stateDiagram-v2
+  [*] --> idle
+  idle --> drawBezier: SELECT_TOOL B
+  drawBezier --> drawBezier: MOUSE_DOWN bezierAddAnchor
+  drawBezier --> drawBezier: MOUSE_MOVE [isDraggingHandle] bezierDragHandle
+  drawBezier --> drawBezier: MOUSE_MOVE bezierPreview
+  drawBezier --> drawBezier: MOUSE_UP bezierConfirmHandle
+  drawBezier --> idle: DOUBLE_CLICK [bezierMinAnchors]
+  drawBezier --> idle: CANCEL resetDraw
 ```
 
-::: tip Polyline is the lingua franca
-Most other tools eventually reduce to a polyline (sampled centerline, edge
-list). Use Polyline when you want raw control over every vertex with no
-curve interpolation.
-:::
+- `bezierAddAnchor` 把 `{ point, handleIn: null, handleOut: null }` 推进 `bezierAnchors`，并把 `isDraggingHandle = true`；
+- 鼠标拖动时 `handleOut` 跟手，`handleIn = mirrorPoint(point, handleOut)`，得到对称切线；
+- 松手时若拖动距离 < 1e-6 度（约 11 cm），把 `handleIn/Out` 还原为 `null`，得到尖角；
+- 双击 commit。
 
-## Tool 2 — CatmullRom
+### 4. drawArc / drawRotatedRect
 
-|                  |                                                |
-| ---------------- | ---------------------------------------------- |
-| FSM state        | `drawCatmullRom`                               |
-| Action id        | `tool:drawCatmullRom`                          |
-| Shortcut         | none (palette only)                            |
-| Min points       | 2                                              |
-| Commit           | `↵` or double-click                            |
-| Cancel           | `Esc`                                          |
-| Element override | None — produces a `CatmullRomEntity` primitive |
-
-Same input as Polyline. The control points become anchor points for a
-Catmull-Rom spline; the rendered curve passes through every anchor with
-C1 continuity. Useful when you want a smooth curve without managing
-explicit tangent handles.
-
-::: tip Bezier vs CatmullRom
-
-- Use **Bezier** when you need explicit per-anchor tangent control (e.g.
-  matching a real-world ramp curvature precisely).
-- Use **CatmullRom** when you want the curve to pass through your clicks
-  with sensible smoothing and don't need tangent handles.
-  :::
-
-## Tool 3 — Bezier
-
-|                  |                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| FSM state        | `drawBezier`                                                                                      |
-| Action id        | `tool:drawBezier`                                                                                 |
-| Shortcut         | `B`                                                                                               |
-| Min anchors      | 2                                                                                                 |
-| Commit           | `↵` or double-click                                                                               |
-| Cancel           | `Esc`                                                                                             |
-| Element override | Lane (default), Signal, StopSign, SpeedBump, YieldSign, BarrierGate, PNCJunction (lane-style use) |
-
-The most-used tool. Anchor + tangent at each click:
-
-1. **Mouse down** at anchor position.
-2. **Drag** outward — the cursor pulls a tangent handle. The curve
-   between the previous anchor and this one updates live.
-3. **Release** — handle locked. Move to next position.
-4. Repeat.
-5. **Double-click** or `↵` to commit.
+三点 commit 模式：
 
 ```mermaid
-flowchart LR
-  A1((md1)) -->|drag| H1[handle1] -->|mu1| A2((md2)) -->|drag| H2[handle2] -->|mu2| Cn((dblclick))
-  Cn --> Commit[mapStore.addEntity bezier]
+stateDiagram-v2
+  [*] --> idle
+  idle --> drawArc: SELECT_TOOL A
+  drawArc --> drawArc: MOUSE_DOWN [drawPoints<2] addPoint
+  drawArc --> idle: MOUSE_DOWN [twoPointsLaid] addPoint commit
+  drawArc --> drawArc: MOUSE_MOVE updatePreview
+  drawArc --> idle: CANCEL resetDraw
 ```
 
-`isDraggingHandle` in the context tracks the drag state; while true,
-`MOUSE_MOVE` calls `bezierDragHandle` which updates the anchor's
-`handleOut` and mirrors it as `handleIn` of the next anchor (so the
-joint is smooth by default).
+- drawArc：第 1 点起点，第 2 点圆弧中段，第 3 点终点；编译时由 `arcCompile.ts` 把三点拟合为圆弧；
+- drawRotatedRect：第 1 点轴起点，第 2 点轴终点（决定方向 + 长度），第 3 点宽度（决定 perpendicular 偏移）。
 
-::: tip Sharp corner via release-without-drag
-If you mouse-down and immediately release without moving, the distance
-check in `bezierConfirmHandle` (`editorMachine.ts:213-221`) is below
-1e-6, and both `handleIn` and `handleOut` are nulled out. The result is
-a sharp corner — useful for sharp lane turns or polygon-style anchors.
-:::
+### 5. drawPolygon
 
-::: warning Don't release outside the canvas
-If you mouse-up while the cursor is over the menu bar or a panel, the
-FSM never sees `MOUSE_UP` and stays in `isDraggingHandle: true`. The
-next click confuses the state. Press `Esc` to recover.
-:::
-
-## Tool 4 — Arc (three-point)
-
-|                  |                     |
-| ---------------- | ------------------- |
-| FSM state        | `drawArc`           |
-| Action id        | `tool:drawArc`      |
-| Shortcut         | `A`                 |
-| Points needed    | 3 (start, mid, end) |
-| Commit           | third click         |
-| Cancel           | `Esc`               |
-| Element override | Lane                |
-
-Three clicks define a circular arc. The third click is the commit:
-
-1. Click 1 — arc start.
-2. Click 2 — a point the arc must pass through.
-3. Click 3 — arc end. Commit fires automatically.
-
-`twoPointsLaid` guard in `editorMachine.ts:139-143` triggers the commit:
-
-```ts
-MOUSE_DOWN: [
-  { guard: 'twoPointsLaid', target: 'idle', actions: 'addPoint' },
-  { actions: 'addPoint' },
-];
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> drawPolygon: SELECT_TOOL G
+  drawPolygon --> drawPolygon: MOUSE_DOWN [polygonNoSelfIntersect] addPoint
+  drawPolygon --> drawPolygon: MOUSE_MOVE updatePreview
+  drawPolygon --> idle: DOUBLE_CLICK [polygonCanClose]
+  drawPolygon --> idle: CONFIRM [polygonCanConfirm]
+  drawPolygon --> idle: CANCEL resetDraw
 ```
 
-The third `MOUSE_DOWN` matches `twoPointsLaid` (drawPoints.length === 2),
-adds the third point as part of the transition, and lands in `idle`.
-`useDrawCommit` sees `points.length === 3` and produces an `ArcEntity`
-with `start`, `mid`, `end`.
+- 每次 `MOUSE_DOWN` guard：`wouldSelfIntersect(drawPoints, event.point)` —— 不允许出现自交边；
+- 双击 commit guard：`polygonCanClose` —— 至少 3 点 + 不自交；
+- `Enter` 也可触发 `CONFIRM`。
 
-::: tip Arc geometry rules
-The mid-point must be **inside** the arc (between start and end along the
-curve). Picking a mid-point on the wrong side produces the major arc
-instead of the minor arc. There's no UI affordance to flip — re-draw
-with the mid-point on the correct side.
+## 选项与参数表 / Options Table
+
+| 工具            | guard / 关键 action                                                              | 备注                                  |
+| --------------- | -------------------------------------------------------------------------------- | ------------------------------------- |
+| drawPolyline    | `minPointsReached`、`addPoint`、`updatePreview`                                  | DOUBLE_CLICK / CONFIRM commit         |
+| drawCatmullRom  | 同上                                                                             | 仅在 useDrawCommit 中按曲线 hint 处理 |
+| drawBezier      | `bezierMinAnchors`、`bezierAddAnchor`、`bezierDragHandle`、`bezierConfirmHandle` | 拖动距离阈值 1e-6 度 ≈ 11 cm          |
+| drawArc         | `twoPointsLaid`                                                                  | exactly 3 点                          |
+| drawRotatedRect | `twoPointsLaid`                                                                  | exactly 3 点                          |
+| drawPolygon     | `polygonNoSelfIntersect`、`polygonCanClose`、`polygonCanConfirm`                 | 自交检测在 `validation.ts`            |
+
+## 键盘鼠标速查表 / Shortcut Cheatsheet
+
+| 操作                   | 快捷键 / 鼠标       | FSM 事件                        |
+| ---------------------- | ------------------- | ------------------------------- |
+| 切换为 drawBezier      | `B`                 | `SELECT_TOOL drawBezier`        |
+| 切换为 drawArc         | `A`                 | `SELECT_TOOL drawArc`           |
+| 切换为 drawRotatedRect | `R`                 | `SELECT_TOOL drawRotatedRect`   |
+| 切换为 drawPolygon     | `G`                 | `SELECT_TOOL drawPolygon`       |
+| 切换为 drawPolyline    | `P`                 | `SELECT_TOOL drawPolyline`      |
+| 落点 / 落锚            | 鼠标左键单击        | `MOUSE_DOWN`                    |
+| 拖把手（Bezier）       | 按住左键拖动        | `MOUSE_MOVE [isDraggingHandle]` |
+| commit 折线 / 多边形   | 双击                | `DOUBLE_CLICK`                  |
+| commit 弧 / 矩形       | 第三次单击          | `MOUSE_DOWN [twoPointsLaid]`    |
+| 取消                   | `Esc`               | `CANCEL`                        |
+| 切回 Pan               | `H`                 | `defaultMode`                   |
+| 网格 / 吸附            | `⌘G` / `toggleSnap` | `uiStore`                       |
+
+::: tip 双击与 isDuplicateInput
+maplibre 的 `dblclick` 之前会先发两次 `click`/`mousedown`。`useMapEventRouter` 通过 `isDuplicateInput`（位置 + 时间窗口）吞掉第二次，FSM 只会收到一次 MOUSE_DOWN，所以 commit guard 不需要再 `slice(-1)` 补偿（`editorMachine.ts:82-87` 注释解释了这次反复重写）。
 :::
 
-## Tool 5 — Rotated rectangle
+## 常见问题 / Troubleshooting
 
-|                  |                                                |
-| ---------------- | ---------------------------------------------- |
-| FSM state        | `drawRotatedRect`                              |
-| Action id        | `tool:drawRotatedRect`                         |
-| Shortcut         | `R`                                            |
-| Points needed    | 3 (axis start, axis end, width point)          |
-| Commit           | third click                                    |
-| Cancel           | `Esc`                                          |
-| Element override | Parking space (default), Crosswalk, Clear area |
+### Q1. drawPolygon 双击没合上
 
-Three clicks define an oriented rectangle:
+`polygonCanClose` 同时检查「点数 ≥ 3」和「无自交」。如果你画了一个 8 字形，guard 不通过。把光标移开自交点再双击。
 
-1. Click 1 — one end of the long axis.
-2. Click 2 — other end of the long axis.
-3. Click 3 — a point determining the width perpendicular to the axis.
+### Q2. drawBezier 双击丢了最后一个锚点
 
-Same FSM shape as `drawArc` (shared `threeClickCommitEvents` map). On
-commit, `rotatedRectFromPoints()` (`interpolate.ts`) extracts the
-rectangle:
+不应该会。如果你看到这个症状，检查是不是有外部代码自己 `slice(-1)` 了 anchors —— `editorMachine.ts:82-87` 的注释明确说「输入层已 dedup，FSM 不再切尾」。
 
-```ts
-const r = rotatedRectFromPoints(points[0], points[1], points[2]);
-addEntity({ id, entityType: 'rect', p1: r.p1, p2: r.p2, rotation: r.rotation });
-```
+### Q3. drawArc 的第二点画偏了
 
-::: tip Use for parking and crosswalks
-A 6 m × 2.5 m parking space is two clicks for the long axis (front to back
-of the car) plus a third click for the width. A crosswalk is the same
-flow, just with the long axis along the crossing direction.
-:::
+第 2 点是圆弧中段（不是圆心）。三点拟合算法要求三点共圆，因此第 2 点决定弯曲方向。
 
-## Tool 6 — Polygon
+### Q4. drawRotatedRect 第三点决定长边还是短边？
 
-|                  |                                                                              |
-| ---------------- | ---------------------------------------------------------------------------- |
-| FSM state        | `drawPolygon`                                                                |
-| Action id        | `tool:drawPolygon`                                                           |
-| Shortcut         | `G`                                                                          |
-| Min points       | 3                                                                            |
-| Commit           | double-click or `↵`                                                          |
-| Cancel           | `Esc`                                                                        |
-| Element override | Junction (default), PNC junction, Area, Parking space, Crosswalk, Clear area |
+第 1-2 点是「轴」（长边方向），第 3 点投影到 perpendicular 决定宽度。所以矩形的 axis 就是前两点连线方向。
 
-Click points in sequence to define a polygon. Same UX as Polyline, but
-with two extra guards:
+### Q5. 切换工具后旧的预览还在画
 
-### `polygonNoSelfIntersect` (per click)
+`SELECT_TOOL` 触发 `resetDraw`，旧 `drawPoints` / `bezierAnchors` 应被清空。如果残留，可能是 hot layer 在 `useHotLayer` 中没监听到状态变化——刷新一次。
 
-`editorMachine.ts:141-144` checks `wouldSelfIntersect(drawPoints, event.point)`
-before adding a new point. If the proposed segment from the last point to
-the new point crosses any existing segment, the click is **silently
-rejected** — the FSM doesn't add the point and the cursor doesn't move on.
+## 相关源码 / Source links
 
-```ts
-MOUSE_DOWN: { guard: 'polygonNoSelfIntersect', actions: 'addPoint' },
-```
+- FSM：`src/core/fsm/editorMachine.ts:130-384`
+- 路由：`src/hooks/useMapEventRouter.ts` + `src/hooks/mapEventRouter/`
+- 行动注册：`src/core/actions/registry/definitions.ts:164-221`
+- 元素 → 工具：`src/core/elements.ts:49-158`
+- 自交校验：`src/core/geometry/validation.ts`
+- ToolStrip UI：`src/components/layout/ToolStrip.tsx:128-219`
 
-### `polygonCanClose` (on double-click) / `polygonCanConfirm` (on ↵)
+## 相关文档 / See also
 
-Both check that the polygon has ≥ 3 points and that closing it doesn't
-introduce a self-intersection (`polygonSelfIntersects`).
-
-::: warning Silent rejection is intentional
-Showing a UI affordance for "this click would self-intersect" was tried
-and discarded — it produced too much visual noise during fast drawing.
-The cursor not advancing is the affordance: if a click does nothing,
-move the cursor and try again.
-:::
-
-## Element-tool compatibility matrix
-
-The ToolStrip filters `ALL_DRAW_TOOLS` by the element's `tools` allowlist
-(`MAP_ELEMENTS` in `src/core/elements.ts:49`):
-
-| Element       | Allowed tools                | Default         |
-| ------------- | ---------------------------- | --------------- |
-| Lane          | drawBezier, drawArc          | drawBezier      |
-| Junction      | drawPolygon                  | drawPolygon     |
-| PNC Junction  | drawPolygon                  | drawPolygon     |
-| Parking Space | drawRotatedRect, drawPolygon | drawRotatedRect |
-| Crosswalk     | drawRotatedRect, drawPolygon | drawRotatedRect |
-| Signal        | drawBezier                   | drawBezier      |
-| Stop Sign     | drawBezier                   | drawBezier      |
-| Speed Bump    | drawBezier                   | drawBezier      |
-| Yield Sign    | drawBezier                   | drawBezier      |
-| Clear Area    | drawRotatedRect, drawPolygon | drawRotatedRect |
-| Barrier Gate  | drawBezier                   | drawBezier      |
-| Area          | drawPolygon                  | drawPolygon     |
-
-::: tip Why no Polyline / CatmullRom for any Apollo element?
-Polyline and CatmullRom produce raw geometry primitives. Apollo lanes
-demand smooth, parameterizable centerlines — Bezier and Arc give you
-that. If you need a Polyline-shape Lane (rough trace), draw the Polyline,
-read its points, then redraw with Bezier.
-:::
-
-## Tool selection precedence
-
-If you press `B` while in `selected` state, the FSM transitions through
-`selectToolFromSelected` (`editorMachine.ts:75-79`):
-
-```ts
-const selectToolFromSelected = selectToolTransitions.map((t) => ({
-  ...t,
-  actions: ['deselectEntity', ...t.actions] as const,
-}));
-```
-
-That is: deselect first, then enter the draw state. So the same shortcut
-works regardless of current state.
-
-::: warning Drawing entirely in keyboard
-You can author a lane fully via keyboard:
-
-1. `H` — Hand mode (clean state).
-2. (click on map to start the lane interactively — keyboard alone can't
-   place a point yet; this is on the roadmap.)
-3. `B` — switch tool.
-4. `↵` — commit when done.
-5. `Esc` — discard mid-draw.
-   :::
-
-## Where to next
-
-- [Drawing lanes](/guide/drawing-lanes) — full lane workflow with
-  attributes and stitching.
-- [Editing and snapping](/guide/editing-and-snapping) — selection, drag,
-  marquee, snap behaviour.
-- [Topology and junctions](/guide/topology-and-junctions) — what happens
-  to lane connectivity after you commit.
-- [Architecture / FSM design](/architecture/fsm-design) — the editor
-  machine internals.
+- [车道绘制](./drawing-lanes.md)
+- [编辑与吸附](./editing-and-snapping.md)
+- [地图元素](./map-elements.md)
+- [拓扑](./topology.md)

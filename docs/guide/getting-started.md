@@ -1,145 +1,185 @@
-# 快速开始
+---
+title: 快速开始
+description: 在五分钟内启动 Apollo Map Studio，导入第一份 Apollo 高精地图，了解工作区主要部件与基础工作流。
+---
 
-本页按当前 `master` 重构后的实现说明 Apollo Map Studio 的安装、启动和主界面。当前应用入口很薄：`src/App.tsx` 只渲染 `WorkspaceLayout`；实际工作台由 `src/components/layout/WorkspaceLayout.tsx` 组合菜单栏、授权提示、工具条、Dockview 面板、状态栏、命令面板、设置弹窗、投影选择弹窗和任务进度浮层。
+# 快速开始 / Getting Started
 
-## 环境要求
+> Apollo Map Studio 是一个面向 Apollo 高精地图（HD Map）的桌面级 Web 编辑器，可在浏览器或 Electron 桌面壳中运行。它把 MapLibre GL 渲染、XState 状态机、Zustand 数据中心、proj4 投影换算、protobufjs 编解码组合成一个能解析、编辑、导出 `apollo.hdmap.Map` proto 的工程化工作站。
 
-- Node.js 20+
-- pnpm 10+
-- 现代浏览器，开发默认地址为 `http://localhost:5173`
-- 如果运行桌面版开发命令，需要本机可运行 Electron
+## 概览 / Overview
 
-## 安装依赖
+本页面回答四个问题：
 
-```bash
-git clone https://github.com/SakuraPuare/apollo-map-studio
-cd apollo-map-studio
-pnpm install
-```
+1. **能做什么？** —— 编辑车道（Lane）、路口（Junction）、PNC 路口、车位（ParkingSpace）、人行横道（Crosswalk）、信号灯（Signal）、停车标志（StopSign）、让行标志（YieldSign）、减速带（SpeedBump）、禁停区（ClearArea）、道闸（BarrierGate）、区域（Area）等 Apollo 元素，并通过 `protobufjs` 直接以 `.bin` / `.txt` 形式无损往返。
+2. **从哪里开始？** —— `pnpm dev` 启动 Web 模式，或 `pnpm electron:dev` 启动桌面模式。
+3. **第一份地图怎么导入？** —— Drag-drop、菜单 `File → Import Apollo Map…`、命令面板（`⌘K → Import Apollo Map…`），三条路径触达同一管道。
+4. **改完怎么导出？** —— `⌘S` 输出二进制 `.bin`，`⇧⌘S` 输出可读 `.txt`（`google.protobuf.TextFormat`）。
 
-## 启动 Web 编辑器
+::: tip 推荐顺序
 
-```bash
-pnpm dev
-```
+1. 阅读本页 → [安装与运行](./installation.md)；
+2. 跟随 [导入概览](./import.md) 把 Apollo 自带的 Sunnyvale 示例导入；
+3. 进入 [坐标系与投影](./coordinate-system.md) 理解地图为什么会跑偏几百米；
+4. 然后进入 [绘制工具](./drawing-tools.md) 与 [车道绘制](./drawing-lanes.md)。
+   :::
 
-Vite 启动后打开终端输出的本地地址，默认是：
+## 系统能力速览 / Capability Snapshot
 
-```text
-http://localhost:5173
-```
+| 模块 / Module      | 能力 / Capability                                                                              | 关键文件 / Key file                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 渲染 / Render      | MapLibre GL 5.x，cold/hot 双图层                                                               | `src/components/map/MapCanvas.tsx`                            |
+| 状态机 / FSM       | XState 5，drawPolyline / drawBezier / drawArc / drawRotatedRect / drawPolygon / drawCatmullRom | `src/core/fsm/editorMachine.ts`                               |
+| 数据中心 / Store   | Zustand + zundo 撤销/重做（`partialize: { entities }`）                                        | `src/store/mapStore.ts`                                       |
+| 投影 / Projection  | proj4，Apollo `+lat_0={37.4}` 模板自动 sanitize，UTM 1–60 + 自定义 PROJ.4                      | `src/io/proto/projection.ts`                                  |
+| Proto / Codec      | protobufjs，`apollo.hdmap.Map`，`.bin` + 文本格式                                              | `src/io/proto/loader.ts`                                      |
+| 工具栏 / ToolStrip | 注册表驱动（Action Registry），元素 → 工具二级联动                                             | `src/components/layout/ToolStrip.tsx`、`src/core/elements.ts` |
+| 图层树 / LayerTree | react-arborist 拖拽，校验 `canReparent`                                                        | `src/components/layout/panels/LayerTree.tsx`                  |
 
-Web 编辑器使用同一套 React 工作台。地图画布由 MapLibre 初始化，默认中心点、缩放、车道默认半宽、车道箭头间距和撤销历史长度从 `localStorage` 中读取；这些值可在 Settings 弹窗中修改。
+## 操作步骤 / Steps
 
-## 启动 Electron 开发版
-
-```bash
-pnpm electron:dev
-```
-
-该命令会并行启动 Vite 和 Electron 开发流程：
-
-1. 以 `127.0.0.1:5173` 启动 Vite。
-2. 等待 Vite 端口就绪。
-3. 构建 Electron main/preload 代码。
-4. 打开 Electron 壳，renderer 指向本地 Vite 服务。
-
-## 构建与打包
+### 1. 启动开发服务器 / Boot the dev server
 
 ```bash
-pnpm build:web
-pnpm build:desktop
-pnpm package:linux
-pnpm package:mac
-pnpm package:win
+pnpm install               # 安装依赖
+pnpm dev                   # 浏览器模式，默认 http://127.0.0.1:5173
+# 或者
+pnpm electron:dev          # 桌面 Electron + Vite HMR
 ```
 
-打包产物写入 `release/`。项目也保留 `pnpm package` 用于构建目录形式的 Electron 包。
+`package.json:9-22` 列出全部脚本，包含 `electron:start`、`package:linux/mac/win`、`docs:dev` 等。
 
-## 文档与质量检查
+### 2. 打开工作区 / Open the workspace
 
-```bash
-pnpm typecheck
-pnpm lint
-pnpm format:check
-pnpm build:web
-pnpm docs:build
-pnpm test
+启动后看到的 Photoshop 风格布局由 `WorkspaceLayout` 装配：
+
+```mermaid
+flowchart LR
+  MB[MenuBar 菜单栏] --> TS[ToolStrip 工具条]
+  TS --> Canvas[MapLibre Canvas]
+  Canvas --> SB[StatusBar 状态栏]
+  Sidebar[Activity Bar / Layer Tree / Inspector] --> Canvas
 ```
 
-性能基准命令：
+- **顶部 MenuBar / 工具条**：File / Edit / View / Help 菜单 + 元素选择条 + 网格/吸附切换；
+- **左侧 Activity Bar**：图层树（LayerTree）、地图大纲（MapOutline）、搜索；
+- **中央画布**：MapLibre WebGL 视口；
+- **右侧 Inspector**：基于 `react-hook-form` + `zod` 的属性表单；
+- **底部 StatusBar**：当前工具、cursorLngLat、缩放级别、snap 状态。
 
-```bash
-pnpm bench --outputJson bench-results.json
-node scripts/check-bench-budget.mjs bench-results.json
+### 3. 导入第一份地图 / Import a sample map
+
+```mermaid
+flowchart TD
+  U[用户拖入 .bin/.txt] --> R[ApolloProtoRoot.load]
+  R --> T[apollo.hdmap.Map decode/text]
+  T -->|无 projection.proj| D[ProjPickerDialog]
+  T -->|有 projection.proj| P[makeProjection]
+  D --> P
+  P --> A[entities → mapStore]
+  A --> C[useColdLayer → spatial.worker.ts]
 ```
 
-## 主界面布局
+三种入口都走同一管道（详见 [导入](./importing.md)）：
 
-主窗口从上到下分为五个区域：
+1. **拖拽**：直接把 `.bin` / `.txt` 拖进画布；
+2. **菜单**：`File → Import Apollo Map…`（`ACTION_DEFS.importApollo`，`registry/definitions.ts:23-31`）；
+3. **命令面板**：`⌘K → Import Apollo Map…`。
 
-| 区域            | 当前实现        | 作用                                                                                      |
-| --------------- | --------------- | ----------------------------------------------------------------------------------------- |
-| 菜单栏          | `MenuBar`       | 从 Action Registry 生成 File、Edit、View 菜单，并显示“绘图/场景”模式切换                  |
-| 授权提示        | `LicenseBanner` | 授权临期、过期或被篡改时显示；编辑动作会经过授权守卫                                      |
-| 工具条          | `ToolStrip`     | 选择默认模式、连接车道、选择 Apollo 元素、选择绘制工具、打开命令面板、切换 Grid/Snap      |
-| Dockview 工作区 | `DockviewReact` | 承载地图、左侧栏、Inspector、Timeline 等可停靠面板                                        |
-| 状态栏          | `StatusBar`     | 显示应用模式、FSM 状态、实体数量、导入文件名、lane/road 计数、Grid/Snap、鼠标经纬度和缩放 |
+### 4. 选元素与画 / Pick element and draw
 
-Dockview 布局按应用模式保存；菜单中的 Reset Layout 会清除当前模式的保存布局并重建默认布局。Settings 弹窗中的 Reset Layout to Default 会移除 `ams-layout-v2` 并刷新页面。
+::: info ToolStrip 二级联动
+ToolStrip 的核心是「先选元素，再选工具」。`ElementBar` 列出 12 种 Apollo 元素图标（`src/core/elements.ts:49-158`），点选后才会出现该元素允许的绘制工具集合（`MapElementDef.tools`）。例如选「车道」，只显示「贝塞尔 / 圆弧」；选「车位」，显示「矩形 / 多边形」。
+:::
 
-## 左侧 Activity Bar
+| 元素 / Element     | 默认工具        | 允许工具                     |
+| ------------------ | --------------- | ---------------------------- |
+| 车道 lane          | drawBezier      | drawBezier, drawArc          |
+| 路口 junction      | drawPolygon     | drawPolygon                  |
+| PNC 路口           | drawPolygon     | drawPolygon                  |
+| 车位 parkingSpace  | drawRotatedRect | drawRotatedRect, drawPolygon |
+| 人行横道 crosswalk | drawRotatedRect | drawRotatedRect, drawPolygon |
+| 信号灯 signal      | drawBezier      | drawBezier                   |
+| 停车标志 stopSign  | drawBezier      | drawBezier                   |
+| 减速带 speedBump   | drawBezier      | drawBezier                   |
+| 让行标志 yieldSign | drawBezier      | drawBezier                   |
+| 禁停区 clearArea   | drawRotatedRect | drawRotatedRect, drawPolygon |
+| 道闸 barrierGate   | drawBezier      | drawBezier                   |
+| 区域 area          | drawPolygon     | drawPolygon                  |
 
-| 页签     | 面板           | 说明                                                                                                            |
-| -------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| Explorer | Outline        | 显示地图总实体数、Apollo 顶层类型计数、绘图 primitive 计数、未归属 lane、悬空 junction 引用和导入 header 元数据 |
-| Layers   | Layer Tree     | 按 Road、Junction、Lane 等类型组织实体，支持选择、删除、拖拽归属和图层可见/锁定                                 |
-| Search   | Search         | 按实体 ID 或 entityType 子串搜索，最多显示 200 条结果                                                           |
-| Timeline | Timeline       | 当前是独立时间轴 UI，包含播放、暂停、停止、步进和示例轨道；它不驱动地图实体                                     |
-| Settings | Settings modal | 点击后打开全局设置弹窗，然后侧栏回到 Explorer                                                                   |
+### 5. 编辑与撤销 / Edit and undo
 
-## 工具条结构
+- 单击实体 → 进入 `selected` 态；拖拽顶点/控制点 → `editingPoint` 态；
+- `⌘Z` / `⇧⌘Z` 调用 zundo 的 `temporal.undo()` / `temporal.redo()`；
+- **R1 关键点**：撤销前调度器先发 `CANCEL` 给 FSM，避免 mid-draw 时 `drawPoints` 与 `mapStore.entities` 不一致（见 `src/hooks/useActionDispatcher.ts:76-82`）。
 
-从左到右：
+### 6. 导出 / Export
 
-1. Default (Pan)：回到空闲状态，取消当前绘制/选择/连接。
-2. Connect Lanes：进入两车道连接模式。
-3. Apollo 元素平铺图标：车道、路口、PNC 路口、车位、人行横道、信号灯、停车标志、减速带、让行标志、禁停区、道闸、区域。
-4. 当前元素可用绘制工具：随元素变化，例如车道只显示 Bezier 和 Arc，车位显示 Rectangle 和 Polygon。
-5. 命令面板入口：按钮上显示 `⌘K`；非 macOS 平台会显示为 `Ctrl+K`。
-6. View 槽位：Grid 和 Snap 开关。
+- `⌘S` → `exportApolloBin`，二进制 `.bin`；
+- `⇧⌘S` → `exportApolloText`，`google.protobuf.TextFormat`；
+- 两者都通过 `entityOps.compileApolloMap` 把 `mapStore.entities` 重新装回 `apollo.hdmap.Map`，再交给 protobufjs 编码。
 
-## 应用模式
+## 选项与参数表 / Options Table
 
-菜单栏右侧有“绘图 / 场景”切换，状态保存在 `uiStore.appMode`。当前代码会用它区分 Dockview 保存布局和状态栏展示；地图编辑主流程仍由 FSM、工具条和地图事件路由控制。文档中凡是绘制、选择、导入、导出步骤，默认都指当前“绘图”模式。
+| 选项 / Option    | 默认 / Default | 位置 / Where  | 说明 / Notes                                                    |
+| ---------------- | -------------- | ------------- | --------------------------------------------------------------- |
+| 网格 Grid        | off            | View / 工具条 | `toggleGrid` action，快捷键 `⌘G`                                |
+| 吸附 Snap        | on             | View / 工具条 | `toggleSnap` action，半径常量 `SNAP_RADIUS_PX`                  |
+| 默认模式 Pan     | on             | 工具条最左    | `defaultMode` action，快捷键 `H`，等价 ESC 撤销绘制并切换到平移 |
+| 连接车道 Connect | off            | 工具条        | `connectLanes` action，快捷键 `C`                               |
+| 历史步数         | 100            | Settings      | `settingsStore.historyLimit`（zundo limit）                     |
+| 车道半宽         | 1.5 m          | Settings      | `settingsStore.laneHalfWidth`，决定 lane 边界生成时的偏移       |
+| 命令面板         | `⌘K`           | 全局          | `commandPalette` action（不出现在面板自身列表内）               |
 
-## 设置项
+## 键盘鼠标速查表 / Shortcut Cheatsheet
 
-| 设置                    | 范围        | 生效说明                                   |
-| ----------------------- | ----------- | ------------------------------------------ |
-| History limit           | 10-1000     | 控制 zundo 撤销历史限制                    |
-| Map Longitude           | -180 到 180 | 地图初始化中心点经度，提示需要重启生效     |
-| Map Latitude            | -90 到 90   | 地图初始化中心点纬度，提示需要重启生效     |
-| Map Zoom                | 1-22        | 地图初始化缩放，提示需要重启生效           |
-| Default half-width (m)  | 0.5-10      | 新建 lane 时写入左右宽度 sample 的默认半宽 |
-| Arrow spacing (px)      | 40-500      | 更新 `cold-lane-arrows` 的 symbol spacing  |
-| Reset Layout to Default | -           | 清除保存布局并刷新                         |
+| 操作 / Action            | 快捷键 / Key       | FSM 转换                            |
+| ------------------------ | ------------------ | ----------------------------------- |
+| 平移地图                 | 鼠标拖拽 / `H`     | `idle → idle`                       |
+| 旋转/俯仰                | 右键拖拽 / Ctrl+拖 | maplibre 原生                       |
+| 双击落点（折线/多边形）  | 双击               | `drawPolyline / drawPolygon → idle` |
+| 三次点击 commit（弧/矩） | 单击 ×3            | `drawArc / drawRotatedRect → idle`  |
+| 取消绘制                 | `Esc`              | `* → idle`，触发 `CANCEL`           |
+| 撤销 / 重做              | `⌘Z` / `⇧⌘Z`       | dispatcher CANCEL → temporal.undo() |
+| 命令面板                 | `⌘K`               | 模态                                |
+| 删除选中                 | `Delete`           | `selected → idle` + remove          |
+| 切换网格                 | `⌘G`               | `uiStore.gridEnabled`               |
+| 切换吸附                 | （无默认快捷键）   | `uiStore.snapEnabled`               |
 
-## 命令入口
+## 常见问题 / Troubleshooting
 
-- File 菜单：导入 Apollo Map、导出 `.bin`、导出 `.txt`、打开 Settings。
-- Edit 菜单：Undo、Redo、Delete Selection、Connect Lanes。
-- View 菜单：Reset Layout、Toggle Grid、Toggle Snap。
-- 命令面板：`Ctrl/⌘+K` 打开，可搜索并执行大多数 action。
+### Q1. 启动后地图是灰色的，没看到任何元素
 
-## 当前数据模型要点
+- 90% 概率是没导入数据。先 `File → Import Apollo Map…` 选一个 `.bin`；
+- 如果导入了仍然空白，打开 DevTools 看 `[ApolloProto] decode failed: ...` 之类报错；
+- 如果 cold layer 一直空，检查 `spatial.worker.ts` 是否被浏览器的 HMR 热替换搞挂——刷新一次。
 
-- 地图实体在 `mapStore.entities: Map<string, MapEntity>` 中维护。
-- 撤销/重做由 `zundo` 包装 `mapStore` 完成。
-- 导入会一次性替换实体集合并清空撤销历史。
-- 新增、更新、删除实体会触发 lane topology 和 overlap 的增量重算。
-- 导出前会在 IO worker 中再次执行拓扑和 overlap 全量处理。
+### Q2. 投影对话框反复弹出
 
-## 编辑授权注意事项
+只有 `header.projection.proj` 缺失时才弹（见 `src/io/proto/projection.ts` + `src/components/dialogs/ProjPickerDialog.tsx`）。点 OK 之后系统会把选定的 PROJ 字符串写回 header；如果再次导入同一文件却又弹出，说明导出时没把 header 写回——见 [导入深入](./importing.md#header-保留)。
 
-代码中编辑类 action 和 `mapStore` 写操作都会经过授权守卫。未处于可编辑状态时，添加、更新、删除、选择工具、连接车道等动作可能不会执行；View 类动作如 Reset Layout、Grid、Snap 不属于地图数据编辑。
+### Q3. `⌘Z` 把整张图都吞掉了
+
+zundo 的 `partialize` 只跟踪 `entities`。如果你刚导入完一份 5 万要素的地图，第一次 `⌘Z` 会把它全部回滚到空。这是符合 `mapStore` 设计的；想保留就不要在导入完立刻按撤销。
+
+### Q4. 桌面壳启动报 `electron .` 找不到 `dist-electron/main.cjs`
+
+`pnpm electron:dev` 会先 `wait-on tcp:127.0.0.1:5173` 再 `pnpm build:electron`（详见 `package.json:16`）。直接 `electron .` 必须先跑 `pnpm build:desktop`。
+
+## 相关源码 / Source links
+
+- 启动脚本：`package.json:9-22`
+- 元素定义：`src/core/elements.ts:49-158`
+- ToolStrip：`src/components/layout/ToolStrip.tsx`
+- 动作注册：`src/core/actions/registry/definitions.ts`
+- FSM：`src/core/fsm/editorMachine.ts`
+- 投影 picker：`src/components/dialogs/ProjPickerDialog.tsx`
+- proto loader：`src/io/proto/loader.ts`
+
+## 相关文档 / See also
+
+- [安装与运行](./installation.md)
+- [导入概览](./import.md)
+- [坐标系与投影](./coordinate-system.md)
+- [绘制工具](./drawing-tools.md)
+- [图层树](./layer-tree.md)

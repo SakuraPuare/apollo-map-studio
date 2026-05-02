@@ -1,329 +1,268 @@
-# Map elements
-
-Apollo Map Studio supports the full Apollo HD-map element set. This page
-enumerates every element type, what it represents, and how to author it.
-
-## Source map
-
-| Concern                    | File                                        |
-| -------------------------- | ------------------------------------------- |
-| Element catalogue          | `MAP_ELEMENTS` in `src/core/elements.ts:49` |
-| Apollo proto entity types  | `src/types/apollo.ts`                       |
-| Editable entity union      | `src/types/entities.ts`                     |
-| Validation schemas         | `src/lib/schemas.ts`                        |
-| Entity-ops adapter         | `src/lib/entityOps.ts`                      |
-| Per-element creation logic | `src/lib/entityOps/create*.ts`              |
-
-## Element catalogue
-
-Every element has a default tool and a list of allowed tools. Picking the
-element in the [ToolStrip](/guide/menubar-and-toolstrip) arms the default
-tool; you can switch among allowed tools without losing the element binding.
-
-| Element       | Apollo proto                | Geometry | Default tool    | Allowed tools                |
-| ------------- | --------------------------- | -------- | --------------- | ---------------------------- |
-| Lane          | `apollo.hdmap.Lane`         | line     | drawBezier      | drawBezier, drawArc          |
-| Junction      | `apollo.hdmap.Junction`     | polygon  | drawPolygon     | drawPolygon                  |
-| PNC Junction  | `apollo.hdmap.PNCJunction`  | polygon  | drawPolygon     | drawPolygon                  |
-| Parking Space | `apollo.hdmap.ParkingSpace` | polygon  | drawRotatedRect | drawRotatedRect, drawPolygon |
-| Crosswalk     | `apollo.hdmap.Crosswalk`    | polygon  | drawRotatedRect | drawRotatedRect, drawPolygon |
-| Signal        | `apollo.hdmap.Signal`       | line     | drawBezier      | drawBezier                   |
-| Stop Sign     | `apollo.hdmap.StopSign`     | line     | drawBezier      | drawBezier                   |
-| Speed Bump    | `apollo.hdmap.SpeedBump`    | line     | drawBezier      | drawBezier                   |
-| Yield Sign    | `apollo.hdmap.YieldSign`    | line     | drawBezier      | drawBezier                   |
-| Clear Area    | `apollo.hdmap.ClearArea`    | polygon  | drawRotatedRect | drawRotatedRect, drawPolygon |
-| Barrier Gate  | `apollo.hdmap.BarrierGate`  | line     | drawBezier      | drawBezier                   |
-| Area          | `apollo.hdmap.Area`         | polygon  | drawPolygon     | drawPolygon                  |
-
-Two more entities exist in the data model but are **not** drawable from the
-ToolStrip — they're created via the layer-tree headers or as derived
-references:
+---
+title: 地图元素
+description: Apollo HD Map 全部 12 类可编辑元素的几何、字段、用途与默认工具一览。
+---
+
+# 地图元素 / Map Elements
+
+> 本页是「元素目录」，覆盖 ToolStrip 中 12 个 Apollo 元素 + 派生 `road` / `overlap`。每节给出几何形态、Apollo proto 字段、默认工具、Inspector 主要字段、相关 Source link。
+
+## 概览 / Overview
+
+```mermaid
+flowchart LR
+  ToolStrip --> Lane[车道 lane]
+  ToolStrip --> Junction[路口 junction]
+  ToolStrip --> PNC[PNC 路口 pncJunction]
+  ToolStrip --> Park[车位 parkingSpace]
+  ToolStrip --> Cross[人行横道 crosswalk]
+  ToolStrip --> Signal[信号灯 signal]
+  ToolStrip --> Stop[停车标志 stopSign]
+  ToolStrip --> Speed[减速带 speedBump]
+  ToolStrip --> Yield[让行标志 yieldSign]
+  ToolStrip --> Clear[禁停区 clearArea]
+  ToolStrip --> Barrier[道闸 barrierGate]
+  ToolStrip --> Area[区域 area]
+  Hidden[Layer Tree only] --> Road[road]
+  Hidden --> Overlap[overlap]
+  Hidden --> RSU[rsu]
+  Hidden --> SpeedCtrl[speedControl]
+```
+
+| 元素            | 几何                               | 默认工具        | 颜色 (`elements.ts`) |
+| --------------- | ---------------------------------- | --------------- | -------------------- |
+| lane            | line (centralCurve + 2 boundaries) | drawBezier      | `#4a9eff`            |
+| junction        | polygon                            | drawPolygon     | `#ffcc00`            |
+| pncJunction     | polygon                            | drawPolygon     | `#ff9933`            |
+| parkingSpace    | polygon (rect)                     | drawRotatedRect | `#7c5cbf`            |
+| crosswalk       | polygon (rect)                     | drawRotatedRect | `#ffffff`            |
+| signal          | line + polygon                     | drawBezier      | `#22cc44`            |
+| stopSign        | line                               | drawBezier      | `#ff0000`            |
+| speedBump       | line                               | drawBezier      | `#ffaa00`            |
+| yieldSign       | line                               | drawBezier      | `#ff6600`            |
+| clearArea       | polygon                            | drawRotatedRect | `#ff4466`            |
+| barrierGate     | line + polygon                     | drawBezier      | `#aa66ff`            |
+| area            | polygon                            | drawPolygon     | `#66aaff`            |
+| road \*         | container                          | (LayerTree)     | —                    |
+| overlap \*      | derived                            | (auto)          | —                    |
+| rsu \*          | metadata                           | (LayerTree)     | —                    |
+| speedControl \* | polygon                            | (Inspector)     | —                    |
+
+`*` 仅 LayerTree / Inspector 编辑，不在 ToolStrip。
+
+## 元素详细 / Element details
+
+### 1. Lane（车道）
+
+```ts
+interface LaneEntity {
+  id;
+  entityType: 'lane';
+  centralCurve: Curve;
+  leftBoundary: LaneBoundary;
+  rightBoundary: LaneBoundary;
+  length?: number;
+  type: 'NONE' | 'CITY_DRIVING' | 'BIKING' | 'SIDEWALK' | 'PARKING' | 'SHOULDER' | 'SHARED';
+  turn: 'NO_TURN' | 'LEFT_TURN' | 'RIGHT_TURN' | 'U_TURN';
+  direction: 'FORWARD' | 'BACKWARD' | 'BIDIRECTION';
+  speedLimit?: number; // m/s
+  predecessorIds;
+  successorIds;
+  selfReverseLaneIds;
+  leftNeighborForwardIds;
+  rightNeighborForwardIds;
+  leftNeighborReverseIds;
+  rightNeighborReverseIds;
+  junctionId;
+  overlapIds;
+  leftSamples;
+  rightSamples;
+  leftRoadSamples;
+  rightRoadSamples;
+}
+```
+
+详见 [车道绘制](./drawing-lanes.md)。
+
+### 2. Junction（路口）
+
+```ts
+interface JunctionEntity {
+  polygon: ApolloPolygon;
+  type?: 'UNKNOWN' | 'IN_ROAD' | 'CROSS_ROAD' | 'FORK_ROAD' | 'MAIN_SIDE' | 'DEAD_END';
+}
+```
+
+### 3. PNC Junction
+
+```ts
+interface PNCJunctionEntity {
+  polygon: ApolloPolygon;
+  passageGroups: PassageGroup[]; // 每组多 passage（ENTRANCE/EXIT）
+}
+```
+
+### 4. ParkingSpace（车位）
+
+```ts
+interface ParkingSpaceEntity {
+  polygon: ApolloPolygon;
+  heading: number; // 车头朝向
+  _sourceRect?: { p1; p2; rotation }; // 矩形源用于反编辑
+}
+```
+
+默认 `drawRotatedRect`，绘制时三点确定方位 + 长宽。
+
+### 5. Crosswalk（人行横道）
+
+```ts
+interface CrosswalkEntity {
+  polygon: ApolloPolygon;
+  _sourceRect?: { p1; p2; rotation };
+}
+```
+
+### 6. Signal（信号灯）
+
+```ts
+interface SignalEntity {
+  boundary: ApolloPolygon; // 灯箱外形
+  subsignals: Subsignal[]; // CIRCLE / ARROW_LEFT / ...
+  type:
+    | 'UNKNOWN_SIGNAL'
+    | 'MIX_2_HORIZONTAL'
+    | 'MIX_2_VERTICAL'
+    | 'MIX_3_HORIZONTAL'
+    | 'MIX_3_VERTICAL'
+    | 'SINGLE';
+  stopLines: Curve[]; // 配套停止线
+  signInfo: SignInfo[]; // 例如 NO_RIGHT_TURN_ON_RED
+}
+```
+
+绘制方式：drawBezier 画停止线，编辑器用 SignalTemplate 自动放置一个标准灯箱。
+
+### 7. StopSign（停车标志）
+
+```ts
+interface StopSignEntity {
+  stopLines: Curve[];
+  type?: 'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY' | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
+}
+```
+
+### 8. SpeedBump（减速带）
 
-| Entity       | How to create                                              |
-| ------------ | ---------------------------------------------------------- |
-| Road         | Layer tree → `+ Road` button. Empty road with one section. |
-| RSU          | Layer tree → `+ RSU` button. Then drag to a Junction.      |
-| ParkingLot   | Round-trip `.txt` proto only.                              |
-| SpeedControl | Round-trip `.txt` proto only.                              |
-| Overlap      | Auto-derived during export.                                |
-
-## Lane
-
-The most-authored element. Represents a single drivable lane with a
-centerline, left/right boundaries, and topology.
-
-**Apollo proto fields:** `id`, `central_curve`, `left_boundary`,
-`right_boundary`, `length`, `speed_limit`, `predecessor_id[]`,
-`successor_id[]`, `left_neighbor_forward_lane_id[]`,
-`right_neighbor_forward_lane_id[]`, `left_neighbor_reverse_lane_id[]`,
-`right_neighbor_reverse_lane_id[]`, `type`, `turn`, `direction`,
-`left_sample[]`, `right_sample[]`, `self_reverse_lane_id[]`,
-`left_road_sample[]`, `right_road_sample[]`, `junction_id`, `overlap_id[]`.
-
-**Drawing flow:** see [Drawing lanes](/guide/drawing-lanes) for the
-end-to-end procedure.
-
-::: tip Lane is line, not polygon
-The Lane element draws a centerline. The visible "lane" you see on the
-canvas is the centerline rendered with widths derived from
-`leftSamples` / `rightSamples`. Edit width via the Inspector, not the
-canvas.
-:::
-
-## Road
-
-A logical container for ordered RoadSections, each holding a list of
-lanes. Apollo's planner uses Roads as the macro routing element; lanes
-are the micro level.
-
-**Apollo proto fields:** `id`, `section[]` (each with `lane_id[]`,
-`boundary`), `junction_id`, `type`.
-
-**Authoring:** Layer tree → `+ Road`. The road appears with one empty
-section (`sect_*`). Drag lanes into the section to populate.
-
-::: warning Roads have no geometry of their own
-A Road's geometry is the union of its lanes' geometries. The road's
-`boundary` (RoadBoundary) is auto-derived from the outermost lanes'
-left and right boundaries. Don't try to draw a road outline directly.
-:::
-
-## Junction
-
-A polygonal region where multiple lanes converge. Inside a junction,
-lanes can change direction freely; outside, lane changes follow the
-left/right neighbor rules.
-
-**Apollo proto fields:** `id`, `polygon`, `type`, `overlap_id[]`.
-JunctionType: `OPEN`, `INTERSECTION`, `DEAD_END`.
-
-**Drawing flow:**
-
-1. Junction element → Polygon tool.
-2. Click the polygon corners (≥ 3 points). Self-intersecting clicks are
-   rejected.
-3. Double-click to commit.
-
-Then assign lanes by dragging them onto the junction in the
-[Layer tree](/guide/layer-tree).
-
-## PNC Junction
-
-A "planning and control" junction — semantically similar to Junction
-but with explicit passage groups for Apollo's planner to model multi-stop
-intersections.
-
-**Apollo proto fields:** `id`, `polygon`, `passage_group[]`.
-
-**Drawing flow:** identical to Junction. Currently the Inspector shows a
-basic form (in `pncJunction.tsx`); passage-group authoring is on the
-roadmap.
-
-::: tip Junction vs PNC Junction
-
-- **Junction** is the simple polygon used by older Apollo modules.
-- **PNC Junction** carries planner-specific passage data and is used by
-  newer Apollo planner modules.
-- For greenfield maps, use PNC Junction unless your downstream stack
-  explicitly requires plain Junction.
-  :::
-
-## Parking Space
-
-A single parking slot. Authored as a rotated rectangle (typical) or
-free-form polygon.
-
-**Apollo proto fields:** `id`, `polygon`, `heading`, `overlap_id[]`.
-
-**Drawing flow:**
-
-1. Parking Space element → Rectangle tool (default) or Polygon tool.
-2. Three clicks (Rectangle): axis start, axis end, width point.
-3. Heading is derived from the rectangle's long-axis direction.
-
-::: tip Heading is computed
-You don't author the heading directly. Drawing the rectangle along the
-direction the car would back into the slot sets heading correctly. To
-flip the heading, redraw with the axis reversed.
-:::
-
-## Crosswalk
-
-A pedestrian crossing region.
-
-**Apollo proto fields:** `id`, `polygon`, `overlap_id[]`.
-
-**Drawing flow:** Crosswalk element → Rectangle (default) or Polygon.
-For a typical zebra crossing: long axis along the crossing direction.
-
-## Signal
-
-A traffic signal head. Geometry is a line (the signal's stop line) plus
-a list of subsignals describing the bulb/face configuration.
-
-**Apollo proto fields:** `id`, `boundary`, `subsignal[]` (each with
-`type`, `location`), `overlap_id[]`, `type`, `stop_line[]`.
-
-**Drawing flow:**
-
-1. Signal element → Bezier tool.
-2. Draw the stop line as a Bezier (typically two anchors with sharp
-   corners — a straight segment).
-3. Inspector → set Signal type and SubSignal types (`UNKNOWN`,
-   `MIX_2_HORIZONTAL`, `MIX_2_VERTICAL`, `MIX_3_HORIZONTAL`,
-   `MIX_3_VERTICAL`, `SINGLE`).
-
-## Stop Sign
-
-A stop-sign location. Like Signal, the geometry is a stop line.
-
-**Apollo proto fields:** `id`, `stop_line[]`, `lane_id[]`, `type` (
-`UNKNOWN`, `ONE_WAY`, `TWO_WAY`, `THREE_WAY`, `FOUR_WAY`,
-`ALL_WAY`), `overlap_id[]`.
-
-**Drawing flow:** Stop Sign element → Bezier → straight stop line →
-double-click. Inspector → set Type.
-
-## Speed Bump
-
-A speed bump or hump. Geometry is a line transverse to the direction of
-travel.
-
-**Apollo proto fields:** `id`, `position[]`, `overlap_id[]`.
-
-**Drawing flow:** Speed Bump element → Bezier → line across the lane.
-
-## Yield Sign
-
-A yield (give-way) sign. Same authoring shape as Stop Sign.
-
-**Apollo proto fields:** `id`, `stop_line[]`, `overlap_id[]`.
-
-## Clear Area
-
-A region where vehicles must not stop (e.g. blocking the box). Polygon
-geometry.
-
-**Apollo proto fields:** `id`, `polygon`, `overlap_id[]`.
-
-**Drawing flow:** Clear Area element → Rectangle (default) or Polygon.
-
-## Barrier Gate
-
-A barrier gate (e.g. parking lot entrance). Line geometry across the
-roadway.
-
-**Apollo proto fields:** `id`, `stop_line[]`, `overlap_id[]`.
-
-**Drawing flow:** Barrier Gate element → Bezier → line across roadway.
-
-## Area
-
-Generic polygon area. Used for non-driveable regions like medians or
-plazas. Apollo's planner generally treats Area as a soft hint.
-
-**Apollo proto fields:** `id`, `polygon`, `type` (`UNKNOWN`, `MEDIAN`,
-`PLAZA`, …).
-
-**Drawing flow:** Area element → Polygon → click polygon corners →
-double-click.
-
-## RSU (Road-Side Unit)
-
-A V2X infrastructure point. No geometry — RSUs are tagged to a Junction.
-
-**Apollo proto fields:** `id`, `junction_id`, `overlap_id[]`.
-
-**Authoring:** Layer tree → `+ RSU`. Drag the new RSU onto a Junction.
-
-## Overlap
-
-The cross-reference graph that ties together every element pair whose
-geometries intersect. Apollo's planner reads `overlap_id` arrays on
-each element to find the relevant overlaps.
-
-**Apollo proto fields:** `id`, `object[]` (each with the cross-referenced
-element id and a list of cross-reference relationships).
-
-**Authoring:** **None.** Overlaps are auto-derived during export by
-`apolloIO.worker.ts`. The worker:
-
-1. Walks every pair of overlapping geometries (lanes ∩ junctions, lanes
-   ∩ signals, etc.).
-2. Generates `OverlapEntity` records.
-3. Populates `overlap_id` back-references on each element.
-
-You can view existing overlaps in the inspector (read-only OverlapForm)
-and the Outline panel.
-
-::: warning Don't hand-author overlaps
-The export-time recomputation will replace any manually-authored
-overlaps with the geometric truth. If you need a custom overlap that
-isn't geometric, that's a limitation of the export path — file an issue.
-:::
-
-## Drawing primitives
-
-Six primitive types you can draw without an Apollo element binding:
-
-| Type         | Tool         | Use                                 |
-| ------------ | ------------ | ----------------------------------- |
-| `polyline`   | Polyline     | Reference line, not exported        |
-| `catmullRom` | CatmullRom   | Smooth reference line, not exported |
-| `bezier`     | Bezier       | Reference curve, not exported       |
-| `arc`        | Arc          | Reference arc, not exported         |
-| `rect`       | Rotated Rect | Reference rectangle, not exported   |
-| `polygon`    | Polygon      | Reference polygon, not exported     |
-
-Drawing primitives appear in the layer tree under `Drawings`. They're
-not part of the Apollo proto and are dropped during export. Use them
-for trace alignment, scratch geometry, or visual reference.
-
-## Element-tool matrix (compact)
-
-|              | Polyline | CatmullRom |  Bezier   | Arc | RotatedRect |  Polygon  |
-| ------------ | :------: | :--------: | :-------: | :-: | :---------: | :-------: |
-| Lane         |          |            | ✔ default |  ✔  |             |           |
-| Junction     |          |            |           |     |             | ✔ default |
-| PNC Junction |          |            |           |     |             | ✔ default |
-| ParkingSpace |          |            |           |     |  ✔ default  |     ✔     |
-| Crosswalk    |          |            |           |     |  ✔ default  |     ✔     |
-| Signal       |          |            | ✔ default |     |             |           |
-| StopSign     |          |            | ✔ default |     |             |           |
-| SpeedBump    |          |            | ✔ default |     |             |           |
-| YieldSign    |          |            | ✔ default |     |             |           |
-| ClearArea    |          |            |           |     |  ✔ default  |     ✔     |
-| BarrierGate  |          |            | ✔ default |     |             |           |
-| Area         |          |            |           |     |             | ✔ default |
-| _Primitive_  |    ✔     |     ✔      |     ✔     |  ✔  |      ✔      |     ✔     |
-
-## Element color reference
-
-Pulled from `MAP_ELEMENTS[*].color` for cold-layer rendering:
-
-| Element       | Color        | Hex       |
-| ------------- | ------------ | --------- |
-| Lane          | Blue         | `#4a9eff` |
-| Junction      | Yellow       | `#ffcc00` |
-| PNC Junction  | Orange       | `#ff9933` |
-| Parking Space | Purple       | `#7c5cbf` |
-| Crosswalk     | White        | `#ffffff` |
-| Signal        | Green        | `#22cc44` |
-| Stop Sign     | Red          | `#ff0000` |
-| Speed Bump    | Amber        | `#ffaa00` |
-| Yield Sign    | Dark orange  | `#ff6600` |
-| Clear Area    | Pink-red     | `#ff4466` |
-| Barrier Gate  | Light purple | `#aa66ff` |
-| Area          | Light blue   | `#66aaff` |
-
-Lane has a separate per-`type` palette in `laneTypeColor()` so
-`CITY_DRIVING`, `BIKING`, `SIDEWALK`, `PARKING`, `SHOULDER`, `SHARED`,
-`NONE` each render with a distinct hue.
-
-## Where to next
-
-- [Drawing tools](/guide/drawing-tools) — every tool in detail.
-- [Drawing lanes](/guide/drawing-lanes) — lane workflow.
-- [Topology and junctions](/guide/topology-and-junctions) — connecting
-  elements together.
-- [Inspector](/guide/inspector) — per-element forms.
+```ts
+interface SpeedBumpEntity {
+  position: Curve[];
+}
+```
+
+### 9. YieldSign（让行）
+
+```ts
+interface YieldSignEntity {
+  stopLines: Curve[];
+}
+```
+
+### 10. ClearArea（禁停区）
+
+```ts
+interface ClearAreaEntity {
+  polygon: ApolloPolygon;
+  _sourceRect?;
+}
+```
+
+### 11. BarrierGate（道闸）
+
+```ts
+interface BarrierGateEntity {
+  type: 'ROD' | 'FENCE' | 'ADVERTISING' | 'TELESCOPIC' | 'OTHER';
+  polygon: ApolloPolygon;
+  stopLines: Curve[];
+}
+```
+
+### 12. Area（区域）
+
+```ts
+interface AreaEntity {
+  type: 'Driveable' | 'UnDriveable' | 'Custom1' | 'Custom2' | 'Custom3';
+  polygon: ApolloPolygon;
+  name?: string;
+}
+```
+
+### 隐藏元素 / Layer-tree-only
+
+| 元素           | 用途                            |
+| -------------- | ------------------------------- |
+| `road`         | 容器：sections + laneIds        |
+| `overlap`      | 几何派生：`overlap_<sortedIds>` |
+| `rsu`          | metadata：junctionId 关联       |
+| `speedControl` | polygon + speedLimit            |
+
+## 选项与参数表 / Options Table
+
+| 字段             | 出现位置                                                                                             | 说明                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `entityType`     | 所有 entity                                                                                          | 判别器，与 ToolStrip ELEMENT_MAP 对齐  |
+| `polygon`        | junction / pncJunction / parkingSpace / crosswalk / clearArea / area / signal.boundary / barrierGate | `ApolloPolygon { points: PointENU[] }` |
+| `Curve`          | lane.centralCurve / boundaries / stopLines / position                                                | `segments[].lineSegment.points`        |
+| `_source`        | lane / signal / stopSign / yieldSign / speedBump / barrierGate                                       | 保存 drawTool + anchors / arcPoints    |
+| `_sourceRect`    | parkingSpace / crosswalk / clearArea                                                                 | `{ p1, p2, rotation }` 矩形源          |
+| `_userOverrides` | lane / parkingSpace / overlap                                                                        | 锁定字段路径                           |
+| `overlapIds`     | 大多数实体                                                                                           | 由 reconcileOverlaps 同步              |
+
+## 键盘鼠标速查表 / Shortcut Cheatsheet
+
+| 操作           | 快捷键 / 动作               |
+| -------------- | --------------------------- |
+| 切换元素       | ToolStrip 点元素图标        |
+| 切换工具       | ToolStrip 二级图标 / 字母键 |
+| 选中实体       | 单击实体                    |
+| Inspector      | 自动随选中切换              |
+| LayerTree 跳转 | 单击树节点                  |
+| 删除           | `Delete`                    |
+
+## 常见问题 / Troubleshooting
+
+### Q1. parkingSpace 旋转之后保存不对
+
+`_sourceRect` 是矩形参数源；旋转编辑必须改它。如果你直接改 polygon points，下次打开旋转手柄会从 polygon 重算 rotation 但可能与原 angle 不同。
+
+### Q2. signal 的 boundary 为什么是 polygon
+
+Apollo 的 signal `boundary` 表示灯箱外接矩形。boundary 与 stopLines 都需要存在，缺其一对 dreamview 不友好。
+
+### Q3. area 的 type=Custom1 在导出时丢了
+
+确认 `area.type` 是字符串 union 之一。导出器把不识别的值写为 `Driveable`（默认）。
+
+### Q4. overlap 在 LayerTree 找不到
+
+overlap 通常在 LayerTree 中作为 `Overlaps` 分组的子节点显示（`MapOutline.tsx:25` 列表）。如果分组没出现，可能是 reconcileOverlaps 没跑出任何重叠。
+
+### Q5. road 节点拖入子 lane 不生效
+
+`canReparent` 校验了规则，如果父子类型不匹配（例如把 junction 拖到 road 下）会被拒。看 console `[LayerTree] reparent rejected:` 字符串。
+
+## 相关源码 / Source links
+
+- 元素表：`src/core/elements.ts:49-158`
+- 类型：`src/types/apollo.ts:118-538`
+- Inspector：`src/components/layout/panels/InspectorForms.tsx`
+- LayerTree：`src/components/layout/panels/LayerTree.tsx`
+- LayerTree builder：`src/components/layout/panels/LayerTree/treeBuilder.ts`
+- Outline：`src/components/layout/panels/MapOutline.tsx`
+
+## 相关文档 / See also
+
+- [车道绘制](./drawing-lanes.md)
+- [拓扑](./topology.md)
+- [拓扑与路口](./topology-and-junctions.md)
+- [图层树](./layer-tree.md)

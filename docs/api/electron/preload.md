@@ -1,44 +1,22 @@
-# Preload
+---
+title: electron/preload.cts — contextBridge IPC 桥
+description: 通过 contextBridge.exposeInMainWorld 暴露 apolloMapStudio / apolloMapStudioLicense；唯一对渲染端可见的 IPC 表面。
+---
 
-> Source: `electron/preload.cts`
+# `electron/preload.cts` — contextBridge IPC 桥
 
-## Overview
+> 源码：`electron/preload.cts` · 47 行 · CommonJS 模块（`.cts`）
 
-`preload.cts` is the bridge between the Electron main process and the
-renderer. It uses Node's `contextBridge` to expose two carefully-scoped
-APIs on `window` — `apolloMapStudio` (platform / version metadata) and
-`apolloMapStudioLicense` (IPC for license state). The renderer cannot
-reach Node globals; this is the only sanctioned channel.
+## 用途
 
-::: tip Why .cts (CommonJS)
-Like `main.cts`, the preload runs in a CommonJS context. Electron
-loads it via `require()` from main, regardless of the renderer's
-module system.
-:::
+`preload.cts` 在 Chromium sandbox 内运行（`sandbox: true`），可访问 Electron 的安全子集（`ipcRenderer` 等）。它通过 `contextBridge.exposeInMainWorld` 把两个对象注入到渲染端的 `window`：
 
-## Exports
+1. `window.apolloMapStudio` —— 平台 / 版本元数据（只读）
+2. `window.apolloMapStudioLicense` —— 许可证 IPC 客户端
 
-The preload doesn't export to other JS modules — it exposes two
-globals via `contextBridge.exposeInMainWorld`:
+渲染端通过 `src/lib/license-bridge.ts` 包装这些 window 对象，把"可能不存在"（浏览器构建）的边界处理掉。
 
-```ts
-window.apolloMapStudio: {
-  platform: NodeJS.Platform;
-  versions: { chrome: string; electron: string; node: string };
-};
-
-window.apolloMapStudioLicense: {
-  getState(): Promise<LicenseState>;
-  getMachineCode(): Promise<string>;
-  activate(code: string): Promise<ActivationResult>;
-  deactivate(): Promise<LicenseState>;
-  onChange(handler: (s: LicenseState) => void): () => void;
-};
-```
-
-## Behavior
-
-### Platform metadata
+## contextBridge 暴露 #1: `apolloMapStudio`
 
 ```ts
 contextBridge.exposeInMainWorld('apolloMapStudio', {
@@ -51,9 +29,18 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
 });
 ```
 
-Read from the renderer for diagnostic UI / "About" modal.
+只读元数据，给关于面板 / debug 信息使用：
 
-### License IPC channels
+```ts
+window.apolloMapStudio?.platform; // 'darwin' | 'linux' | 'win32'
+window.apolloMapStudio?.versions; // { chrome: '120.0...', electron: '41.0.0', node: '20...' }
+```
+
+注意：渲染端通过 `?.` 安全访问—— 浏览器构建里 `window.apolloMapStudio` 不存在。
+
+## contextBridge 暴露 #2: `apolloMapStudioLicense`
+
+### IPC 通道常量
 
 ```ts
 const STATUS_BROADCAST_CHANNEL = 'license:state';
@@ -65,137 +52,99 @@ const LICENSE_IPC = {
 } as const;
 ```
 
-These channel names are duplicated in `electron/license/manager.cts`
-as the source of truth — the preload mirrors them. Drift would
-silently break the bridge, so any change must update both files.
+每个值与 `electron/license/manager.cts` 的同名常量必须保持一致——两份独立常量是因为 `manager.cts` 跑在主进程、`preload.cts` 跑在 sandbox，不能共享 import（preload 受限的 module 解析）。
 
-### License API
+### `licenseApi` 实例
 
 ```ts
 const licenseApi = {
-  getState():       ipcRenderer.invoke(LICENSE_IPC.GET_STATE),
-  getMachineCode(): ipcRenderer.invoke(LICENSE_IPC.GET_MACHINE_CODE),
-  activate(code):   ipcRenderer.invoke(LICENSE_IPC.ACTIVATE, code),
-  deactivate():     ipcRenderer.invoke(LICENSE_IPC.DEACTIVATE),
-  onChange(handler) {
-    const listener = (_evt, state) => handler(state);
+  /** 当前许可证状态快照 */
+  getState(): Promise<LicenseState> {
+    return ipcRenderer.invoke(LICENSE_IPC.GET_STATE) as Promise<LicenseState>;
+  },
+  /** 16 字符机器码 */
+  getMachineCode(): Promise<string> {
+    return ipcRenderer.invoke(LICENSE_IPC.GET_MACHINE_CODE) as Promise<string>;
+  },
+  /** 用激活码激活；返回结果包含更新后的状态 */
+  activate(code: string): Promise<ActivationResult> {
+    return ipcRenderer.invoke(LICENSE_IPC.ACTIVATE, code) as Promise<ActivationResult>;
+  },
+  /** 删除已存许可证（返回清除后的状态） */
+  deactivate(): Promise<LicenseState> {
+    return ipcRenderer.invoke(LICENSE_IPC.DEACTIVATE) as Promise<LicenseState>;
+  },
+  /** 订阅 push 更新；返回 unsubscribe fn */
+  onChange(handler: (s: LicenseState) => void): () => void {
+    const listener = (_evt: Electron.IpcRendererEvent, state: LicenseState) => handler(state);
     ipcRenderer.on(STATUS_BROADCAST_CHANNEL, listener);
     return () => ipcRenderer.off(STATUS_BROADCAST_CHANNEL, listener);
   },
 };
+
 contextBridge.exposeInMainWorld('apolloMapStudioLicense', licenseApi);
 ```
 
-`onChange(handler)` returns an unsubscribe function — the standard
-Node "EventEmitter once-off" idiom. The renderer uses this from
-`useLicenseSync` to listen for push updates from `LicenseManager`'s
-1-minute tick.
+## 类型映射
 
-```mermaid
-sequenceDiagram
-    participant Renderer
-    participant Preload as preload.cts
-    participant Main as ipcMain
-    participant LM as LicenseManager
+| Window 对象                                    | 渲染端类型                                    | 主进程实现                                   |
+| ---------------------------------------------- | --------------------------------------------- | -------------------------------------------- |
+| `window.apolloMapStudio`                       | （未导出，inline 类型）                       | `process.platform` / `process.versions`      |
+| `window.apolloMapStudioLicense.getState`       | `() => Promise<LicenseState>`                 | `LicenseManager.refresh()`                   |
+| `window.apolloMapStudioLicense.getMachineCode` | `() => Promise<string>`                       | `MachineCodeResult.code`                     |
+| `window.apolloMapStudioLicense.activate`       | `(code: string) => Promise<ActivationResult>` | `LicenseManager.activate(code)`              |
+| `window.apolloMapStudioLicense.deactivate`     | `() => Promise<LicenseState>`                 | `LicenseManager.deactivate()`                |
+| `window.apolloMapStudioLicense.onChange`       | `(h) => unsubscribe`                          | `BrowserWindow.send('license:state', state)` |
 
-    Renderer->>Preload: apolloMapStudioLicense.activate(token)
-    Preload->>Main: ipcRenderer.invoke('license:activate', token)
-    Main->>LM: handler(token)
-    LM-->>Main: ActivationResult
-    Main-->>Preload: result
-    Preload-->>Renderer: result
+## 安全注记
 
-    LM->>Main: broadcast(state) (every minute or on change)
-    Main->>Preload: webContents.send('license:state', state)
-    Preload->>Renderer: handler(state)
-```
+### 为什么 contextBridge
 
-### Type safety
+直接暴露 `window.ipcRenderer = ipcRenderer` 是反模式 —— 渲染端能调用 `invoke('any:channel')`、`send('main:eval', ...)` 等，把 sandbox 越权。
 
-The preload imports types from `./license/types.cjs`:
+`contextBridge.exposeInMainWorld(name, obj)` 把 `obj` 序列化（按值）+ 冻结后挂到 window；渲染端只能调用预定义的方法，不能反向访问 `ipcRenderer` 本身。
 
-```ts
-import type { ActivationResult, LicenseState } from './license/types.cjs';
-```
+### 为什么 Promise 边界
 
-The cast on `ipcRenderer.invoke(...)` returns are TypeScript-only —
-the IPC channel is opaque at runtime. If the main and preload
-disagree on the shape, the renderer sees an unexpected object.
-Keeping `types.cts` as the single source of truth (re-imported by
-both sides) is the contract.
+`ipcRenderer.invoke` 是 Promise-based —— 主进程 handler 抛错会 reject。无 callback / 无 sync IPC（性能 + 死锁风险）。
 
-## contextBridge isolation
+### 为什么单独 onChange 不用 EventEmitter
 
-::: warning Footgun: function references vs. values
-`contextBridge.exposeInMainWorld` clones primitives but **proxies**
-function references. Returning an object with methods (as we do for
-`licenseApi`) works — each method call hops through the bridge.
-Returning an object with a `Date` would clone fine, but a `Map` would
-not. Stick to JSON-compatible shapes for round-tripped state.
-:::
+Sandbox preload 不能暴露完整 `EventEmitter`（contextBridge 不序列化函数链）。改成"返回 unsubscribe 的注册式"——更适合 React `useEffect` 的清理范式。
 
-::: warning Footgun: don't expose ipcRenderer directly
-A naive bridge might do `exposeInMainWorld('ipc', ipcRenderer)` —
-that would hand the renderer a wide-open channel into main and
-defeat the entire `contextIsolation` model. The preload's job is to
-expose **only** the specific operations the renderer needs.
-:::
+## 副作用
 
-### Browser fallback
+- 把两个对象挂到渲染端 `window`
+- 在第一次 `onChange` 注册时给 `STATUS_BROADCAST_CHANNEL` 加 listener
+- listener 不会自动卸载，调用方必须执行返回的 unsubscribe（否则 BrowserWindow 关闭后还在挂着）
 
-There's no preload in the browser build (Vite serves the renderer
-directly without Electron). `@/lib/license-bridge` checks for the
-global and provides a permissive trial-state stub when absent:
+## 测试覆盖
 
-```ts
-const native = (window as { apolloMapStudioLicense?: ... }).apolloMapStudioLicense;
-const bridge = native ?? createBrowserStub();
-```
+无独立单测 —— 整个 contextBridge 表面在端到端 / Spectron 测试中验证。
 
-So the same React code works in both targets without conditional
-imports.
+## 调用方
 
-## Examples
+唯一调用方：[`license-bridge`](../lib/license-bridge.md) —— 把 `window.apolloMapStudioLicense?.xxx ?? fallback()` 的边界封装好。
 
-### Reading the bridge from React
+UI 组件不应直接 `window.apolloMapStudioLicense.xxx`——应通过 `licenseBridge` 间接调用。
 
-```ts
-import { licenseBridge } from '@/lib/license-bridge';
+## 源码索引
 
-const state = await licenseBridge.getState();
-const unsubscribe = licenseBridge.onChange((s) => {
-  console.log('license changed:', s.status);
-});
-// later
-unsubscribe();
-```
+| 行    | 内容                                   |
+| ----- | -------------------------------------- |
+| 1     | imports                                |
+| 3     | type imports（仅类型，不进入 runtime） |
+| 5     | `STATUS_BROADCAST_CHANNEL` 常量        |
+| 6–11  | `LICENSE_IPC` 通道常量                 |
+| 13–20 | `apolloMapStudio` 暴露                 |
+| 22–45 | `licenseApi` 对象                      |
+| 47    | `apolloMapStudioLicense` 暴露          |
 
-### Diagnosing IPC issues
+## 参见
 
-```ts
-console.log(
-  'preload globals:',
-  Object.keys(window).filter((k) => k.startsWith('apolloMapStudio')),
-);
-```
-
-If those globals are missing, the preload didn't load — check the
-`webPreferences.preload` path in `main.cts` and the dev script's
-`ELECTRON_RENDERER_URL`.
-
-### Adding a new IPC method
-
-1. Add the channel name to both `electron/license/manager.cts` and
-   `electron/preload.cts` (or extract to a shared constant module).
-2. Register `ipcMain.handle(channel, fn)` in main.
-3. Add the call to `licenseApi` (or a sibling object) in preload.
-4. Add a typed wrapper in `@/lib/license-bridge`.
-5. Update `LicenseState` / `ActivationResult` if the shape needs new
-   fields.
-
-## Related
-
-- [Main process](/api/electron/main-process)
-- [License manager](/api/electron/license-manager)
-- [license-bridge (renderer wrapper)](/api/lib/license-bridge)
-- [useLicenseSync](/api/hooks/use-license)
+- [Electron overview](../electron.md)
+- [Main process](./main-process.md)
+- [License Manager](./license-manager.md)
+- [`license-bridge`](../lib/license-bridge.md) —— 渲染端包装
+- [`licenseStore`](../store/license-store.md) —— React state 镜像
+- Electron 文档：[contextBridge](https://www.electronjs.org/docs/latest/api/context-bridge)

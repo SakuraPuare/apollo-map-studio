@@ -1,124 +1,160 @@
-# 导入 Apollo 地图
+---
+title: 导入概览
+description: Apollo Map Studio 导入入口总览 —— 菜单、命令面板与当前导入流水线；展示导入各阶段产物。
+---
 
-当前导入入口是 File 菜单或命令面板中的 **Import Apollo Map...**。实现位于 `src/io/mapIO.ts` 和 `src/io/apolloIO.worker.ts`：主线程只负责文件选择和状态落库，耗时的 protobuf 解码、坐标投影、实体桥接、拓扑重算和 overlap 重算都在 Web Worker 中完成。
+# 导入概览 / Import Overview
 
-## 支持格式
-
-文件选择器接受：
-
-- `.bin`：Apollo `apollo.hdmap.Map` binary protobuf。
-- `.txt`：Apollo text protobuf。
-- `.pb.txt`：Apollo text protobuf 的常见命名。
-
-当前导入的是 Apollo Map 本身，不是 `routing_map.bin` 或 `sim_map.bin`。
-
-## 导入步骤
-
-1. 打开 File 菜单。
-2. 选择 **Import Apollo Map...**。
-3. 在系统文件选择器中选择 `.bin`、`.txt` 或 `.pb.txt`。
-4. 如果文件较大，界面会在任务超过 1 秒后显示进度浮层。
-5. 导入成功后，状态栏会显示导入文件名、lane 数量和 road 数量。
-6. 左侧 Outline 会更新总实体数、各类型计数和健康检查。
-
-导入完成后，`mapStore.replaceImportedEntities()` 会用导入结果替换当前实体集合，并清空撤销历史。因此导入新文件不是“追加到当前地图”，而是替换当前工作内容。
-
-## 导入流水线
-
-```text
-文件选择
-  -> 读取字节
-  -> Worker 解码 binary/text protobuf
-  -> 读取或补充 Header.projection.proj
-  -> Apollo PointENU 投影为 WGS84 lon/lat
-  -> Apollo proto tree 桥接为编辑器 MapEntity
-  -> 全量重算 lane topology
-  -> 全量重算 overlaps
-  -> 分块发送实体到主线程
-  -> 替换 mapStore.entities
-```
-
-其中坐标转换使用 `proj4`。导入后编辑器内部把所有 `PointENU` 坐标临时表示为经纬度：`x = longitude`，`y = latitude`。导出时再用同一个 PROJ 字符串转回 Apollo 期望的 ENU 米制坐标。
-
-## 投影选择
-
-导入 worker 会优先读取 `Map.header.projection.proj`。如果该字段不存在，会自动打开 **Choose Coordinate System** 弹窗。
-
-弹窗提供三种方式：
-
-| 模式          | 说明                                                                        |
-| ------------- | --------------------------------------------------------------------------- |
-| Region preset | 预置 Sunnyvale UTM 10N、Beijing UTM 50N、Shanghai UTM 51N、Shenzhen UTM 50N |
-| UTM zone      | 手动输入 1-60 区号，并选择 Northern 或 Southern 半球                        |
-| Custom PROJ   | 粘贴完整 PROJ.4 字符串                                                      |
-
-Apollo 示例中可能出现 `+lat_0={37.4}` 这样的模板花括号；导入投影代码会自动清理花括号后交给 `proj4`。
-
-::: warning 投影必须正确
-UTM 的 easting/northing 无法仅从 `(x, y)` 坐标反推出所在区号。缺少 `Header.projection.proj` 时，应根据地图实际区域选择正确的 UTM zone 或自定义 PROJ，否则导入后的经纬度位置会偏移，导出也会把错误坐标写回 Apollo map。
+::: tip 本页和 [导入深入](./importing.md) 的差别
+本页讲「**怎么把文件送进编辑器**」（入口、UI、状态栏、进度浮层），关注用户视角；[导入深入](./importing.md) 讲「**送进去之后管线里发生了什么**」（解码、投影、桥接、拓扑/overlap 重算、Header 保留）。两页可以分别阅读。
 :::
 
-## 导入后会恢复什么
+## 概览 / Overview
 
-当前实体桥接覆盖 Apollo Map 中的主要顶层实体：
+Apollo Map Studio 当前导入入口收敛到菜单/命令触发的 `pickAndImportApollo()`：`src/hooks/useActionDispatcher.ts` 执行 action，`src/io/mapIO.ts` 打开文件选择器并把字节交给 `src/io/apolloIOBridge.ts`，最后由 `src/io/apolloIO.worker.ts` 做 protobuf 解码、坐标投影、实体桥接、拓扑重算、overlap 重算，再把结果分块送回主线程并替换 `mapStore.entities`。
 
-| Apollo 类型     | 编辑器实体     | 导入后的编辑能力                                                   |
-| --------------- | -------------- | ------------------------------------------------------------------ |
-| `lane`          | `lane`         | 可选择、拖拽中心线控制点、编辑属性、参与拓扑和 overlap 重算        |
-| `road`          | `road`         | 在 Layer Tree 中显示 Section 和 lane 归属，可拖拽归属              |
-| `junction`      | `junction`     | 可选择、拖拽多边形控制点，参与 lane.junctionId 派生                |
-| `pnc_junction`  | `pncJunction`  | 可编辑多边形；Inspector 可维护 passage group / passage 引用        |
-| `parking_space` | `parkingSpace` | 可编辑多边形/矩形源；Inspector 可编辑 heading                      |
-| `crosswalk`     | `crosswalk`    | 可编辑多边形/矩形源，参与 lane overlap                             |
-| `signal`        | `signal`       | 可编辑 stop line 源，Inspector 可改信号灯类型、subsignal、signInfo |
-| `stop_sign`     | `stopSign`     | 可编辑 stop line 源，Inspector 可改类型                            |
-| `speed_bump`    | `speedBump`    | 可编辑位置线，参与 lane overlap                                    |
-| `yield_sign`    | `yieldSign`    | 可编辑 stop line                                                   |
-| `clear_area`    | `clearArea`    | 可编辑多边形/矩形源                                                |
-| `area`          | `area`         | 可编辑多边形，Inspector 可改 type/name                             |
-| `barrier_gate`  | `barrierGate`  | 可编辑 stop line，Inspector 可改 type                              |
-| `rsu`           | `rsu`          | 在 Layer Tree 中可拖入/移出 junction                               |
-| `overlap`       | `overlap`      | 会导入为实体，但随后按几何事实全量 reconcile                       |
-| `speed_control` | `speedControl` | 类型存在于实体 union，若源图包含会保留在集合中                     |
+支持格式：
 
-导入过程中会保留一份 lon/lat 形式的原始 Apollo map tree 在 IO worker 缓存中。导出时用当前编辑实体合并回这份原始 tree，因此未在 UI 中直接编辑的 header 或 proto 字段不会因为一次编辑而被整图重建为空。
+- `.bin` —— Apollo `apollo.hdmap.Map` 二进制 protobuf
+- `.txt` —— Apollo TextFormat
+- `.pb.txt` —— Apollo TextFormat 的另一种命名
 
-## 拓扑与 overlap 重算
+::: warning 不要导入 `routing_map.bin` / `sim_map.bin`
+本工程目标是 Apollo HD Map 本身。`routing_map` 和 `sim_map` 的 proto schema 不同，protobufjs 解码会失败或得到无意义的字段。
+:::
 
-导入后会执行两类全量处理：
+## 操作步骤 / Steps
 
-1. `reconcileLaneTopology()`：从 lane 和 junction 几何重算 predecessor、successor、selfReverse、四类 neighbor 和 junctionId。
-2. `reconcileOverlaps()`：从几何关系重算 derived overlap，并同步参与实体的 `overlapIds`。
+### 入口 1：菜单
 
-这意味着导入文件中已有的某些 topology/overlap 字段可能被当前几何规则规范化。例如，代码中的 overlap 语义以几何事实为准，派生 ID 使用 `overlap_<sorted participant ids>` 形态；不再为“导入原样保留但几何已不相交”的 overlap 开特殊保留分支。
+```
+File → Import Apollo Map…
+```
 
-## 进度与错误
+对应 action：`importApollo`，定义在 `src/core/actions/registry/definitions.ts:23-31`。menu 字段 `'File'`、menuOrder `1`，无键绑定（避免与 Save 等冲突）。
 
-导入任务会通过 `taskProgressStore` 显示阶段性进度，典型 detail 包括：
+### 入口 2：命令面板
 
-- Decoding protobuf
-- Waiting for projection
-- Projecting coordinates
-- Building editable entities
-- Recomputing topology and overlaps
-- Sending entities
-- Applying result
+```
+⌘K → 输入 "Import"
+```
 
-失败时错误会写入 `apolloMapStore.lastError`，控制台也会输出 `[mapIO] import failed`。
+`importApollo.inCommandPalette = true`（registry 同上），所以会出现在 cmdk 列表中。
 
-## 导入后的检查建议
+### 拖拽导入状态
 
-1. 看状态栏导入文件名和 lane/road 数量是否符合预期。
-2. 打开 Outline，看 Apollo HD-Map 各类型计数和 Health。
-3. 如果 `Unparented Lanes` 很高，检查 Road/Section 归属或 junction 归属是否符合源图。
-4. 打开 Layer Tree，确认 road、section、junction 层级。
-5. 搜索几个已知 lane ID，确认可选中并在 Inspector 中看到属性和拓扑引用。
-6. 对大图先不要立即编辑，先导出 `.txt` 做一次 round-trip 抽查。
+当前源码没有 `MapCanvas` 的 HTML5 `drop` handler，也没有公开的 `mapIO.importFile(file)` API。把 `.bin` / `.txt` 拖到画布导入仍是 roadmap；现在请使用菜单或命令面板。
 
-## 当前限制与注意事项
+### 标签页 / Tab 导入（多文档）
 
-- 没有拖放导入区；导入通过系统文件选择器完成。
-- 导入会替换当前 mapStore 实体并清空撤销历史。
-- 如果 IO worker 中没有已导入的原始 map 缓存，导出会失败并提示没有 cached imported Apollo map；因此当前导出流程应从导入过的 Apollo map 开始。
-- 缺少投影时取消投影弹窗会导致导入流程无法继续得到有效投影。
-- Timeline 面板不参与导入数据恢复。
+```mermaid
+flowchart LR
+  Tab1[标签 A] --> WS1[WorkspaceLayout 实例 A]
+  Tab2[标签 B] --> WS2[WorkspaceLayout 实例 B]
+  Drop --> Active[当前激活 Tab]
+```
+
+每个 Dockview tab 会绑定一个工作区。当前实现是「单 mapStore，多 tab 共享」；导入会替换当前 store——这是后续路线图中的多文档场景，目前以单文档为主。
+
+## 流水线 / Pipeline
+
+```mermaid
+flowchart TD
+  A[菜单或命令选文件] --> B[readFileAsBytes]
+  B --> C[Worker decode bin or text]
+  C --> D{header.projection.proj?}
+  D -- 缺 --> E[ProjPickerDialog]
+  D -- 有 --> F[makeProjection]
+  E --> F
+  F --> G[PointENU UTM → WGS84]
+  G --> H[Apollo proto tree → MapEntity]
+  H --> I[reconcileLaneTopology]
+  I --> J[reconcileOverlaps]
+  J --> K[chunked postMessage 回主线程]
+  K --> L[mapStore.replaceImportedEntities]
+  L --> M[useColdLayer → spatial.worker]
+```
+
+每一步对应一个进度阶段，会在大于 1 秒时浮出 `taskProgressStore` 进度浮层（典型 detail：`Decoding protobuf` / `Waiting for projection` / `Projecting coordinates` / `Building editable entities` / `Recomputing topology and overlaps` / `Sending entities` / `Applying result`）。
+
+## 选项与参数表 / Options Table
+
+| 项目             | 值 / 取值范围                                 | 说明                                                       |
+| ---------------- | --------------------------------------------- | ---------------------------------------------------------- |
+| 接受扩展名       | `.bin`, `.txt`, `.pb.txt`                     | 由文件选择器 accept 限定                                   |
+| 替换语义         | 替换全部 entities，并清空撤销历史             | `mapStore.replaceImportedEntities()`                       |
+| 投影 fallback    | UTM Region preset / UTM zone / Custom PROJ.4  | 见 `ProjPickerDialog.tsx:1-231`                            |
+| 进度浮层最低延迟 | 1000 ms                                       | 任务超过该阈值才显示，避免「刷一闪」                       |
+| 大图分块发送     | 默认每块 ~5000 entities                       | 在 worker 里分批 postMessage，避免一次 clone boundary 卡顿 |
+| Header 保留      | `header.projection.proj` 写回 mapStore.header | 详见 [导入深入](./importing.md#header-保留)                |
+| 错误日志         | `apolloMapStore.lastError` + 控制台 `[mapIO]` | UI 会在 StatusBar 显示 `Import failed: <reason>`           |
+
+## 键盘鼠标速查表 / Shortcut Cheatsheet
+
+| 操作                | 快捷键                 | 说明             |
+| ------------------- | ---------------------- | ---------------- |
+| 触发导入            | `⌘K → Import`          | 命令面板         |
+| 拖拽导入            | 暂不支持               | roadmap          |
+| 打开 / 关闭 Outline | 左侧 Activity Bar 点击 | 用来核对导入结果 |
+| 取消进度            | 进度浮层右上 ✕         | 撤销整次导入     |
+
+## Apollo 类型恢复表 / Restoration Table
+
+| Apollo 类型     | 编辑器实体     | 导入后的编辑能力                              |
+| --------------- | -------------- | --------------------------------------------- |
+| `lane`          | `lane`         | 选中、拖拽中心线、属性编辑、拓扑/overlap 重算 |
+| `road`          | `road`         | LayerTree 中显示 sections，可拖拽 lane 归属   |
+| `junction`      | `junction`     | 拖拽多边形顶点；lane.junctionId 派生          |
+| `pnc_junction`  | `pncJunction`  | 多边形 + Inspector passage group/passage      |
+| `parking_space` | `parkingSpace` | `_sourceRect` 矩形源；Inspector heading       |
+| `crosswalk`     | `crosswalk`    | 多边形/矩形源；与 lane 重叠重算               |
+| `signal`        | `signal`       | stopLines；Inspector 类型/子信号/signInfo     |
+| `stop_sign`     | `stopSign`     | stopLines；Inspector 类型                     |
+| `speed_bump`    | `speedBump`    | position lines；与 lane overlap               |
+| `yield_sign`    | `yieldSign`    | stopLines                                     |
+| `clear_area`    | `clearArea`    | 多边形/矩形源                                 |
+| `area`          | `area`         | 多边形 + type/name                            |
+| `barrier_gate`  | `barrierGate`  | stopLines + type                              |
+| `rsu`           | `rsu`          | LayerTree 中拖入/移出 junction                |
+| `overlap`       | `overlap`      | 由几何 reconcile 重新生成派生 ID              |
+| `speed_control` | `speedControl` | 类型保留在 union 中，若源图存在则保留         |
+
+## 常见问题 / Troubleshooting
+
+### Q1. 进度浮层卡在 `Decoding protobuf`
+
+90% 的情况是文件不是 Apollo HD Map（例如混入了 routing_map）。打开 DevTools 看 `[apolloIO.worker] decode failed: <type> ...`。
+
+### Q2. 弹了投影对话框，我点 Cancel 了，结果地图空白
+
+取消会让 worker 直接走「无投影」分支并放弃导入。重新走一次菜单或拖拽即可重弹。
+
+### Q3. 导入完成但 `Unparented Lanes` 计数很高
+
+source 文件可能没有完整的 RoadSection/Junction 归属。Outline `Health` 会高亮黄色（`MapOutline.tsx:135-145`）。
+
+### Q4. 一份很大的图导入很慢
+
+Worker 已经做了分块 postMessage，但 protobufjs 在主流程也会阻塞 worker 线程。可以观察进度浮层 detail：如果长时间停在 `Building editable entities`，说明 entities 数量级太大；考虑切片导入或预先精简源图。
+
+### Q5. 导入后立即 `⌘Z`，整张图没了
+
+zundo 把导入也算一次快照（实际是「entities 清空 + 替换」）。先做一次小编辑再尝试撤销。
+
+## 相关源码 / Source links
+
+- 入口：`src/io/mapIO.ts`
+- Worker：`src/io/apolloIO.worker.ts`
+- proto loader：`src/io/proto/loader.ts`
+- 投影：`src/io/proto/projection.ts`
+- 投影 picker：`src/components/dialogs/ProjPickerDialog.tsx`
+- 进度浮层：`src/store/taskProgressStore.ts`
+- 大纲健康检查：`src/components/layout/panels/MapOutline.tsx`
+
+## 相关文档 / See also
+
+- [导入深入](./importing.md)
+- [坐标系与投影](./coordinate-system.md)
+- [图层树](./layer-tree.md)
+- [拓扑](./topology.md)
+- [拓扑与路口](./topology-and-junctions.md)

@@ -1,47 +1,59 @@
-# export / routing_map
+---
+title: Export / Routing Map
+description: 当前未实现的 routing_map 派生流水线占位文档
+---
 
-当前源码没有 `buildRoutingMap()`、`encodeGraph()`、`TopoGraph` 或 `routing_map.bin` 导出。旧文档中的 routing map 内容不是现有 API。
+# Export / Routing Map
 
-## Existing Topology API
+::: warning 当前版本未实现
+代码库中**没有** `buildRoutingMap()`、`encodeGraph()`、`TopoGraph`、
+或 `routing_map.bin` 导出入口。这一页是占位文档，等 routing_map 派生
+落地后再回填。
+:::
 
-可复用的是 lane 拓扑派生：
+## 当前替代
+
+- [Export / Base Map](/api/export-base-map) — 现有 Apollo HD-map 导出
+  入口；写出 `base_map.bin` / `base_map.txt`。
+- [io/apollo-io-bridge](/api/io/apollo-io-bridge) — worker 桥接层。
+- Apollo 上游 routing_map 一般用 `map_tool/routing_map_generator`
+  在 base_map 之上离线生成；本编辑器暂不复制该流水线。
+
+## 计划中的 API（草案）
 
 ```ts
-export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff;
+// 草案，未实现
+export function exportApolloRoutingMap(): Promise<void>;
 
-export function reconcileLaneTopologyIncremental(
-  entities: ReadonlyMap<string, MapEntity>,
-  options: LaneTopologyIncrementalOptions,
-): LaneTopologyDiff;
-```
-
-返回：
-
-```ts
-interface LaneTopologyDiff {
-  changes: Map<string, LaneEntity>;
+interface RoutingMapDeriveOptions {
+  /** 是否包含 RoadGraph（路-级拓扑），默认 true */
+  includeRoadGraph?: boolean;
+  /** 是否在 lane 之间生成虚拟连接边（virtual lane），默认 false */
+  emitVirtualLanes?: boolean;
 }
 ```
 
-会派生 pred/succ、左右邻、反向邻、self reverse 和 junctionId。
+要点：
 
-## Rules
+- `apolloIOProtocol` 扩展 `BEGIN_EXPORT.format` 到
+  `'bin' | 'txt' | 'sim' | 'routing'`；
+- worker 内部调用 `core/elements/derive` 已有的拓扑派生工具
+  （目前用于 lane.predecessor/successor），输出 RouteSegment / RouteEdge
+  等；
+- 如果未来要做完整 Apollo `routing_map.bin`，还需引入 routing.proto
+  schema 文件到 `src/proto/routing/`，并在 `loader.ts` 的 glob 范围里
+  覆盖到。
 
-- pred/succ：端点 `toFixed(6)` 后共享。
-- selfReverse：两端互为反向。
-- junctionId：中心线端点在 polygon 内，或线段穿越 polygon 边。
-- neighbor：局部米空间中平行、纵向重叠至少 50%，横向距离约 1 到 8 米。
-- 平行阈值约为 `cos(18deg)`。
+## 与其他模块的关系
 
-## Export Relationship
+- [Geo / Lane Geometry](/api/geo-lane-geometry) — 提供 lane 端点对齐
+  与 pred/succ；routing_map 派生的输入；
+- [Geo / Overlap Calc](/api/geo-overlap-calc) — overlap 不直接进入
+  routing_map，但 `pncJunction.passages` 会作为 routing 决策的次级
+  约束；
+- [Store / Map](/api/store-map) — 派生前 reconcile 的 ground truth。
 
-base_map 导入后和导出前都会运行 `reconcileLaneTopology()`，所以 `base_map.bin` 的 lane 拓扑字段会随几何更新。但这不等于生成 Apollo `routing_map.bin`。
+## 何时落地？
 
-## Not Implemented
-
-不存在以下 API 或文件输出：
-
-- `buildRoutingMap`
-- `TopoNode` / `TopoEdge`
-- `encodeGraph`
-- `routing_map.bin` 下载入口
+无 SLA。Apollo 9.0 routing_map 上游有较成熟的生成器，编辑器复刻成本
+较高，建议先在 issue 区开 RFC 评估必要性。

@@ -1,165 +1,82 @@
-# Code Style
+---
+title: 代码风格
+description: eslint.config.js 规则、Prettier 配置、Tailwind class 排序、命名规范、TS 类型纪律。
+---
 
-Style rules are enforced by three tools:
+# 代码风格
 
-- **TypeScript** (`tsconfig.json`, strict mode) — type correctness.
-- **ESLint 9** (`eslint.config.js`, flat config) — react-hooks
-  correctness, import hygiene, complexity caps, AST-level traps.
-- **Prettier** (`.prettierrc.json`) — formatting.
+代码风格规则就一句话：**ESLint 9 + Prettier 3 自动跑，CI 红了改完再
+push**。本章列出规则背后的"为什么"以及好 / 坏示例。
 
-Type-aware ESLint rules are deliberately **off** — they're too slow
-for a geometry-heavy codebase, and `tsc --noEmit` already runs in CI.
-ESLint here is limited to react-hooks, idiomatic TS, and bug catching.
+::: tip 三层防线
 
-## Quick reference
+1. **本地** — `.husky/pre-commit` 跑 lint-staged，自动修。
+2. **CI** — `pnpm format:check && pnpm lint`，红就 block。
+3. **Code Review** — 看人能看的（架构、命名、可读性），不要重复 linter 工作。
+   :::
 
-| Tool       | Local                          | CI                  |
-| ---------- | ------------------------------ | ------------------- |
-| TypeScript | `pnpm typecheck`               | `pnpm typecheck`    |
-| ESLint     | `pnpm lint` / `pnpm lint:fix`  | `pnpm lint`         |
-| Prettier   | `pnpm format` / `format:check` | `pnpm format:check` |
-| Pre-commit | `lint-staged` via husky        | n/a                 |
+## ESLint flat config
 
-## TypeScript
+`eslint.config.js` 已开 React Hooks rules、TypeScript ESLint，
+**type-aware** 规则故意关闭（在几何代码里太慢，且 `tsc --noEmit` 在 CI
+里独立跑）。
 
-Strict mode is on. `noUncheckedIndexedAccess` shapes a lot of code —
-expect to see explicit null checks after `arr[i]`:
+### 必遵守的规则
 
-```ts
-const tail = anchors[anchors.length - 1];
-if (!tail) return context.bezierAnchors;
-const last = { ...tail };
-```
+| 规则                                    | 等级  | 原因                        |
+| --------------------------------------- | ----- | --------------------------- |
+| `react-hooks/rules-of-hooks`            | error | 调用顺序错乱直接 runtime 崩 |
+| `react-hooks/exhaustive-deps`           | warn  | 闭包陷阱常见出 bug          |
+| `eqeqeq`                                | error | `==` 几乎总是 bug           |
+| `no-restricted-syntax: as unknown as X` | error | 见下文 "类型纪律"           |
+| `max-lines: 400`                        | warn  | AI 友好；超出请拆兄弟模块   |
+| `max-lines-per-function: 80`            | warn  | 同上                        |
+| `complexity: 15`                        | warn  | 圈复杂度高 = 难测难读       |
 
-This is intentional. The compile-time guard prevents whole classes of
-"undefined is not an object" errors at runtime.
+### AI 友好的尺寸约束
 
-### `as unknown as X` is banned
+`eslint.config.js` 注释解释了为什么：
 
-ESLint blocks the chained-cast escape hatch:
+> 小文件 / 小函数 = AI agent 能把整个单元装进上下文做局部推理。超出
+> 阈值通常意味着模块责任不单一——拆成兄弟子目录（参考 `WorkspaceLayout/`、
+> `mapEventRouter/`、`mapLibreInit/` 三处既有模式）。
 
-```ts
-// blocked by eslint.config.js → no-restricted-syntax
-const x = thing as unknown as Lane;
-```
-
-Use a typed accessor, a type guard, or `in`-narrowing:
-
-```ts
-// preferred
-function getLane(e: MapEntity): LaneEntity | null {
-  return e.entityType === 'lane' ? e : null;
-}
-if ('overlapIds' in e && Array.isArray(e.overlapIds)) { … }
-```
-
-Reference: `src/types/apollo.ts` — `getSource` / `getSourceRect` are
-the canonical typed-accessor examples after the 2026-04 cleanup.
-
-### Type imports
-
-Inline type imports are required:
-
-```ts
-// good
-import { type ActionDef, getMenuActions } from '@/core/actions/registry';
-
-// bad — eslint warns
-import { ActionDef, getMenuActions } from '@/core/actions/registry';
-```
-
-ESLint auto-fixes this with the `consistent-type-imports` rule.
-
-## ESLint rules at a glance
-
-From `eslint.config.js`:
-
-### React
-
-- `react-hooks/rules-of-hooks: error` — no conditional hook calls.
-- `react-hooks/exhaustive-deps: warn` — missing deps cause warnings.
-  Justify exclusions inline (`// eslint-disable-next-line
-react-hooks/exhaustive-deps`) with a one-line reason.
-- `react-refresh/only-export-components: warn` — keeps Fast Refresh
-  reliable.
-
-### TypeScript ergonomics
-
-- `@typescript-eslint/no-unused-vars: warn` with `^_` ignore prefix.
-- `@typescript-eslint/no-explicit-any: warn` — `any` is allowed in
-  test files, warned elsewhere.
-- `@typescript-eslint/no-empty-object-type: off` — `{}` is sometimes
-  the right type.
-
-### Size and complexity caps
-
-These are AI-friendly limits. Smaller files / functions = a
-language model can fit the whole unit in context for local reasoning.
-Going over usually means the unit is doing too much; split into a
-sibling subdirectory.
-
-| Rule                     | Limit                     |
-| ------------------------ | ------------------------- |
-| `max-lines`              | 400 lines per file (warn) |
-| `max-lines-per-function` | 80 lines (warn)           |
-| `complexity`             | 15 (warn)                 |
-| `max-depth`              | 4 (warn)                  |
-| `max-params`             | 5 (warn)                  |
-
-Reference splits: `WorkspaceLayout/`, `mapEventRouter/`,
-`mapLibreInit/` — each was a single file that grew past the caps and
-was fanned into a directory of cohesive sub-modules.
-
-Test files and type definitions get exemptions:
-
-```ts
-// type files: max-lines off
-{ files: ['src/types/**/*.ts', 'src/proto/**/*.ts'], rules: { 'max-lines': 'off' } }
-
-// tests: laxer caps
-{ files: ['**/*.test.ts', '**/__tests__/**'], rules: { 'max-lines-per-function': 'off', complexity: 'off' } }
-```
-
-### Imports
-
-- `no-restricted-imports` — deep relative paths (`../../../`) are
-  warned. Use `@/...` instead.
-- `consistent-type-imports` — see above.
-
-### Plain JS hygiene
-
-| Rule               | Setting                                            |
-| ------------------ | -------------------------------------------------- |
-| `no-console`       | warn, except `console.warn` / `console.error`      |
-| `no-debugger`      | warn                                               |
-| `prefer-const`     | warn                                               |
-| `eqeqeq`           | error (with `null` ignored — `== null` is allowed) |
-| `prefer-template`  | warn                                               |
-| `object-shorthand` | warn                                               |
-
-### Layer-import rule (backlog)
-
-Imports flow downward only:
-`components/` → `hooks/` → `store/` → `lib/` → `core/`. The codebase
-follows this convention manually; an automated lint rule (likely a
-custom plugin or `eslint-plugin-boundaries`) is on the P2 backlog.
-Until then, **review checklist enforces the rule**:
-
-::: warning Layer-import order
-A `core/` file importing from `lib/` or higher is an ACL violation.
-Check during review:
-
-```sh
-git grep -E "from '@/lib|from '@/store|from '@/hooks|from '@/components'" -- 'src/core/**'
-git grep -E "from '@/store|from '@/hooks|from '@/components'" -- 'src/lib/**'
-```
-
-Empty results = clean. Non-empty = block the PR until refactored.
+::: warning 不是建议是硬性预算
+当一个文件超过 400 行 / 一个函数超过 80 行 / 圈复杂度 > 15，**先拆再加
+功能**。挤进现有文件的 PR 不会被合并。
 :::
 
-## Prettier
+### TypeScript 纪律
 
-`.prettierrc.json`:
+```ts
+// ❌ 禁止
+const x = something as unknown as MyType;
+
+// ✅ 用类型守卫 / typed accessor / `in` 收敛
+function isMyType(v: unknown): v is MyType {
+  /* ... */
+}
+if (isMyType(something)) use(something);
+```
+
+参考 `src/types/apollo.ts` 的 `getSource` / `getSourceRect` 模式。
+
+### Import 路径
+
+```ts
+// ❌
+import { x } from '../../../core/foo';
+
+// ✅
+import { x } from '@/core/foo';
+```
+
+`@/` alias 在 `tsconfig.json` 与 `vite.config.ts` 同步配置。深相对路径
+被 ESLint warn。
+
+## Prettier 配置
+
+`.prettierrc.json`：
 
 ```json
 {
@@ -174,135 +91,242 @@ Empty results = clean. Non-empty = block the PR until refactored.
 }
 ```
 
-Two-space indent, semicolons on, single quotes for JS / TS, double
-quotes for JSX attributes (Prettier's default — leave them be).
+### 命中要点
 
-## Naming conventions
+- 单引号字符串。
+- 永远尾随逗号。
+- 100 列折行（不是 80，也不是 120 —— 100 兼顾可读性与现代显示）。
+- 永远 `;`。
+- arrow `(x) => x`，不省括号。
+- LF 换行。
 
-| Kind                 | Style             | Example                                           |
-| -------------------- | ----------------- | ------------------------------------------------- |
-| React component file | `PascalCase.tsx`  | `MapCanvas.tsx`, `LaneForm.tsx`                   |
-| Hook file            | `useThing.ts`     | `useColdLayer.ts`, `useDrawCommit.ts`             |
-| Plain module         | `camelCase.ts`    | `entityOps.ts`, `mapIcons.ts`, `editorMachine.ts` |
-| Test file            | `name.test.ts(x)` | `useDrawCommit.test.ts`, `LaneForm.test.tsx`      |
-| Bench file           | `name.bench.ts`   | `laneJunctions.bench.ts`                          |
-| Worker entry         | `name.worker.ts`  | `spatial.worker.ts`, `apolloIO.worker.ts`         |
-| Type-only module     | `lowercase.ts`    | `entities.ts`, `apollo.ts`                        |
-| Constants module     | `camelCase.ts`    | `constants.ts`, `enumLabels.ts`                   |
+::: tip 不要争论格式
+所有格式问题让 Prettier 决定。`pnpm format` 一键修。Code Review 不要
+评论 "缩进 / 引号"。
+:::
 
-Function names are verb-first; types and interfaces are PascalCase.
-Action ids use camelCase with optional `prefix:` (`tool:drawPolyline`,
-`importApollo`).
+## Tailwind 类排序
 
-## File layout patterns
+::: warning 关闭 prettier-plugin-tailwindcss
+当前没启用 prettier-plugin-tailwindcss。Class 排序由人维护：
 
-Two patterns recur:
+推荐顺序：**布局 → 盒模型 → 颜色 → 字体 → 状态变体**
 
-### Single-file module
+```tsx
+// ✅
+<div className="flex items-center gap-2 px-4 py-2 bg-ams-bg-canvas text-ams-fg-default hover:bg-ams-bg-canvas-hover" />
 
-A self-contained module that fits within `max-lines: 400`:
-
-```text
-src/lib/mapIcons.ts
-src/lib/idGenerator.ts
-src/store/uiStore.ts
+// ❌（颜色穿插在布局里）
+<div className="flex bg-blue-500 items-center text-red-700 px-4" />
 ```
 
-### Split-into-folder
+:::
 
-When a single file outgrows the caps, split into a sibling directory
-with an entrypoint:
+未来可能启用插件，启用后会自动排，PR 会一次性 reflow 整库。
 
-```text
-src/lib/
-  entityOps.ts                   # re-exports the surface
-  entityOps/
-    cascadeDeleteRefs.ts
-    edit.ts
-    reparent.ts
-    typeGuards.ts
-```
+## 命名规范
 
-The entrypoint **re-exports** types and functions so consumers stay
-unchanged:
+### 文件
+
+| 类型       | 命名                            | 示例                 |
+| ---------- | ------------------------------- | -------------------- |
+| React 组件 | PascalCase + `.tsx`             | `LaneInspector.tsx`  |
+| Hook       | `use*` + `.ts`                  | `useDrawCommit.ts`   |
+| Worker     | `*.worker.ts`                   | `spatial.worker.ts`  |
+| 单测       | `*.test.ts(x)`                  | `lane.test.ts`       |
+| 类型定义   | camelCase                       | `inspectorSchema.ts` |
+| 常量配置   | camelCase                       | `mapConstants.ts`    |
+| 目录       | kebab-case 或 camelCase（一致） | `core/actions/`      |
+
+### 标识符
 
 ```ts
-// src/lib/entityOps.ts
-export {
-  cascadeDeleteRefs,
-  cascadeDeleteRefsFull,
-  type CascadeDeleteResult,
-} from './entityOps/cascadeDeleteRefs';
-export { compileEntity, createEntity, … } from './entityOps/edit';
+// ✅
+const laneCount = 12; // camelCase 变量
+function createLane() {} // camelCase 函数
+class LaneRenderer {} // PascalCase 类
+const DEFAULT_LANE_HALF_WIDTH = 1.75; // SCREAMING_SNAKE 常量
+type LaneEntity = {
+  /* ... */
+}; // PascalCase 类型
+
+// ❌
+const lane_count = 12;
+function CreateLane() {}
+const default_lane_half_width = 1.75;
 ```
 
-This keeps the import surface stable when the implementation reshuffles.
+### React 组件 props
 
-## Comment policy
+```tsx
+// ✅ 显式接口
+interface LaneInspectorProps {
+  laneId: string;
+  readonly?: boolean;
+  onSave?: (lane: LaneEntity) => void;
+}
 
-**Minimal.** Comments answer "why", not "what". Default to letting
-the code and types speak for themselves.
+export function LaneInspector({ laneId, readonly, onSave }: LaneInspectorProps) {}
 
-When you do comment, be specific:
+// ❌ 内联
+export function LaneInspector(props: { laneId: string; readonly?: boolean }) {}
+```
+
+### Boolean 命名
 
 ```ts
-// Read POST-transition snapshot: addPoint runs as a transition action,
-// so prevSnapshot is short by exactly one point. drawArc / drawRotatedRect
-// rely on the post-snapshot.
+// ✅ is/has/can/should 前缀
+const isDirty = true;
+const hasErrors = errors.length > 0;
+const canEdit = !readonly && hasPermission;
+
+// ❌
+const dirty = true;
+const errors = errors.length > 0;
 ```
 
-Avoid:
+## React 模式
+
+### 组件大小
+
+- 单文件 < 200 行。
+- 单组件 < 80 行 JSX（含 hooks）。
+
+超出则按职责拆：
+
+```
+LaneInspector/
+  LaneInspector.tsx        # 主组件，< 60 行
+  LaneInspectorHeader.tsx
+  LaneInspectorFields.tsx
+  LaneInspectorActions.tsx
+  index.ts                 # re-export
+```
+
+### 副作用
+
+- 一个 `useEffect` 一个职责。`useEffect` 里 5 个 if-else = 拆成 5 个 hook。
+- 副作用清理永远 return cleanup（`return () => unsub();`）。
+- 依赖列表用 `react-hooks/exhaustive-deps` 守，不要 `// eslint-disable`。
+
+### 不要 prop drill 5 层
+
+3 层及以上把 prop 改成 zustand store 或 React context。详见
+[State Management](../architecture/state-management)。
+
+## TypeScript 模式
+
+### 严格联合 + discriminated union
 
 ```ts
-// Add the new point to drawPoints
-drawPoints.push(p);
-```
+// ✅
+type DrawState =
+  | { kind: 'idle' }
+  | { kind: 'drawing'; points: LngLat[] }
+  | { kind: 'editing'; entityId: string };
 
-The function name and the call already say that.
-
-## `// @ts-nocheck` and `eslint-disable`
-
-`editorMachine.ts` carries a deliberate `// @ts-nocheck` for the
-XState 5 generic inference bugs. ESLint's `ban-ts-comment` is
-suppressed for that one file.
-
-Anywhere else, both directives need a comment that:
-
-1. Names the rule being silenced.
-2. Explains why the rule's normal advice is wrong here.
-3. Links to a follow-up if the suppression should be temporary.
-
-```ts
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [entity.id]);   // intentional: stable subscription per selection, not per render
-```
-
-## Pre-commit hook
-
-`.husky/pre-commit` runs `pnpm exec lint-staged`. The `lint-staged`
-config is in `package.json`:
-
-```json
-{
-  "*.{ts,tsx}": ["eslint --fix", "prettier --write"],
-  "*.{json,md,yml,yaml,css}": ["prettier --write"]
+function step(s: DrawState): DrawState {
+  switch (s.kind) {
+    case 'idle':
+      return s;
+    case 'drawing':
+      return { ...s, points: [...s.points, [0, 0]] };
+    case 'editing':
+      return s;
+  }
 }
 ```
 
-The hook runs on **staged** files only. If the auto-fix produces
-changes, the hook re-stages them, then your commit proceeds. If the
-ESLint pass fails (e.g. an error not auto-fixable), the commit is
-blocked.
+### 禁止裸 `any`
 
-::: tip Bypassing the hook
-Don't `git commit --no-verify` to skip a pre-commit failure. Fix the
-issue and create a new commit. The CI runs the same checks; bypassing
-locally just defers the failure.
+`any` 关闭 type 检查。用 `unknown` + 类型守卫，或写精确类型。
+
+### `readonly` 默认
+
+```ts
+// 函数入参用 readonly
+function sumWidths(samples: readonly LaneSample[]): number {
+  /* ... */
+}
+
+// 永久不变的 array literal
+const DRAW_STATES = ['drawPolyline', 'drawArc'] as const;
+```
+
+## 注释
+
+- **为什么** 写在代码里（`// R1: cancel before undo because ...`）。
+- **是什么** 让代码自己说（用变量名、函数名）。
+- 永远不写 "this is the lane" 这种废话。
+
+::: tip 引用 git history
+重大设计决策注释末尾标 commit hash，方便后人追：
+
+```ts
+// R1: send CANCEL before temporal.undo() (commit 6a83d9d)
+```
+
 :::
 
-## Cross-references
+## CSS
 
-- [development-setup](./development-setup.md) — install + run
-- [commit-conventions](./commit-conventions.md) — Conventional Commits
-- [pr-checklist](./pr-checklist.md) — gating items for review
-- [/architecture/overview](../architecture/overview.md) — layer-import rules
+- 用 [`ams-*` token](../recipes/theming-with-ams-tokens)，不写 hex。
+- 不要用空的 React `style` 对象做静态样式（用 Tailwind utility）。
+- 动态值（如 `transform: rotate(${a}deg)`）才用 `style`。
+
+## 文件 / 模块组织
+
+- `core/` 不能 import `lib/`、`store/`、`hooks/`、`components/`。
+- `lib/` 不能 import `store/`、`hooks/`、`components/`。
+- `store/` 不能 import `hooks/`、`components/`。
+- `hooks/` 不能 import `components/`。
+
+详见 [Architecture: Layering](../architecture/layering)。
+
+## 好 vs 坏对比
+
+```ts
+// ❌
+function f(x: any) {
+  if (x.entityType == 'lane') {
+    if (x.leftBoundary) {
+      if (x.leftBoundary.curve) {
+        return x.leftBoundary.curve.segments[0].length;
+      }
+    }
+  }
+  return 0;
+}
+
+// ✅
+import { isLane } from '@/core/elements/lane';
+
+function getFirstSegmentLength(entity: MapEntity): number {
+  if (!isLane(entity)) return 0;
+  return entity.leftBoundary.curve.segments[0]?.length ?? 0;
+}
+```
+
+## 工具命令
+
+```bash
+pnpm format         # 修
+pnpm format:check   # 验
+pnpm lint           # ESLint
+pnpm lint:fix       # ESLint --fix
+pnpm typecheck      # tsc --noEmit
+```
+
+CI 全跑。本地 commit 前跑一遍。
+
+## 相关源码 (Source links)
+
+- [`eslint.config.js`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/eslint.config.js)
+- [`.prettierrc.json`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/.prettierrc.json)
+- [`tsconfig.json`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/tsconfig.json)
+- [Architecture: Layering](../architecture/layering)
+
+::: warning 不要为了通过 lint 写糟糕代码
+ESLint 规则是底线，不是上限。"短" 不等于 "好"，"通过 max-lines" 不等
+于 "可读"。规则 + 品味缺一不可。
+:::

@@ -1,155 +1,199 @@
-# Editable Guard
+---
+title: editable-guard — 写操作许可证守卫
+description: 跨切片的 "is this app currently editable?" 守卫；store mutator 与 action dispatcher 的统一短路点。
+---
 
-> Source: `src/lib/editable-guard.ts`
+# `editable-guard` — 写操作许可证守卫
 
-## Overview
+> 源码：`src/lib/editable-guard.ts` · 45 行 · 无副作用纯逻辑
 
-`editable-guard.ts` is the cross-cutting "is this app currently
-editable?" check used by every store mutator and the action
-dispatcher. It short-circuits any state change attempted while the
-license is in a read-only state — expired trial, expired license,
-tampered data, machine mismatch, or "not started yet" (clock skew).
+## 用途
 
-The guard uses Zustand's `getState()` rather than a hook, so the same
-code path works inside event handlers, store action methods, and
-Electron IPC callbacks where React hooks are not available.
+`editable-guard` 是一个 cross-cutting 的"是否允许写"检查器。所有可能修改 `mapStore` 的入口（store mutator、action dispatcher、IPC 回调）在执行前都会调用 `assertEditable()`：
 
-::: tip Two entry points, one source of truth
+- 许可证状态 `canEdit === true` → 返回 `true`，调用方继续
+- 许可证状态 `canEdit === false`（试用过期 / 许可过期 / 篡改 / 机器不匹配 / ...）→ 返回 `false`，写控制台 warn（节流 5 秒），尝试拉起激活弹窗
 
-- `assertEditable(action)` — for **mutators**: returns `true` if
-  editing is allowed; warns + opens activation otherwise. Throttled.
-- `isEditable()` — for **render paths**: pure read, no side effects.
+它使用 zustand 的 `getState()` 而非 hook —— 这样在事件 handler、store action、IPC 回调里都能用同一段代码。
 
-Both read from `useLicenseStore.getState().state.canEdit` so the
-license-store is the single source of truth.
-:::
+## 公共 API
 
-## Exports
+| 符号             | 类型 | 签名                           | 摘要                               |
+| ---------------- | ---- | ------------------------------ | ---------------------------------- |
+| `assertEditable` | fn   | `(action?: string) => boolean` | 同步检查 + 副作用（warn / prompt） |
+| `isEditable`     | fn   | `() => boolean`                | 纯读，不触发 prompt                |
 
-| Symbol           | Signature                      | Purpose                                                            |
-| ---------------- | ------------------------------ | ------------------------------------------------------------------ |
-| `assertEditable` | `(action?: string) => boolean` | Mutator-side gate. Returns `true` to proceed, `false` to bail out. |
-| `isEditable`     | `() => boolean`                | Pure-read selector for render paths (button-disabled state).       |
+## 详细条目
 
-## Behavior
-
-### `assertEditable(action)`
+### `assertEditable(action = 'edit'): boolean`
 
 ```ts
-const { state, promptActivation } = useLicenseStore.getState();
-if (state.canEdit) return true;
+export function assertEditable(action = 'edit'): boolean {
+  const { state, promptActivation } = useLicenseStore.getState();
+  if (state.canEdit) return true;
 
-const now = Date.now();
-if (now - lastWarn > WARN_INTERVAL) {
-  lastWarn = now;
-  console.warn(`[license] Blocked ${action}: status=${state.status}. ${state.reason}`);
-  try {
-    promptActivation();
-  } catch {
-    // promptActivation may not be wired before the dialog mounts.
+  const now = Date.now();
+  if (now - lastWarn > WARN_INTERVAL) {
+    lastWarn = now;
+    console.warn(`[license] Blocked ${action}: status=${state.status}. ${state.reason}`);
+    try {
+      promptActivation();
+    } catch {
+      // promptActivation may not be wired before the dialog mounts.
+    }
   }
+  return false;
 }
-return false;
 ```
 
-Three responsibilities:
+参数：
 
-1. **Decide.** Reads `state.canEdit` directly — no fallback, no
-   inference. The license bridge is the source of truth.
-2. **Warn the user.** When blocked, throttled at one warning per 5 s
-   (`WARN_INTERVAL`) so a click-spamming user gets one toast, not
-   fifty.
-3. **Side-effect: open activation.** Calls
-   `useLicenseStore.getState().promptActivation()`, which is wired to
-   open the activation dialog when the dialog component mounts. The
-   `try`/`catch` defends against early calls (e.g. during initial
-   hydration) when the dialog hasn't registered its prompt callback
-   yet.
+- `action`: 用于 console 日志的描述串（`'addEntity'`、`'undo'`、...）。默认 `'edit'`。
 
-The `action` parameter is purely diagnostic — it appears in the warn
-log and in any future telemetry. Callers conventionally pass
-`'addEntity'`, `'removeEntity'`, `'reparentEntity'`, etc.
+行为：
 
-### `isEditable()`
+1. 读 `useLicenseStore.getState()`——同步、无 hook 限制。
+2. `canEdit === true` → 立即返回 `true`。
+3. 否则节流 5 秒打印一次 warn 并拉起激活弹窗（`promptActivation` 在弹窗组件挂载之前是 no-op，被 try/catch 兜住）。
+4. 返回 `false`，调用方应 bail out。
+
+文件位置：`editable-guard.ts:21-36`。
+
+### `isEditable(): boolean`
 
 ```ts
-return useLicenseStore.getState().state.canEdit;
+export function isEditable(): boolean {
+  return useLicenseStore.getState().state.canEdit;
+}
 ```
 
-Pure synchronous read with no side effects. Used in render paths to
-disable buttons / inputs without triggering activation prompts on
-every re-render.
+纯读取——不打 warn、不拉弹窗。给 React 组件渲染路径用：
 
-### Throttle implementation
+```tsx
+<Button disabled={!isEditable()}>Add Lane</Button>
+```
+
+注意这是同步快照——`canEdit` 变化后组件不会自动重渲染。如果需要响应式，应订阅 store：
+
+```tsx
+const canEdit = useLicenseStore(selectCanEdit);
+```
+
+## 内部状态
 
 ```ts
 let lastWarn = 0;
 const WARN_INTERVAL = 5 * 1000;
 ```
 
-A module-scoped `lastWarn` timestamp gates the console.warn + activation
-prompt to one fire per 5 s. The throttle is a single global — even if
-twenty different mutators fire `assertEditable` in the same tick, only
-the first surfaces a prompt.
+模块级别的节流时间戳。**进程级别共享**——多个调用方共享一个时钟，避免日志洪流。
 
-## Examples
+## 副作用
 
-### Wrapping a store mutator
+- 读 `useLicenseStore`
+- 节流后调用 `console.warn`
+- 节流后调用 `promptActivation`（注册式回调；未注册时是 no-op）
+
+## 测试覆盖
+
+无独立测试。被 `mapStore.test.ts` 间接覆盖（mock 许可证状态后写入应被拒绝）。
+
+## 调用方
+
+- `src/store/mapStore.ts` — `addEntity` / `updateEntity` / `removeEntity` / 等 mutator
+- `src/hooks/useActionDispatcher.ts` — undo/redo 入口
+- `src/hooks/useDrawCommit.ts` — FSM CONFIRM 时
+- `src/components/menu/*` — 菜单项 disabled 状态（用 `isEditable`）
+
+## 设计权衡
+
+为什么不在主进程 IPC 层强制？因为主进程不持有 `entities`——entities 在渲染端 Zustand。主进程只能在 IPC `license:state` 广播 `canEdit=false` 时让渲染端"不写"，但这要求渲染端配合。
+
+为什么不直接在 zundo 中间件里短路？zundo 不知道是写还是读；中间件也无法触发 UI 事件（弹窗）。最干净的位置就是 mutator 入口手动调用。
+
+为什么节流 5 秒？写操作非常密集（拖拽时 60fps 调 `setEditPoint`），不节流 console 会被刷爆；5 秒平衡了"用户感知到自己被锁住"和"日志可读性"。
+
+## 源码索引
+
+| 行    | 内容                     |
+| ----- | ------------------------ |
+| 11    | `import useLicenseStore` |
+| 13–14 | 节流变量                 |
+| 21–36 | `assertEditable`         |
+| 42–44 | `isEditable`             |
+
+## 与 mutator 的集成模式
+
+`mapStore` 内部的典型 mutator 大致长这样：
 
 ```ts
 // src/store/mapStore.ts
-addEntity(entity) {
+addEntity(entity: MapEntity) {
   if (!assertEditable('addEntity')) return;
-  set((state) => { state.entities.set(entity.id, entity); /* ... */ });
-},
+  set((s) => ({
+    entities: new Map(s.entities).set(entity.id, entity),
+  }));
+}
+
+updateEntity(id: string, patch: Partial<MapEntity>) {
+  if (!assertEditable('updateEntity')) return;
+  set((s) => {
+    const e = s.entities.get(id);
+    if (!e) return s;
+    const next = new Map(s.entities);
+    next.set(id, { ...e, ...patch } as MapEntity);
+    return { entities: next };
+  });
+}
 ```
 
-Every mutator on `useMapStore` follows this pattern: guard first, mutate
-second. Mutators that fail the guard return silently — no exception, no
-state change, no history entry.
+**模式约定**：
 
-### Disabling a button in a component
+- 每个写 mutator 第一行 `if (!assertEditable('actionName')) return;`
+- `actionName` 用动词，便于 console 日志识别（'addEntity' / 'undo' / 'paste' / 'reparent'）
+- 读 mutator（`getEntity`、`select`）**不**调用守卫——只读操作不受许可证约束
+
+## 与组件 disable 状态的协作
+
+只读 UI 反馈通过订阅式 selector：
 
 ```tsx
-import { isEditable } from '@/lib/editable-guard';
+import { useLicenseStore, selectCanEdit } from '@/store/licenseStore';
 
-function DeleteButton({ id }: { id: string }) {
-  const editable = isEditable();
+function AddLaneButton() {
+  const canEdit = useLicenseStore(selectCanEdit);
   return (
-    <Button disabled={!editable} onClick={() => removeEntity(id)}>
-      Delete
+    <Button disabled={!canEdit} onClick={addLane}>
+      Add Lane
     </Button>
   );
 }
 ```
 
-For reactive UI, prefer subscribing through `useLicenseStore` directly
-(`useLicenseStore((s) => s.state.canEdit)`) so the component re-renders
-when the license state flips. `isEditable()` is fine for one-shot reads
-inside callbacks.
+selector 路径让 button 在许可证状态变化时自动重新渲染——比 `isEditable()` 同步快照路径更适合 UX。但点击 handler 内仍 **必须** 调 `assertEditable`——button disabled 是 UI 提示，不是安全屏障（攻击者可以从 React DevTools 强制 enable 后点击）。
 
-### Used by `useActionDispatcher`
+## 节流逻辑边界
 
 ```ts
-// src/hooks/useActionDispatcher.ts (excerpt)
-function dispatch(actionId: string) {
-  if (action.requiresEdit && !assertEditable(actionId)) return;
-  // ... run action ...
-}
+const WARN_INTERVAL = 5 * 1000; // 5s
 ```
 
-Every action declared with `requiresEdit: true` in the action registry
-flows through the same gate before its `run()` is invoked. Read-only
-actions (zoom, fit-bounds, toggle layer, undo/redo of _no-ops_) bypass.
+5 秒内同一进程的多次失败只会打一次 warn。`Date.now()` 单调（即使时钟回退也不会触发额外 warn——节流变量永远只增不减），不需要额外保护。
 
-## Related
+但请注意：**节流是进程级别共享的**——多个 mutator 在同一时刻被调用都会"消费"这一次 warn 配额。这是优势（不刷屏），不是 bug。
 
-- [License Bridge](./license-bridge.md) — Electron-side IPC that
-  populates `useLicenseStore.state`.
-- [License Store](../store/license-store.md) — store this guard reads.
-- [Map Store](../store/map-store.md) — primary consumer, every mutator
-  starts with `assertEditable(...)`.
-- [/api/core/actions/registry](/api/core/actions/registry) —
-  action-level `requiresEdit` flag wired into the dispatcher.
-- [/api/hooks/use-action-dispatcher](/api/hooks/use-action-dispatcher) —
-  centralised action runner that calls `assertEditable`.
+## 调试 hint
+
+如果在测试环境复现 `canEdit=false` 时 mutator 不响应：
+
+1. 检查 `useLicenseStore.getState().state.status` —— 确认是否真的 expired/tampered
+2. 检查 console —— 5 秒内至少一次 warn 信息
+3. 检查 `useLicenseStore.getState().promptActivation` —— ActivationDialog 是否已挂载并注册回调
+
+## 参见
+
+- [`licenseStore`](../store/license-store.md) — 状态来源
+- [`license-bridge`](./license-bridge.md) — IPC 包装
+- [`electron/license-manager`](../electron/license-manager.md) — 主进程许可证状态机
+- `src/store/mapStore.ts` — 实际 mutator 调用方
+- `src/hooks/useActionDispatcher.ts` — undo/redo 守卫

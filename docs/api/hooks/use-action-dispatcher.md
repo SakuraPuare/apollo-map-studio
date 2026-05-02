@@ -1,21 +1,38 @@
+---
+title: useActionDispatcher
+description: 把 Action Registry 与运行时处理器、键盘快捷键、撤销 CANCEL 闭环串起来的单点派发器。
+---
+
 # useActionDispatcher
 
-> Source: `src/hooks/useActionDispatcher.ts`
+> 源码：[`src/hooks/useActionDispatcher.ts`](https://github.com/) · 测试：`src/hooks/__tests__/undoCancel.test.ts`
 
-## Overview
+`useActionDispatcher` 是 Apollo Map Studio 内部"动作"层的中央枢纽。它把
+`@/core/actions/registry` 中静态声明的 [`ActionDef`](../core/action-registry.md)
+集合，绑定到真实的运行时处理器（FSM 事件、Zustand store 调用、模态打开
+回调），并安装全局键盘监听。所有用户可执行动作 —— 菜单、命令面板、工具栏、
+键盘快捷键 —— 最终都汇入同一个 `execute(actionId)` 入口。
 
-`useActionDispatcher` is the single dispatcher that connects the
-[Action Registry](/api/core/action-registry) to runtime handlers. Every
-user-executable action — menus, command palette, tool strip buttons,
-keyboard shortcuts — funnels through one `execute(actionId)` entry point,
-making the registry's `ActionId` literal union the universal contract.
+> **R1 不变量**：撤销/重做必须先向 FSM 发送 `CANCEL`，再调用
+> `temporal.undo()` / `temporal.redo()`（见
+> `src/hooks/useActionDispatcher.ts:104-108`）。
+> 缺少这一步会让 `drawPoints` / `dragPointIndex` 持有已被时间旅行
+> 回滚掉的实体引用，下一次 `CONFIRM` / `DRAG_END` 写入将污染地图。
 
-The hook is mounted exactly once inside `WorkspaceLayoutInner` and shared
-with all UI surfaces by passing `execute` and `getToggleState` props.
-This guarantees that "open Settings", "press Ctrl+S", and "click the gear
-icon" cannot diverge in behavior.
+## 设计目标
 
-## Hook signature
+- **单一执行入口**：菜单栏、命令面板、工具栏按钮、键盘快捷键都通过同一个
+  `execute(actionId: ActionId)` 调用，保证语义统一。
+- **类型安全**：`ActionId` 是 `as const` 字面量联合类型，`execute('tool:typo')`
+  在编译期即报错，杜绝拼写漂移。
+- **运行时一次注册**：`useMemo` 构建 `Map<ActionId, () => void>`，依赖
+  `[actorRef, onOpenCommandPalette, onOpenSettings, onResetLayout]`，
+  只有在 UI shell 重新挂载时才会重建。
+- **守门**：所有改图动作（`category === 'edit' | 'tool' | 'selection'`，
+  以及显式的 `connectLanes`）在 license `canEdit=false` 时被
+  `assertEditable` 拦截。
+
+## 签名
 
 ```ts
 function useActionDispatcher(options: ActionDispatcherOptions): ActionDispatcher;
@@ -28,85 +45,107 @@ interface ActionDispatcherOptions {
 }
 
 interface ActionDispatcher {
+  /** 通过 ActionId 执行动作。未注册的 id 会在 console 输出警告。 */
   execute: (actionId: ActionId) => void;
+  /** 仅对 toggle 类动作有意义；其它动作恒返回 false。 */
   getToggleState: (actionId: ActionId) => boolean;
+  /** 全部 ACTION_DEFS（用于 UI 渲染菜单 / 命令面板）。 */
   actions: ActionDef[];
 }
 ```
 
-The four callbacks pierce the dispatcher to UI shell concerns that live
-above the registry (modal overlays, dockview layout reset). Everything
-else — file IO, undo, draw-tool selection, FSM commands — is fully
-internal.
+## 参数
 
-## Behavior
+| 名称                   | 类型                                 | 角色                                                                                                     |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `actorRef`             | `ActorRefFrom<typeof editorMachine>` | XState 5 actor 引用，所有 FSM 事件（`CANCEL` / `RESET` / `SELECT_TOOL` / `DELETE_ENTITY` …）通过它发出。 |
+| `onOpenCommandPalette` | `() => void`                         | UI shell 提供的命令面板打开回调，对应 `commandPalette` action。                                          |
+| `onOpenSettings`       | `() => void`                         | 打开设置弹窗，对应 `settings` action。                                                                   |
+| `onResetLayout`        | `() => void`                         | 重置 dockview 布局，对应 `resetLayout` action。                                                          |
 
-### Handler map
+## 返回值
 
-`useMemo` builds a `Map<ActionId, () => void>` covering every action the
-dispatcher knows how to run. The map rebuilds only when its closure
-inputs (`actorRef`, the three callbacks) change, so steady-state input
-events do not allocate.
+| 字段             | 类型                        | 说明                                                                                  |
+| ---------------- | --------------------------- | ------------------------------------------------------------------------------------- |
+| `execute`        | `(id: ActionId) => void`    | 主入口；未知 id 会触发 `console.warn`，不抛异常（`useActionDispatcher.ts:165-167`）。 |
+| `getToggleState` | `(id: ActionId) => boolean` | `toggleGrid` / `toggleSnap` / `connectLanes` / `defaultMode` 返回真值，其它 `false`。 |
+| `actions`        | `ActionDef[]`               | 直接从 registry 透传的全集，UI 渲染菜单时使用。                                       |
 
-Categories handled:
+## 副作用
 
-| Category | Handlers                                                          |
-| -------- | ----------------------------------------------------------------- |
-| File     | `importApollo`, `exportApolloBin`, `exportApolloText`, `settings` |
-| Edit     | `undo`, `redo`, `delete`                                          |
-| View     | `toggleGrid`, `toggleSnap`, `resetLayout`, `commandPalette`       |
-| Mode     | `defaultMode` (escape hatch), `connectLanes`                      |
-| Tools    | every `ActionDef` with a `drawTool` field — registry-driven       |
+| 副作用                                                                                        | 触发时机                                   | 清理                                                           |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| `window.addEventListener('keydown', handler)`                                                 | `execute` 闭包变化时（即 `handlers` 重建） | 同步 `removeEventListener`（`useActionDispatcher.ts:218-219`） |
+| `actorRef.send({ type: 'CANCEL' \| 'RESET' \| 'SELECT_TOOL' \| 'DELETE_ENTITY' \| ... })`     | `execute` 调用时根据 ActionId 分发         | —                                                              |
+| `useMapStore.temporal.getState().undo() / redo()`                                             | `historyWithCancel('undo' \| 'redo')`      | —                                                              |
+| `useUIStore.getState().toggleGrid() / toggleSnap() / toggleConnectMode() / exitConnectMode()` | view / connect 类 action                   | —                                                              |
+| `pickAndImportApollo()` / `exportApolloBin()` / `exportApolloText()`                          | file 类 action                             | 异步；返回 promise 被 `void` 吞掉，错误仅 `console.info`       |
 
-Adding a tool means adding a registry record; the dispatcher discovers
-it via `for (const action of ACTION_DEFS) { if (action.drawTool) ... }`
-and emits `SELECT_TOOL` to the FSM with no further code changes.
+注意：键盘 handler 在每个 `execute` 闭包变化时重建（依赖
+`[execute]`，line 220）。这是必要的——`handlers` 依赖回调，回调
+变化时旧 handler 会捕获过期 `execute`。
 
-### R1 closure: CANCEL before undo
+## 生命周期
 
-::: warning Critical: undo footgun
-Lines 76-82 implement the **R1 fix**. Without it, mid-draw `Ctrl+Z`
-leaves the FSM holding stale `drawPoints` / `dragPointIndex` while
-`mapStore.entities` rolls back, corrupting the next CONFIRM/DRAG_END
-write.
-:::
+```
+mount: useMemo 构建 handlers map
+  ├── file: importApollo / exportApolloBin / exportApolloText / settings
+  ├── edit: undo (CANCEL→undo) / redo (CANCEL→redo) / delete
+  ├── view: toggleGrid / toggleSnap / resetLayout / commandPalette
+  ├── default: defaultMode (CANCEL+RESET, exit connectMode)
+  ├── connect: connectLanes (CANCEL, toggleConnectMode)
+  └── tools: 每个 ACTION_DEFS 中带 drawTool 的项 → SELECT_TOOL
+
+useEffect: window.addEventListener('keydown', handler)
+  ├── 在 input/textarea/select 中跳过非 global 快捷键
+  ├── for each ACTION_DEFS w/ keybinding: matchesKeybinding → execute
+  └── 第一个匹配项 e.preventDefault() 后 return
+
+unmount: removeEventListener('keydown', handler)
+```
+
+## 不变量
+
+### R1：CANCEL 必须先于时间旅行
 
 ```ts
+// useActionDispatcher.ts:76-108
+// R1 fix: flush any in-flight FSM draft/drag state *before* time-traveling
+// the entity store. Without this, undo leaves FSM holding stale drawPoints
+// or dragPointIndex pointing at an entity that just rolled back — the next
+// CONFIRM/DRAG_END writes corrupted data. CANCEL is safe in every state:
+// draw states → idle+resetDraw, selected → idle+deselect, editingPoint →
+// selected, idle has no handler (XState 5 no-ops).
 const historyWithCancel = (op: 'undo' | 'redo') => {
   actorRef.send({ type: 'CANCEL' });
   if (op === 'undo') useMapStore.temporal.getState().undo();
   else useMapStore.temporal.getState().redo();
 };
+map.set('undo', () => historyWithCancel('undo'));
+map.set('redo', () => historyWithCancel('redo'));
 ```
 
-`CANCEL` is safe in every state (XState 5 no-ops on `idle`), so we
-unconditionally flush FSM draft state before time-traveling the entity
-store. The regression test lives at
-`src/hooks/__tests__/undoCancel.test.ts`.
+回归测试：`src/hooks/__tests__/undoCancel.test.ts`。
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Kbd as window.keydown
-    participant Disp as useActionDispatcher
-    participant FSM as editorMachine actor
-    participant Store as mapStore.temporal
-    participant Cold as useColdLayer
-
-    User->>Kbd: Ctrl+Z (mid-draw)
-    Kbd->>Disp: execute('undo')
-    Disp->>FSM: send CANCEL
-    Note over FSM: drawPoints/dragPointIndex<br/>cleared, → idle
-    Disp->>Store: temporal.undo()
-    Store-->>Cold: entities snapshot rolled back
-    Cold->>Cold: scheduleSync (RAF)
-```
-
-### License-aware gating
-
-Edit-class actions are blocked when the license is read-only:
+### 默认模式（pan/select）使用 CANCEL+RESET 双发
 
 ```ts
+// useActionDispatcher.ts:122-132
+map.set('defaultMode', () => {
+  actorRef.send({ type: 'CANCEL' });
+  // CANCEL 在 idle 是 no-op，残余的 activeElement 会保留；
+  // RESET 才能清掉 activeElement / drawPoints / bezierAnchors。
+  actorRef.send({ type: 'RESET' });
+  if (useUIStore.getState().connectMode.active) {
+    useUIStore.getState().exitConnectMode();
+  }
+});
+```
+
+### License 守门
+
+```ts
+// useActionDispatcher.ts:33-38
 function actionRequiresEdit(id: ActionId): boolean {
   if (id === 'connectLanes') return true;
   const def = ACTION_MAP.get(id);
@@ -115,114 +154,102 @@ function actionRequiresEdit(id: ActionId): boolean {
 }
 ```
 
-`execute` calls `assertEditable(actionId)` from `@/lib/editable-guard`
-before dispatching. If the license disallows edits, the assertion
-records a friendly toast and returns `false`, short-circuiting the
-handler.
+任何归类为 `edit` / `tool` / `selection` 的动作，以及显式的 `connectLanes`，
+都必须通过 `assertEditable(actionId)` 检查。校验失败时 `execute` 静默返回，
+状态条会显示 license 提醒。
 
-### Default-mode toggle
+## 撤销 CANCEL 时序
 
-`defaultMode` is the Photoshop-style "Hand" escape hatch — it sends
-`CANCEL` then `RESET` to clear residual `activeElement`, plus exits
-connect-mode if active. `getToggleState('defaultMode')` returns `true`
-only when FSM is `idle`, no element is armed, and connect-mode is off.
+```mermaid
+sequenceDiagram
+    participant User
+    participant Kbd as keydown handler
+    participant Disp as historyWithCancel
+    participant FSM as editorMachine
+    participant Store as useMapStore.temporal
+    participant Cold as useColdLayer
 
-### Toggle state reader
-
-```ts
-const getToggleState = (actionId: ActionId): boolean => {
-  switch (actionId) {
-    case 'toggleGrid':
-      return gridEnabled;
-    case 'toggleSnap':
-      return snapEnabled;
-    case 'connectLanes':
-      return connectModeActive;
-    case 'defaultMode':
-      return inDefaultMode;
-    default:
-      return false;
-  }
-};
+    User->>Kbd: Ctrl+Z (mid-draw)
+    Kbd->>Disp: execute('undo')
+    Disp->>FSM: send({ type: 'CANCEL' })
+    Note over FSM: drawPolyline → idle<br/>resetDraw 清掉 drawPoints
+    Disp->>Store: temporal.getState().undo()
+    Note over Store: entities Map 回滚一步
+    Store-->>Cold: subscribe(state, prev) 触发
+    Cold->>Cold: RAF scheduleSync → bridge.send(SYNC)
 ```
 
-The first three are direct `uiStore` reads. `inDefaultMode` is computed
-via `useSelector(actorRef, ...)` so it reactively tracks FSM
-transitions.
+如果省略第 3 步（`CANCEL`），第 4 步会让 `mapStore.entities`
+回滚，但 FSM 仍持有 `drawPolyline` + `drawPoints`，下一次
+`CONFIRM` 调用 `addEntity` 时会基于失效的状态计算 `nextEntityId`，
+产生 id 冲突或几何错位。
 
-### Keyboard shortcut binding
+## 工具注册：registry-driven SELECT_TOOL
 
-`useEffect` registers a single global `keydown` listener that walks
-`getKeyBindingActions()` and matches against `matchesKeybinding(e, kb)`.
+```ts
+// useActionDispatcher.ts:144-150
+for (const action of ACTION_DEFS) {
+  if (action.drawTool) {
+    const tool = action.drawTool;
+    map.set(action.id, () => actorRef.send({ type: 'SELECT_TOOL', tool }));
+  }
+}
+```
 
-- `kb.global === false` (default) skips the shortcut while focus is in
-  an `<input>` / `<textarea>` / `<select>`.
-- The listener stops at the first match and calls `e.preventDefault()`.
-- Unregisters on unmount.
+新增工具时，唯一改动点是 `src/core/actions/registry.ts` 中的
+`ActionDef`：声明 `drawTool: 'drawArc'` 之类即可。dispatcher 在 `useMemo`
+重建时自动注册。
 
-This means the registry is the single source of truth for shortcuts —
-`MenuBar`, `CommandPalette`, and `ToolStrip` only render `shortcut`
-strings; they never bind keys themselves.
+## 调用点
 
-## Dependencies
-
-| Source                    | Purpose                                           |
-| ------------------------- | ------------------------------------------------- |
-| `@/store/mapStore`        | `temporal.undo()` / `temporal.redo()` for history |
-| `@/store/uiStore`         | grid/snap/connect toggles                         |
-| `@/core/actions/registry` | `ACTION_DEFS`, keyboard binding tables            |
-| `@/io/mapIO`              | `pickAndImportApollo`, `exportApollo*`            |
-| `@/lib/editable-guard`    | license gating                                    |
-| `@xstate/react`           | `useSelector` for FSM-derived toggle states       |
-
-## Examples
-
-### Mounting in WorkspaceLayout
+唯一挂载点是 `WorkspaceLayoutInner`（`src/components/layout/WorkspaceLayout.tsx:89`）：
 
 ```tsx
 const { execute, getToggleState } = useActionDispatcher({
   actorRef,
   onOpenCommandPalette: () => setCommandPaletteOpen(true),
   onOpenSettings: () => setSettingsOpen(true),
-  onResetLayout: handleResetLayout,
+  onResetLayout: () => dockviewRef.current?.api.fromJSON(DEFAULT_LAYOUT),
 });
-
-return (
-  <>
-    <MenuBar onExecute={execute} getToggleState={getToggleState} />
-    <ToolStrip onExecuteAction={execute} getToggleState={getToggleState} />
-  </>
-);
 ```
 
-### Adding a new action
+`execute` / `getToggleState` 通过 props 向下传给：
 
-```ts
-// In src/core/actions/registry.ts
-{
-  id: 'duplicate',
-  category: 'edit',
-  label: 'Duplicate',
-  shortcut: 'Cmd+D',
-  keybinding: { key: 'd', meta: true },
-  menu: 'Edit',
-  menuOrder: 25,
-  inCommandPalette: true,
-}
-```
+- `MenuBar` —— 渲染菜单项，点击 → `execute(actionId)`，toggle 状态 → `getToggleState(actionId)`
+- `ToolStrip` —— 工具栏按钮 → `execute(toolActionId)`
+- `CommandPalette` —— 命令搜索结果 → `execute(actionId)`
+- `StatusBar` —— 显示当前 toggle 状态（grid / snap）
 
-Then add a case in the `useActionDispatcher` handler `useMemo`:
+## 错误模式
 
-```ts
-map.set('duplicate', () => actorRef.send({ type: 'DUPLICATE_ENTITY' }));
-```
+| 现象                                        | 根因                                           | 修复                                                |
+| ------------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| 撤销后下一次 `CONFIRM` 写入坏数据           | 漏掉 R1 CANCEL 闭环                            | 始终走 `historyWithCancel`                          |
+| `defaultMode` 无法清除 ToolStrip 上工具高亮 | `CANCEL` 在 `idle` 是 no-op                    | 同时发 `RESET`                                      |
+| `Ctrl+Z` 在 input 框内吃掉浏览器原生撤销    | keybinding 没有 `global: false`                | 在 `registry.ts` 中省略 `global` 字段（默认 false） |
+| toggle 不亮                                 | `getToggleState` 走 `default` 分支返回 `false` | 在 switch 中显式列出该 ActionId                     |
 
-The new shortcut, menu entry, and palette item appear automatically.
+## 测试
 
-## Related
+- `src/hooks/__tests__/undoCancel.test.ts` —— R1 闭环回归测试
+- `src/core/actions/__tests__/registry.test.ts` —— registry 与 dispatcher 的 ActionId 一致性
 
-- [Action Registry](/api/core/action-registry)
-- [editorMachine FSM](/api/core/editor-machine)
-- [mapStore (zundo)](/api/store/store-map)
-- [License banner](/api/components/license-banner)
-- [useMapEventRouter](/api/hooks/use-map-event-router)
+## 参见
+
+- [Action Registry](../core/action-registry.md)
+- [editorMachine FSM](../core/editor-machine.md)
+- [`useDrawCommit`](./use-draw-commit.md)
+- [Architecture: Action Registry (R5)](/architecture)
+
+## 源码索引
+
+| 关注点                     | 行号                                    |
+| -------------------------- | --------------------------------------- |
+| `actionRequiresEdit` 守门  | `useActionDispatcher.ts:33-38`          |
+| `handlers` Map 构建        | `useActionDispatcher.ts:73-153`         |
+| **R1 CANCEL 闭环**         | `useActionDispatcher.ts:76-82, 104-108` |
+| `defaultMode` CANCEL+RESET | `useActionDispatcher.ts:122-132`        |
+| Registry-driven 工具注册   | `useActionDispatcher.ts:144-150`        |
+| `execute` 守门 + 派发      | `useActionDispatcher.ts:157-170`        |
+| `getToggleState` switch    | `useActionDispatcher.ts:174-190`        |
+| 键盘监听 effect            | `useActionDispatcher.ts:194-220`        |

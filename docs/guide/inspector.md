@@ -1,264 +1,302 @@
-# Inspector
+---
+title: Inspector 属性面板
+description: Inspector 面板的字段类型、Schema-driven 表单、Lane / Overlap / PNCJunction 子表单、校验规则、提交流程与拓扑引用读取的完整说明。
+---
 
-The Inspector is the right-side panel that shows the selected entity's
-properties. It uses a **schema-driven** form for the Lane (the migration
-pilot) and bespoke forms for every other entity type. This page covers the
-field-level semantics, the validation pipeline, and the user-override
-system that protects manual edits from auto-derivation.
+# Inspector 属性面板 / Inspector
 
-## Source map
+> Inspector 是 AMS 右侧停靠的**属性编辑面板**。它是高精地图标注流程的“最后一公里”——所有几何上看不见、但对仿真至关重要的字段（`type` / `turn` / `direction` / `speedLimit` / `boundaryType` / `predecessorIds` / …）都在这里写入。
 
-| Concern                                      | File                                                          |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| Schema definition pattern                    | `src/types/inspectorSchema.ts`                                |
-| Lane form (schema-driven)                    | `src/components/layout/panels/InspectorForms/lane.tsx`        |
-| Junction / Parking / Signal / StopSign forms | `src/components/layout/panels/InspectorForms/simpleForms.tsx` |
-| PNC junction form                            | `src/components/layout/panels/InspectorForms/pncJunction.tsx` |
-| Overlap form (read-only)                     | `src/components/layout/panels/InspectorForms/overlap.tsx`     |
-| Drawing-primitive form                       | `src/components/layout/panels/InspectorForms/DrawingForm.tsx` |
-| Generic schema renderer                      | `src/components/layout/panels/SchemaForm.tsx`                 |
-| Form-resolver router                         | `src/components/layout/panels/InspectorForms/resolver.tsx`    |
-| Zod schemas                                  | `src/lib/schemas.ts`                                          |
-| Enum label dictionary                        | `src/lib/enumLabels.ts`                                       |
-| Derive-rule engine                           | `src/core/elements/derive/`                                   |
+本页覆盖 14 类实体共用的 Inspector 框架、`SchemaForm` 自动生成机制、四种特例表单 (Lane / Overlap / PNCJunction / Drawing)、`_userOverrides` 防覆盖语义、以及与 `mapStore` 的数据回写循环。
 
-## What you see when you select an entity
+## 概览 / Overview
 
-The resolver in `InspectorForms/resolver.tsx` dispatches by `entityType`:
+::: tip TL;DR
+**选中一个实体 → 右侧出现属性面板 → 改字段 → 立即生效。**
+没有“保存”按钮：表单 `onChange` 即落盘。`Ctrl+Z` 可撤销。
+:::
 
-| Selected entity                                                   | Form                                               |
-| ----------------------------------------------------------------- | -------------------------------------------------- |
-| `lane`                                                            | LaneForm (schema-driven via `LaneInspectorSchema`) |
-| `junction`                                                        | JunctionForm (`simpleForms.tsx`)                   |
-| `pncJunction`                                                     | PNCJunctionForm                                    |
-| `parkingSpace`                                                    | ParkingForm (`simpleForms.tsx`)                    |
-| `signal`                                                          | SignalForm (`simpleForms.tsx`)                     |
-| `stopSign`                                                        | StopSignForm (`simpleForms.tsx`)                   |
-| `overlap`                                                         | OverlapForm (read-only)                            |
-| `polyline` / `bezier` / `arc` / `rect` / `polygon` / `catmullRom` | DrawingForm                                        |
-| Other Apollo types                                                | Read-only id + entityType (no form yet)            |
+| 维度     | 说明                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------- |
+| 触发方式 | 在地图或 Layer Tree 中点选实体                                                                                |
+| 数据流   | `mapStore.entities` → `formValuesFromEntity` → `react-hook-form` → `applyFormValuesToEntity` → `updateEntity` |
+| 校验     | `zod` schema (`@/lib/schemas`) + `mode: 'onChange'`                                                           |
+| 撤销栈   | 通过 `mapStore.entities` 的 `zundo.partialize`，每次成功提交都进栈                                            |
+| 字段“锁” | 用户改过的字段会写入 `_userOverrides`，几何变化触发的自动派生（derive）不再覆盖                               |
 
-Multi-select renders nothing — by design. Bulk edits are not supported in
-1.0; use scripts that read the round-tripped `.txt` proto instead.
+## 界面导览 / UI Tour
 
-## Schema-driven Lane form
+```
+┌──────────────────────────────────────────┐
+│  Inspector                               │  ← 标题栏（来自 lazyPanels.tsx:87）
+├──────────────────────────────────────────┤
+│  Lane              ...AbCd123XyZ         │  ← entityType + 短 ID
+├──────────────────────────────────────────┤
+│  ▾ Attributes                            │  ← Section 标题
+│    Type            [CITY_DRIVING ▼]      │
+│    Turn            [LEFT_TURN ▼]         │
+│    Direction       [FORWARD ▼]           │
+│    Speed Limit     [16.6   ] m/s         │
+│    ID              lane_AbCd123XyZ       │  ← read-only Value
+│  ▾ Boundaries                            │
+│    Left Width      [1.75 ] m             │
+│    Right Width     [1.75 ] m             │
+│    L Boundary      [SOLID_WHITE ▼]       │
+│    R Boundary      [DOTTED_WHITE ▼]      │
+│    Length          12.43 m               │  ← read-only
+│    L Virtual       No                    │
+│    R Virtual       No                    │
+│  ▾ Topology                              │
+│    Junction        junc_…                │  ← LaneRef，可点跳转
+│    Predecessors    [lane_…] [lane_…]     │  ← LaneRefList
+│    Successors      —                     │
+│    L Neighbors fwd —                     │
+│    Overlaps        [overlap_…]           │
+└──────────────────────────────────────────┘
+```
 
-The Lane form is built from **data**, not JSX. Its schema lives in
-`src/types/inspectorSchema.ts:263`:
+## 调度与挂载 / Mounting
+
+Inspector 由 `WorkspaceLayout/lazyPanels.tsx:79-112` 中的 `InspectorPanelContent` 渲染：
 
 ```ts
-export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
-  id: 'lane',
-  validation: laneSchema,
-  sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
-  fields: [
-    LaneField.field({ kind: 'enum', name: 'type', section: 'Attributes', … }),
-    LaneField.field({ kind: 'enum', name: 'turn', section: 'Attributes', … }),
-    LaneField.field({ kind: 'enum', name: 'direction', section: 'Attributes', … }),
-    LaneField.field({ kind: 'number', name: 'speedLimit', section: 'Attributes', … }),
-    LaneField.field({ kind: 'number', name: 'leftWidth', section: 'Boundaries', … }),
-    LaneField.field({ kind: 'number', name: 'rightWidth', section: 'Boundaries', … }),
-    LaneField.field({ kind: 'enum', name: 'leftBoundaryType', section: 'Boundaries', … }),
-    LaneField.field({ kind: 'enum', name: 'rightBoundaryType', section: 'Boundaries', … }),
-  ],
-  readonly: [/* ID, Length, Virtual flags, Junction, Predecessors, … */],
-};
+const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
+const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : undefined));
 ```
 
-`SchemaForm` (in `panels/SchemaForm.tsx`) reads this schema and renders the
-form generically. There is no per-entity-type JSX for Lane.
+- **未选中**：显示 “Select an entity to view properties”。
+- **选中**：根据 `entity.entityType` 路由到 `EntityForm`（`InspectorForms.tsx:46-79`），调度规则如下表。
 
-### Editable fields
+### 实体 → 表单调度表
 
-All eight Lane editables, with their adapter logic:
+| `entityType`                                                                           | 渲染组件           | 文件位置                     | 表单类别            |
+| -------------------------------------------------------------------------------------- | ------------------ | ---------------------------- | ------------------- |
+| `lane`                                                                                 | `LaneForm`         | `InspectorForms/lane.tsx:32` | Schema-driven       |
+| `junction`                                                                             | `JunctionForm`     | `simpleForms.tsx`            | Simple              |
+| `parkingSpace`                                                                         | `ParkingSpaceForm` | `simpleForms.tsx`            | Simple              |
+| `signal`                                                                               | `SignalForm`       | `simpleForms.tsx`            | Simple              |
+| `stopSign`                                                                             | `StopSignForm`     | `simpleForms.tsx`            | Simple              |
+| `road`                                                                                 | `RoadForm`         | `simpleForms.tsx`            | Simple              |
+| `pncJunction`                                                                          | `PNCJunctionForm`  | `pncJunction.tsx:151`        | Custom（嵌套数组）  |
+| `overlap`                                                                              | `OverlapForm`      | `overlap.tsx:65`             | Custom（pin/unpin） |
+| `area` / `barrierGate` / `crosswalk` / `speedBump` / `yieldSign` / `clearArea` / `rsu` | 各自的 `*Form`     | `simpleForms.tsx`            | Simple              |
+| 其它（绘制中临时 entity）                                                              | `DrawingForm`      | `DrawingForm.tsx`            | 绘制态 fallback     |
 
-| Field             | Kind   | Backing entity field(s)                      | Notes                                                                                              |
-| ----------------- | ------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Type              | enum   | `lane.type: LaneType`                        | `CITY_DRIVING`, `BIKING`, `SIDEWALK`, `PARKING`, `SHOULDER`, `SHARED`, `NONE`                      |
-| Turn              | enum   | `lane.turn: LaneTurn`                        | `NO_TURN`, `LEFT_TURN`, `RIGHT_TURN`, `U_TURN`                                                     |
-| Direction         | enum   | `lane.direction: LaneDirection`              | `FORWARD`, `BACKWARD`, `BIDIRECTION`                                                               |
-| Speed Limit (m/s) | number | `lane.speedLimit ?? 0`                       | Range 0–50, step 0.5                                                                               |
-| Left Width (m)    | number | `lane.leftSamples[*].width` (uniform)        | Range 0.5–10, step 0.1 — **applies to every sample**                                               |
-| Right Width (m)   | number | `lane.rightSamples[*].width` (uniform)       | Same                                                                                               |
-| L Boundary        | enum   | `lane.leftBoundary.boundaryType[0].types[0]` | `UNKNOWN`, `DOTTED_YELLOW`, `DOTTED_WHITE`, `SOLID_YELLOW`, `SOLID_WHITE`, `DOUBLE_YELLOW`, `CURB` |
-| R Boundary        | enum   | same as L                                    |                                                                                                    |
+## Schema-driven 表单 (Lane 为例)
 
-::: warning Width adapters are not naive
-Setting `Left Width = 1.75` does **not** write `lane.leftWidth = 1.75` — there
-is no such field. The adapter (`writeLeftWidth` in `inspectorSchema.ts:232`)
-maps every existing `LaneSampleAssociation` in `leftSamples` to use the new
-width. If `leftSamples` is empty, it seeds two anchors at `s=0` and
-`s=length`. This is the kind of structural translation the schema's
-`read`/`write` adapters exist to express.
+::: tip 设计意图
+旧版每种 entity 一份 JSX 表单，14 类共有 14 份重复代码。R5 重构后，**所有字段（除嵌套数组）改为数据驱动**：定义一份 `EntitySchema`，`SchemaForm.tsx` 自动渲染。Lane 是首个迁移的样本，参见 `src/types/inspectorSchema.ts:263`。
 :::
 
-### Read-only fields
+### Schema 数据结构
 
-| Field                     | Source                                                          |
-| ------------------------- | --------------------------------------------------------------- |
-| ID                        | `entity.id`                                                     |
-| Length                    | `entity.length` (rounded to 0.01 m)                             |
-| L / R Virtual             | `entity.leftBoundary.virtual`, `rightBoundary.virtual`          |
-| Junction                  | `entity.junctionId` (clickable LaneRef)                         |
-| Predecessors / Successors | `entity.predecessorIds`, `successorIds` (clickable LaneRefList) |
-| L / R Neighbors (fwd/rev) | `entity.{left,right}Neighbor{Forward,Reverse}Ids`               |
-| Self-Reverse              | `entity.selfReverseLaneIds`                                     |
-| Overlaps                  | `entity.overlapIds`                                             |
-
-Topology fields are clickable: clicking a lane id selects that lane. Clicking
-a Junction id selects the junction. The clickable links use `LaneRef` /
-`LaneRefList` from `panels/LaneRefList.tsx`.
-
-::: tip Length is computed, not stored
-`entity.length` is recomputed by the derive engine on every geometry edit.
-Don't try to set it — it would be overwritten on the next centerline change.
-:::
-
-## Validation pipeline
-
-Source: `src/lib/schemas.ts` + react-hook-form's zod resolver.
-
-```
-┌──────────────┐   onChange    ┌──────────────────┐    parse     ┌──────────────┐
-│  <input>     │ ───────────▶  │  RHF form state  │ ──────────▶  │  zod schema  │
-└──────────────┘               └──────────────────┘   reject     └──────────────┘
-                                       │ valid? Yes
-                                       ▼
-                       ┌──────────────────────────────┐
-                       │  applyFormValuesToEntity     │
-                       │  (write adapters per field)  │
-                       └──────────────────────────────┘
-                                       │
-                                       ▼
-                                useMapStore.updateEntity
-```
-
-`laneSchema` (in `lib/schemas.ts`) defines the per-field constraints (number
-ranges, enum membership). React-hook-form's `resolver: zodResolver(laneSchema)`
-runs the parse on every change. Invalid values block the write — the field
-shows a red border and an error message, but the entity is unchanged.
-
-::: warning onChange validation gate
-The fix in commit `6a83d9d` ensures the resolver runs on `onChange`, not
-just `onSubmit`. Without this, an invalid value would silently round-trip
-through the `useEffect` watch and corrupt the entity. The
-`shouldPersistForm` helper in `inspectorSchema.ts:484` is the diff gate
-that breaks the store→reset→watch→update loop.
-:::
-
-## User overrides
-
-A core concept: when you manually set Left Width, the editor should
-**remember that you set it manually**. Subsequent geometry edits — dragging
-the centerline, recomputing topology, re-stitching boundaries — should not
-clobber your manual value.
-
-This is implemented via `_userOverrides` on the entity:
+`EntitySchema<TEntity, TFormValues>` 由四块组成（`inspectorSchema.ts:154-171`）：
 
 ```ts
-applyFormValuesToEntity(schema, entity, values)
-  ─▶ for each field in values where prevValue !== newValue:
-       overridesPaths = field.overridesPaths ?? [field.name]
-       for path in overridesPaths:
-         next = markUserOverride(next, path)
+interface EntitySchema<TEntity, TFormValues> {
+  id: string;
+  fields: ReadonlyArray<AnyFieldDef>; // 可编辑
+  readonly: ReadonlyArray<ReadOnlyDef>; // 只读
+  validation: ZodType<TFormValues>; // Zod 校验
+  sectionOrder: ReadonlyArray<string>; // section 渲染顺序
+}
 ```
 
-The derive engine (`src/core/elements/derive/`) checks `_userOverrides`
-before recomputing each field. If `leftWidth` is in the override set, the
-auto-derive skips that path on the next geometry edit.
+### Lane 字段全表
 
-::: tip Default override set is `[fieldName]`
-If you don't set `overridesPaths` in the field def, the override path is
-the field's `name`. That works for simple cases. Set
-`overridesPaths: ['leftSamples']` if the form field maps to a deeper entity
-path.
+下表全部字段来自 `LaneInspectorSchema` (`inspectorSchema.ts:263-435`)。
+
+| Field name                    | 类型     | Section    | 校验范围             | 适配器 (read / write)                     | 说明                                    |
+| ----------------------------- | -------- | ---------- | -------------------- | ----------------------------------------- | --------------------------------------- |
+| `type`                        | enum     | Attributes | `LaneType` 枚举      | `e.type` ↔ `{ ...e, type: v }`            | 车道类别                                |
+| `turn`                        | enum     | Attributes | `LaneTurn` 枚举      | 同上                                      | 转弯类型                                |
+| `direction`                   | enum     | Attributes | `LaneDirection` 枚举 | 同上                                      | 方向                                    |
+| `speedLimit`                  | number   | Attributes | 0..50, step 0.5      | `e.speedLimit ?? 0`                       | 限速 m/s                                |
+| `leftWidth`                   | number   | Boundaries | 0.5..10, step 0.1    | `readLeftWidth` / `writeLeftWidth`        | 左侧半宽，写时**统一**应用到所有 sample |
+| `rightWidth`                  | number   | Boundaries | 0.5..10, step 0.1    | `readRightWidth` / `writeRightWidth`      | 右侧半宽                                |
+| `leftBoundaryType`            | enum     | Boundaries | `BoundaryLineType`   | `e.leftBoundary.boundaryType[0].types[0]` | 写时折叠为单段 boundaryType             |
+| `rightBoundaryType`           | enum     | Boundaries | 同上                 | 同上                                      |                                         |
+| `ID` (RO)                     | readonly | Attributes | —                    | `e.id`                                    | 真实 ID                                 |
+| `Length` (RO)                 | readonly | Boundaries | —                    | `e.length.toFixed(2)` m                   | 自动派生                                |
+| `L/R Virtual` (RO)            | readonly | Boundaries | —                    | `e.leftBoundary.virtual`                  | 虚拟边界标记                            |
+| `Junction` (RO)               | readonly | Topology   | —                    | 渲染 `<LaneRef>`                          | 可点跳转                                |
+| `Predecessors` / `Successors` | readonly | Topology   | —                    | 渲染 `<LaneRefList>`                      | 拓扑前后继                              |
+| `L/R Neighbors (fwd/rev)`     | readonly | Topology   | —                    | `LaneRefList`                             | 邻接车道                                |
+| `Self-Reverse`                | readonly | Topology   | —                    | `LaneRefList`                             | 自反车道                                |
+| `Overlaps`                    | readonly | Topology   | —                    | `LaneRefList`                             | 关联 overlap                            |
+
+### 提交流程 / Commit Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as react-hook-form
+    participant S as SchemaForm
+    participant M as mapStore (Zustand)
+    participant Z as zundo (history)
+
+    U->>F: type or click
+    F->>F: validate (zod onChange)
+    alt invalid
+      F-->>U: red border, formState.isValid=false
+    else valid
+      F->>S: watch fires
+      S->>S: shouldPersistForm(diff) ?
+      alt diff empty
+        S-->>F: short-circuit, break the loop
+      else diff non-empty
+        S->>M: applyFormValuesToEntity → updateEntity(id, next)
+        M->>Z: snapshot
+        Z-->>M: stack push
+        M-->>S: store update
+        S->>S: re-seed via diffFormAgainstEntity
+      end
+    end
+```
+
+::: warning R1 闭环修复 (regression-guarded)
+旧实现在 `watch` 回调里**无差异判断**地写回 store，导致 `store→reset→watch→updateEntity` 死循环并撑爆 zundo 栈。`shouldPersistForm` (`inspectorSchema.ts:484-493`) 是断环器；任何对 `SchemaForm.tsx` 的改动都必须保留 `mode: 'onChange'` + `shouldPersistForm` 调用，对应回归测试位于 `src/components/layout/panels/__tests__/SchemaForm.test.ts` 与 `src/hooks/__tests__/undoCancel.test.ts`。
 :::
 
-::: warning Resetting overrides
-There is no UI to clear `_userOverrides` today. To regain auto-derivation
-for a field, edit the entity in a way that flips the value back to what
-the auto-derive would produce, or manually delete `_userOverrides[<field>]`
-in dev tools. A future "Reset to derived" button is on the roadmap.
+### `_userOverrides` 字段锁
+
+当用户在 Inspector 修改一个字段时，`applyFormValuesToEntity` (`inspectorSchema.ts:507-540`) 会把该字段的 `overridesPaths`（默认就是字段名）写入 `entity._userOverrides`。在后续几何编辑触发的派生（如 `core/elements/derive`）会**跳过** `owns` 与 override 集相交的规则——这就是“用户手工值不被自动覆盖”的实现。
+
+| 操作                                      | `_userOverrides` 变化                  |
+| ----------------------------------------- | -------------------------------------- |
+| 改 `leftWidth` 1.75 → 1.95                | 加入 `'leftWidth'`                     |
+| 拖动控制点（自动 derive 重算 length）     | 不影响 `leftWidth`，因为 derive 跳过   |
+| 用户重置：把 1.95 改回 1.75（reads 恒等） | 由于 prevValue===newValue，不会再 mark |
+
+## Overlap 表单 (`overlap.tsx`)
+
+`OverlapForm` 不走 schema 流程，因为它的核心字段 `is_merge` 和 `regionOverlaps` 都是**几何派生**，不是简单字段。它提供两类“pin”按钮：
+
+| Pin 类型               | 作用                                    | 写入路径                              |
+| ---------------------- | --------------------------------------- | ------------------------------------- |
+| Lane × Lane `is_merge` | 钉死某一条 lane 在 overlap 中的合流语义 | `objects.<i>.laneOverlapInfo.isMerge` |
+| Region polygon         | 钉死整个 region 多边形与 ID 引用        | `regionOverlaps`                      |
+
+钉住后，`core/elements/overlap/reconcile.ts` 在下次几何编辑时不会重算这些值。点击 “pinned ×” 即解锁。
+
+## PNCJunction 表单 (`pncJunction.tsx`)
+
+PNCJunction 是 Apollo 自动驾驶规划用的 **passage groups** —— 一棵 `Group → Passage → (Lane/Signal/StopSign/YieldSign)` 三层数组。`PNCJunctionForm` 提供：
+
+- “+ Passage Group” 创建新组（`makeBlankPassage` + `nextSubId`）
+- 每个 Passage 的 `type` 三选 (`UNKNOWN_PASSAGE` / `ENTRANCE` / `EXIT`)
+- `IdMultiSelect` 控件用于添加/移除关联 ID。
+
+::: tip 关联 ID 的合法性
+`IdMultiSelect` 通过 `collectIdsByType(entities, 'lane' | 'signal' | 'stopSign' | 'yieldSign')` 实时枚举可选 ID，避免脏引用——任何**不存在**的 ID 都不会出现在下拉中。
 :::
 
-## Bespoke forms (Junction / Signal / etc.)
+## DrawingForm（绘制中 fallback）
 
-These follow the older pattern: a per-entity React component that wires
-react-hook-form directly. Each is scheduled for migration to a schema, but
-behavior parity is the priority — when the migration lands, the JSX is
-deleted and replaced by a schema constant.
+绘制状态下尚未 commit 的临时实体没有自定义 schema，统一走 `DrawingForm.tsx`：仅显示控制点数量、几何长度、当前 FSM 状态。**不可写**，因为 entity 还没进 `mapStore`。
 
-The current set of bespoke forms covers:
+## 拓扑引用控件 / Lane References
 
-| Form         | Editable fields                                                 |
-| ------------ | --------------------------------------------------------------- |
-| Junction     | `type` (`OPEN`, `INTERSECTION`, `DEAD_END`)                     |
-| ParkingSpace | `heading` (radians), parking-style flags                        |
-| Signal       | `type` (`UNKNOWN`, `MIX_2_HORIZONTAL`, …), `subSignals[*].type` |
-| StopSign     | `type` (`UNKNOWN`, `ONE_WAY`, …)                                |
-| PNCJunction  | `type`, `passageGroup` info                                     |
-| Overlap      | none — read-only enumeration of cross-references                |
+`<LaneRef id={id} />` 与 `<LaneRefList ids={ids} />` 来自 `src/components/layout/panels/LaneRefList.tsx`：
 
-For Apollo types not yet covered (`speedBump`, `yieldSign`, `clearArea`,
-`barrierGate`, `area`, `rsu`), the inspector currently shows just the id
-and entity type. Edit those entities by importing/exporting the `.txt`
-proto for now.
+- 渲染短 ID（前 8 末 6）。
+- 鼠标悬停显示完整 ID。
+- 点击触发 `selectEntity(id)`，跳到该实体并把视口飞到中心。
 
-## DrawingForm
+| 字段                          | 控件          | 行为         |
+| ----------------------------- | ------------- | ------------ |
+| `junctionId` (string \| null) | `LaneRef`     | 单点跳转     |
+| `predecessorIds` 等列表       | `LaneRefList` | 多 chip 跳转 |
+| `overlapIds`                  | `LaneRefList` | 同上         |
 
-Source: `panels/InspectorForms/DrawingForm.tsx`
+## 校验规则 / Validation
 
-For the six geometric primitives (`polyline`, `catmullRom`, `bezier`,
-`arc`, `rect`, `polygon`), the inspector shows id, type, and basic
-geometric stats (number of points / anchors, bounding box). No editable
-fields — geometry is edited on the canvas via [drag and snap](/guide/editing-and-snapping).
+校验全部走 zod (`@/lib/schemas`)。`SchemaForm.tsx:69` 显式选用 `mode: 'onChange'`：每次按键都会重新校验，并通过 `formState.isValid` 暴露状态。失败时：
 
-The intent is that drawing primitives are scratch geometry; you'd
-typically convert them to an Apollo type (manually copying coordinates
-into a Lane / Junction / Crosswalk draw flow) before exporting.
+- 输入框边框变红 (Tailwind `border-rose-500`)。
+- `shouldPersistForm` 仍可返回 true，但 `applyFormValuesToEntity` 不会被调用——因为 `react-hook-form` 在 invalid 时会丢弃此次 `value`。
 
-## Sectioning
+| 字段                       | Zod 规则                      | 失败提示               |
+| -------------------------- | ----------------------------- | ---------------------- |
+| `speedLimit`               | `z.number().min(0).max(50)`   | "Speed must be 0–50"   |
+| `leftWidth` / `rightWidth` | `z.number().min(0.5).max(10)` | "Width must be 0.5–10" |
+| `type`                     | `z.enum(LANE_TYPES)`          | "Invalid type"         |
 
-Each `EntitySchema` has a `sectionOrder: string[]`. Fields with a `section`
-matching one of these strings are grouped under that header. Fields whose
-section isn't listed render after, in declaration order. The Lane schema
-uses three sections:
+## 配置存储位置 / Persistence
 
-```
-[Attributes]
-  Type, Turn, Direction, Speed Limit, ID
+Inspector **本身不写 localStorage**。所有变更通过 `mapStore.updateEntity` 写入内存 `Map<id, MapEntity>`，由 zundo 中间件管理；**离线持久化**则由 [Export](./exporting.md) 流程负责。
 
-[Boundaries]
-  Left Width, Right Width, L Boundary, R Boundary,
-  Length, L Virtual, R Virtual
+## 操作步骤 / Steps
 
-[Topology]
-  Junction, Predecessors, Successors,
-  L/R Neighbors (fwd/rev), Self-Reverse, Overlaps
-```
+1. 在地图或 Layer Tree 中**单击**一个实体。`editorMachine.context.selectedEntityId` 会被更新。
+2. 右侧 Inspector 出现对应表单。
+3. 修改任意字段：
+   - **Number** 输入框：可拖光标修改步进，或键入。
+   - **Enum** 下拉：键盘 `↓ ↑` 浏览，`Enter` 选定。
+4. 离开当前字段（`blur`）或下一次按键即触发 `watch`。
+5. 数据立即同步到 `mapStore` 与 zundo。`Ctrl+Z` 可回退。
+6. 对于 PNCJunction / Overlap，使用面板内的 `+ Passage Group` / `pin` 按钮等专用控件。
 
-Section headers render as small uppercase mono text (the same
-`text-[10px] uppercase tracking-widest text-zinc-500` pattern used
-elsewhere in the editor).
+## 常见问题 / Troubleshooting
 
-## Adding a field to the Lane form
+| 问题                                  | 可能原因                                  | 处理                                                                                                                                      |
+| ------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 字段改了又跳回旧值                    | 该字段被 derive 规则覆盖了                | 检查 `_userOverrides` 是否丢失；改完后立即用 Ctrl+Shift+I devtools 看 entity；若仍被覆盖，向 `inspectorSchema.ts` 字段补 `overridesPaths` |
+| 红色边框 + 不落盘                     | zod 校验失败                              | 看输入是否越界（速度 > 50, 宽度 > 10 等）                                                                                                 |
+| Topology 中 LaneRef 显示 “unknown id” | 引用的实体被删除或导入丢失                | 用 [Search Panel](./activity-bar-and-panels.md#search) 搜 ID；删除空引用见 [Topology](./topology.md)                                      |
+| Overlap “pinned ×” 无法解锁           | `_userOverrides` 数组损坏                 | 重新选中并再次点击；如仍不行重启会话                                                                                                      |
+| 切换 entity 后旧表单数据闪烁          | id 切换时 `methods.reset` 与 `watch` 竞态 | 该问题已通过 `useEffect([entity.id])` 修复（`SchemaForm.tsx:76-79`），如再现请提 issue                                                    |
 
-1. Add the form-side type to `LaneFormValues` in `src/lib/schemas.ts`.
-2. Add the zod constraint to `laneSchema` so the resolver enforces it.
-3. Open `src/types/inspectorSchema.ts:267` and append a `LaneField.field({…})`
-   call to `LaneInspectorSchema.fields`.
-4. Provide `read` (entity → form value) and `write` (form value → next
-   entity) adapters. If the form field doesn't map 1:1, set
-   `overridesPaths` to the entity-path strings the field "owns".
-5. Done. SchemaForm picks it up; tests in `inspectorSchema.test.ts` and
-   the Lane form's own tests will fail loudly if you missed a field.
+## 相关源码 / Source
 
-## Where to next
+- `src/components/layout/panels/SchemaForm.tsx:53-136` — 通用 schema-driven 表单
+- `src/components/layout/panels/InspectorForms.tsx:46-79` — `EntityForm` 路由
+- `src/components/layout/panels/InspectorForms/lane.tsx:32` — Lane 表单（薄壳）
+- `src/components/layout/panels/InspectorForms/overlap.tsx:65-157` — Overlap pin 控件
+- `src/components/layout/panels/InspectorForms/pncJunction.tsx:151-262` — passage groups
+- `src/components/layout/panels/InspectorForms/simpleForms.tsx` — 11 个简单实体的薄表单
+- `src/types/inspectorSchema.ts:263-435` — `LaneInspectorSchema`
+- `src/types/inspectorSchema.ts:444-540` — `formValuesFromEntity` / `diffFormAgainstEntity` / `shouldPersistForm` / `applyFormValuesToEntity`
+- `src/lib/schemas.ts` — zod 校验集合
+- `src/components/layout/panels/LaneRefList.tsx` — `LaneRef` / `LaneRefList`
 
-- [Layer tree](/guide/layer-tree) — selection feeds the Inspector.
-- [Map elements](/guide/map-elements) — full enumeration of every entity
-  type.
-- [Architecture / Schema-driven inspector](/architecture/inspector-schema)
-  — design rationale and migration status.
-- [Architecture / Derive engine](/architecture/derive-engine) — how
-  `_userOverrides` interact with auto-derived values.
+## Section 列表 / Section Glossary
+
+| Section 名            | 出现于                     | 含义                                                  |
+| --------------------- | -------------------------- | ----------------------------------------------------- |
+| Attributes            | 所有                       | 标量字段（type / turn / direction / speedLimit / id） |
+| Boundaries            | lane                       | 半宽 + 边界类型 + 长度                                |
+| Topology              | lane                       | 拓扑引用 (pred/succ/邻接/junction/overlap)            |
+| Geometry              | junction / parkingSpace 等 | 控制点 / 多边形顶点                                   |
+| Passage Groups        | pncJunction                | passage 嵌套树                                        |
+| Overlap               | overlap                    | 自身 ID + 个数统计                                    |
+| Participants          | overlap                    | objects[] 列表                                        |
+| Lane × Lane Semantics | overlap                    | is_merge 切换                                         |
+| Region Overlaps       | overlap                    | region polygon pin                                    |
+
+## Schema vs Custom 对比 / Schema vs Custom
+
+| 表单类型                       | 适用         | 优点             | 缺点                          |
+| ------------------------------ | ------------ | ---------------- | ----------------------------- |
+| SchemaForm (Lane / 待迁移其它) | 标量字段为主 | 数据驱动、零 JSX | 难以处理嵌套数组 / 自定义控件 |
+| Custom (Overlap / PNCJunction) | 非平凡控件   | 灵活             | 重复样板代码                  |
+| Simple (Junction / Signal 等)  | 极少字段     | 快上手           | 字段一多就要迁 SchemaForm     |
+| Drawing fallback               | 绘制中       | 显示而已         | 不可写                        |
+
+## 与 react-hook-form 的契约 / RHF Contract
+
+| 设置            | 值                                     | 必须保留？           |
+| --------------- | -------------------------------------- | -------------------- |
+| `mode`          | `'onChange'`                           | ✅ 必须；R1 回归依赖 |
+| `defaultValues` | `formValuesFromEntity(schema, entity)` | ✅                   |
+| `resolver`      | `zodResolverZ4(schema.validation)`     | ✅                   |
+| `keepDirty` etc | 默认                                   | 可改                 |
+
+## 相关文档 / See also
+
+- [Map Elements](./map-elements.md) — 14 类实体的字段语义
+- [Layer Tree](./layer-tree.md) — 通过 Layer Tree 选中实体
+- [Topology](./topology.md) — `predecessorIds` / `successorIds` 的拓扑含义
+- [Editing & Snapping](./editing-and-snapping.md) — 几何拖拽时 derive 与 override 的交互
+- [Settings](./settings.md) — `historyLimit` 影响撤销栈深度
+- [Drawing Lanes](./drawing-lanes.md) — 绘制中字段 default 来自哪里

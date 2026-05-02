@@ -1,322 +1,385 @@
-# State Management
+---
+title: 状态管理 (State Management)
+description: 七个 Zustand store、zundo 撤销中间件、partialize 与 R1 CANCEL 闭环
+---
 
-State is split across seven Zustand stores, with `zundo` undo middleware
-applied selectively to the entity store only. This page documents what
-each store owns, what is and isn't undoable, and the **R1 closure** that
-keeps the FSM and entity store consistent across undo/redo.
+# 状态管理
 
-## The seven stores
+应用状态被切成 **七个 Zustand store**，其中只有实体仓挂 `zundo` undo 中间件。本页
+分别讲解每个 store 的所有权边界、是否进入历史栈，以及在 mid-draw 撤销时保护 FSM
+状态一致性的 **R1 闭环**。
 
-| Store               | Owns                                                                             | Undoable?           | File                             |
-| ------------------- | -------------------------------------------------------------------------------- | ------------------- | -------------------------------- |
-| `mapStore`          | `Map<id, MapEntity>` of all editor entities                                      | yes (via zundo)     | `src/store/mapStore.ts`          |
-| `uiStore`           | grid/snap toggles, cursor, layer visibility, app mode, connect mode              | no — UX preferences | `src/store/uiStore.ts`           |
-| `settingsStore`     | `historyLimit`, `mapZoom`, `laneHalfWidth`, `mapCenter`, … (localStorage-backed) | no — user prefs     | `src/store/settingsStore.ts`     |
-| `licenseStore`      | mirror of Electron license state                                                 | no — IPC-driven     | `src/store/licenseStore.ts`      |
-| `apolloMapStore`    | imported Apollo `Map` header + bounds + import metadata                          | no — IO state       | `src/store/apolloMapStore.ts`    |
-| `projDialogStore`   | promise-resolver state for the PROJ picker                                       | no — UI dialog      | `src/store/projDialogStore.ts`   |
-| `taskProgressStore` | one currently-active long task (label, detail, progress)                         | no — telemetry      | `src/store/taskProgressStore.ts` |
+## 1. 设计目的与不变量
 
-## mapStore — the canonical entity store
+::: tip 设计目标
 
-`mapStore` is the single source of truth for editor content. Its state is a
-single field:
+- **业务参数与 UI 偏好分离**：什么应该被撤销 / 什么不该。
+- **撤销不破坏 FSM**：撤销 → CANCEL → temporal.undo() 的顺序不可逆。
+- **导入路径单事务**：避免逐 entity 把历史栈打爆。
+- **跨进程镜像**：licenseStore 是 main 进程状态的只读镜像。
+  :::
+
+::: warning 不变量 (审计点)
+
+- 仅 `mapStore` 的 `entities` 进 zundo 历史栈 (partialize)。
+- `mapStore` 全部 mutation 都经过一个 `set((state) => ...)` immer producer。
+- `mapStore.batchImport` 与 `replaceImportedEntityMap` 调用 `temporal.pause()` /
+  `temporal.clear()` 把导入排除在历史外。
+- `useActionDispatcher.ts:76-82` 在 undo / redo 之前发 `CANCEL` (R1 闭环)。
+  :::
+
+## 2. Store 总表
+
+| Store                  | 文件                                | 是否 undoable | 范围                                        |
+| ---------------------- | ----------------------------------- | ------------- | ------------------------------------------- |
+| `useMapStore`          | `src/store/mapStore.ts:86`          | ✅ (entities) | 实体仓 + 拓扑重算 + overlap reconcile       |
+| `useUIStore`           | `src/store/uiStore.ts:108`          | ❌            | 偏好；图层显隐；connect mode                |
+| `useSettingsStore`     | `src/store/settingsStore.ts:107`    | ❌            | history limit、map zoom、lane half-width 等 |
+| `useLicenseStore`      | `src/store/licenseStore.ts:36`      | ❌            | main 进程 license 镜像                      |
+| `useTaskProgressStore` | `src/store/taskProgressStore.ts:28` | ❌            | 单一 active task 进度                       |
+| `useProjDialogStore`   | `src/store/projDialogStore.ts:25`   | ❌            | PROJ.4 picker promise gate                  |
+| `useApolloMapStore`    | `src/store/apolloMapStore.ts:56`    | ❌            | 导入的 raw Apollo 元数据                    |
+
+## 3. 模块地图
+
+```mermaid
+graph TB
+  subgraph Hist[zundo 历史栈]
+    Entities[Map<string, MapEntity>]
+  end
+  MS[mapStore<br/>entities + actions] --> Hist
+  MS -->|reconcile| LT[laneTopology]
+  MS -->|reconcile| OL[overlap engine]
+  MS -->|cascade| Lib[lib/entityOps cascadeDeleteRefsFull]
+  US[uiStore]
+  SS[settingsStore<br/>readHistoryLimit] -.limit.-> Hist
+  LS[licenseStore] <-- IPC --> Main[Electron main]
+  TS[taskProgressStore] --> Overlay[TaskProgressOverlay]
+  PS[projDialogStore] --> Dialog[ProjPickerDialog]
+  AMS[apolloMapStore] --> StatusBar
+```
+
+## 4. mapStore 深入
+
+### 4.1 公共表面
 
 ```ts
-interface MapState {
-  entities: Map<string, MapEntity>;
+// mapStore.ts:33-63
+interface MapActions {
+  addEntity(entity: MapEntity): void;
+  updateEntity(id: string, entity: MapEntity): void;
+  removeEntity(id: string): void;
+  reparentEntity(childId: string, target: ParentTarget): ReparentResult;
+  batchImport(entities: MapEntity[]): void;
+  replaceImportedEntities(entities: MapEntity[]): void;
+  replaceImportedEntityMap(entities: Map<string, MapEntity>): void;
+  recomputeOverlapsAsync(): Promise<{...} | null>;
 }
 ```
 
-The store is wrapped in two middleware layers:
+### 4.2 zundo 配置
 
 ```ts
-// src/store/mapStore.ts:86-263 (abridged)
-useMapStore = create<MapStore>()(
-  temporal(            // zundo
-    immer((set, get) => ({
-      entities: new Map(),
-      addEntity, updateEntity, removeEntity,
-      reparentEntity, batchImport, replaceImportedEntityMap,
-      recomputeOverlapsAsync, ...
-    })),
-    {
-      partialize: (state) => ({ entities: state.entities }),
-      limit: readHistoryLimit(),
-    },
-  ),
+// mapStore.ts:259-263
+{
+  partialize: (state) => ({ entities: state.entities }),
+  limit: readHistoryLimit(),  // settingsStore 控制 (10–1000，默认 100)
+}
+```
+
+`partialize` 让 zundo 只追踪 `entities`；切换 connect mode、cursor 移动这些事件不会
+进历史。
+
+### 4.3 mutation 内部流水
+
+每条 mutation 在 `immer((set, get) => ...)` 内部执行三步：
+
+1. **写入主体**：`state.entities.set(id, entity)`
+2. **拓扑重算 (incremental)**：仅当 entityType ∈ {lane, junction}
+   (`topologyAffectingType`) 时触发 `reconcileLaneTopologyIncremental`
+3. **overlap 重算 (incremental)**：合并所有"脏 id"，调用 `reconcileOverlaps({ mode: 'incremental', dirtyIds })`
+
+这三步全部进 **同一** immer producer → **同一** zundo 快照 → R1 不破。
+
+### 4.4 batchImport：单事务多步
+
+```ts
+// mapStore.ts:184-198
+batchImport(entities) {
+  if (entities.length === 0) return;
+  set((state) => {
+    for (const e of entities) state.entities.set(e.id, e);
+    const { changes: topoChanges } = reconcileLaneTopology(state.entities);
+    for (const [cid, c] of topoChanges) state.entities.set(cid, c);
+    const patch = reconcileOverlaps(state.entities, { mode: 'full' });
+    for (const oid of patch.removedOverlapIds) state.entities.delete(oid);
+    for (const [oid, e] of patch.changes) state.entities.set(oid, e);
+  });
+}
+```
+
+::: tip 5 万实体导入约 450 ms
+完整 reconcile 耗时已被基准测试约束在 `bench-budgets.json` 中；超大图建议走 worker
+路径 `recomputeOverlapsAsync()`。
+:::
+
+### 4.5 replaceImportedEntityMap：暂停历史
+
+```ts
+// mapStore.ts:206-216
+replaceImportedEntityMap(entities) {
+  const temporal = useMapStore.temporal.getState();
+  temporal.pause();
+  try {
+    set({ entities });
+    temporal.clear();   // 清空历史栈
+  } finally {
+    temporal.resume();
+  }
+  resetSharedSpatialIndex();
+}
+```
+
+导入新地图时把历史完全清空 —— 撤销不应跨地图边界。
+
+### 4.6 removeEntity 的级联清理
+
+`removeEntity` 在删除前用 `getSharedSpatialIndex().queryBBox(bbox)` 收集空间邻居 lane
+(`mapStore.ts:147-158`)，再把 `cascadeDeleteRefsFull` 的 cleanups 写回。这是为了覆盖
+"几何邻居 lane 不持有被删 entity 的 overlapIds，但语义上需要重新评估 overlap" 这种
+情况。
+
+## 5. R1 闭环：撤销前先 CANCEL
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Hooks as useActionDispatcher
+  participant FSM as editorMachine
+  participant Store as mapStore.temporal
+  User->>Hooks: Ctrl+Z (mid-draw)
+  Hooks->>FSM: send({ type: 'CANCEL' })
+  Note over FSM: state → idle, drawPoints = []
+  Hooks->>Store: temporal.undo()
+  Store-->>Hooks: entities rolled back
+```
+
+::: danger 错误顺序
+如果先 `temporal.undo()` 再 `CANCEL`：FSM 还在 `drawPolyline` 状态，`drawPoints`
+仍然有 N 个点；下次 CONFIRM 会用旧 drawPoints 创建一个 entity，与已经撤销的状态错位。
+回归测试 `src/hooks/__tests__/undoCancel.test.ts`。
+:::
+
+## 6. uiStore 细节
+
+```ts
+// uiStore.ts:31-58
+interface UIState {
+  appMode: AppMode; // 'drawing' | 'scene'
+  gridEnabled: boolean;
+  snapEnabled: boolean;
+  layerStates: Record<string, LayerState>;
+  cursorLngLat: [number, number] | null;
+  currentZoom: number;
+  sidebarVisible: boolean;
+  currentSnapTarget: SnapTarget | null;
+  connectMode: { active: boolean; firstLaneId: string | null };
+}
+```
+
+::: warning setSnapTarget 的去抖
+`uiStore.ts:171-187` 显式比对 `prev` vs `target` —— 鼠标移动时若 snap target 没变，
+不更新 store。否则 overlay 层 subscribe 会每帧 re-render。
+:::
+
+## 7. settingsStore：localStorage 持久化
+
+```ts
+// settingsStore.ts:107-148
+```
+
+每次 setter 同步 `persist(KEY, value)`；初始值通过 `read*()` 函数从 localStorage
+读取并 clamp 到合法区间。`mapStore` 的 zundo `limit` 在 store 创建时 **一次性**
+读取 (`mapStore.ts:261`) —— 修改 historyLimit 不会动态影响已有 zundo 实例，需要
+重启或重新 hydrate。
+
+## 8. licenseStore：跨进程镜像
+
+```ts
+// licenseStore.ts:39-44
+async hydrate() {
+  const next = await licenseBridge.getState();
+  set({ state: next, initialized: true });
+}
+```
+
+通过 `useLicenseSync()` (在 `WorkspaceLayout.tsx:42` 调用) 注册 `licenseBridge.onChange`，
+每当 main 进程发出 `license-state-changed` IPC 消息时刷新本地 store。`canEdit` 选择器
+被 `lib/editable-guard.ts` 用于 mutation 拦截。
+
+## 9. taskProgressStore + projDialogStore + apolloMapStore
+
+### 9.1 taskProgressStore
+
+单 active task slot：导入 / 全量 overlap 重算等长任务广播进度。`visibleAfterMs` 默认
+1000 ms —— 短于此不弹 overlay，避免闪烁。
+
+### 9.2 projDialogStore
+
+Promise gate：`request()` 创建 pending Promise，UI 弹 dialog 后调用 `resolve()`。
+若已有 pending request，新调用会先 reject 旧的 (`null`)，避免堆栈式 dialog。
+
+### 9.3 apolloMapStore
+
+```ts
+// apolloMapStore.ts:33-43
+rawMap: Record<string, unknown> | null;
+header: ApolloMapHeader | null;
+bounds: ApolloMapBounds | null;
+info: ApolloMapImportInfo | null;
+lastError: string | null;
+```
+
+`rawMap` 仅在测试 / legacy 路径使用；浏览器导入路径让 `apolloIO.worker` 持有完整树，
+主线程只保存 lightweight metadata。
+
+## 10. 与 FSM / Worker 的交互
+
+```mermaid
+sequenceDiagram
+  participant FSM as editorMachine
+  participant Disp as useActionDispatcher
+  participant Map as mapStore
+  participant Cold as useColdLayer
+  participant W as spatial.worker
+  FSM-->>Disp: state idle (post-snapshot)
+  Disp->>Map: addEntity
+  Map->>Map: reconcileLaneTopologyIncremental
+  Map->>Map: reconcileOverlaps incremental
+  Map-->>Cold: entities updated
+  Cold->>W: SYNC_INCREMENTAL
+  W-->>Cold: COLD_DELTA
+```
+
+## 11. 常见陷阱
+
+::: danger 在 immer producer 之外修改 entities
+zundo 监听 `set` 调用；`useMapStore.setState({entities: ...})` 之外的修改不会进历史。
+:::
+
+::: danger 把非业务参数加进 partialize
+任何写进 partialize 的字段都会被记录每一步快照。把 cursorLngLat 之类 60Hz 字段加进去
+会在数秒内打爆 history limit。
+:::
+
+::: danger uiStore 直接持有 entity 引用
+uiStore 应该只存 ID 或纯标量。持有实体引用会让 React selector 命中错误的相等比较，
+出现"撤销后选中的 entity 仍是旧引用"问题。
+:::
+
+::: danger 在 React render 里调用 `temporal.undo()`
+`useActionDispatcher` 是事件回调里调用；render 期间调用会引发递归 setState。
+:::
+
+## 12. Source map (file:line refs)
+
+- `src/store/mapStore.ts:86-263` — 完整 store
+- `src/store/mapStore.ts:91-111` — `addEntity`
+- `src/store/mapStore.ts:113-134` — `updateEntity`
+- `src/store/mapStore.ts:136-182` — `removeEntity` 级联
+- `src/store/mapStore.ts:184-198` — `batchImport`
+- `src/store/mapStore.ts:200-216` — replace import
+- `src/store/mapStore.ts:236-257` — `recomputeOverlapsAsync`
+- `src/store/uiStore.ts:108-202` — UI store 全文
+- `src/store/settingsStore.ts:1-148`
+- `src/store/licenseStore.ts:36-54`
+- `src/store/taskProgressStore.ts:28-65`
+- `src/store/projDialogStore.ts:25-43`
+- `src/store/apolloMapStore.ts:56-86`
+- `src/hooks/useActionDispatcher.ts:76-82` — R1 CANCEL
+
+## 13. selector 模式与重渲染优化
+
+```ts
+// 推荐：单字段
+const entityCount = useMapStore((s) => s.entities.size);
+
+// 推荐：组合 selector + memoise (zustand 内置 shallow)
+const { ids, count } = useMapStore(
+  useShallow((s) => ({ ids: [...s.entities.keys()], count: s.entities.size })),
 );
 ```
 
-::: tip Read this in order
-
-1. `zundo` only snapshots the field returned by `partialize` —
-   the `entities` `Map`. Action references and derived caches are not in
-   the history.
-2. `immer`'s `enableMapSet()` is called once at module top
-   (`src/store/mapStore.ts:27`). Without it, `state.entities.set(...)` inside
-   a `set(producer)` block throws.
-3. The temporal `limit` is read once at store creation time from
-   `settingsStore`. Changing `historyLimit` from the settings panel does not
-   resize an existing history — it takes effect on next page load.
-   :::
-
-### What mutations actually do
-
-Every mutator runs three side-effects in a single `set()` block so the entire
-diff lands in a single zundo snapshot:
-
-```mermaid
-flowchart LR
-  Mutator["addEntity / updateEntity / removeEntity"]
-  EditGuard["assertEditable<br/>(license read-only check)"]
-  StateMutate["set(producer)"]
-  Topology["reconcileLaneTopology<br/>(pred / succ / junctionId)"]
-  Overlap["reconcileOverlaps<br/>(incremental diff)"]
-  Snapshot["zundo snapshot<br/>(single transaction)"]
-
-  Mutator --> EditGuard --> StateMutate
-  StateMutate --> Topology --> Overlap --> Snapshot
-```
-
-`addEntity` (`src/store/mapStore.ts:91-111`):
-
-1. Guard via `assertEditable` (license check).
-2. Insert the new entity into `state.entities`.
-3. If lane/junction-affecting, run `reconcileLaneTopologyIncremental` and
-   merge its FK rewrites into the dirty set.
-4. `applyOverlapPatch` runs an incremental overlap reconcile keyed on the
-   dirty set.
-
-All three operations land in one immer producer, so undo replays them as a
-single step.
-
-### Why entities is a `Map`, not a record
-
-The `Map` choice is load-bearing for two reasons:
-
-1. **Stable identity per id.** Adding or updating an entity does not change
-   the `Map` reference for sibling entities; only the inner record changes.
-   `useColdLayer` and `useHotLayer` exploit this with `prevEntity !== nextEntity`
-   identity checks (see `src/hooks/useColdLayer.ts:121-144` `diffEntities`).
-2. **O(1) `delete`.** A `Record<string, T>` mutation under immer would deep
-   copy the surrounding object on every removal. With `Map`, immer (with
-   `enableMapSet()`) tracks structural changes per-key.
-
-The downside is `Map` doesn't serialise to JSON natively. The
-`replaceImportedEntityMap` action (`mapStore.ts:206-216`) handles import
-restoration without going through JSON.
-
-### batchImport — the bulk path
-
-`batchImport(entities)` (`src/store/mapStore.ts:184-198`) writes all entities,
-then runs **one** topology reconcile and **one** full overlap reconcile —
-deliberately bypassing the per-entity incremental path. This avoids both
-N zundo snapshots and N incremental reconciles, which would amortise to
-quadratic time on a 50k-entity import.
-
-For very large maps, callers should prefer `recomputeOverlapsAsync`
-(`mapStore.ts:236-257`), which offloads to the overlap worker — see
-[Worker Protocol](./worker-protocol.md).
-
-## uiStore — view preferences
-
-`src/store/uiStore.ts:108-202` holds preferences and ephemeral UI state:
-
-| Key                           | Type                                      | Notes                                   |
-| ----------------------------- | ----------------------------------------- | --------------------------------------- |
-| `appMode`                     | `'drawing' \| 'scene'`                    | Switches Dockview default layout        |
-| `gridEnabled` / `snapEnabled` | `boolean`                                 | Toolbar toggles                         |
-| `layerStates`                 | `Record<entityType, { visible, locked }>` | One entry per `MapEntity['entityType']` |
-| `cursorLngLat`                | `[number, number] \| null`                | Status bar readout                      |
-| `currentZoom`                 | `number`                                  | Status bar + grid spacing               |
-| `connectMode`                 | `{ active, firstLaneId }`                 | Connect-lanes mode                      |
-| `currentSnapTarget`           | `SnapTarget \| null`                      | Live during drag                        |
-
-::: warning Why uiStore is NOT undoable
-Toggling the grid is not a "creative" operation a user would want to undo.
-Including it in the temporal history would also bloat snapshot count
-substantially during normal editing. Same reasoning for layer visibility.
+::: warning 不要返回 Map 引用本身
+`useMapStore(s => s.entities)` 每次 mutation 都会 re-render，因为 immer 给 Map 装上
+新代理。组件应当 select 具体字段或 ID 数组。
 :::
 
-`setSnapTarget` deliberately deduplicates identity changes
-(`uiStore.ts:171-186`) because the overlay layer subscribes to it and
-recomputing on every mousemove would cause render storms.
+## 14. zundo actor API 在 dispatcher 中的用法
 
-## settingsStore — persisted preferences
+```ts
+// useActionDispatcher.ts (节选)
+const temporal = useMapStore.temporal.getState();
+// 撤销：
+actorRef.send({ type: 'CANCEL' }); // R1 闭环
+temporal.undo();
+// 重做：
+actorRef.send({ type: 'CANCEL' });
+temporal.redo();
+```
 
-`settingsStore` writes to `localStorage` on every setter and reads on store
-creation (`src/store/settingsStore.ts:35-115`):
+`useMapStore.temporal` 是 zundo 注入的 vanilla store；可以在 React 树外读 / 调用，
+天然适配键盘 handler 的 useEffect 全局监听器。
 
-| Key                             | localStorage                     | Range                |
-| ------------------------------- | -------------------------------- | -------------------- |
-| `historyLimit`                  | `apollo-map-studio:historyLimit` | 10–1000, default 100 |
-| `mapCenterLng` / `mapCenterLat` | `…:mapCenterLng/Lat`             | -180..180 / -90..90  |
-| `mapZoom`                       | `…:mapZoom`                      | 1–22                 |
-| `laneHalfWidth`                 | `…:laneHalfWidth`                | 0.5–10 m             |
-| `laneArrowSpacing`              | `…:laneArrowSpacing`             | 40–500 m             |
+## 15. 多 store 协同的最小示例：Connect Lanes
 
-The setters clamp to the documented range — there is no path to write
-out-of-range values to disk.
+1. 用户按 `C`，`useActionDispatcher` 调 `useUIStore.toggleConnectMode()`。
+2. `connectMode.active = true`，map 进入"等待第一次 lane 点击"。
+3. 第一次点击：`uiStore.setConnectFirstLane(id)`。
+4. 第二次点击：调 `mapStore.connectLanes(firstId, secondId)` (修改 lane.predecessor /
+   successor)，再 `uiStore.exitConnectMode()`。
+5. 一次完整流程命中 `uiStore` 两次 + `mapStore` 一次。zundo 历史只见 `mapStore` 那次。
 
-::: info Why localStorage and not zustand-persist?
-Two reasons. (1) The persistent fields are scalars with explicit clamping
-ranges; the standard middleware would persist whatever the in-memory shape
-happens to be, including arrays/maps. (2) `historyLimit` needs to be readable
-_before_ `mapStore` is created — see the `readHistoryLimit()` call in the
-zundo `limit` option. A persist middleware would race that.
+## 16. 单元测试模式
+
+```ts
+// store/__tests__/mapStore.test.ts
+import { useMapStore } from '@/store/mapStore';
+
+beforeEach(() => {
+  useMapStore.setState({ entities: new Map() });
+  useMapStore.temporal.getState().clear();
+});
+
+test('addEntity creates one history entry', () => {
+  useMapStore.getState().addEntity(makeFakeLane('lane_1'));
+  expect(useMapStore.temporal.getState().pastStates.length).toBe(1);
+});
+```
+
+::: tip 测试隔离
+每个测试用 `setState` + `temporal.clear()` 重置。不要在 vitest 全局 beforeEach
+里做这件事 —— 会把别的 store 也意外 reset。
 :::
 
-## licenseStore — IPC mirror
+## 17. SettingsStore 持久化策略
 
-`licenseStore` is the renderer-side mirror of the Electron main process
-license state. It hydrates once at app boot and re-hydrates on `onChange`
-push notifications from the main process.
+| 字段             | localStorage key                     | 区间      | 默认                        |
+| ---------------- | ------------------------------------ | --------- | --------------------------- |
+| historyLimit     | `apollo-map-studio:historyLimit`     | 10–1000   | 100                         |
+| mapCenterLng     | `apollo-map-studio:mapCenterLng`     | -180–180  | `MAP_DEFAULT_CENTER[0]`     |
+| mapCenterLat     | `apollo-map-studio:mapCenterLat`     | -90–90    | `MAP_DEFAULT_CENTER[1]`     |
+| mapZoom          | `apollo-map-studio:mapZoom`          | 1–22      | `MAP_DEFAULT_ZOOM`          |
+| laneHalfWidth    | `apollo-map-studio:laneHalfWidth`    | 0.5–10 m  | `DEFAULT_LANE_HALF_WIDTH`   |
+| laneArrowSpacing | `apollo-map-studio:laneArrowSpacing` | 40–500 px | `LANE_ARROW_SYMBOL_SPACING` |
 
-```ts
-// src/store/licenseStore.ts:36-54 (abridged)
-useLicenseStore = create<LicenseStoreState>((set, get) => ({
-  state: initial, // permissive trial fallback
-  initialized: false,
-  async hydrate() {
-    const next = await licenseBridge.getState();
-    set({ state: next, initialized: true });
-  },
-  setState(s) {
-    set({ state: s, initialized: true });
-  },
-  promptActivation: () => {
-    /* replaced by ActivationDialog */
-  },
-  registerPromptActivation(fn) {
-    set({ promptActivation: fn });
-  },
-}));
-```
+`readNum(key, fallback, min, max)` 是统一的读出 + clamp + fallback 助手
+(`settingsStore.ts:35-46`)，避免每个字段重复"localStorage / Number / clamp"流程。
 
-Editing actions consult `state.canEdit` via the `assertEditable` helper
-(`src/lib/editable-guard.ts`). When `canEdit` is false, the helper opens
-the activation dialog (rate-limited to once per 5 s) and the action no-ops.
-See [License System](./license-system.md).
+## 18. See also
 
-## apolloMapStore — IO context
-
-Stores everything the Apollo IO worker passes back from a successful import:
-header metadata, WGS84 bounds, the projection string, per-entity counts,
-and any error messages. Distinct from `mapStore` because the imported
-proto tree contains fields the editor doesn't surface yet — round-trip
-fidelity demands keeping that data alive separately from the editable
-entity map.
-
-## projDialogStore — promise-resolver dialog
-
-`projDialogStore` is the only store that owns a `Promise` resolver. The
-flow is:
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant IO as mapIO.ts
-  participant Store as projDialogStore
-  participant Dialog as ProjPickerDialog
-
-  IO->>Store: request()
-  Store->>Store: pending = true, resolver = saved
-  Note over Store,Dialog: WorkspaceLayout reads `pending` and<br/>renders the dialog
-  Dialog->>Dialog: user picks PROJ string / cancels
-  Dialog->>Store: resolve(projString | null)
-  Store-->>IO: Promise resolves
-  IO->>IO: continue with PROJ string
-```
-
-Stacked dialogs are rejected: a second `request()` while the first is
-pending resolves the previous one with `null` first
-(`src/store/projDialogStore.ts:29-36`).
-
-## taskProgressStore — single active task
-
-`taskProgressStore` holds a single `activeTask` slot used by the import,
-overlap recompute, and large cold-layer renders. Tasks declare a
-`visibleAfterMs` so quick tasks never flash UI. The `TaskProgressOverlay`
-component reads from this store.
-
-## R1 — the FSM/undo closure
-
-::: danger Critical invariant
-The undo dispatcher must send `CANCEL` to the FSM **before** invoking
-`temporal.undo()`. Without this, mid-draw Ctrl+Z leaves FSM `drawPoints`
-stale while `mapStore.entities` rolls back, corrupting the next CONFIRM.
-
-Source: `src/hooks/useActionDispatcher.ts:104-110`.
-:::
-
-```ts
-// src/hooks/useActionDispatcher.ts:104-110
-const historyWithCancel = (op: 'undo' | 'redo') => {
-  actorRef.send({ type: 'CANCEL' });
-  if (op === 'undo') useMapStore.temporal.getState().undo();
-  else useMapStore.temporal.getState().redo();
-};
-map.set('undo', () => historyWithCancel('undo'));
-map.set('redo', () => historyWithCancel('redo'));
-```
-
-The `CANCEL` event is no-op-safe in every FSM state:
-
-| FSM state      | What CANCEL does                                           |
-| -------------- | ---------------------------------------------------------- |
-| `idle`         | nothing (no transition defined; XState 5 silently ignores) |
-| any `draw*`    | transitions to `idle` and runs `resetDraw` action          |
-| `selected`     | transitions to `idle` and runs `deselectEntity` action     |
-| `editingPoint` | transitions to `selected` and clears drag state            |
-
-So after `CANCEL`, the FSM is guaranteed to hold no entity-id references
-that the upcoming `temporal.undo()` could invalidate.
-
-The regression test lives at `src/hooks/__tests__/undoCancel.test.ts`.
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant User
-  participant Dispatcher as useActionDispatcher
-  participant FSM as editorMachine
-  participant Store as mapStore (temporal)
-
-  User->>Dispatcher: Ctrl+Z (mid-draw)
-  Dispatcher->>FSM: send(CANCEL)
-  FSM-->>FSM: drawPolyline → idle (resetDraw)
-  Dispatcher->>Store: temporal.undo()
-  Store-->>Store: rollback entities
-  Note over FSM,Store: FSM holds no stale ids; next event is safe
-```
-
-This is **risk R1** in the architecture audit; it is closed.
-
-## Anti-pattern: stale closures in MapLibre handlers
-
-MapLibre event handlers register once during map init. Reading store state
-through a React hook inside the handler captures the value at registration
-time — every later edit looks at stale state.
-
-The codebase uses `getState()` to dodge this:
-
-```ts
-// inside a maplibre 'click' handler registered in useEffect:
-const { gridEnabled } = useUIStore.getState();
-const { entities } = useMapStore.getState();
-```
-
-This pattern shows up in `src/hooks/mapEventRouter/*.ts`. It is intentional —
-the handler shouldn't re-register on every render, and `getState()` always
-returns fresh values.
-
-## Cross-references
-
-- [FSM Design](./fsm-design.md) — the editor machine and its CANCEL semantics.
-- [Action Registry](./action-registry.md) — the dispatcher that issues
-  `temporal.undo()` and `CANCEL`.
-- [License System](./license-system.md) — how `assertEditable` plumbs through
-  every mutator.
-- [Cold/Hot Layers](./cold-hot-layers.md) — the consumer of `mapStore.entities`
-  diffing.
+- [架构总览](./overview.md)
+- [Action Registry](./action-registry.md) — undo / redo 的入口
+- [FSM 设计](./fsm-design.md) — CANCEL 的语义
+- [entityOps 模块](./entityops.md) — cascadeDeleteRefs / reparent
+- [反腐败层](./anti-corruption-layer.md)

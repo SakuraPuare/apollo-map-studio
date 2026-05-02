@@ -1,32 +1,60 @@
-# `types/entities`
+---
+title: types/entities — MapEntity union 与绘图原语类型
+description: GeoPoint / 6 种绘图原语 / Apollo 实体 re-export / MapEntity 主 union；编辑器内部唯一类型来源。
+---
 
-> Source: [`src/types/entities.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/src/types/entities.ts)
+# `types/entities` — MapEntity union 与绘图原语类型
 
-The proto-agnostic editor model. `MapEntity` is the discriminated union
-that the entire UI layer consumes; it extends [`ApolloEntity`](/api/types/apollo)
-with the editor's six drawing primitives (`polyline`, `catmullRom`,
-`bezier`, `arc`, `rect`, `polygon`).
+> 源码：`src/types/entities.ts` · 126 行
 
-> **Layering rule.** Components, hooks, and stores import `MapEntity`
-> and the entityType discriminants from this file. Direct imports of
-> `ApolloEntity` from `@/types/apollo` outside of `entityOps`,
-> `entityBridge`, and the inspector schema are an R2 leak — see
-> [Architecture overview](/architecture/overview).
+## 用途
 
-## Module surface (verbatim)
+`types/entities` 是编辑器内部 **唯一** 的实体类型出口。它做三件事：
+
+1. 定义 6 种绘图原语（FSM 中正在画的临时形状）
+2. Re-export 来自 `types/apollo.ts` 的 Apollo HD Map 类型
+3. 联合两者得到主 union `MapEntity`
+
+`MapEntity` 是 `mapStore.entities` 的元素类型，也是 `entityOps`、`geoJsonHelpers`、`useHotLayer` 等所有"操作实体"模块的输入类型。
+
+## 公共 API
+
+| 符号                                                                                                  | 类型                        | 摘要                                       |
+| ----------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| `GeoPoint`                                                                                            | interface                   | `{ x: lng, y: lat, z? }`                   |
+| `BezierAnchorData`                                                                                    | interface                   | 持久态贝塞尔锚点                           |
+| `PolylineEntity` / `CatmullRomEntity` / `BezierEntity` / `ArcEntity` / `RectEntity` / `PolygonEntity` | interface                   | 6 种绘图原语                               |
+| `DrawingEntity`                                                                                       | union                       | 6 种原语的 union                           |
+| `MapEntity`                                                                                           | union                       | `DrawingEntity \| ApolloEntity`            |
+| `PointENU`                                                                                            | type alias **(deprecated)** | `GeoPoint` 别名                            |
+| Apollo 类型 re-export                                                                                 | type                        | 从 `./apollo` 拉的全部 Apollo 类型（见下） |
+
+## 详细条目
+
+### `interface GeoPoint`
 
 ```ts
-/** 经纬度点 (WGS84) */
 export interface GeoPoint {
   x: number; // longitude
   y: number; // latitude
   z?: number;
 }
+```
 
+**编辑器全程使用 WGS84 经纬度**——`x` 是经度（可为负，-180 ~ 180），`y` 是纬度（-90 ~ 90），`z` 仅在保留高程数据的场景使用，UI 一般忽略。
+
+### `type PointENU` _(deprecated)_
+
+```ts
 /** @deprecated 使用 GeoPoint */
 export type PointENU = GeoPoint;
+```
 
-/** 贝塞尔锚点（存储用） */
+历史命名兼容——Apollo proto 名字叫 ENU，但编辑器实际上是 lng/lat。新代码直接用 `GeoPoint`。
+
+### `interface BezierAnchorData`
+
+```ts
 export interface BezierAnchorData {
   point: PointENU;
   handleIn: PointENU | null;
@@ -34,38 +62,29 @@ export interface BezierAnchorData {
 }
 ```
 
-`PointENU` is preserved here only as a back-compat alias for code
-written before the rename to `GeoPoint`. New code should import
-`GeoPoint`.
+**持久态** 贝塞尔锚点——`null` 表示该侧无控制柄（端点 / 角点）。runtime 形态在 `core/geometry/interpolate` 的 `BezierAnchor`，转换函数在 `core/geometry/anchorConvert`。
 
-`BezierAnchorData` is the storage shape — `null` handles mean the
-adjacent segment is straight rather than curved.
-
-## Drawing primitives
+### 6 种绘图原语
 
 ```ts
-/** 多段线实体 */
 export interface PolylineEntity {
   id: string;
   entityType: 'polyline';
   points: PointENU[];
 }
 
-/** Catmull-Rom 样条实体 */
 export interface CatmullRomEntity {
   id: string;
   entityType: 'catmullRom';
   points: PointENU[];
 }
 
-/** 贝塞尔曲线实体 */
 export interface BezierEntity {
   id: string;
   entityType: 'bezier';
   anchors: BezierAnchorData[];
 }
 
-/** 圆弧实体（三点定弧） */
 export interface ArcEntity {
   id: string;
   entityType: 'arc';
@@ -74,16 +93,14 @@ export interface ArcEntity {
   end: PointENU;
 }
 
-/** 可旋转矩形实体（两对角点 + 旋转角度） */
 export interface RectEntity {
   id: string;
   entityType: 'rect';
-  p1: PointENU; // 对角点1
-  p2: PointENU; // 对角点2
-  rotation: number; // 绕中心旋转角度（弧度）
+  p1: PointENU;
+  p2: PointENU;
+  rotation: number; // 绕中心，弧度
 }
 
-/** 多边形实体 */
 export interface PolygonEntity {
   id: string;
   entityType: 'polygon';
@@ -91,23 +108,27 @@ export interface PolygonEntity {
 }
 ```
 
-| `entityType` literal | Variant            | Storage shape                    | Default tool      |
-| -------------------- | ------------------ | -------------------------------- | ----------------- |
-| `'polyline'`         | `PolylineEntity`   | `points: PointENU[]`             | `drawPolyline`    |
-| `'catmullRom'`       | `CatmullRomEntity` | `points: PointENU[]`             | `drawCatmullRom`  |
-| `'bezier'`           | `BezierEntity`     | `anchors: BezierAnchorData[]`    | `drawBezier`      |
-| `'arc'`              | `ArcEntity`        | `start`, `mid`, `end: PointENU`  | `drawArc`         |
-| `'rect'`             | `RectEntity`       | `p1`, `p2: PointENU`, `rotation` | `drawRotatedRect` |
-| `'polygon'`          | `PolygonEntity`    | `points: PointENU[]`             | `drawPolygon`     |
+设计要点：
 
-These primitives exist because the FSM needs an addressable shape for
-mid-draw state. Once a draw FSM state exits to `idle`,
-`useDrawCommit` converts the primitive into the appropriate Apollo
-entity (e.g. a `BezierEntity` becomes a `LaneEntity` with the
-`anchors` stashed in `_source`) and replaces the in-flight primitive
-in the store.
+- 每个原语都有 `id` —— 进入 `mapStore.entities` 后用 id 寻址（即使是 mid-draw 临时实体）
+- `entityType` 是字面量类型 —— TS 自动 narrow union
+- 字段命名与 Apollo 实体故意 _不_ 冲突——`points` 用于 polyline / polygon / catmull-rom，但 `LaneEntity` 的几何字段叫 `centralCurve`、`leftBoundary` 等，绝无重叠
 
-## Apollo re-exports
+### `type DrawingEntity`
+
+```ts
+export type DrawingEntity =
+  | PolylineEntity
+  | CatmullRomEntity
+  | BezierEntity
+  | ArcEntity
+  | RectEntity
+  | PolygonEntity;
+```
+
+被 `entityOps/typeGuards.ts` 的 `isDrawingEntity` 守卫识别（基于 `DRAWING_TYPES` set）。
+
+### Apollo re-export
 
 ```ts
 export type {
@@ -158,90 +179,82 @@ export type {
 } from './apollo';
 ```
 
-The re-export list is the public Apollo API for non-bridge callers.
-Importing any of these names through `@/types/entities` (rather than
-`@/types/apollo` directly) keeps UI files compatible with future
-[ACL hardening](/architecture/overview) — the import surface narrows
-without code churn.
+**单一入口** —— UI 应该从 `@/types/entities` import 所有类型（包括 Apollo 类型），而不是直接 `@/types/apollo`。这样未来如果重构 Apollo 类型的导出名 / 拆分文件，只需要修这一处。
 
-## Drawing union
+### `type MapEntity` —— 主 union
 
 ```ts
 import type { ApolloEntity } from './apollo';
 
-/** Drawing primitive entity types (geometry tools) */
-export type DrawingEntity =
-  | PolylineEntity
-  | CatmullRomEntity
-  | BezierEntity
-  | ArcEntity
-  | RectEntity
-  | PolygonEntity;
-```
-
-## `MapEntity` — the editor entity
-
-```ts
-/** All editable entity types — drawing primitives + Apollo HD map elements */
 export type MapEntity = DrawingEntity | ApolloEntity;
 ```
 
-`MapEntity` is the **only** entity type the UI layer should reference.
-`mapStore.entities` is `Map<string, MapEntity>`; the FSM speaks
-`MapEntity`; `entityOps` operates on `MapEntity`.
+`mapStore.entities` 的 value 类型。
 
-### Discrimination patterns
+#### 在 narrow 中的使用
 
 ```ts
-function isApollo(entity: MapEntity): entity is ApolloEntity {
-  return (
-    entity.entityType !== 'polyline' &&
-    entity.entityType !== 'catmullRom' &&
-    entity.entityType !== 'bezier' &&
-    entity.entityType !== 'arc' &&
-    entity.entityType !== 'rect' &&
-    entity.entityType !== 'polygon'
-  );
-}
-
-function isLane(entity: MapEntity): entity is LaneEntity {
-  return entity.entityType === 'lane';
+function describe(e: MapEntity) {
+  switch (e.entityType) {
+    case 'polyline':
+      return `Polyline with ${e.points.length} points`;
+    case 'lane':
+      return `Lane ${e.id} length=${e.length ?? '?'}m`;
+    case 'rect':
+      return `Rect rotation=${e.rotation.toFixed(2)}rad`;
+    // ... TS 强制穷举（exhaustiveness check）
+  }
 }
 ```
 
-Prefer narrow `entityType === 'lane'` checks over the broad
-`isApollo` form when only one variant is needed; the narrow form keeps
-the type-system inference per-variant rather than collapsing to
-`ApolloEntity`.
+字面量 `entityType` 的判别 union 让 TS 在 switch 里自动 narrow 到具体子类型，访问 `e.points` / `e.length` / `e.rotation` 都不需要 cast。
 
-### Geometry vs Apollo invariant
+### `entityType` 总枚举
 
-A `MapEntity` is in exactly one of two phases:
+绘图：`polyline | catmullRom | bezier | arc | rect | polygon`
 
-1. **Drawing primitive** (`entityType` ∈ `{polyline, catmullRom, bezier,
-arc, rect, polygon}`) — the FSM is mid-draw, the entity has no
-   Apollo semantics, and serialisation skips it.
-2. **Apollo entity** (any other `entityType`) — committed, drives the
-   cold layer, exports through the bridge.
+Apollo：`lane | junction | parkingSpace | parkingLot | signal | crosswalk | stopSign | speedBump | yieldSign | clearArea | road | overlap | pncJunction | barrierGate | rsu | area | speedControl`
 
-The transition is one-way: `useDrawCommit` replaces the primitive with
-the Apollo variant on FSM `CONFIRM` / `DOUBLE_CLICK`. Going the other
-way (Apollo → primitive) is not a supported operation; editing an
-existing Apollo entity uses its `_source` / `_sourceRect` to recreate
-the original handles.
+共 23 种。FSM `editorMachine.ts` 的 draw 状态、`idGenerator` 的 prefix 表都基于这一组字面量。
 
-## See also
+## 副作用
 
-- [`types/apollo`](/api/types/apollo) — Apollo proto-mirror types
-- [`types/editor`](/api/types/editor) — `DragPointType` and adjacent
-  runtime surface
-- [`types/inspectorSchema`](/api/types/inspector-schema) — schema
-  descriptors that consume `MapEntity`
-- [`entityOps`](/api/lib/entity-ops) — adapter that hides `ApolloEntity`
-  internals from UI callers
-- [Architecture overview](/architecture/overview) — anti-corruption
-  layer (R2) and undo CANCEL closure (R1)
-- `src/core/fsm/editorMachine.ts` — drawing FSM that produces /
-  consumes `DrawingEntity`
-- `src/store/mapStore.ts` — Zustand store typed over
-  `Map<string, MapEntity>`
+无 —— 纯类型文件。
+
+## 测试覆盖
+
+无独立测试；类型契约由 TypeScript 编译期保证。
+
+## 调用方
+
+几乎所有非 proto-direct 模块：
+
+- `src/store/mapStore.ts` — entities Map 元素
+- `src/lib/entityOps/*.ts` — 输入类型
+- `src/lib/geoJsonHelpers.ts` — `entityToHotFeatures(entity: MapEntity)`
+- `src/hooks/useDrawCommit.ts` — FSM CONFIRM 创建 entity
+- 所有 Inspector form
+
+## 源码索引
+
+| 行      | 内容                    |
+| ------- | ----------------------- |
+| 1–6     | `GeoPoint` / `PointENU` |
+| 11–16   | `BezierAnchorData`      |
+| 18–22   | `PolylineEntity`        |
+| 24–30   | `CatmullRomEntity`      |
+| 32–37   | `BezierEntity`          |
+| 39–46   | `ArcEntity`             |
+| 48–55   | `RectEntity`            |
+| 57–62   | `PolygonEntity`         |
+| 65–111  | Apollo re-export        |
+| 113     | `import ApolloEntity`   |
+| 116–122 | `DrawingEntity`         |
+| 125     | `MapEntity`             |
+
+## 参见
+
+- [`apollo`](./apollo.md) —— Apollo proto 类型源
+- [`editor`](./editor.md) —— `DragPointType`
+- [`entityOps`](../lib/entity-ops.md) —— `MapEntity` 的核心操作
+- `core/fsm/editorMachine.ts` —— 绘图原语对应的 FSM 状态

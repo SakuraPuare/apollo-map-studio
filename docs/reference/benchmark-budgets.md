@@ -1,164 +1,261 @@
-# Benchmark Budgets
+---
+title: 性能预算
+description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与衡量目标的逐条参考。
+---
 
-CI guards performance regressions in core geometry / spatial primitives
-by comparing measured `p99` latencies against hardcoded ceilings in
-`scripts/bench-budgets.json`. The check is the last step of the
-[`check` job](/reference/ci-pipeline#typecheck-test) on every push and
-pull request.
+# 性能预算
 
-## How the gate runs
+本页是 `scripts/bench-budgets.json` 的逐条解读，外加 `scripts/check-bench-budget.mjs`
+的逻辑摘要。CI 在 `pnpm bench` 之后调用守卫脚本，把每条 bench 的 p99 与本表
+比对，超出即 `exit 1`。
+
+::: tip 数值含义
+
+- **p99**：100 次采样后第 99 百分位耗时（毫秒）。比 mean 更鲁棒地反映尾延迟。
+- **预算 ≠ 目标**：预算是「不能更慢」的硬上限，留有 ~1.5x 的 GitHub Actions runner 抖动
+  buffer，本地 mean 通常远低于预算。
+  :::
+
+## 文件位置
+
+| 路径                             | 作用                                                           |
+| -------------------------------- | -------------------------------------------------------------- |
+| `scripts/bench-budgets.json`     | 预算表，本页源头                                               |
+| `scripts/check-bench-budget.mjs` | CI 校验脚本                                                    |
+| `bench-results.json`             | `pnpm bench --outputJson bench-results.json` 输出，CI 临时文件 |
+
+## 校验流程
+
+```mermaid
+flowchart LR
+  A[pnpm bench] --> B[bench-results.json]
+  B --> C[check-bench-budget.mjs]
+  C --> D{每条 bench<br/>p99 ≤ 预算?}
+  D -- 是 --> E[exit 0 PASS]
+  D -- 否 --> F[exit 1 FAIL]
+  D -- 未在预算表 --> G[passthrough]
+```
+
+## 当前预算（`scripts/bench-budgets.json`）
+
+```json
+{
+  "10-point polyline, 3.5m offset": { "p99Ms": 1 },
+  "100-point polyline, 3.5m offset": { "p99Ms": 3 },
+  "1000-point polyline, 3.5m offset": { "p99Ms": 40 },
+  "full stitch — 10-lane linear chain": { "p99Ms": 3 },
+  "full stitch — 100-lane linear chain": { "p99Ms": 6 },
+  "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
+  "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
+  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 }
+}
+```
+
+## Bench 命名约定
+
+::: tip 命名规范
+
+- **必须以衡量对象开头**：`<algorithm> — <input description>`，例如 `full stitch — 100-lane chain`。
+- **数字直接出现**：避免 vague 的 small/medium/large；写 `100-lane` 才便于扫表。
+- **使用 em-dash（—）作为分隔符**：与现有 budgets 保持一致，便于复制粘贴。
+- **必须与 `bench-budgets.json` 完全一致**：脚本按字符串精确匹配。
+  :::
+
+## Bench 详解
+
+### `10-point polyline, 3.5m offset`
+
+| 项目     | 值                                                            |
+| -------- | ------------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:27`      |
+| p99 上限 | **1 ms**                                                      |
+| 衡量对象 | 偏移多段线核心算法在 10 点输入下的耗时                        |
+| 衡量目标 | 保证短 polyline 偏移在「亚毫秒级」以支持 hot layer 60fps 拖拽 |
+
+### `100-point polyline, 3.5m offset`
+
+| 项目     | 值                                                       |
+| -------- | -------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:31` |
+| p99 上限 | **3 ms**                                                 |
+| 衡量对象 | 100 点 polyline 偏移                                     |
+| 衡量目标 | 中等长度 lane（典型 100 点）偏移耗时上限                 |
+
+### `1000-point polyline, 3.5m offset`
+
+| 项目     | 值                                                       |
+| -------- | -------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:35` |
+| p99 上限 | **40 ms**                                                |
+| 衡量对象 | 1000 点 polyline 偏移                                    |
+| 衡量目标 | 极端长 lane 容忍上限；超过 40ms 必须切异步 / 抽样        |
+
+### `full stitch — 10-lane linear chain`
+
+| 项目     | 值                                                      |
+| -------- | ------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:73` |
+| p99 上限 | **3 ms**                                                |
+| 衡量对象 | 10 lane 线性链全量缝合                                  |
+| 衡量目标 | 小图全量重建保留交互级响应                              |
+
+### `full stitch — 100-lane linear chain`
+
+| 项目     | 值                                                      |
+| -------- | ------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:77` |
+| p99 上限 | **6 ms**                                                |
+| 衡量对象 | 100 lane 线性链全量缝合                                 |
+| 衡量目标 | 中等规模地图导入或大批量编辑全量重建上限                |
+
+### `full stitch — 100 lanes / 50 isolated junctions`
+
+| 项目     | 值                                                      |
+| -------- | ------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:81` |
+| p99 上限 | **6 ms**                                                |
+| 衡量对象 | 100 lane 配 50 个孤立 junction                          |
+| 衡量目标 | 多 junction 对全量缝合 cost 不应有明显放大              |
+
+### `incremental — 100-lane chain, 1 lane decorated`
+
+| 项目     | 值                                                                 |
+| -------- | ------------------------------------------------------------------ |
+| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:92`            |
+| p99 上限 | **5 ms**                                                           |
+| 衡量对象 | 100 lane 链上单 lane 增量装饰（Phase E）                           |
+| 衡量目标 | 单 lane 编辑应远低于 full stitch；触顶意味着 dependency graph 失效 |
+
+### `incremental — 100-lane chain, 3 lanes decorated`
+
+| 项目     | 值                                                      |
+| -------- | ------------------------------------------------------- |
+| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:96` |
+| p99 上限 | **5 ms**                                                |
+| 衡量对象 | 100 lane 链上 3 lane 同时增量装饰                       |
+| 衡量目标 | 多 lane batch 增量耗时近似线性                          |
+
+## `check-bench-budget.mjs` 行为速览
+
+```js
+// scripts/check-bench-budget.mjs:35-50
+function collectBenches(report) {
+  // 递归遍历 vitest --outputJson 树，收集
+  // { name: string, p99Ms: number } 叶子。
+}
+// scripts/check-bench-budget.mjs:60-80
+for (const bench of benches) {
+  const budget = budgets[bench.name];
+  if (!budget) {
+    unbudgeted.push(bench);    // passthrough：未配置预算的不报错
+    continue;
+  }
+  if (bench.p99Ms > budget.p99Ms) {
+    violations.push(...);      // 超出预算 → exit 1
+  } else {
+    passed.push(...);
+  }
+}
+```
+
+输出三块：
+
+| 块                                 | 含义                         |
+| ---------------------------------- | ---------------------------- |
+| `PASS:`                            | 命中预算且未超               |
+| `No budget defined (passthrough):` | 跑了但本表没声明，不计入失败 |
+| `FAIL:`                            | 超过预算，CI 退出码 1        |
+
+## 用法示例
+
+本地复现 CI 守卫：
 
 ```bash
 pnpm bench --outputJson bench-results.json
 node scripts/check-bench-budget.mjs bench-results.json
 ```
 
-Vitest 4 emits its bench report under `--outputJson`. The script
-recurses the JSON tree, extracts every `{ name, p99 }` leaf, and
-compares it against the matching key in `bench-budgets.json`. The
-comparison is **`p99Ms > ceiling` ⇒ fail** with exit code 1; everything
-else passes (including unbudgeted benches, which print a "passthrough"
-notice).
+Vitest 输出形如：
 
-> p99 is in milliseconds. Vitest's bench-name lookup is **exact**: the
-> bench label must match the budget key character-for-character. Renaming
-> a `bench(...)` call requires the matching key swap in
-> `bench-budgets.json` in the same commit.
-
-## Current budgets
-
-Source: `scripts/bench-budgets.json`.
-
-| Bench label                                       | `p99Ms` ceiling | Suite                                                 |
-| ------------------------------------------------- | --------------- | ----------------------------------------------------- |
-| `10-point polyline, 3.5m offset`                  | 1               | `src/core/geometry/__tests__/offsetPolyline.bench.ts` |
-| `100-point polyline, 3.5m offset`                 | 3               | `src/core/geometry/__tests__/offsetPolyline.bench.ts` |
-| `1000-point polyline, 3.5m offset`                | 40              | `src/core/geometry/__tests__/offsetPolyline.bench.ts` |
-| `full stitch — 10-lane linear chain`              | 3               | `src/core/geometry/__tests__/laneJunctions.bench.ts`  |
-| `full stitch — 100-lane linear chain`             | 6               | `src/core/geometry/__tests__/laneJunctions.bench.ts`  |
-| `full stitch — 100 lanes / 50 isolated junctions` | 6               | `src/core/geometry/__tests__/laneJunctions.bench.ts`  |
-| `incremental — 100-lane chain, 1 lane decorated`  | 5               | `src/core/geometry/__tests__/laneJunctions.bench.ts`  |
-| `incremental — 100-lane chain, 3 lanes decorated` | 5               | `src/core/geometry/__tests__/laneJunctions.bench.ts`  |
-
-> Quoting `bench-budgets.json`'s own header note:
-> _"Hardcoded p99 ceilings for core geometry / spatial primitives.
-> Generous vs local mean to absorb GitHub Actions runner jitter (~1.5x).
-> Tighten after N green runs give baseline confidence."_
-
-## Latest local snapshot
-
-These are the numbers from the committed `bench-results.json` (run on
-the maintainer's workstation, not CI). They are kept as a sanity check
-against the ceilings — if local `p99` already approaches the budget,
-CI almost certainly trips.
-
-### Lane-junction stitching
-
-| Bench                                           | mean (ms) | p99 (ms) | ceiling |
-| ----------------------------------------------- | --------- | -------- | ------- |
-| full stitch — 10-lane linear chain              | 0.179     | 0.659    | 3       |
-| full stitch — 100-lane linear chain             | 1.023     | 1.882    | 6       |
-| full stitch — 100 lanes / 50 isolated junctions | 0.850     | 2.073    | 6       |
-| incremental — 100-lane chain, 1 lane decorated  | 0.496     | 0.905    | 5       |
-| incremental — 100-lane chain, 3 lanes decorated | 0.462     | 0.872    | 5       |
-
-### Polyline offset
-
-| Bench                            | mean (ms) | p99 (ms) | ceiling |
-| -------------------------------- | --------- | -------- | ------- |
-| 10-point polyline, 3.5m offset   | 0.0037    | 0.0094   | 1       |
-| 100-point polyline, 3.5m offset  | 0.048     | 0.167    | 3       |
-| 1000-point polyline, 3.5m offset | 0.477     | 1.255    | 40      |
-
-### Overlap reconcile (unbudgeted, passthrough)
-
-These benches run but have no ceiling. They print a passthrough notice;
-they exist to track trends until baselines are stable enough to budget.
-
-| Suite                            | Bench                                  | mean (ms) | p99 (ms) |
-| -------------------------------- | -------------------------------------- | --------- | -------- |
-| reconcile @ 5k (6000 entities)   | full mode (cold)                       | 34.76     | 47.34    |
-| reconcile @ 5k (6000 entities)   | incremental (1 dirty lane, warm index) | 0.479     | 1.235    |
-| reconcile @ 5k (6000 entities)   | syncDirty (1 dirty)                    | 0.00066   | 0.00119  |
-| reconcile @ 10k (12000 entities) | full mode (cold)                       | 75.09     | 79.39    |
-| reconcile @ 10k (12000 entities) | incremental (1 dirty lane, warm index) | 0.855     | 1.657    |
-| reconcile @ 10k (12000 entities) | syncDirty (1 dirty)                    | 0.00056   | 0.0012   |
-| reconcile @ 25k (30000 entities) | full mode (cold)                       | 277.46    | 301.15   |
-| reconcile @ 25k (30000 entities) | incremental (1 dirty lane, warm index) | 3.232     | 4.146    |
-| reconcile @ 25k (30000 entities) | syncDirty (1 dirty)                    | 0.00069   | 0.00117  |
-
-Headroom is comfortable across all budgeted benches — the tightest
-ratio is `incremental — 100-lane chain, 1 lane decorated` at
-~5.5× under ceiling. The CI safety factor is intentional: GitHub
-Actions Linux runners commonly run ~1.5× slower than developer
-hardware and exhibit additional p99 jitter from neighbour processes.
-
-## How `check-bench-budget.mjs` works
-
-```js
-// scripts/check-bench-budget.mjs (algorithm)
-const budgets = JSON.parse(readFileSync('scripts/bench-budgets.json')).budgets;
-const benches = collectBenches(JSON.parse(readFileSync(reportPath)));
-
-for (const bench of benches) {
-  const budget = budgets[bench.name];
-  if (!budget) {
-    unbudgeted.push(bench); // pass with a passthrough notice
-    continue;
-  }
-  if (bench.p99Ms > budget.p99Ms) {
-    violations.push({ ...bench, ceilingMs: budget.p99Ms });
-    hadViolations = true;
-  } else {
-    passed.push({ ...bench, ceilingMs: budget.p99Ms });
-  }
-}
-process.exit(hadViolations ? 1 : 0);
-```
-
-Walking is generic — `collectBenches()` recurses the JSON tree and
-collects every `{ name: string, p99: number }` leaf, so future Vitest
-JSON shape changes still find the data.
-
-### Output format
-
-```
+```text
 ## Perf budget report
 
 PASS:
-  full stitch — 10-lane linear chain: p99=0.659ms (ceiling 3ms)
+  10-point polyline, 3.5m offset: p99=0.412ms (ceiling 1ms)
+  100-point polyline, 3.5m offset: p99=2.103ms (ceiling 3ms)
   ...
-
-No budget defined (passthrough):
-  full mode (cold): p99=47.337ms
-
-FAIL:
-  1000-point polyline, 3.5m offset: p99=42.108ms EXCEEDED ceiling 40ms
 ```
 
-A non-zero exit on any FAIL row turns CI red.
+## 调整预算的流程
 
-## Updating budgets
+::: warning 不要随手改预算
+预算是性能护栏。每次调整必须 PR + 解释原因。
+:::
 
-1. **Tightening.** When a known optimisation lands, drop the ceiling
-   for affected benches in the same PR. Aim for 1.5–2× over local p99
-   so CI jitter doesn't false-fail.
-2. **Loosening.** Avoid bumping ceilings to make red CI green — that
-   defeats the gate. Instead, fix the regression. If a deliberate
-   tradeoff justifies the looser budget (e.g. trading p99 for p50),
-   document the decision in the PR description and update both the
-   ceiling and any comments referencing the previous ratio.
-3. **Adding a new bench.** Land the bench unbudgeted first; let the
-   passthrough notice run on CI for a handful of commits to gather
-   baseline data; then add the ceiling in a follow-up.
-4. **Removing a bench.** Delete both the `bench(...)` call and the
-   matching `bench-budgets.json` key in the same commit.
+1. **先排查环境**：本地 mean 异常说明本地负载，而非性能退化。
+2. **采样多次**：CI 抖动正常约 1.5x；连续 3 次失败再考虑收紧 / 放宽。
+3. **写明上下文**：PR 描述附上「为什么这次需要放宽」或「为什么这次能收紧」。
+4. **同步本页**：本页表格必须与 `bench-budgets.json` 一致。
+5. **附性能图**：tighten 时附带 baseline 对比，说明 ROI。
 
-## See also
+## 与其它性能机制的关系
 
-- CI pipeline overview: [CI Pipeline](/reference/ci-pipeline)
-- Cold-layer pipeline (the bench subjects): [Architecture overview](/architecture/overview)
-- Bench source files:
-  - `src/core/geometry/__tests__/laneJunctions.bench.ts`
-  - `src/core/geometry/__tests__/offsetPolyline.bench.ts`
-  - `src/core/elements/overlap/__tests__/overlap.bench.ts`
+| 机制                        | 时机              | 粒度                        |
+| --------------------------- | ----------------- | --------------------------- |
+| `bench-budgets.json`        | CI 每次 push / PR | 单个算法 p99                |
+| 冷热分层                    | 运行时            | 渲染管线吞吐                |
+| `decorationCache` (Phase E) | 运行时            | 增量装饰受影响集            |
+| `useColdLayer` RAF coalesce | 运行时            | 多次 entity 变化 → 单次重建 |
+
+## 历史背景
+
+::: tip 为什么现有 8 条 bench
+
+- **Phase B**：引入 polyline offset 三档（10 / 100 / 1000 点），对应 hot
+  layer 拖拽场景的下界 / 中位 / 极端长度。
+- **Phase D**：引入 full-stitch 三档（10 / 100 / 100+50 junctions），覆盖
+  小图、中图、含路口的中图。
+- **Phase E**：引入 incremental 两档（1 / 3 lane decorated），守护增量装饰
+  路径的复杂度近似常数。
+
+未来若引入新关键路径（例如导出 / 导入工作流），新增 bench 时同步：
+
+1. 在 `src/**/__tests__/*.bench.ts` 写新的 `bench(label, fn)`。
+2. 在 `scripts/bench-budgets.json` 配上 p99 上限。
+3. 在本页相应章节添加条目。
+   :::
+
+## p99 与 mean 的关系
+
+CI 用 p99 是因为 **尾延迟才是用户体验的天花板**。一个 mean 0.5ms 的算法
+偶尔抖到 50ms，会在 60fps 拖拽中被肉眼感知。p99 把这种偶发抖动直接暴露。
+
+| 指标 | 用途               | 示例                     |
+| ---- | ------------------ | ------------------------ |
+| mean | 「平均下来多快」   | 性能优化 PR 中的进步幅度 |
+| p50  | 「典型情况多快」   | 大多数普通操作的耗时     |
+| p99  | 「最慢的 1% 多慢」 | CI guard、用户感知的卡顿 |
+| max  | 「最坏情况多慢」   | 不稳定，CI 不用          |
+
+## 跨 runner 抖动
+
+| Runner                         | 相对本地   | 备注               |
+| ------------------------------ | ---------- | ------------------ |
+| 本地 Mac M-series              | 1.0x       | 基准               |
+| ubuntu-latest（GitHub-hosted） | ≈ 1.2–1.5x | 共享 CPU，磁盘抖动 |
+| ubuntu-latest（self-hosted）   | ≈ 1.0x     | 取决于物理机       |
+| windows-latest                 | ≈ 1.5x     | Node 启动慢        |
+| macos-latest                   | ≈ 1.1x     | 一般稳定           |
+
+::: warning 当前 budget 基于 ubuntu-latest
+所有 p99 ceiling 都按 GitHub-hosted ubuntu-latest 校准。本地跑明显高于 ceiling
+但 CI 通过，先怀疑环境而不是代码。
+:::
+
+## 相关文档
+
+- [CI Pipeline](/reference/ci-pipeline)
+- [冷热分层](/architecture/cold-hot-layers)
+- [Junction 缝合](/architecture/junction-stitching)
+- [架构总览](/architecture/overview)
+- [Glossary：bench-budgets](/reference/glossary#bench-budgets)

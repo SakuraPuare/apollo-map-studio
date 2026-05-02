@@ -1,197 +1,137 @@
+---
+title: CommandPalette
+description: 基于 cmdk 的 ⌘K 命令面板——按 category 分组渲染所有 inCommandPalette=true 的 actions，绑定 Action Registry。
+---
+
 # CommandPalette
 
-> Source: `src/components/layout/panels/CommandPalette.tsx`
+> 源码：`src/components/layout/panels/CommandPalette.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`CommandPalette` is the `⌘K` / `Ctrl+K` action launcher — a centered
-modal search box backed by the [cmdk](https://cmdk.paco.me/) primitive
-and fed entirely by the [Action Registry](/api/core/action-registry).
-Every action in the registry that declares `inCommandPalette: true`
-shows up here, grouped by `category`, searchable by label, and
-executable with the same `onExecute(actionId)` callback used by the
-menu bar and tool strip.
+`CommandPalette` 是经典的 ⌘K 浮层——通过 [`cmdk`](https://cmdk.paco.me/) 实现，用法和 VS Code / Linear / Raycast 一致：
 
-## Component props
+- ⌘K（Mac） / Ctrl+K（Win/Linux）打开
+- 输入框聚焦后实时 fuzzy 搜索
+- 上下方向键导航；Enter 执行；Esc 关闭
+- 命令按 `category` 分组（capitalize 后做组标题）
+- 行右侧显示 toggle 状态勾选 `✓` 与快捷键 `formatShortcut`
+
+它是 [Action Registry](/architecture/) 的第三个 UI 出口（与 [MenuBar](./menu-bar.md) / [ToolStrip](./tool-strip.md) 并列）——所有命令均来自 `getCommandPaletteActions()`，加新命令只需修改 `src/core/actions/registry.ts`。
+
+## 组件接口
 
 ```ts
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Execute action by ID — provided by ActionDispatcher */
   onExecute: (actionId: ActionId) => void;
-  /** Get toggle state for toggle actions */
   getToggleState?: (actionId: ActionId) => boolean;
 }
 ```
 
-| Prop             | Notes                                                             |
-| ---------------- | ----------------------------------------------------------------- |
-| `open`           | Controlled visibility — `WorkspaceLayout` owns the state          |
-| `onOpenChange`   | Setter; called on backdrop click, ESC, or after running an action |
-| `onExecute`      | Wired to `useActionDispatcher.execute`                            |
-| `getToggleState` | Optional; renders a `✓` for active toggle actions                 |
+| Prop             | 类型                              | 默认值      | 说明                                              |
+| ---------------- | --------------------------------- | ----------- | ------------------------------------------------- |
+| `open`           | `boolean`                         | —           | 显隐控制                                          |
+| `onOpenChange`   | `(open: boolean) => void`         | —           | 打开/关闭回调；通常绑 `setCommandPaletteOpen`     |
+| `onExecute`      | `(actionId: ActionId) => void`    | —           | 执行 action；通常 `useActionDispatcher().execute` |
+| `getToggleState` | `(actionId: ActionId) => boolean` | `undefined` | 用于 isToggle action 渲染 ✓                       |
 
-## Behavior
+`open=false` 时返回 `null`——modal 不在 DOM 中。
 
-### Action source
+## 内部状态
 
-```ts
-const actions = useMemo(() => getCommandPaletteActions(), []);
-```
+| 钩子                                        | 用途                                                                   |
+| ------------------------------------------- | ---------------------------------------------------------------------- |
+| `useState<string>('')` `search`             | 当前输入字符串（cmdk 自身 fuzzy 算法）                                 |
+| `useMemo(() => getCommandPaletteActions())` | 一次性读取所有可用 actions（registry 是常量，依赖空）                  |
+| `useMemo(() => grouped)`                    | 按 `action.category`（首字母大写）分组成 `Record<string, ActionDef[]>` |
+| `useCallback runCommand`                    | 调 `onExecute(action.id) → onOpenChange(false) → setSearch('')`        |
 
-`getCommandPaletteActions()` from `@/core/actions/registry` returns
-the subset of `ACTION_DEFS` flagged for the palette, sorted by
-category and label.
+## 副作用
 
-### Grouping
+| 时机           | 行为                                             |
+| -------------- | ------------------------------------------------ |
+| `useEffect`    | 挂 `keydown` 全局监听：⌘/Ctrl+K toggle、Esc 关闭 |
+| Backdrop click | `onOpenChange(false)`                            |
+| `runCommand`   | 执行后立即关闭面板并清空 search                  |
 
-```ts
-const grouped = useMemo(() => {
-  const groups: Record<string, ActionDef[]> = {};
-  for (const a of actions) {
-    const cat = a.category.charAt(0).toUpperCase() + a.category.slice(1);
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(a);
-  }
-  return groups;
-}, [actions]);
-```
+::: warning 双重 keydown 监听
+`WorkspaceLayout` 也挂了一个 ⌘K 监听器（在 inner 组件 `useEffect` 里），主要用于**关闭**时的 toggle。这里 CommandPalette 自身的 keydown 仅在 `open=true` 时挂——两者不冲突，因为 cmdk 的输入框在打开后会拦截事件优先级。
+:::
 
-Categories are title-cased for display ("File", "Edit", "View",
-"Tool", "Selection"). Insertion order matches the registry's
-declaration order.
+## 渲染骨架
 
-### cmdk integration
-
-The palette uses cmdk's `Command`, `Command.Input`, `Command.List`,
-`Command.Group`, and `Command.Item` primitives:
-
-```tsx
-<Command className="..." loop>
-  <Command.Input value={search} onValueChange={setSearch} placeholder="..." />
-  <Command.List>
-    <Command.Empty>No results found.</Command.Empty>
-    {Object.entries(grouped).map(([group, items]) => (
-      <Command.Group heading={group}>
-        {items.map((action) => (
-          <Command.Item value={`${action.label} ${group}`} onSelect={() => runCommand(action)}>
-            {/* icon, label, shortcut */}
-          </Command.Item>
-        ))}
-      </Command.Group>
-    ))}
-  </Command.List>
-</Command>
-```
-
-The `value={...}` per item is what cmdk searches against. Including
-the group name in the value lets the user type "view grid" to find
-"Toggle Grid" under the View group.
-
-`loop` enables wrap-around arrow-key navigation.
-
-### Run command + close
-
-```ts
-const runCommand = useCallback(
-  (action: ActionDef) => {
-    onExecute(action.id);
-    onOpenChange(false);
-    setSearch('');
-  },
-  [onExecute, onOpenChange],
-);
-```
-
-The palette closes immediately on execution and clears the search
-query so the next open starts fresh.
-
-### Keyboard shortcuts
-
-```ts
-useEffect(() => {
-  const down = (e: KeyboardEvent) => {
-    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      onOpenChange(!open);
-    }
-    if (e.key === 'Escape' && open) onOpenChange(false);
-  };
-  document.addEventListener('keydown', down);
-  return () => document.removeEventListener('keydown', down);
-}, [open, onOpenChange]);
-```
-
-The `⌘K` shortcut is duplicated here and in
-`WorkspaceLayoutInner` — both paths converge on `onOpenChange`. The
-duplication is harmless because `e.preventDefault()` runs in both
-handlers and only one ends up flipping the state.
-
-### Visual layout
-
-- Backdrop: 60% black with backdrop blur, fills the viewport.
-- Palette: centered, 512px max width, 20vh from top.
-- Footer hint: `↑↓ Navigate · ↵ Select · ESC Close`.
-
-### Toggle indicator
-
-```tsx
-const isChecked = action.isToggle && getToggleState?.(action.id);
-{
-  isChecked && <span className="text-cyan-400 text-xs">✓</span>;
-}
-```
-
-For actions like `toggleGrid` / `toggleSnap` / `connectLanes`, the
-palette renders a checkmark when the toggle is currently active.
-
-## Examples
-
-### Mounting
-
-```tsx
-{
-  commandPaletteOpen && (
-    <Suspense fallback={<OverlayFallback label="Loading command palette..." />}>
-      <LazyCommandPalette
-        open={commandPaletteOpen}
-        onOpenChange={setCommandPaletteOpen}
-        onExecute={execute}
-        getToggleState={getToggleState}
+```jsx
+<div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
+  <div
+    className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+    onClick={() => onOpenChange(false)}
+  />
+  <Command
+    className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+    loop
+  >
+    <div className="flex items-center border-b border-white/10 px-4">
+      <FaMagnifyingGlass />
+      <Command.Input
+        value={search}
+        onValueChange={setSearch}
+        placeholder="Type a command or search..."
       />
-    </Suspense>
-  );
-}
+      <kbd>ESC</kbd>
+    </div>
+    <Command.List className="max-h-[300px] overflow-y-auto p-2">
+      <Command.Empty>No results found.</Command.Empty>
+      {Object.entries(grouped).map(([group, items]) => (
+        <Command.Group heading={group}>
+          {items.map((action) => (
+            <Command.Item value={`${action.label} ${group}`} onSelect={() => runCommand(action)}>
+              <Icon /> <span>{action.label}</span>
+              {isChecked && <span>✓</span>}
+              {action.shortcut && <kbd>{formatShortcut(action.shortcut)}</kbd>}
+            </Command.Item>
+          ))}
+        </Command.Group>
+      ))}
+    </Command.List>
+    <div className="border-t … flex items-center gap-4 text-[10px] text-zinc-600">
+      <span>↑↓ Navigate</span>
+      <span>↵ Select</span>
+      <span>ESC Close</span>
+    </div>
+  </Command>
+</div>
 ```
 
-The palette is lazy-loaded so its bundle (cmdk + this component)
-doesn't weigh on the initial render.
+## 性能注释
 
-### Adding an action to the palette
+- **`Command` 自带 fuzzy 索引**：cmdk 对 `Command.Item` 的 `value` 字段建索引；输入时 O(N) 过滤但常数极小。
+- **lazy load**：`WorkspaceLayout/lazyPanels.tsx:21-24` 把它包成 `LazyCommandPalette`，初次打开才下载 cmdk + 本组件。
+- **空 `useMemo` deps**：`getCommandPaletteActions()` 在 registry 是 module-level 常量数组，不会变化。
 
-```ts
-// In src/core/actions/registry.ts
-{
-  id: 'duplicate',
-  category: 'edit',
-  label: 'Duplicate Selection',
-  inCommandPalette: true,
-  // ...
-}
-```
+## 已知缺口
 
-The palette picks it up on next mount — no other touch points.
+- **没有最近使用记录**：每次打开列表顺序固定。可加 `localStorage` recent buffer。
+- **没有命令参数化**：所有 action 是无参 button-style；将来需要"Go to entity by id"这类输入参数命令时，需扩展 cmdk 的子状态机。
 
-### Excluding from palette
+## 源码索引
 
-Set `inCommandPalette: false` (or omit). E.g. tool-strip-only modal
-toggles like the element selectors don't appear in the palette.
+| 关注点               | 文件位置                                                                      |
+| -------------------- | ----------------------------------------------------------------------------- |
+| 组件主体             | `CommandPalette.tsx:22-139`                                                   |
+| 分组逻辑             | `CommandPalette.tsx:31-42`                                                    |
+| `runCommand`         | `CommandPalette.tsx:44-51`                                                    |
+| ⌘K / Esc 监听        | `CommandPalette.tsx:53-66`                                                    |
+| Action Registry 入口 | `src/core/actions/registry.ts` (`getCommandPaletteActions`, `formatShortcut`) |
 
-## Related
+## 跨页参考
 
-- [Action Registry](/api/core/action-registry)
-- [useActionDispatcher](/api/hooks/use-action-dispatcher)
-- [Menu bar](/api/components/menu-bar)
-- [Tool strip](/api/components/tool-strip)
-- [cmdk docs](https://cmdk.paco.me/)
+- [WorkspaceLayout](./workspace-layout.md) — `LazyCommandPalette` 在此 mount
+- [MenuBar](./menu-bar.md) / [ToolStrip](./tool-strip.md) — 共享 Action Registry
+- [`useActionDispatcher`](/api/hooks)
+- [架构](/architecture/) — Action Registry
+
+## 英文镜像
+
+[/en/api/components/command-palette](/en/api/components/command-palette)

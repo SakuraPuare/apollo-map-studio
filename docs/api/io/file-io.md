@@ -1,138 +1,67 @@
-# File IO
+---
+title: io / file-io
+description: src/io/fileIO.ts — 浏览器文件选择器与下载工具
+---
 
-> Source: `src/io/fileIO.ts`
+# io / file-io
 
-## Overview
+`src/io/fileIO.ts` 是浏览器侧文件 IO 的纯 DOM 工具集。它不依赖
+React、不依赖 store，便于单元测试时 mock `document.createElement`。
 
-`fileIO.ts` is a tiny, framework-free toolbox of browser DOM helpers for
-file input and output. It is the lowest layer of the Apollo IO stack —
-no React, no Zustand, no protobufjs. The module exists for two reasons:
-
-1. **Decouple `mapIO` from the DOM.** `mapIO.pickAndImportApollo` and
-   the export flows orchestrate the worker bridge; they should not have
-   to inline `<input type="file">` shims and `URL.createObjectURL`
-   plumbing.
-2. **Make IO unit-testable.** Every function takes only standard
-   parameters (a MIME accept string, a `Blob`, a `Uint8Array`); tests
-   can mock `document.createElement` without touching React.
-
-The Electron preload bridge intentionally does **not** intercept these
-helpers. Electron uses the native browser file picker exposed inside
-the BrowserWindow; binary read uses the standard `Blob.arrayBuffer()`.
-Where Electron-specific paths exist (license activation, app updates),
-those go through `window.apolloMapStudioLicense` (see
-`src/lib/license-bridge.ts`), not `fileIO`.
-
-## Exports
-
-| Symbol            | Signature                                   | Purpose                                                                 |
-| ----------------- | ------------------------------------------- | ----------------------------------------------------------------------- |
-| `pickFile`        | `(accept: string) => Promise<File \| null>` | Open a hidden `<input type="file">` and resolve with the selected file. |
-| `readFileAsBytes` | `(file: Blob) => Promise<Uint8Array>`       | Read the blob as raw bytes (no encoding).                               |
-| `readFileAsText`  | `(file: Blob) => Promise<string>`           | Read the blob as UTF-8 text.                                            |
-| `downloadBlob`    | `(blob: Blob, filename: string) => void`    | Trigger a browser download via a synthetic `<a download>` click.        |
-
-## Behavior
-
-### `pickFile(accept)`
+## 公开符号
 
 ```ts
-const file = await pickFile('.bin,.txt,.pb.txt,application/octet-stream,text/plain');
+export function pickFile(accept: string): Promise<File | null>;
+export function readFileAsBytes(file: Blob): Promise<Uint8Array>;
+export function readFileAsText(file: Blob): Promise<string>;
+export function downloadBlob(blob: Blob, filename: string): void;
 ```
 
-- Creates a hidden `<input type="file">`, attaches it to `document.body`,
-  and synthetically clicks it.
-- Resolves with the selected `File` on `change`.
-- Resolves with `null` on the native `cancel` event.
-- Idempotent settle: a `settled` flag prevents double-resolution if
-  both events fire.
-- Removes the input element from the DOM after settling.
+> Source: `src/io/fileIO.ts:1-66`
 
-::: warning macOS focus race
-The implementation deliberately does **not** infer cancellation from
-`window.focus`. On macOS the window can regain focus before the
-selected file is committed to the input; relying on focus would race
-the later `change` event and surface real selections as cancellations.
-The native `cancel` event is the only signal honoured.
-:::
+## `pickFile(accept): Promise<File | null>`
 
-### `readFileAsBytes(file)`
+打开一个隐藏的 `<input type="file">` 并 resolve 用户选择的 `File` 或
+`null`（取消时）。`accept` 可以传 MIME 列表 / 后缀列表，例如
+`'.bin,.txt,application/octet-stream'`。
 
-Wraps `Blob.arrayBuffer()` and constructs a `Uint8Array` view:
+实现要点：
+
+- 用 `'change'` 事件读 `input.files[0]`；
+- 用原生 `'cancel'` 事件检测取消（macOS 上 `focus` 推断会和
+  `change` 竞争 → 误判为取消）；
+- 选择完成后 `input.remove()` 清理 DOM；
+- 使用 `settled` flag 防止 `change` 之后再被 `cancel` 复盖。
 
 ```ts
-const buf = await file.arrayBuffer();
-return new Uint8Array(buf);
-```
-
-The bytes returned are owned by the caller. `apolloIOBridge` transfers
-the underlying `ArrayBuffer` to the worker, so callers should not reuse
-the array after handing it off.
-
-### `readFileAsText(file)`
-
-Thin pass-through to `Blob.text()`. Useful for proto-text files small
-enough not to warrant the worker round-trip (e.g. fixture loading in
-unit tests).
-
-### `downloadBlob(blob, filename)`
-
-- Creates an object URL via `URL.createObjectURL(blob)`.
-- Constructs a hidden anchor with `href` = the URL and `download` =
-  the filename, appends it, and clicks it.
-- Defers `revokeObjectURL` and `a.remove()` by 1 s so the browser has
-  time to start the download before the URL is invalidated.
-
-The 1-second deferral is empirically sufficient on Chrome/Firefox/Safari
-for files up to several hundred MB. If a future host browser behaves
-differently, the constant lives at the bottom of the function and can
-be tuned.
-
-## Examples
-
-### Round-trip through a worker import
-
-```ts
-import { pickFile, readFileAsBytes } from '@/io/fileIO';
-import { apolloIOBridge } from '@/io/apolloIOBridge';
-
 const file = await pickFile('.bin,.txt,.pb.txt');
-if (!file) return;
-
-const bytes = await readFileAsBytes(file);
-const result = await apolloIOBridge.importBin(file.name, bytes);
+if (file) {
+  const bytes = await readFileAsBytes(file);
+}
 ```
 
-### Browser download after worker export
+## `readFileAsBytes(file): Promise<Uint8Array>`
+
+`new Uint8Array(await file.arrayBuffer())`。
+
+## `readFileAsText(file): Promise<string>`
+
+`file.text()`，UTF-8 解码。
+
+## `downloadBlob(blob, filename): void`
+
+合成一个 `<a href="${objectURL}" download="${filename}">` 并 `click()`，
+1 秒后 `URL.revokeObjectURL` 释放内存：
 
 ```ts
-import { downloadBlob } from '@/io/fileIO';
-
-const bytes = await apolloIOBridge.exportBin(entities, projString);
-const copy = new Uint8Array(bytes.byteLength);
-copy.set(bytes);
-const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
-downloadBlob(blob, 'base_map-20260502.bin');
+const blob = new Blob([bytes.buffer], { type: 'application/octet-stream' });
+downloadBlob(blob, 'apollo-base-map.bin');
 ```
 
-The defensive `Uint8Array.set` copy is needed because the worker may
-have transferred ownership of the buffer; constructing a `Blob` from a
-detached buffer raises an error.
+## 使用约束
 
-### Reading a fixture in tests
-
-```ts
-import { readFileAsText } from '@/io/fileIO';
-
-const fixture = await fetch('/fixtures/sunnyvale_loop.pb.txt');
-const text = await readFileAsText(await fixture.blob());
-```
-
-## Related
-
-- [Apollo IO Bridge](./apollo-io-bridge.md) — primary consumer of
-  `pickFile` / `readFileAsBytes`.
-- [Map IO](./map-io.md) — orchestrates `pickFile` + `apolloIOBridge` +
-  `downloadBlob` end-to-end.
-- `src/lib/license-bridge.ts` — Electron-specific
-  IPC bridge; intentionally separate from `fileIO`.
+- 仅在浏览器（含 Tauri webview）内可用。Electron 主进程的 dialog 由
+  `electron/preload` 提供，与本模块没有交集。
+- 不处理多文件选择：当前 Apollo 导入只接受单文件，所以
+  `input.multiple = false`。
+- `pickFile` 不抛错，全部走 `null` 分支。

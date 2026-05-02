@@ -1,49 +1,48 @@
+---
+title: StatusBar
+description: 24px 高底部状态条——显示应用模式、FSM 状态、实体计数、Apollo 文件信息、Grid/Snap 指示与光标地理坐标 + Zoom。
+---
+
 # StatusBar
 
-> Source: `src/components/layout/StatusBar.tsx`
+> 源码：`src/components/layout/StatusBar.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`StatusBar` is the 24px-tall information strip pinned to the bottom of
-the workspace. It surfaces:
+`StatusBar` 是 WorkspaceLayout 最下方的 24px 信息条。它没有交互 affordance，**仅展示**：
 
-- App mode (绘图 / 场景)
-- Current FSM state with a pulsing dot for drawing states
-- Entity count
-- Imported Apollo map summary (filename, lane/road counts) with PROJ
-  string in tooltip
-- Grid / Snap toggles
-- Cursor lng/lat (6 decimal precision)
-- Map zoom level
+**左半区：**
 
-License banner integration lives in `LicenseBanner` (separate
-component, mounted between MenuBar and ToolStrip), but the status bar
-is the user's persistent at-a-glance health surface.
+- `Mode: 绘图 / 场景` — 当前 `appMode`（`useUIStore`）
+- FSM 状态指示灯 + 文本（`idle` / `Selected` / `Dragging` / `Draw: Polyline` …），绘图状态下圆点 cyan + `animate-pulse`
+- `Entities: N` — 实体计数
+- 若已导入 Apollo 地图：`<FaMap /> {filename}` + `lane=N road=N` 计数；hover 显示完整 PROJ 字符串
 
-## Component props
+**右半区：**
+
+- Grid 指示器：根据 `uiStore.gridEnabled` cyan / 灰
+- Snap 指示器：根据 `uiStore.snapEnabled` cyan / 灰
+- 光标地理坐标：`{lng.toFixed(6)}, {lat.toFixed(6)}`（仅当鼠标在地图上时）
+- Zoom：`{currentZoom.toFixed(1)}x`
+
+## 组件接口
 
 ```ts
 interface StatusBarProps {
-  mode?: string; // FSM state value
-  entityCount?: number;
+  mode?: string; // FSM 状态名
+  entityCount?: number; // 实体数量
 }
 ```
 
-| Prop          | Default  | Source                                |
-| ------------- | -------- | ------------------------------------- |
-| `mode`        | `'idle'` | `useSelector(actorRef, s => s.value)` |
-| `entityCount` | `0`      | `useMapStore(s => s.entities.size)`   |
+| Prop          | 类型     | 默认值   | 说明                     |
+| ------------- | -------- | -------- | ------------------------ |
+| `mode`        | `string` | `'idle'` | FSM `s.value` 字符串     |
+| `entityCount` | `number` | `0`      | `mapStore.entities.size` |
 
-Other state is read from stores directly inside the component:
-`uiStore.cursorLngLat`, `uiStore.currentZoom`, `uiStore.gridEnabled`,
-`uiStore.snapEnabled`, `uiStore.appMode`, and `apolloMapStore.info`.
-
-## Behavior
-
-### Mode label table
+`MODE_LABELS` 文件内常量映射：
 
 ```ts
-const MODE_LABELS: Record<string, string> = {
+{
   idle: 'Idle',
   selected: 'Selected',
   editingPoint: 'Dragging',
@@ -53,107 +52,67 @@ const MODE_LABELS: Record<string, string> = {
   drawArc: 'Draw: Arc',
   drawRotatedRect: 'Draw: Rectangle',
   drawPolygon: 'Draw: Polygon',
-};
-```
-
-Unknown modes fall through to the raw FSM state string.
-
-### Drawing-state pulse
-
-```tsx
-const isDrawing = mode.startsWith('draw');
-<div
-  className={`w-1.5 h-1.5 rounded-full ${
-    isDrawing ? 'bg-ams-accent animate-pulse' : 'bg-ams-text-disabled'
-  }`}
-/>;
-```
-
-The dot pulses cyan whenever the FSM is in any draw state, signalling
-"the next click will commit a vertex".
-
-### Apollo info section
-
-Visible only when `apolloMapStore.info` is non-null (i.e. an Apollo
-map has been imported):
-
-```tsx
-<div className="flex items-center gap-1.5" title={`PROJ: ${apolloInfo.projString}`}>
-  <FaMap className="w-3 h-3 text-ams-accent" />
-  <span>{apolloInfo.filename}</span>
-  <span>
-    lane={apolloInfo.counts.lane ?? 0} road={apolloInfo.counts.road ?? 0}
-  </span>
-</div>
-```
-
-Hovering shows the PROJ string used for the import — useful for
-debugging coordinate mismatches.
-
-### Grid / Snap indicators
-
-Both indicators recolor based on `uiStore.gridEnabled` /
-`uiStore.snapEnabled`:
-
-```tsx
-<div
-  className={`flex items-center gap-1 ${gridEnabled ? 'text-ams-accent' : 'text-ams-text-disabled'}`}
->
-  <FaTableCells className="w-3 h-3" />
-  <span>Grid</span>
-</div>
-```
-
-The status bar is read-only — clicking these does not toggle them.
-Toggling lives on the ToolStrip and Action Registry.
-
-### Cursor + zoom
-
-```tsx
-{
-  cursorLngLat && (
-    <span className="font-mono">
-      {cursorLngLat[0].toFixed(6)}, {cursorLngLat[1].toFixed(6)}
-    </span>
-  );
 }
-<span className="font-mono">{currentZoom.toFixed(1)}x</span>;
 ```
 
-`cursorLngLat` is updated via the RAF-coalesced
-`createCursorScheduler` in `mapEventRouter/`. `currentZoom` updates on
-`zoomend`.
+未列出的 mode 直接 fallback 显示原字符串。
 
-### Design tokens
+## 内部状态
 
-`StatusBar` is the second reference component for the `ams-*` token
-migration (alongside `ActivityBar`). All colors route through the
-semantic tokens — `text-ams-text-disabled` for labels,
-`text-ams-text-secondary` for values, `text-ams-accent` for actives.
+| 钩子                         | 用途                                             |
+| ---------------------------- | ------------------------------------------------ |
+| `useUIStore(s.cursorLngLat)` | 光标地理坐标 `[lng, lat] \| null`                |
+| `useUIStore(s.currentZoom)`  | MapLibre 当前 zoom level                         |
+| `useUIStore(s.gridEnabled)`  | Grid 显示开关                                    |
+| `useUIStore(s.snapEnabled)`  | Snap 开关                                        |
+| `useUIStore(s.appMode)`      | 应用模式 (drawing/scene)                         |
+| `useApolloMapStore(s.info)`  | Apollo 地图导入信息（`null` 时不渲染 Apollo 段） |
 
-## Examples
+无 effect。
 
-### Mounting
+## 副作用
 
-```tsx
-<StatusBar mode={currentState} entityCount={entityCount} />
+无 effect 或 ref；纯派生展示。光标坐标和 zoom 由 `useMapEventRouter` / `useMapLibreInit` 在 hook 层写入 uiStore，StatusBar 只订阅。
+
+## 渲染骨架
+
+```jsx
+<div className="h-6 bg-ams-bg-base border-t border-ams-border-subtle flex items-center px-2 text-[10px] text-ams-text-muted shrink-0">
+  <div className="flex items-center gap-3">{/* 左半区 */}</div>
+  <div className="flex-1" />
+  <div className="flex items-center gap-4">{/* 右半区 */}</div>
+</div>
 ```
 
-`currentState` and `entityCount` come from `useSelector` and
-`useMapStore` in `WorkspaceLayoutInner`.
+## 性能注释
 
-### Reading the status bar's snapshot
+- **细粒度 selector**：每个 `useUIStore(s => s.field)` 只在该字段变化时触发 re-render；不会因 cursor 移动重画 grid 段。
+- **`cursorLngLat` 高频写入**：每次 mousemove 都更新坐标，但 React 重渲只刷新 StatusBar 内的小段——其他组件不订阅。
+- **设计 token 迁移示范**：StatusBar 与 ActivityBar 一同是 `ams-*` 色板的早期采纳者；详见 [架构](/architecture/) "Design tokens" 章节。
 
-```ts
-const { cursorLngLat, currentZoom } = useUIStore.getState();
-```
+## 已知缺口
 
-Same store the status bar uses — useful for headless tests.
+- **i18n 未实现**：`Mode:` / `Entities:` 等 UI label 是英文硬编码。中文标签 `绘图` / `场景` 来自 ModeToggle 的本地化（项目目前没用 i18next）。
+- **没有错误状态指示**：FSM 异常或 worker 失败时 StatusBar 不会染红。
 
-## Related
+## 源码索引
 
-- [License banner](/api/components/license-banner)
-- [Tool strip](/api/components/tool-strip)
-- [uiStore](/api/store/store-ui)
-- [apolloMapStore](/api/store/apollo-map-store)
-- [Map event router internals](/api/hooks/map-event-router-internals) — cursor scheduler
+| 关注点              | 文件位置                         |
+| ------------------- | -------------------------------- |
+| 组件主体            | `StatusBar.tsx:22-122`           |
+| `MODE_LABELS`       | `StatusBar.tsx:10-20`            |
+| 左半区              | `StatusBar.tsx:35-78`            |
+| 右半区              | `StatusBar.tsx:82-120`           |
+| `cursorLngLat` 写入 | `src/hooks/useMapEventRouter.ts` |
+| `currentZoom` 写入  | `src/hooks/useMapLibreInit.ts`   |
+
+## 跨页参考
+
+- [WorkspaceLayout](./workspace-layout.md) — 父组件
+- [`uiStore`](/api/store/store-ui) — `gridEnabled` / `snapEnabled` / `cursorLngLat` / `currentZoom` / `appMode`
+- [`apolloMapStore`](/api/store) — `info`
+- [架构](/architecture/) — Design tokens
+
+## 英文镜像
+
+[/en/api/components/status-bar](/en/api/components/status-bar)

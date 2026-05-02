@@ -1,71 +1,37 @@
-# Map Event Router & MapLibre Init Internals
+---
+title: Map Event Router 内部模块
+description: useMapEventRouter 拆分出来的 7 个原子模块（hitTest / inputDedup / cursorScheduler / connectMode / selectionDrag / keyboard / snap）的 API 表面与不变量。
+---
 
-> Source: `src/hooks/mapEventRouter/{connectMode,cursorScheduler,hitTest,inputDedup,keyboard,selectionDrag,snap}.ts` and `src/hooks/mapLibreInit/{assets,layers}.ts`
+# Map Event Router 内部模块
 
-## Overview
+> 源码：`src/hooks/mapEventRouter/{connectMode,cursorScheduler,hitTest,inputDedup,keyboard,selectionDrag,snap}.ts`
 
-Splitting [`useMapEventRouter`](./use-map-event-router.md) and
-[`useMapLibreInit`](./use-map-libre-init.md) into a folder of focused
-helpers keeps each function under the ESLint complexity threshold and
-makes them independently unit-testable. This page documents each
-submodule.
+[`useMapEventRouter`](./use-map-event-router.md) 把跨 FSM 状态的事件分流
+到 7 个原子模块。每个模块只暴露纯函数 / 工厂函数，不持有 React 生命周期。
+本页给出每个模块的 API 表面、副作用与不变量。
 
-## mapEventRouter/connectMode.ts
+## 模块速查
 
-Connect-lanes is a non-FSM modal: the user clicks a lane to record it
-as the source, clicks another to commit a join. ESC cancels.
+| 模块                 | 出口                                                       | 关注点                                                     |
+| -------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
+| `hitTest.ts`         | `toLngLat` / `hitBbox` / `pixelToRadius` / `workerHitTest` | maplibre 像素 → worker HIT_TEST 的统一桥                   |
+| `inputDedup.ts`      | `sampleInput` / `isDuplicateInput`                         | 抗 dblclick 伪 click                                       |
+| `cursorScheduler.ts` | `createCursorScheduler`                                    | 60fps RAF 合并的 cursorLngLat 写入                         |
+| `connectMode.ts`     | `handleConnectModeClick`                                   | connect-lanes 模式 click 分支                              |
+| `selectionDrag.ts`   | `handleSelectedMouseDown`                                  | `selected` 状态下 vertex / handle / center / smooth-toggle |
+| `keyboard.ts`        | `handleMapKeyDown`                                         | Esc / Enter / Del / Backspace 处理                         |
+| `snap.ts`            | `applySnap`                                                | 包装 `findSnapTarget`，写回 `currentSnapTarget`            |
 
-```ts
-export function handleConnectModeClick(
-  actorRef: ActorRefFrom<typeof editorMachine>,
-  hitTest: HitTest,
-  e: maplibregl.MapMouseEvent,
-): boolean;
-```
+---
 
-Returns `true` if connect-mode handled the click, signalling
-`useMapEventRouter.onClick` to bail. Behavior:
-
-1. If `uiStore.connectMode.active` is false, returns `false`
-   immediately.
-2. Runs `hitTest(e, t => t === 'lane')` to filter for lane entities.
-3. If no lane is hit, no-op.
-4. First click: stores the lane id via `setConnectFirstLane`, fires
-   `SELECT_ENTITY` for visual feedback.
-5. Second click on a different lane: calls
-   `planConnection(source, target)` from `core/geometry/connectLanes`,
-   then `applyLaneConnection(source, plan)` and writes the result via
-   `updateEntity`. On success, exits connect-mode and selects the
-   source lane.
-
-Errors during the geometry plan are caught and logged; connect-mode
-exits unconditionally on the second click.
-
-## mapEventRouter/cursorScheduler.ts
-
-RAF-coalesced writer for `uiStore.cursorLngLat` so the StatusBar
-updates at most 60 fps even if the canvas fires `mousemove` more often.
-
-```ts
-export function createCursorScheduler(): {
-  schedule(point: LngLat): void;
-  dispose(): void;
-};
-```
-
-`schedule(point)` stashes the latest point; the next animation frame
-flushes it via `setCursorLngLat`. `dispose()` cancels the pending RAF
-on unmount.
-
-## mapEventRouter/hitTest.ts
-
-Pixel → lng/lat helpers and the worker-backed hit-test wrapper.
+## `hitTest.ts`
 
 ```ts
 export type HitFilter = (entityType: string) => boolean;
 
 export function toLngLat(e: maplibregl.MapMouseEvent): LngLat;
-export function hitBbox(point: maplibregl.PointLike): [maplibregl.PointLike, maplibregl.PointLike];
+export function hitBbox(point: maplibregl.PointLike): [PointLike, PointLike];
 export function pixelToRadius(map: maplibregl.Map, px: number): number;
 export function workerHitTest(
   map: maplibregl.Map,
@@ -75,21 +41,22 @@ export function workerHitTest(
 ): Promise<string | null>;
 ```
 
-`pixelToRadius` converts a pixel hit radius into the worker's geo
-units (degrees) via `(px * 360) / (512 * 2^zoom)`. The worker's RBush
-tree expects geo coordinates, so we cannot send pixel radii directly.
+| 函数            | 作用                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `toLngLat`      | `[lng, lat]` 元组化，便于和 FSM 通讯                                                                |
+| `hitBbox`       | 在屏幕空间扩张 `HIT_BBOX_PADDING_PX`，给 `queryRenderedFeatures` 用                                 |
+| `pixelToRadius` | 像素半径换算到经纬度（粗近似：`(px*360) / (512 * 2^zoom)`）                                         |
+| `workerHitTest` | 把 `HIT_TEST` 发到 spatial worker 并解出第一个匹配的 entity id；可选 `filter` 仅匹配某种 entityType |
 
-`workerHitTest` posts `{ type: 'HIT_TEST', point, radius }`, takes the
-first hit by default or the first `filter`-matching hit, and returns
-its entity id (or `null`).
+### 不变量
 
-`hitBbox(point)` returns a 8×8px bbox tuple suitable for
-`map.queryRenderedFeatures` — used to pick `hot-points` / `hot-fill`
-under the cursor for selection drag.
+- `bridge === null` 直接返回 `Promise.resolve(null)`，调用方不需要再做空判断（line 32）。
+- `result.hits` 已按距离升序排好；不带 filter 时取 `hits[0]`，带 filter 时
+  按 `find` 顺序取首个。
 
-## mapEventRouter/inputDedup.ts
+---
 
-Deduplication of native dblclick double-fires.
+## `inputDedup.ts`
 
 ```ts
 export type InputSample = { x: number; y: number; ts: number };
@@ -98,42 +65,104 @@ export function sampleInput(e: maplibregl.MapMouseEvent): InputSample;
 export function isDuplicateInput(prev: InputSample | null, next: InputSample): boolean;
 ```
 
+`isDuplicateInput` 判定双窗口：
+
 ```ts
+// inputDedup.ts:3-4, 16-21
 const DBLCLICK_PX_TOLERANCE = 4;
 const DBLCLICK_MS_WINDOW = 350;
+//
+return Math.hypot(dx, dy) < DBLCLICK_PX_TOLERANCE && next.ts - prev.ts < DBLCLICK_MS_WINDOW;
 ```
 
-Two samples are duplicates if they're within 4 pixels and 350 ms.
-That window matches the OS-level double-click threshold while staying
-short enough to not absorb legitimate fast-clicking.
+### 不变量
 
-## mapEventRouter/keyboard.ts
+- `prev === null` 必须返回 `false`（首次输入永远不是重复）。
+- 调用方负责更新 `lastDrawInput`，本模块不持有状态。
+- 即使去重命中，也仍要更新 `lastDrawInput = sample`，否则下一帧的 dblclick
+  伪 click 会被错误放行。
+
+---
+
+## `cursorScheduler.ts`
 
 ```ts
-export function handleMapKeyDown(
-  actorRef: ActorRefFrom<typeof editorMachine>,
-  e: KeyboardEvent,
-  clearCenterGrabOffset: () => void,
-): void;
+export function createCursorScheduler(): {
+  schedule(point: LngLat): void;
+  dispose(): void;
+};
 ```
 
-Map-scoped keyboard handling, separate from the global
-`useActionDispatcher` shortcut binder:
+每个调用方独占一个调度器实例。`schedule` 在 RAF 内 flush 最新点位到
+`useUIStore.setCursorLngLat`；多次 schedule 在同一帧内只 flush 一次。
 
-| Key                                    | Action                                                                                                                                 |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `Escape`                               | Clear `centerGrabOffset`; exit connect-mode if active; FSM `CANCEL`                                                                    |
-| `Enter`                                | FSM `CONFIRM`                                                                                                                          |
-| `Delete` / `Backspace` (on `selected`) | If `dragPointType === 'vertex'` and idx ≥ 0, delete that vertex via `entityMutations.deleteVertex`. Otherwise delete the whole entity. |
+### 副作用
 
-The vertex delete path returns `null` from `deleteVertex` when the
-remaining vertex count would drop below the geometry minimum
-(polyline < 2, polygon < 3, etc.); in that case it falls through and
-deletes the entire entity.
+| 副作用                                         | 触发时机        | 清理                                |
+| ---------------------------------------------- | --------------- | ----------------------------------- |
+| `requestAnimationFrame(flushCursor)`           | 首次 `schedule` | `dispose` 中 `cancelAnimationFrame` |
+| `useUIStore.getState().setCursorLngLat(point)` | RAF flush       | —                                   |
 
-## mapEventRouter/selectionDrag.ts
+### 不变量
 
-Ownership of the `mousedown` decision tree while in `selected` state.
+- 同一帧内多次 `schedule` 永远只产生 1 次 store 写入。
+- `dispose` 之后再调用 `schedule` 仍会再起一个 RAF；调用方约定 dispose
+  后不再使用调度器。
+
+---
+
+## `connectMode.ts`
+
+```ts
+export function handleConnectModeClick(
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  hitTest: (e, filter?) => Promise<string | null>,
+  e: maplibregl.MapMouseEvent,
+): boolean;
+```
+
+connect-lanes 模式的 click 分支。返回值表示"是否吃掉本次 click"。
+
+### 流程
+
+```mermaid
+sequenceDiagram
+    participant Click as router.click
+    participant Conn as handleConnectModeClick
+    participant UI as useUIStore
+    participant Hit as workerHitTest
+    participant Map as mapStore
+    participant FSM as actorRef
+    participant Geom as connectLanes geometry
+
+    Click->>Conn: connectMode.active?
+    Conn->>UI: connectMode.active === true
+    Conn->>Hit: hitTest(e, t==='lane')
+    Hit-->>Conn: Promise<string|null>
+    alt 没命中
+        Conn->>Click: return true (吃掉，无副作用)
+    else 命中且 firstLaneId 空
+        Conn->>UI: setConnectFirstLane(hitId)
+        Conn->>FSM: send SELECT_ENTITY
+    else 命中且 != firstLaneId
+        Conn->>Map: get(firstLaneId), get(hitId)
+        Conn->>Geom: planConnection + applyLaneConnection
+        Conn->>Map: updateEntity(source.id, next)
+        Conn->>UI: exitConnectMode()
+        Conn->>FSM: send SELECT_ENTITY(source.id)
+    end
+```
+
+### 不变量
+
+- `connectMode.active === false` 时立刻 `return false`，不发任何 hitTest。
+- promise 回流后必须重读 `useUIStore.getState()`，因为期间可能 Esc 退出。
+- `firstLaneId === hitId` 是无效操作（不能自连），直接忽略。
+- 连接成功 / 失败都要 `exitConnectMode()`，避免状态卡住。
+
+---
+
+## `selectionDrag.ts`
 
 ```ts
 export interface SelectedMouseDownResult {
@@ -148,134 +177,168 @@ export function handleSelectedMouseDown(
 ): SelectedMouseDownResult;
 ```
 
-Decision tree:
+`selected` 状态下的 mousedown 路由：
 
-1. Not in `selected` state, or connect-mode active → not handled.
-2. Mouse over a `hot-points` feature:
-   - Alt+click on a `vertex` → `toggleEntitySmooth` + FSM
-     `TOGGLE_SMOOTH`. Handled, no drag.
-   - Otherwise disable dragPan, fire `START_DRAG` with the vertex /
-     handle index. Handled.
-3. Mouse over `hot-fill`:
-   - Compute `centerGrabOffset = cursor - entity.center`.
-   - Disable dragPan, fire `START_DRAG { index: -2, pointType: 'center' }`.
-   - Return the offset so the router can apply it to subsequent
-     mousemove points.
-4. Otherwise → not handled (router falls through to plain click-to-deselect).
+| 命中                         | altKey | 行为                                                              |
+| ---------------------------- | ------ | ----------------------------------------------------------------- |
+| hot-points (vertex)          | true   | `toggleEntitySmooth` + `TOGGLE_SMOOTH`                            |
+| hot-points (vertex / handle) | false  | `dragPan.disable()` + `START_DRAG{ index, pointType }`            |
+| hot-fill                     | —      | 计算 `centerGrabOffset` + `START_DRAG{ index:-2, type:'center' }` |
+| 其它                         | —      | `handled=false`，让上层走普通 click 路径                          |
 
-`toggleEntitySmooth` dispatches to the appropriate
-`entityMutations.toggleSmooth*` for drawing-primitive vs. Apollo
-bezier source entities.
+### Smooth toggle 分支
 
-## mapEventRouter/snap.ts
+```ts
+// selectionDrag.ts:17-30
+function toggleEntitySmooth(entityId, idx) {
+  const entity = useMapStore.getState().entities.get(entityId);
+  if (!entity) return;
+  if (entity.entityType === 'bezier') {
+    useMapStore.getState().updateEntity(entityId, toggleSmooth(entity, idx));
+    return;
+  }
+  const src = getSource(entity);
+  if (src?.drawTool === 'drawBezier' && src.anchors) {
+    useMapStore.getState().updateEntity(entityId, toggleSmoothApollo(entity as ApolloEntity, idx));
+  }
+}
+```
+
+支持原生 `bezier` 与从 Apollo 导入的"曾用 bezier 绘制"的实体。
+
+### 不变量
+
+- `connectMode.active === true` 时不参与（`selectionDrag.ts:39`）。
+- center 拖拽时 `index = -2`，`pointType = 'center'`，FSM 的 `applyDrag`
+  分支据此识别。
+- `dragPan.disable()` 必须先于发出 `START_DRAG`，否则同一帧内 maplibre
+  会抢先处理 mousemove。
+
+---
+
+## `keyboard.ts`
+
+```ts
+export function handleMapKeyDown(
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  e: KeyboardEvent,
+  clearCenterGrabOffset: () => void,
+): void;
+```
+
+| 按键                   | 行为                                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `Escape`               | `clearCenterGrabOffset()`; 若 connect-mode 活跃则 `exitConnectMode`；`CANCEL`                             |
+| `Enter`                | `CONFIRM`                                                                                                 |
+| `Delete` / `Backspace` | `selected` 状态：vertex 模式 `deleteVertex` + `SELECT_ENTITY` 重选；否则 `DELETE_ENTITY` + `removeEntity` |
+
+### 不变量
+
+- 即使 connect-mode 已退出，`CANCEL` 也无害（XState 5 在不匹配状态下 no-op）。
+- `Delete` 在非 `selected` 状态完全无效（line 24）；避免在绘制中误删。
+- `clearCenterGrabOffset` 是路由器持有的 closure 变量，本模块通过回调清除它。
+
+---
+
+## `snap.ts`
 
 ```ts
 export function applySnap(
   map: maplibregl.Map,
   actorRef: ActorRefFrom<typeof editorMachine>,
   lngLat: LngLat,
-  excludeId?: string | null,
+  excludeId: string | null = null,
 ): LngLat;
 ```
 
-Decision flow:
+把当前 lngLat 投影到最近的吸附点（如果命中），并把 `SnapTarget` 写入
+`useUIStore.currentSnapTarget`。
 
-1. If `uiStore.snapEnabled` is false, or FSM state isn't a draw or
-   `editingPoint` state, clear any active snap target and return the
-   raw `lngLat`.
-2. Compute `radiusM = pixelsToMeters(SNAP_RADIUS_PX, lat, zoom)` —
-   converts pixel radius into geographic meters at the cursor's
-   latitude.
-3. Run `findSnapTarget({ x, y }, entities.values(), radiusM, excludeId)`
-   from `core/geometry/snap`.
-4. Update `uiStore.currentSnapTarget` (the indicator layer reacts).
-5. Return the snapped point if found, raw point otherwise.
-
-`excludeId` keeps a vertex from snapping back onto its own entity
-during drag.
-
-## mapLibreInit/assets.ts
+### 流程
 
 ```ts
-export const EMPTY_FC: GeoJSON.FeatureCollection;
-export const DARK_STYLE: maplibregl.StyleSpecification;
-export function registerRuntimeImages(map: maplibregl.Map): void;
+// snap.ts:15-39
+1. 读 ui.snapEnabled + 当前 FSM 状态
+2. !snapEnabled || !isSnapApplicable(state) → 清空 currentSnapTarget, 返回原 lngLat
+3. radiusM = pixelsToMeters(SNAP_RADIUS_PX, lat, zoom)
+4. findSnapTarget(point, entities, radiusM, excludeId)
+5. ui.setSnapTarget(target)
+6. target ? [target.point.x, target.point.y] : lngLat
 ```
 
-`DARK_STYLE` is the inline base style — single `#1a1a2e` background,
-no tiles. `glyphs` points at MapLibre's demo glyph server for symbol
-labels.
+### 不变量
 
-`registerRuntimeImages` paints a few small images directly into the
-map's image atlas:
+- `excludeId` 用于排除"正在拖拽的实体本身"，否则编辑顶点会吸附到自己。
+- `isSnapApplicable` 仅在 `editingPoint` 与 `isDrawingState` 中返回 true；
+  其它状态（idle / selected）即使开启 snap 也不会显示指示环（line 11-13）。
+- `ui.setSnapTarget(null)` 即使 target 为 null 也要写一次，确保上一次的
+  指示环被清除。
 
-- `zebra-stripe` — 16×16 procedural horizontal stripes, used for
-  crosswalk fills.
-- `red-hatch` — 12×12 procedural diagonal stripes, used for clear-area
-  fills.
-- `lane-arrow` — 20×20 SDF arrow drawn on a `<canvas>`. Registered with
-  `{ sdf: true }` so the symbol layer can re-color it.
-- `registerMapIcons(map)` — async install of all action / element
-  icons from `@/lib/mapIcons` (Apollo entity glyphs).
+---
 
-## mapLibreInit/layers.ts
+## 整体协作
 
-```ts
-export function addEditorLayers(map: maplibregl.Map): void;
+```mermaid
+sequenceDiagram
+    participant User
+    participant Router as useMapEventRouter
+    participant Snap as snap.applySnap
+    participant Hit as hitTest.workerHitTest
+    participant Conn as connectMode
+    participant Sel as selectionDrag
+    participant Cur as cursorScheduler
+    participant Dedup as inputDedup
+    participant Kbd as keyboard
+
+    User->>Router: mousemove
+    Router->>Cur: schedule(lngLat)
+    Cur-->>useUIStore: setCursorLngLat (RAF)
+    Router->>Snap: applySnap(lngLat)
+    Snap-->>useUIStore: setSnapTarget(target)
+    Snap-->>Router: snapped point
+    Router-->>actor: MOUSE_MOVE / DRAG_MOVE
+
+    User->>Router: click
+    Router->>Conn: handleConnectModeClick
+    alt eaten
+        Conn-->>actor: SELECT_ENTITY
+    else not connect mode
+        Router->>Hit: workerHitTest
+        Hit-->>Router: id|null
+        Router-->>actor: SELECT_ENTITY/DESELECT/MOUSE_DOWN
+    end
+
+    User->>Router: mousedown (selected)
+    Router->>Sel: handleSelectedMouseDown
+    Sel-->>actor: START_DRAG / TOGGLE_SMOOTH
+
+    User->>Router: keydown
+    Router->>Kbd: handleMapKeyDown
+    Kbd-->>actor: CANCEL/CONFIRM/DELETE_ENTITY
+
+    Router->>Dedup: sampleInput / isDuplicateInput (各分支)
 ```
 
-The dispatcher: calls the private `addGridLayer`, `addColdLayers`,
-`addHotLayers`, `addOverlayLayers`, `addSnapLayers` in fixed order.
-Each helper adds one source plus a small set of layers consuming that
-source. Filters come from `coldLayerConfig.COLD_LAYER_FILTERS` for the
-cold layers; hot/overlay/snap inline their filters.
+## 测试
 
-Notable layer paint expressions:
+- `src/hooks/__tests__/useMapEventRouter.test.ts` —— 端到端集成
+- 各模块的纯函数（`isDuplicateInput`、`pixelToRadius` 等）通过单元测试覆盖
 
-- **`cold-fill-crosswalk`**: `'fill-pattern': 'zebra-stripe'`,
-  `'fill-opacity': 0.8`.
-- **`cold-fill-cleararea`**: `'fill-pattern': 'red-hatch'`,
-  `'fill-opacity': 0.7`.
-- **`cold-line-dotted`**: `'line-dasharray': [0.01, 2.2]`, `line-cap:
-round` — hairline dotted style for lane center virtual segments.
-- **`cold-line-dashed`**: `'line-dasharray': [3, 3]`.
-- **`cold-labels`**: symbol layer driven by `properties.icon`,
-  `properties.iconRotate` (signal labels rotate to face oncoming
-  traffic — Dreamview parity).
-- **`cold-lane-arrows`**: `symbol-placement: line`, spacing tied to
-  `settingsStore.laneArrowSpacing`.
-- **`hot-line`**: case-driven `line-dasharray`/`line-color` based on
-  `properties.role` to distinguish handle lines from main geometry.
-- **`snap-ring` / `snap-dot`**: color-coded by `properties.kind`
-  (`vertex` cyan, `edge` darker cyan).
+## 参见
 
-## Examples
+- [`useMapEventRouter`](./use-map-event-router.md)（高层调度器）
+- [Snap geometry](../core/geometry-snap.md)
+- [Connect lanes geometry](../core/geometry-connect-lanes.md)
+- [SpatialWorkerBridge](../core/spatial-bridge.md)
 
-### Loading layers from a non-init code path
+## 源码索引
 
-```ts
-import { addEditorLayers } from '@/hooks/mapLibreInit/layers';
-addEditorLayers(map); // safe to call multiple times — each helper checks for existing source/layer
-```
-
-In practice no other code path needs this — `useMapLibreInit` is the
-single caller.
-
-### Manually testing snap
-
-```ts
-import { applySnap } from '@/hooks/mapEventRouter/snap';
-
-const snapped = applySnap(map, actorRef, [lng, lat], excludeId);
-```
-
-Only meaningful while the FSM is in a draw or `editingPoint` state —
-otherwise it returns `lngLat` unchanged.
-
-## Related
-
-- [useMapEventRouter](/api/hooks/use-map-event-router)
-- [useMapLibreInit](/api/hooks/use-map-libre-init)
-- [Geometry: snap](/api/core/geometry-snap)
-- [coldLayerConfig](/api/components/map-canvas)
-- [Spatial worker bridge](/api/core/spatial-bridge)
+| 文件                                | 关键行                                                     |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `mapEventRouter/hitTest.ts`         | 全文 1-43                                                  |
+| `mapEventRouter/inputDedup.ts`      | 全文 1-22                                                  |
+| `mapEventRouter/cursorScheduler.ts` | 全文 1-32                                                  |
+| `mapEventRouter/connectMode.ts`     | 全文 1-58；分支 14-56                                      |
+| `mapEventRouter/selectionDrag.ts`   | 全文 1-87；smooth 17-30；vertex/handle 47-60；center 65-85 |
+| `mapEventRouter/keyboard.ts`        | 全文 1-46；Escape 12-18；Delete 21-44                      |
+| `mapEventRouter/snap.ts`            | 全文 1-40                                                  |

@@ -1,137 +1,233 @@
-# geo / lane geometry
+---
+title: Geo / Lane Geometry
+description: src/core/geometry/* — lane 中心线编译、interpolate、topology、junctions、snap、hitTest、validation
+---
 
-当前 lane geometry 分散在 `src/core/geometry` 与 `src/core/geometry/apolloCompile`。旧版 `computeBoundaries()`、`computeLaneSamples()`、Turf API 文档不对应当前源码。
+# Geo / Lane Geometry
 
-## Curve / Polygon
+`src/core/geometry/` 是编辑器的纯几何层。所有函数都不依赖 React、
+maplibre 或 store，可以在 worker 主线程互相迁移。本节按子模块列出
+全部公开符号与签名。
+
+## 子模块概览
+
+| 模块                                  | 角色                                               |
+| ------------------------------------- | -------------------------------------------------- |
+| `interpolate.ts`                      | Catmull-Rom / Bezier / 圆弧 / 旋转矩形等基础采样   |
+| `coords.ts`                           | `GeoPoint ↔ LngLat` 转换                           |
+| `anchorConvert.ts`                    | `BezierAnchorData ↔ runtime BezierAnchor`          |
+| `compile.ts`                          | 实体 → GeoJSON Feature + AABB                      |
+| `apolloCompile.ts` + 子目录           | Apollo 实体的 feature 编译 / editPoints / template |
+| `laneTopology.ts`                     | pred / succ / junction / neighbors 全量推导        |
+| `laneJunctions.ts` + `laneJunctions/` | 端点对齐 + boundary stitching                      |
+| `connectLanes.ts`                     | 两条 lane 端点匹配 + 移动                          |
+| `snap.ts`                             | 顶点/边吸附候选与 `findSnapTarget`                 |
+| `hitTest.ts`                          | 点到折线 / 多边形距离（欧氏 + 纬度补偿）           |
+| `validation.ts`                       | 折线/多边形自交检测                                |
+
+## interpolate.ts
 
 ```ts
-export function pointsToCurve(points: GeoPoint[]): Curve;
-export function pointsToPolygon(points: GeoPoint[]): ApolloPolygon;
-export function curvePoints(curve: Curve | undefined): GeoPoint[];
-export function explicitLaneBoundaryEdges(lane: LaneEntity): LaneBoundaryEdges | null;
+export type LngLat = [number, number];
+
+export interface BezierAnchor {
+  point: LngLat;
+  handleIn: LngLat | null;
+  handleOut: LngLat | null;
+}
+
+export function mirrorPoint(pivot: LngLat, pt: LngLat): LngLat;
+export function catmullRom(points: LngLat[], segments?: number, alpha?: number): LngLat[];
+export function cubicBezier(anchors: BezierAnchor[], segments?: number): LngLat[];
+export function threePointArc(p1: LngLat, p2: LngLat, p3: LngLat, segments?: number): LngLat[];
+export function rectCorners(p1: LngLat, p2: LngLat, rotation: number): LngLat[];
+export function rotatedRectFromPoints(/* ... */): { p1: LngLat; p2: LngLat; rotation: number };
+export function rectRotateHandle(p1: LngLat, p2: LngLat, rotation: number): LngLat;
 ```
 
-`pointsToCurve()` 生成单段 `Curve`，`s/heading/length` 初始为 0。`curvePoints()` 会拼接所有 segment 的 `lineSegment.points`，并去掉相邻重复点。
+- `catmullRom` 默认 `segments=32, alpha=0.5`（centripetal）。
+- `cubicBezier` 默认 `segments=48`。
+- `threePointArc` 默认 `segments=64`，三点共线时退化为线段。
 
-`explicitLaneBoundaryEdges()` 用导入 Apollo lane 的真实左右边界：
-
-- 左右任一边少于 2 点时返回 `null`。
-- 会按中心线方向自动翻转边界点列。
-- 左右边界组成的 corridor 面积退化时返回 `null`。
-
-## Lane Rendering Geometry
-
-`compileApolloFeatures()` 中 lane 渲染逻辑：
-
-- 中心线少于 2 点时不产出 feature。
-- 优先使用 `explicitLaneBoundaryEdges()`。
-- 没有显式边界时，取 `leftSamples[0].width`、`rightSamples[0].width`，缺失 fallback 到 `DEFAULT_LANE_HALF_WIDTH`，再用 `offsetPolylineDeg()` 生成边界。
-- polygon 为 `leftEdge + reverse(rightEdge)`。
-- `direction = BIDIRECTION` 时产出 forward/backward 两条中心线；`BACKWARD` 时中心线坐标反向。
-
-## Offset Polyline
+## coords.ts
 
 ```ts
-export function offsetPolylineDeg(
-  points: GeoPoint[],
-  offsetMeters: number,
-  side: 'left' | 'right',
-): GeoPoint[];
+export function toLngLat(p: GeoPoint): LngLat; // [x, y]
+export function toGeoPoint(p: LngLat): GeoPoint; // { x, y }
+export function pointsToCoords(points: GeoPoint[]): LngLat[];
+export function coordsToPoints(coords: LngLat[]): GeoPoint[];
 ```
 
-实现位于 `apolloCompile/offsetPolyline.ts`。它在经纬度上使用局部米空间近似，处理 miter、bevel、内侧交点和 tight curve loop collapse。测试覆盖：
-
-- 直线左右偏移距离。
-- 90 度转弯内外侧。
-- 150 度尖角 bevel。
-- 密集曲线不被错误裁成长弦。
-- 内侧偏移线和 lane polygon 不自交。
-
-## Lane Creation
+## anchorConvert.ts
 
 ```ts
-export function createApolloEntity(type: MapElementType, draw: DrawResult): MapEntity;
-export function inferLaneTurn(centerPts: GeoPoint[]): LaneTurn;
+export function anchorToRuntime(a: BezierAnchorData): BezierAnchor;
+export function anchorToData(a: BezierAnchor): BezierAnchorData;
 ```
 
-lane 创建时：
+`BezierAnchorData` 是 `_source.anchors` 的存储形式（`GeoPoint`），
+`BezierAnchor` 是 interpolate 内部的运行时形式（`LngLat`）。
 
-- 支持 polyline、Bezier、arc、Catmull-Rom。
-- `centralCurve` 来自采样点。
-- 左右 boundary 初始为空 curve，但写入默认 boundary type。
-- `length` 用 `polylineLengthMeters(centerPts)`。
-- `turn` 由起止方向夹角推断：
-  - 小于 `TURN_INFER_NO_TURN_RAD` 为 `NO_TURN`。
-  - 大于等于 `TURN_INFER_U_TURN_RAD` 为 `U_TURN`。
-  - 正角为 `LEFT_TURN`，负角为 `RIGHT_TURN`。
-- 默认 lane type 为 `CITY_DRIVING`，direction 为 `FORWARD`，speed limit 为 `DEFAULT_LANE_SPEED_LIMIT_MPS`。
-
-## Edit Points
-
-`apolloCompile/editPoints.ts` 提供：
-
-- `getApolloEditPoints()`
-- `setAllApolloEditPoints()`
-- `setApolloEditPoint()`
-- `moveApolloEntity()`
-- `deleteApolloVertex()`
-- `apolloEntityCoords()`
-- `isApolloAreaEntity()`
-- `isApolloPolygonEditPoints()`
-
-这些函数按 entity 类型读写中心线、polygon、stop line 或 position，并用于编辑器点位操作。
-
-## Snap / Connect
+## compile.ts
 
 ```ts
-export function pixelsToMeters(pixels: number, lat: number, zoom: number): number;
-export function collectCandidates(entities: Iterable<MapEntity>, excludeId: string | null): {
-  vertices: VertexCandidate[];
-  edges: EdgeCandidate[];
-};
-export function findSnapTarget(...): SnapTarget | null;
+export function compileColdFeatures(entity: MapEntity): GeoJSON.Feature[];
+export function entityBBox(entity: MapEntity): [number, number, number, number];
+export function entityCoords(entity: MapEntity): LngLat[];
+export function entityRenderCoords(entity: MapEntity): LngLat[];
+export function isAreaEntity(entity: MapEntity): boolean;
+```
+
+- `compileColdFeatures` 是冷层 GeoJSON 的总入口；Apollo 实体走
+  `compileApolloFeatures`，其它绘制图形按颜色直出 LineString / Polygon。
+- `entityBBox` = AABB，单位度。
+- `entityRenderCoords` 在 Catmull-Rom 上会返回采样后的折线，用于精确
+  hitTest。
+
+## apolloCompile.ts (re-export)
+
+`src/core/geometry/apolloCompile.ts` 收口子目录：
+
+```ts
+export { pointsToCurve, pointsToPolygon } from './apolloCompile/conversions';
+export { offsetPolylineDeg } from './apolloCompile/offsetPolyline';
+export {
+  apolloEntityCoords,
+  deleteApolloVertex,
+  getApolloEditPoints,
+  isApolloAreaEntity,
+  isApolloPolygonEditPoints,
+  moveApolloEntity,
+  setAllApolloEditPoints,
+  setApolloEditPoint,
+} from './apolloCompile/editPoints';
+export { createApolloEntity, inferLaneTurn } from './apolloCompile/factory';
+export { compileApolloFeatures } from './apolloCompile/features';
+```
+
+子目录还提供 `signalTemplate.ts`（`buildSignalTemplate`、
+`regenerateSignalGeometry`）、`signalHeading.ts`、`laneBoundaryGeometry.ts`
+（`curvePoints`、`explicitLaneBoundaryEdges`）等内部工具，UI 一律通过
+`@/lib/entityOps` 间接调用，不应直接 import 这些子文件。
+
+## laneTopology.ts
+
+```ts
+export interface LaneTopologyDiff {
+  changes: Map<string, LaneEntity>;
+}
+
+export interface LaneTopologyIncrementalOptions {
+  dirtyIds: ReadonlySet<string>;
+  previousEntities?: ReadonlyMap<string, MapEntity>;
+}
+
+export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff;
+
+export function reconcileLaneTopologyIncremental(
+  entities: ReadonlyMap<string, MapEntity>,
+  options: LaneTopologyIncrementalOptions,
+): LaneTopologyDiff;
+```
+
+派生字段：
+
+- `predecessorIds / successorIds` — 端点 1cm 精度共享；
+- `selfReverseLaneIds` — 反向孪生；
+- `junctionId` — 中心线 ∩ junction.polygon；
+- `leftNeighborForwardIds / rightNeighborForwardIds /
+leftNeighborReverseIds / rightNeighborReverseIds` — 横向距离 1..6m + 方向 ±0.95。
+
+`reconcileLaneTopology` O(N²)；`reconcileLaneTopologyIncremental` 在
+dirty lane 周围做 O(K) 邻居查询，编辑期 < 16ms。
+
+## laneJunctions.ts
+
+```ts
+export function applyLaneJunctions(
+  features: GeoJSON.Feature[],
+  entities: Iterable<MapEntity>,
+  excludeId?: string | null,
+  decorateOnly?: Set<string> | null,
+): GeoJSON.Feature[];
+```
+
+把 lane 的左右 boundary 在端点对齐处缝合（mitre / bevel），并做
+boundary decoration。`decorateOnly` 用于增量解码（Phase E 优化）。
+内部分散到 `laneJunctions/internal.ts`：`decorateBoundary`、
+`endpointDirection`、`sideJoinOffset`、`buildLaneFeatureMap`、
+`updateLineEndpoint`、`syncPolygonFromEdges`、
+`laneEndpointsFromEntity` 等。
+
+## connectLanes.ts
+
+```ts
+export type ConnectionMode = 'AendToBstart' | 'AstartToBend' | 'AstartToBstart' | 'AendToBend';
+
+export interface ConnectionPlan {
+  mode: ConnectionMode;
+  distanceMeters: number;
+  isContinuous: boolean;
+  indexToMove: number;
+  target: GeoPoint;
+}
 
 export function planConnection(a: LaneEntity, b: LaneEntity): ConnectionPlan | null;
 export function applyLaneConnection(lane: LaneEntity, plan: ConnectionPlan): LaneEntity;
 ```
 
-snap 规则：
+`planConnection` 在 4 种端点组合中找最近的一对，返回最佳 plan；
+`isContinuous` 标记是否会形成 pred/succ（`AendToBstart` /
+`AstartToBend`）。`applyLaneConnection` 处理三种 source 形态
+（bezier / arc / polyline）后整体重采样中心线，最后过 `applyDerive`。
 
-- lane 只暴露中心线起点/终点作为 vertex snap，并带 `endpointRole: 'start' | 'end'`。
-- lane 内部点只能通过 edge snap 命中，不会伪造拓扑连接。
-- polygon 会闭合 last 到 first 的边。
-- `excludeId` 用于拖动时排除自身。
-- vertex 优先于 edge。
-
-connect 规则：
-
-- 从 A/B 四种端点组合中选择最近组合。
-- `AendToBstart` 与 `AstartToBend` 视为连续连接。
-- `AstartToBstart` / `AendToBend` 是 fork/merge，不直接建立 pred/succ。
-- `applyLaneConnection()` 会保持 Bezier/arc source 同步，并运行 `applyDerive(editGeometry)`。
-
-## Lane Topology
+## snap.ts
 
 ```ts
-export function reconcileLaneTopology(entities: ReadonlyMap<string, MapEntity>): LaneTopologyDiff;
-export function reconcileLaneTopologyIncremental(...): LaneTopologyDiff;
+export type SnapKind = 'vertex' | 'edge';
+export type LaneEndpointRole = 'start' | 'end';
+
+export interface SnapTarget {
+  kind: SnapKind;
+  point: GeoPoint;
+  entityId: string;
+  entityType: string;
+  vertexIndex?: number;
+  endpointRole?: LaneEndpointRole;
+}
+
+export function pixelsToMeters(pixels: number, lat: number, zoom: number): number;
+export function collectCandidates(/* ... */): { vertices; edges };
+export function findSnapTarget(
+  cursor: GeoPoint,
+  candidates: ReturnType<typeof collectCandidates>,
+  cosLat: number,
+  radiusMeters: number,
+): SnapTarget | null;
 ```
 
-规则：
+吸附以米为单位，`radiusMeters` 由 `pixelsToMeters` 从像素阈值（典型
+12px）+ 当前纬度/zoom 计算。顶点优先于边段。
 
-- pred/succ：端点 `toFixed(6)` 共享。
-- junctionId：中心线与 junction polygon 相交。
-- selfReverse：起终点反向重合。
-- neighbor：局部米空间中方向平行/反平行、横向 1 到 8 米、纵向重叠至少 50%。
+## hitTest.ts
 
-性能注释中标明全量 O(N²)，1000 lane 量级低于 10ms；增量接口减少 store 写回范围。
+```ts
+export function pointToPolylineDist(point: LngLat, coords: LngLat[]): number;
+export function pointInPolygon(point: LngLat, polygon: LngLat[]): boolean;
+export function pointToPolygonDist(point: LngLat, polygon: LngLat[]): number;
+export function pointToPolylineDistGeo(point: LngLat, coords: LngLat[], cosLat: number): number;
+export function pointToPolygonDistGeo(point: LngLat, polygon: LngLat[], cosLat: number): number;
+```
 
-## Spatial Worker
+两套 API：纯欧氏度空间（legacy）与纬度补偿版（worker hitTest 用）。
+`pointInPolygon` 是拓扑判断，不需要量纲修正。
 
-`src/core/workers` 用于渲染冷层和 hit test：
+## validation.ts
 
-- `SYNC` / `SYNC_BEGIN` / `SYNC_CHUNK` / `SYNC_FINISH`：全量同步。
-- `INCREMENTAL`：只返回 changed groups 和 removed ids。
-- `HIT_TEST`：返回按 tier/distance 排序的命中。
+```ts
+export function segmentsIntersect(a1: LngLat, a2: LngLat, b1: LngLat, b2: LngLat): boolean;
+export function wouldSelfIntersect(points: LngLat[], newPt: LngLat): boolean;
+export function polygonSelfIntersects(points: LngLat[]): boolean;
+```
 
-worker 内部用 RBush 存 bbox，用 `LaneJunctionGraph` 追踪共享端点 lane 的依赖，lane 边界装饰缓存按 affected lane 增量刷新。
+FSM 在 polygon 绘制时用 `wouldSelfIntersect` 拦截创建无效几何。

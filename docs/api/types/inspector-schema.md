@@ -1,39 +1,46 @@
-# `types/inspectorSchema`
+---
+title: types/inspectorSchema — Inspector 表单的 schema 驱动模型
+description: 数据驱动 SchemaForm 渲染 Lane / Junction / 等表单的核心模型；FieldDef 自带 read/write 适配器，配合 LaneInspectorSchema 实现 JSX-per-entity 替换。
+---
 
-> Source: [`src/types/inspectorSchema.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/src/types/inspectorSchema.ts)
+# `types/inspectorSchema` — Inspector 表单的 schema 驱动模型
 
-Schema descriptors that let a single generic `<SchemaForm>` component
-render any inspector panel. Lane is the pilot — Junction / Parking /
-Signal / StopSign keep their bespoke React forms for now and migrate
-opportunistically.
+> 源码：`src/types/inspectorSchema.ts` · 541 行 · React + zod 集成
 
-## Why a schema layer
+## 用途
 
-Pre-refactor, `InspectorForms.tsx` hardcoded a separate React form per
-entity type. Adding a field to a Lane meant editing five JSX files in
-parallel; adding a new entity type meant cloning ~200 lines of JSX.
+在此模块出现之前，`InspectorForms.tsx` 为每种实体硬编码一份 React 表单（Lane / Junction / Parking / Signal / StopSign）。新增实体或字段需要改 5 处 JSX。
 
-`inspectorSchema.ts` replaces that with a data model:
+`inspectorSchema` 引入数据驱动模型——一份 `EntitySchema` 描述一个实体的所有字段，`SchemaForm` 通用组件按 schema 渲染。
 
-- **Adapter pattern, not field path.** Naive schema-driven libraries
-  assume `entity[fieldName] = value`. That cannot express
-  `leftWidth` (a uniform width across `leftSamples[]`) or
-  `leftBoundaryType` (head element of a nested types array). Each
-  `FieldDef` carries explicit `read` / `write` adapters.
-- **Double-generic typing.** `EntitySchema<TEntity, TFormValues>` pins
-  both the domain entity (`LaneEntity`) and the form-values type
-  (`LaneFormValues`, the zod-inferred shape). `FieldDef.name` is
-  constrained to `keyof TFormValues` so the compiler catches typos.
-- **Validation gate preserved.** The `validation` field carries the
-  zod schema that `SchemaForm` passes to `useForm`, keeping the
-  onChange validation gate intact.
+设计要点（来自源码注释）：
 
-## `FieldDef` family
+1. **Adapter 模式（read/write）而非 fieldPath**——naive 实现 `entity[fieldName] = value` 表达不了 `leftWidth`（统一改写所有 leftSamples 的 width）或 `leftBoundaryType`（嵌套 boundaryType 数组的首元素）。每个 FieldDef 显式带 `read` / `write` 适配器。
+2. **双重泛型 `<TEntity, TFormValues>`**——`name` 被约束到 `keyof TFormValues`，编译期捕获 typo。
+3. **保留 validation 闸门**——`validation` 直接是 zod schema，喂给 `useForm`，保留旧 `LaneForm` 的 onChange 校验语义。
 
-### `NumberFieldDef`
+## 公共 API
+
+| 符号                                   | 类型      | 摘要                                                      |
+| -------------------------------------- | --------- | --------------------------------------------------------- |
+| `NumberFieldDef<...>`                  | interface | 数字输入字段                                              |
+| `EnumFieldDef<...>`                    | interface | 枚举选择字段                                              |
+| `FieldDef<TEntity, TFormValues, TKey>` | union     | NumberFieldDef \| EnumFieldDef                            |
+| `AnyFieldDef<TEntity, TFormValues>`    | type      | 分布展开后的 FieldDef union                               |
+| `ReadOnlyDef<TEntity>`                 | interface | 只读派生行                                                |
+| `EntitySchema<TEntity, TFormValues>`   | interface | 一个 Inspector 面板的完整 schema                          |
+| `fieldBuilder<TEntity, TFormValues>()` | fn        | 柯里化构造器，自动推断 TKey                               |
+| `LaneInspectorSchema`                  | const     | Lane 表单的具体 schema                                    |
+| `formValuesFromEntity`                 | fn        | 通过 `read` 投影 entity → form values                     |
+| `diffFormAgainstEntity`                | fn        | 计算需要回写的字段集合                                    |
+| `shouldPersistForm`                    | fn        | 是否有 diff（`updateEntity` 闸门）                        |
+| `applyFormValuesToEntity`              | fn        | 通过 `write` 把表单值写回 entity，并更新 `_userOverrides` |
+
+## 详细条目
+
+### `NumberFieldDef<TEntity, TFormValues, TKey>`
 
 ```ts
-/** Numeric input rendered as `<Input type="number">`. */
 export interface NumberFieldDef<
   TEntity extends MapEntity,
   TFormValues,
@@ -46,77 +53,53 @@ export interface NumberFieldDef<
   min?: number;
   max?: number;
   step?: number;
+  /** 从派生后的 entity 读取表单值。 */
   read: (entity: TEntity) => TFormValues[TKey];
+  /** 把表单值写回 entity（含派生）。 */
   write: (entity: TEntity, value: TFormValues[TKey]) => TEntity;
   /**
-   * Entity field paths this form field "owns". Tagged into
-   * `_userOverrides` after a write so derive rules whose `owns`
-   * overlap will skip on subsequent geometry edits. Defaults to
-   * `[name]` when unset.
+   * 该字段"拥有"的 entity 字段路径——写入后会被推到 `_userOverrides`,
+   * derive 规则的 `owns` 与之相交时会被跳过。默认 `[name]`。
    */
   overridesPaths?: readonly string[];
 }
 ```
 
-### `EnumFieldDef`
+文件位置：`inspectorSchema.ts:62-86`。
+
+### `EnumFieldDef<TEntity, TFormValues, TKey>`
 
 ```ts
-/** Enumerated select rendered as `<Select>`. */
-export interface EnumFieldDef<
-  TEntity extends MapEntity,
-  TFormValues,
-  TKey extends keyof TFormValues,
-> {
+export interface EnumFieldDef<...> {
   kind: 'enum';
   name: TKey;
   label: string;
   section: string;
   options: readonly string[];
-  /**
-   * Display-label dictionary key. The Select shows
-   * `getEnumLabel(enumCategory, value)` while keeping the raw enum
-   * value on the wire — single hook for future i18n.
-   */
-  enumCategory?: EnumCategory;
+  enumCategory?: EnumCategory;  // 给 getEnumLabel 用
   read: (entity: TEntity) => TFormValues[TKey];
   write: (entity: TEntity, value: TFormValues[TKey]) => TEntity;
   overridesPaths?: readonly string[];
 }
 ```
 
-### `FieldDef` union
+`enumCategory` 让 `<Select>` 在不改变 wire 值的前提下显示本地化标签——单一 i18n 注入点。
+
+### `FieldDef<TEntity, TFormValues, TKey>` & `AnyFieldDef`
 
 ```ts
-export type FieldDef<
-  TEntity extends MapEntity,
-  TFormValues,
-  TKey extends keyof TFormValues = keyof TFormValues,
-> = NumberFieldDef<TEntity, TFormValues, TKey> | EnumFieldDef<TEntity, TFormValues, TKey>;
-```
+export type FieldDef<...> = NumberFieldDef<...> | EnumFieldDef<...>;
 
-### `AnyFieldDef` distribution
-
-```ts
-/**
- * Distributes FieldDef over each key of TFormValues so the resulting
- * union narrows `name` ↔ `read`/`write` together. Without this, an
- * array literal like `[{name:'leftWidth', read:..., write:...}]`
- * widens the value type of `read` to the union of every possible
- * field type, defeating per-field type safety.
- */
-export type AnyFieldDef<TEntity extends MapEntity, TFormValues> = {
+export type AnyFieldDef<TEntity, TFormValues> = {
   [K in keyof TFormValues]-?: FieldDef<TEntity, TFormValues, K>;
 }[keyof TFormValues];
 ```
 
-### `ReadOnlyDef`
+`AnyFieldDef` 是分布式 union ——避免数组字面量把 `read` / `write` 的值类型扩成"所有可能字段类型的 union"。
+
+### `ReadOnlyDef<TEntity>`
 
 ```ts
-/**
- * Read-only display row (no form binding, no validation). Renders as
- * `<Value>`. Used for derived/topology summaries like "Length" or
- * "Predecessors" that LaneForm previously hardcoded.
- */
 export interface ReadOnlyDef<TEntity extends MapEntity> {
   kind: 'readonly';
   label: string;
@@ -125,58 +108,35 @@ export interface ReadOnlyDef<TEntity extends MapEntity> {
 }
 ```
 
-## `EntitySchema`
+无表单绑定、无 validation——纯展示。例：Lane.length（米）、predecessorIds 列表。`compute` 可返回任意 React node（包括 `<LaneRefList>` 这种带跳转的组件）。
+
+### `EntitySchema<TEntity, TFormValues>`
 
 ```ts
 export interface EntitySchema<
   TEntity extends MapEntity,
   TFormValues extends Record<string, unknown>,
 > {
-  /**
-   * Stable identifier; useful for keying React re-renders when the
-   * panel switches between entity kinds (lane → junction → ...).
-   */
   id: string;
-  /** Editable form rows. */
   fields: ReadonlyArray<AnyFieldDef<TEntity, TFormValues>>;
-  /** Read-only derived rows. */
   readonly: ReadonlyArray<ReadOnlyDef<TEntity>>;
-  /** Zod validation schema (must produce TFormValues on parse). */
   validation: ZodType<TFormValues, TFormValues>;
-  /** Section render order. */
   sectionOrder: ReadonlyArray<string>;
 }
 ```
 
-| Member         | Purpose                                               |
-| -------------- | ----------------------------------------------------- |
-| `id`           | Stable React key when the panel switches entity kinds |
-| `fields`       | Editable rows — backed by react-hook-form             |
-| `readonly`     | Derived rows — display-only React nodes               |
-| `validation`   | Zod schema fed to `useForm`'s resolver                |
-| `sectionOrder` | Render order; unmentioned sections render last        |
+- `id` —— 用于 React key，切换实体时强制重建表单
+- `fields` —— 编辑行
+- `readonly` —— 只读行
+- `validation` —— `useForm` 的 zod resolver
+- `sectionOrder` —— 分区渲染顺序，未列出的按声明顺序追加
 
-## `fieldBuilder`
+### `fieldBuilder<TEntity, TFormValues>()`
+
+柯里化构造器：
 
 ```ts
-/**
- * Curried builder. The naive `defineField<TEntity, TFormValues>(...)`
- * shape forces the caller to also pass `TKey`, which TS cannot infer
- * from a single argument when two earlier generics are explicit. By
- * pinning `TEntity`/`TFormValues` once at the builder level, every
- * subsequent `.field({...})` call infers `TKey` from the `name`
- * literal — so each FieldDef stays per-key narrowed (read/write
- * signatures match the actual key) while the schema's `fields`
- * array stores the distributed-union form for generic iteration.
- *
- * Usage:
- *   const F = fieldBuilder<LaneEntity, LaneFormValues>();
- *   F.field({ kind: 'number', name: 'speedLimit', read, write, ... })
- */
-export function fieldBuilder<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->() {
+export function fieldBuilder<TEntity, TFormValues>() {
   return {
     field<TKey extends keyof TFormValues>(
       def: FieldDef<TEntity, TFormValues, TKey>,
@@ -187,19 +147,51 @@ export function fieldBuilder<
 }
 ```
 
-## Lane adapters
-
-Private to the module — public surface is the `LaneInspectorSchema`
-constant. Pure functions, trivially testable, safe to call from React
-effects.
+设计动机：`defineField<TEntity, TFormValues, TKey>(def)` 让 caller 必须显式传 `TKey`，无法从单个参数推断。柯里化把 `TEntity, TFormValues` 在 builder 层 pin 死，每次 `.field({...})` 调用就只剩 TKey 待推。
 
 ```ts
-/** Apply a uniform width across all sample points (seeds two anchors when empty). */
-function applySampleWidth(
-  samples: readonly LaneSampleAssociation[],
-  width: number,
-  totalLength: number,
-): LaneSampleAssociation[] {
+const F = fieldBuilder<LaneEntity, LaneFormValues>();
+F.field({ kind: 'number', name: 'speedLimit', read, write, ... });
+```
+
+### `LaneInspectorSchema`
+
+```ts
+export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
+  id: 'lane',
+  validation: laneSchema,
+  sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
+  fields: [
+    LaneField.field({ kind: 'enum', name: 'type', label: 'Type', section: 'Attributes', ... }),
+    LaneField.field({ kind: 'enum', name: 'turn', ... }),
+    LaneField.field({ kind: 'enum', name: 'direction', ... }),
+    LaneField.field({ kind: 'number', name: 'speedLimit', ... }),
+    LaneField.field({ kind: 'number', name: 'leftWidth', read: readLeftWidth, write: writeLeftWidth, ... }),
+    LaneField.field({ kind: 'number', name: 'rightWidth', ... }),
+    LaneField.field({ kind: 'enum', name: 'leftBoundaryType', read: readLeftBoundary, write: writeLeftBoundary, ... }),
+    LaneField.field({ kind: 'enum', name: 'rightBoundaryType', ... }),
+  ],
+  readonly: [
+    { kind: 'readonly', label: 'ID', section: 'Attributes', compute: e => e.id },
+    { kind: 'readonly', label: 'Length', section: 'Boundaries', compute: e => `${(e.length ?? 0).toFixed(2)} m` },
+    { kind: 'readonly', label: 'L Virtual', ... },
+    { kind: 'readonly', label: 'Junction', section: 'Topology',
+      compute: e => createElement(LaneRef, { id: e.junctionId }) },
+    { kind: 'readonly', label: 'Predecessors', section: 'Topology',
+      compute: e => createElement(LaneRefList, { ids: e.predecessorIds }) },
+    // ... 9 个拓扑只读行
+  ],
+};
+```
+
+8 个编辑字段 + 12 个只读行（含 ID / Length / 7 个拓扑列表）。**完全等价于** 旧 `LaneForm.tsx` 的 JSX——意图是 behavior 平移，把"每实体一份 JSX"换成数据。
+
+#### Lane 适配器函数
+
+私有函数，仅模块内使用：
+
+```ts
+function applySampleWidth(samples, width, totalLength): LaneSampleAssociation[] {
   if (samples.length === 0) {
     return [
       { s: 0, width },
@@ -210,216 +202,107 @@ function applySampleWidth(
 }
 
 const readLeftWidth = (e: LaneEntity): number => e.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
-const readRightWidth = (e: LaneEntity): number =>
-  e.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
-const readLeftBoundary = (e: LaneEntity): BoundaryLineType =>
-  e.leftBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
-const readRightBoundary = (e: LaneEntity): BoundaryLineType =>
-  e.rightBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
 
 const writeLeftWidth = (e: LaneEntity, width: number | undefined): LaneEntity => {
   const next = width ?? DEFAULT_LANE_HALF_WIDTH;
   return { ...e, leftSamples: applySampleWidth(e.leftSamples, next, e.length ?? 0) };
 };
-const writeRightWidth = (e: LaneEntity, width: number | undefined): LaneEntity => {
-  const next = width ?? DEFAULT_LANE_HALF_WIDTH;
-  return { ...e, rightSamples: applySampleWidth(e.rightSamples, next, e.length ?? 0) };
-};
-const writeLeftBoundary = (e: LaneEntity, type: BoundaryLineType): LaneEntity => ({
-  ...e,
-  leftBoundary: { ...e.leftBoundary, boundaryType: [{ s: 0, types: [type] }] },
-});
-const writeRightBoundary = (e: LaneEntity, type: BoundaryLineType): LaneEntity => ({
-  ...e,
-  rightBoundary: { ...e.rightBoundary, boundaryType: [{ s: 0, types: [type] }] },
-});
+
+// rightWidth / leftBoundary / rightBoundary 同理
 ```
 
-`leftWidth` / `rightWidth` re-apply a uniform width across every
-`LaneSampleAssociation` rather than mutating a single sample — Apollo
-Lane width is encoded as a series of (s, width) samples, not a scalar.
-Boundary writes only touch the head of `boundaryType`; downstream type
-runs are preserved.
+`leftWidth` 不是 LaneEntity 的字段——它是"统一应用到 leftSamples 全部点的 width"的派生 / 反派生。`write` 把单个数字展开成完整的 sample 数组；`read` 取首元素的 width。
 
-## `LaneInspectorSchema`
+### Schema-generic helpers
 
-The eight editable fields mirror exactly what `LaneForm` rendered
-before the refactor; the intent is behaviour parity with
-JSX-per-entity duplication replaced by data.
-
-### Editable rows
-
-| Section    | Field               | Kind   | Range / options                                    |
-| ---------- | ------------------- | ------ | -------------------------------------------------- |
-| Attributes | `type`              | enum   | `laneTypeOptions`, category `'laneType'`           |
-| Attributes | `turn`              | enum   | `laneTurnOptions`, category `'laneTurn'`           |
-| Attributes | `direction`         | enum   | `laneDirectionOptions`, category `'laneDirection'` |
-| Attributes | `speedLimit`        | number | min 0, max 50, step 0.5 (m/s)                      |
-| Boundaries | `leftWidth`         | number | min 0.5, max 10, step 0.1 (m)                      |
-| Boundaries | `rightWidth`        | number | min 0.5, max 10, step 0.1 (m)                      |
-| Boundaries | `leftBoundaryType`  | enum   | `boundaryTypeOptions`, category `'boundaryType'`   |
-| Boundaries | `rightBoundaryType` | enum   | `boundaryTypeOptions`, category `'boundaryType'`   |
-
-### Read-only rows
-
-| Section    | Label             | Compute                                           |
-| ---------- | ----------------- | ------------------------------------------------- |
-| Attributes | ID                | `e.id`                                            |
-| Boundaries | Length            | `${(e.length ?? 0).toFixed(2)} m`                 |
-| Boundaries | L Virtual         | `e.leftBoundary.virtual ? 'Yes' : 'No'`           |
-| Boundaries | R Virtual         | `e.rightBoundary.virtual ? 'Yes' : 'No'`          |
-| Topology   | Junction          | `<LaneRef id={e.junctionId} />`                   |
-| Topology   | Predecessors      | `<LaneRefList ids={e.predecessorIds} />`          |
-| Topology   | Successors        | `<LaneRefList ids={e.successorIds} />`            |
-| Topology   | L Neighbors (fwd) | `<LaneRefList ids={e.leftNeighborForwardIds} />`  |
-| Topology   | R Neighbors (fwd) | `<LaneRefList ids={e.rightNeighborForwardIds} />` |
-| Topology   | L Neighbors (rev) | `<LaneRefList ids={e.leftNeighborReverseIds} />`  |
-| Topology   | R Neighbors (rev) | `<LaneRefList ids={e.rightNeighborReverseIds} />` |
-| Topology   | Self-Reverse      | `<LaneRefList ids={e.selfReverseLaneIds} />`      |
-| Topology   | Overlaps          | `<LaneRefList ids={e.overlapIds} />`              |
+#### `formValuesFromEntity(schema, entity): TFormValues`
 
 ```ts
-export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
-  id: 'lane',
-  validation: laneSchema,
-  sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
-  fields: [
-    /* … see source … */
-  ],
-  readonly: [
-    /* … see source … */
-  ],
-};
+export function formValuesFromEntity(schema, entity): TFormValues {
+  const result = {} as Record<string, unknown>;
+  for (const field of schema.fields) {
+    result[field.name as string] = field.read(entity);
+  }
+  return result as TFormValues;
+}
 ```
 
-The full literal lives in
-[`src/types/inspectorSchema.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/src/types/inspectorSchema.ts).
+把 entity 通过所有字段的 `read` 投影成 react-hook-form 的初始值。
 
-## Schema-generic helpers
+#### `diffFormAgainstEntity(schema, current, entity): Array<[key, value]>`
 
-These three functions are the contract `<SchemaForm>` uses to drive
-react-hook-form against any `EntitySchema`. They are exported so unit
-tests can verify behaviour without rendering React.
+返回 `current` 与 `formValuesFromEntity(schema, entity)` 不同的字段对——给 `updateEntity` 闸门用。
 
-### `formValuesFromEntity`
+#### `shouldPersistForm(schema, formValues, entity): boolean`
+
+`diffFormAgainstEntity(...).length > 0`。
+
+#### `applyFormValuesToEntity(schema, entity, values): TEntity`
 
 ```ts
-/**
- * Project an entity through the schema's `read` adapters into a
- * canonical form-values object. Mirrors the old
- * `laneFormValuesFromEntity` semantics, generalized.
- */
-export function formValuesFromEntity<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->(schema: EntitySchema<TEntity, TFormValues>, entity: TEntity): TFormValues;
+export function applyFormValuesToEntity(schema, entity, values): TEntity {
+  let next = entity;
+  for (const field of schema.fields) {
+    const key = field.name as keyof TFormValues;
+    if (key in values) {
+      const v = values[key];
+      const prevValue = field.read(next);
+      next = field.write(next, v);
+
+      const newValue = field.read(next);
+      if (prevValue !== newValue) {
+        const paths = field.overridesPaths ?? [String(field.name)];
+        for (const path of paths) {
+          next = markUserOverride(next, path);
+        }
+      }
+    }
+  }
+  return next;
+}
 ```
 
-Builds the canonical "what would the form show right now" object by
-running each field's `read` adapter against the entity. Per-key type
-safety is preserved at the FieldDef site; the loop body works through
-the union value type.
+逐字段调 `write`，并 **仅** 在值确实变化时把 `overridesPaths`（默认 `[name]`）追加到 `_userOverrides`。如果 `applyFormValuesToEntity` 被来自 `formValuesFromEntity` 的"恒等回写"调用，不应误把派生值升级为手动值——所以要比较 `prevValue !== newValue`。
 
-### `diffFormAgainstEntity`
+## 副作用
 
-```ts
-/**
- * Compute the (fieldName, nextValue) pairs where the form-side value
- * has drifted from what the entity would produce. Empty array means
- * the form is already in sync (the dedupe gate that breaks the
- * store→reset→watch→updateEntity loop).
- */
-export function diffFormAgainstEntity<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->(
-  schema: EntitySchema<TEntity, TFormValues>,
-  current: Partial<TFormValues>,
-  entity: TEntity,
-): Array<[keyof TFormValues, TFormValues[keyof TFormValues]]>;
-```
+- `applyFormValuesToEntity` 调用 `markUserOverride`（来自 `core/elements/derive`，纯函数返回新对象）
+- 否则全部纯函数
 
-Empty array → form is already in sync with the store. Non-empty array
-→ each entry is a `[fieldKey, desiredValue]` pair that the controller
-should `setValue()` into the form. This is the dedupe gate that
-breaks the `store → reset → watch → updateEntity` infinite loop.
+## 测试覆盖
 
-### `shouldPersistForm`
+集成在 `src/components/layout/panels/__tests__/SchemaForm.test.tsx`（如果存在）—— 验证 Lane schema 与旧 LaneForm 的行为一致。
 
-```ts
-/** True iff at least one field differs — gate for `updateEntity`. */
-export function shouldPersistForm<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->(
-  schema: EntitySchema<TEntity, TFormValues>,
-  formValues: Partial<TFormValues>,
-  entity: TEntity,
-): boolean;
-```
+## 调用方
 
-Companion gate on the persist side: skip the store write if the form
-hasn't actually drifted.
+- `src/components/layout/panels/SchemaForm.tsx` —— 通用渲染器
+- `src/components/layout/panels/InspectorForms.tsx` + `src/components/layout/panels/InspectorForms/` —— 在 `entityType === 'lane'` 时渲染 SchemaForm with LaneInspectorSchema
+- `src/components/layout/WorkspaceLayout.tsx` + `src/components/layout/WorkspaceLayout/lazyPanels.tsx` —— Dockview 容器与 lazy panel 装配
 
-### `applyFormValuesToEntity`
+## 源码索引
 
-```ts
-/**
- * Apply every form value through the schema's `write` adapters,
- * folding them into a single updated entity. For each field whose
- * value differs from the previous entity reading, the field's
- * `overridesPaths` (default: `[name]`) are tagged into
- * `_userOverrides` — derive rules whose `owns` intersect that set
- * are skipped on subsequent geometry edits, so manual values are
- * not clobbered by auto-recomputation.
- *
- * Order: writes apply left-to-right; override tagging is appended
- * after each write so the next field sees the updated entity.
- */
-export function applyFormValuesToEntity<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->(
-  schema: EntitySchema<TEntity, TFormValues>,
-  entity: TEntity,
-  values: Partial<TFormValues>,
-): TEntity;
-```
+| 行      | 内容                      |
+| ------- | ------------------------- |
+| 36–58   | imports                   |
+| 62–86   | `NumberFieldDef`          |
+| 88–109  | `EnumFieldDef`            |
+| 111–115 | `FieldDef`                |
+| 117–126 | `AnyFieldDef`             |
+| 130–138 | `ReadOnlyDef`             |
+| 142–171 | `EntitySchema`            |
+| 173–199 | `fieldBuilder`            |
+| 202–247 | Lane 适配器               |
+| 251–435 | `LaneInspectorSchema`     |
+| 437–456 | `formValuesFromEntity`    |
+| 458–481 | `diffFormAgainstEntity`   |
+| 483–493 | `shouldPersistForm`       |
+| 495–540 | `applyFormValuesToEntity` |
 
-The override-tagging logic ensures that **redundant writes do not
-promote auto-derived values into manual overrides** — the previous
-and post-write reading are compared, and `_userOverrides` is appended
-only when the value actually changed.
+## 参见
 
-## Migrating a panel
-
-To convert a bespoke React form to a schema:
-
-1. Define `<EntityName>FormValues` via a zod schema in `src/lib/schemas.ts`.
-2. Build a `fieldBuilder<<EntityName>Entity, <EntityName>FormValues>()`.
-3. Add one `F.field({...})` per editable row, with `read` and `write`
-   adapters; default `overridesPaths` is `[name]`.
-4. Add one `{ kind: 'readonly', label, section, compute }` per derived
-   row.
-5. Export the constant as `<EntityName>InspectorSchema`.
-6. Flip the `<EntityName>Form` import in
-   `src/components/layout/panels/InspectorForms.tsx` to use
-   `<SchemaForm schema={<EntityName>InspectorSchema} />`.
-7. Delete the old bespoke React form.
-
-## See also
-
-- [`types/apollo`](/api/types/apollo) — Apollo entity shapes the
-  adapters read and write
-- [`types/entities`](/api/types/entities) — `MapEntity` constraint on
-  schema generics
-- [`types/editor`](/api/types/editor) — adjacent runtime types
-- [Enum Mappings](/reference/enum-mappings) — `EnumCategory` values
-  available to `EnumFieldDef.enumCategory`
-- `src/lib/schemas.ts` — zod schemas + option lists referenced by
-  every inspector schema
-- `src/core/elements/derive.ts` — `markUserOverride` consumed by
-  `applyFormValuesToEntity`
-- `src/components/layout/panels/InspectorForms.tsx` — the consumer
-- `src/components/layout/panels/LaneRefList.tsx` — `LaneRef` /
-  `LaneRefList` used by the Topology readonly rows
+- [`entities`](./entities.md) —— `MapEntity` / `LaneEntity`
+- [`apollo`](./apollo.md) —— Lane 类型源
+- [`enumLabels`](../lib/enum-labels.md) —— `enumCategory` 消费方
+- `src/lib/schemas.ts` —— `laneSchema` / `LaneFormValues` / `*Options` 数组
+- `core/elements/derive` —— `markUserOverride`
+- `src/components/layout/panels/SchemaForm.tsx` —— 实际渲染器

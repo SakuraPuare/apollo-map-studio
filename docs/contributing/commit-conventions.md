@@ -1,13 +1,17 @@
-# Commit Conventions
+---
+title: 提交规范
+description: Conventional Commits、scope、body、breaking changes、原子拆分、不带 co-author。
+---
 
-Apollo Map Studio uses [Conventional Commits](https://www.conventionalcommits.org)
-strictly. The changelog is generated from commit history with
-[`git-cliff`](https://git-cliff.org/), so non-conventional messages
-silently disappear from the public release notes.
+# 提交规范
 
-## Format
+提交格式 = [Conventional Commits 1.0](https://www.conventionalcommits.org/)。
+`cliff.toml` 用 commit prefix 自动归类生成 CHANGELOG，所以**严格遵守**
+不是吹毛求疵，是发版的输入。
 
-```text
+::: tip 一句话
+
+```
 <type>(<scope>): <subject>
 
 <body>
@@ -15,207 +19,264 @@ silently disappear from the public release notes.
 <footer>
 ```
 
-- `<type>` — required, lowercased. See the table below.
-- `<scope>` — optional, parenthesised. Use it when the change is
-  scoped to one area (`feat(license): …`, `fix(inspector): …`).
-- `<subject>` — imperative, no trailing period. < 72 chars.
-- `<body>` — wrap at 100 chars. Explain the **why**, not the **what**;
-  the diff already shows the what.
-- `<footer>` — `BREAKING CHANGE:`, `Closes #123`, etc.
-
-## Types in use
-
-The grouping below mirrors `cliff.toml` — these are the types that
-git-cliff knows to render. Anything else falls into "Other" or is
-skipped.
-
-| Type       | When to use                                                | Changelog group     |
-| ---------- | ---------------------------------------------------------- | ------------------- |
-| `feat`     | New user-visible feature.                                  | Features            |
-| `fix`      | Bug fix.                                                   | Bug Fixes           |
-| `perf`     | Performance improvement (no behaviour change).             | Performance         |
-| `refactor` | Internal restructure, no behaviour or feature change.      | Refactor            |
-| `docs`     | Documentation only.                                        | Documentation       |
-| `style`    | Formatting / whitespace only. Rare; use sparingly.         | Styling             |
-| `test`     | Adding or updating tests; no production code change.       | Testing             |
-| `chore`    | Build / tooling / housekeeping that doesn't fit elsewhere. | Miscellaneous Tasks |
-| `ci`       | CI workflow changes.                                       | Miscellaneous Tasks |
-| `build`    | Build system / dependencies change.                        | Miscellaneous Tasks |
-| `revert`   | Revert of a prior commit.                                  | Revert              |
-
-`cliff.toml` skip rules also drop:
-
-- `chore(release): prepare for …` (the version-bump commits themselves)
-- `chore(deps…)` (dependabot noise)
-- `chore(pr…)` and `chore(pull…)` (merge artefacts)
-
-If the body contains the word `security`, the commit is regrouped to
-the **Security** section regardless of type.
-
-## Subject style
-
-Imperative, present tense. Read the subject as completing the sentence
-"This commit will …":
-
-```text
-feat(inspector): add friction field to lane form
-fix(undo): cancel FSM before time-travelling map store
-perf(spatial): reuse decoration cache on incremental edits
-refactor(actions): split registry into types/definitions/helpers
-docs(recipes): walk through adding a new map element
-```
-
-Avoid past tense (`added`, `fixed`) and "and" subjects that bundle
-two changes.
-
-## Body content
-
-Explain context that the diff alone can't:
-
-```text
-fix(undo): send CANCEL to FSM before time-travelling
-
-zundo's partialize covers `mapStore.entities` only. A mid-draw Ctrl+Z
-left FSM holding stale drawPoints while the entity store rolled back,
-so the next CONFIRM committed against an entity that no longer existed.
-
-The dispatcher now sends `{ type: 'CANCEL' }` to the actor before
-calling `temporal.undo()`. CANCEL is safe in every FSM state — draw
-states reset, selected/editing return to safe states, idle is a
-no-op.
-
-Regression test: src/hooks/__tests__/undoCancel.test.ts.
-```
-
-Reference issues / PRs in the body, not the subject:
-
-```text
-Closes #142
-See ARCHITECTURE.md → "Anti-corruption layer (R2)"
-```
-
-## Atomic commits
-
-One commit = one logical change. Don't pack a bug fix and a refactor
-into the same commit; split them. Splitting is easy on the dev side
-(`git add -p` or commit-then-amend during the review) and pays off
-during bisects, reverts, and changelog reviews.
-
-Concrete patterns:
-
-- **Add a new entity type** → split into:
-  1. `feat(types): introduce TollGateEntity`
-  2. `feat(io): round-trip toll gate proto`
-  3. `feat(inspector): add toll gate form`
-  4. `feat(actions): register toll gate draw tool`
-  5. `test: cover toll gate cascade-delete`
-- **Refactor that uncovers a bug** → split into:
-  1. `fix(...)`: minimal patch with a regression test.
-  2. `refactor(...)`: the broader cleanup.
-
-## BREAKING CHANGE
-
-Append `BREAKING CHANGE:` in the footer when the change forces
-consumers (other modules, IPC contracts, license payload format,
-docs/api references) to adapt:
-
-```text
-refactor(license): rotate Ed25519 keypair
-
-Generated a fresh keypair via tools/license-gen/gen-keys.mjs. The
-embedded public key in electron/license/public-key.cts is replaced.
-
-BREAKING CHANGE: Activation codes signed with the previous private
-key are rejected after this commit ships. Customers on existing
-licenses must request re-issued codes; older installers continue to
-trust the old key until upgraded.
-```
-
-git-cliff renders breaking commits with a `[**breaking**]` marker in
-the changelog group they belong to.
-
-## PR title style
-
-Same format as the commit subject:
-
-```text
-feat(inspector): add friction field to lane form
-fix(spatial): correct mercator scale on hit-test radius
-```
-
-The PR title becomes the merge commit subject by default, so it must
-parse as Conventional Commits or it pollutes the changelog. The
-[pr-checklist](./pr-checklist.md) flags this explicitly.
-
-## Pre-commit hook
-
-`.husky/pre-commit` runs `pnpm exec lint-staged`. `lint-staged`
-config (in `package.json`):
-
-```json
-{
-  "*.{ts,tsx}": ["eslint --fix", "prettier --write"],
-  "*.{json,md,yml,yaml,css}": ["prettier --write"]
-}
-```
-
-The hook auto-fixes formatting and re-stages the changes. If ESLint
-finds an unfixable error, the commit is blocked.
-
-::: warning Don't `--no-verify`
-Bypassing the hook just defers the failure to CI. If a hook fails,
-fix the underlying issue and **create a new commit** — never amend
-across a hook failure (the previous commit may have left a partial
-state). The CI runs the same lint + format pass.
+`<type>` 必填、`<scope>` 强烈推荐、`<subject>` 50 字内、空行、`<body>` 可选
+但建议解释 **为什么**、`<footer>` 用于 BREAKING / refs。
 :::
 
-## Verifying your history before push
+## type 字段
 
-```sh
-git log --oneline origin/v1..HEAD
+| type       | 用途                          | CHANGELOG 分组   |
+| ---------- | ----------------------------- | ---------------- |
+| `feat`     | 新功能（用户能感知）          | 🚀 Features      |
+| `fix`      | bug 修复                      | 🐛 Bug Fixes     |
+| `refactor` | 重构（行为不变）              | 🚜 Refactor      |
+| `perf`     | 性能优化（结果可量化）        | ⚡ Performance   |
+| `docs`     | 文档（README / docs/）        | 📚 Documentation |
+| `style`    | 代码格式 / 样式（不影响行为） | 🎨 Styling       |
+| `test`     | 加 / 改测试                   | 🧪 Testing       |
+| `chore`    | 构建工具 / 杂项               | ⚙️ Miscellaneous |
+| `ci`       | CI 配置                       | ⚙️ Miscellaneous |
+| `revert`   | 回滚                          | ◀️ Revert        |
+
+`cliff.toml` 的 `commit_parsers` 是真相：见
+[`cliff.toml`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/cliff.toml)。
+
+## scope 字段
+
+scope 描述受影响 **模块**，不超 1 个单词。常用：
+
+| scope       | 范围                           |
+| ----------- | ------------------------------ |
+| `actions`   | `src/core/actions/`            |
+| `fsm`       | `src/core/fsm/`                |
+| `geometry`  | `src/core/geometry/`           |
+| `workers`   | `src/core/workers/`            |
+| `inspector` | inspector 与 schema            |
+| `import`    | `src/io/proto/entityBridge.ts` |
+| `export`    | `src/io/proto/entityBridge.ts` |
+| `electron`  | `electron/`                    |
+| `license`   | license 子系统                 |
+| `docs`      | 文档站                         |
+| `ci`        | `.github/workflows/`           |
+| `vitepress` | 文档构建                       |
+| `theme`     | tokens.css / 主题              |
+| `merge`     | 合并相关 housekeeping          |
+
+::: warning scope 范围窄一点
+跨多个 scope 的改动 = 拆 PR。一次提交动 actions 与 inspector 与
+electron，CHANGELOG 看不出重点，回滚时一起 revert 太宽。
+:::
+
+## subject 字段
+
+- 50 字以内（GitHub 列表会截断）。
+- 祈使句 (imperative): `add`, `fix`, `update` —— 不是 `added`/`fixes`/`updating`。
+- 句首小写、句末无 `.`。
+- 描述 **做了什么**，不是 **为什么**（"为什么" 留给 body）。
+
+```
+✅ feat(actions): add edit.duplicateSelection
+❌ feat(actions): adding duplicate action
+❌ Fix bug.
+❌ feat: Implemented brand new awesome duplicate selection feature so users can clone entities.
 ```
 
-Each line should parse as `type(scope): subject` and read sensibly to
-someone who didn't write it. If you spot a non-conventional message,
-rebase before pushing:
+## body
 
-```sh
-git rebase -i origin/v1
-# reword the offending commit
+- 可选，但**强烈建议**对非 trivial 改动写。
+- 72 字一行（git log 易读）。
+- 描述 **为什么**、**对比之前的方案**、**已知 trade-off**。
+- 与 subject 之间空一行。
+
+```
+feat(fsm): add drawEllipse FSM state
+
+Existing draw states require N anchors then DOUBLE_CLICK to commit.
+Ellipse needs only 2 clicks (center + edge), so it has a custom guard
+that targets idle on the second MOUSE_DOWN.
+
+Trade-off: ESC during the first click leaves a stale drawPoints; the
+clearDrawCtx action resets it. See undoCancel.test.ts for the regression
+guard.
 ```
 
-## git-cliff configuration
+## footer
 
-`cliff.toml` lives at the repo root. Key bits:
-
-```toml
-[git]
-conventional_commits = true
-filter_unconventional = true   # silently drop messages that don't parse
-require_conventional = false   # don't fail on non-conventional commits
-sort_commits = "oldest"
-
-[git.commit_parsers]
-{ message = "^feat",     group = "🚀 Features" },
-{ message = "^fix",      group = "🐛 Bug Fixes" },
-{ message = "^doc",      group = "📚 Documentation" },
-{ message = "^perf",     group = "⚡ Performance" },
-{ message = "^refactor", group = "🚜 Refactor" },
-{ message = "^style",    group = "🎨 Styling" },
-{ message = "^test",     group = "🧪 Testing" },
-{ message = "^chore|^ci",group = "⚙️ Miscellaneous Tasks" },
-{ body = ".*security",   group = "🛡️ Security" },
-{ message = "^revert",   group = "◀️ Revert" },
-{ message = ".*",        group = "💼 Other" },
+```
+BREAKING CHANGE: <说明 + 迁移指引>
+Refs: #123
+Closes: #456
 ```
 
-`filter_unconventional = true` means a commit like `Update foo` is
-**dropped** from the changelog. Always commit with a recognised type.
+`BREAKING CHANGE` 触发 minor / major bump，cliff 标 `[**breaking**]`。
 
-## Cross-references
+## 原子拆分原则
 
-- [release-process](./release-process.md) — how the changelog is
-  regenerated and tagged
-- [pr-checklist](./pr-checklist.md) — review gating items
-- [code-style](./code-style.md) — what the pre-commit hook enforces
-- `cliff.toml` — full configuration reference
+### 一个提交 = 一件事
+
+```
+✅
+git log --oneline
+feat(fsm): add drawEllipse state
+feat(actions): register tool.drawEllipse action
+feat(elements): add ellipse factory and type guard
+test(elements): cover ellipse factory edge cases
+
+❌
+git log --oneline
+feat: ellipse tool (FSM, action, element, tests, docs)
+```
+
+### 何时分开？
+
+| 场景                                | 拆 / 不拆        |
+| ----------------------------------- | ---------------- |
+| 新增 ActionDef + 接 dispatcher 分支 | **不拆**（互依） |
+| 新增 ActionDef + 改样式 token       | 拆               |
+| 修 bug + 顺手 refactor 周边         | 拆               |
+| 修 bug + 加回归测试                 | **不拆**（验证） |
+| 升级一个依赖 + 适配代码             | 拆               |
+| 重命名变量遍布 50 个文件            | 单独             |
+
+## 不带 co-author
+
+::: warning 项目 policy
+不在 commit message 中加 `Co-Authored-By:`。CI 工具签名也禁止。
+作者归属看 `git author`；多人协作请明确 reviewer / committer。
+:::
+
+理由：
+
+- 历史 blame 干净。
+- changelog 不需要混入 co-author 噪音。
+- AI 协作是常态，加 `Co-Authored-By: Claude` 之类的污染历史。
+
+## 实用模板
+
+### 复制到 `.git/commit-template`
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+```bash
+git config commit.template .gitmessage
+```
+
+## 常见 commit 范例
+
+```
+feat(inspector): add laneRefList field kind
+
+Schema-driven inspector now supports referenced lane id arrays. Lane
+predecessor/successor fields are migrated. Junction migration deferred
+to a follow-up PR.
+
+Refs: #234
+```
+
+```
+fix(fsm): cancel before temporal.undo() in dispatcher
+
+Mid-draw Ctrl+Z left FSM drawPoints stale while mapStore.entities
+rolled back, corrupting the next CONFIRM. Send CANCEL to the actor
+before invoking temporal.undo() so the FSM context resets first.
+
+Regression: src/hooks/__tests__/undoCancel.test.ts
+Closes: #198
+```
+
+```
+perf(workers): incremental cold-layer update
+
+P1 spatial worker accepts INCREMENTAL { added, removed, updated } and
+maintains an internal cache. Previously every edit cloned the full
+FeatureCollection across the postMessage boundary. Bench drops 1k-edit
+p99 from 142 ms to 23 ms.
+
+bench: scripts/bench-budgets.json updated
+```
+
+```
+docs(architecture): document anti-corruption layer
+
+Add anti-corruption.md explaining why entityOps wraps proto-aware ops
+and how to audit leaks (`git grep "from '@/core/geometry/apolloCompile'"`).
+```
+
+```
+refactor(layout): extract WorkspaceLayout into siblings
+
+WorkspaceLayout.tsx exceeded 400 lines; split into:
+- WorkspaceLayout.tsx (entry, < 80 lines)
+- WorkspacePanels.tsx
+- WorkspaceTabs.tsx
+- index.ts re-export
+
+No behavior change.
+```
+
+## 提交工作流
+
+1. **写代码** —— 完成一件事就停。
+2. **`git add -p`** —— 选有关 hunk，丢弃无关临时改动。
+3. **`git commit`** —— 写 message，body 解释 why。
+4. **CI** —— pre-commit hook 跑 lint-staged，commit-msg hook 校验格式。
+5. **Push & PR**。
+
+::: tip 两条铁律
+
+1. **Commit 前看一遍 `git diff --staged`** —— 确认 staging 是你想提交的。
+2. **写 body 时问自己 "5 年后的人能看懂吗"** —— 不能就改写。
+   :::
+
+## Husky hooks
+
+| Hook         | 作用                           |
+| ------------ | ------------------------------ |
+| `pre-commit` | `pnpm exec lint-staged` 自动修 |
+| `commit-msg` | 校验 conventional commit 格式  |
+
+如果钩子拦了你的 commit，**不要** `--no-verify`。修问题再 commit。
+
+## changelog 自动化
+
+```bash
+pnpm exec git-cliff -o CHANGELOG.md
+```
+
+`cliff.toml` 决定怎么分组。`feat: foo` → `Features` 节，`fix: foo` →
+`Bug Fixes` 节，等等。详见 [发版流程](./release-process)。
+
+## 反例（请勿模仿）
+
+```
+❌ wip
+❌ fix typo
+❌ asdf
+❌ Final commit
+❌ feat: many improvements
+❌ fix: oops
+❌ Update README.md
+```
+
+每一条都 (1) 不通过 commit-msg 钩子（前 6 个），(2) GitHub UI 自动写的
+"Update X" 也尽量手动改成 conventional 格式。
+
+## 相关源码 (Source links)
+
+- [`cliff.toml`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/cliff.toml)
+- [`.husky/pre-commit`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/.husky/pre-commit)
+- [Conventional Commits 1.0 spec](https://www.conventionalcommits.org/en/v1.0.0/)
+
+::: tip 三条记住
+
+1. type + scope + subject。
+2. body 写"为什么"。
+3. 一个提交 = 一件事。
+   其他规则照着 cliff.toml 自动执行。
+   :::

@@ -1,75 +1,76 @@
-# License Bridge
+---
+title: license-bridge — 渲染端许可证 IPC 包装
+description: 包装 window.apolloMapStudioLicense（preload 暴露），统一处理浏览器 fallback；类型化 LicenseState / ActivationResult。
+---
 
-> Source: `src/lib/license-bridge.ts`
+# `license-bridge` — 渲染端许可证 IPC 包装
 
-## Overview
+> 源码：`src/lib/license-bridge.ts` · 106 行
 
-`license-bridge.ts` is the renderer-side wrapper around
-`window.apolloMapStudioLicense` — the contextBridge API that
-`electron/preload.cts` exposes to the renderer process. The wrapper:
+## 用途
 
-1. **Hides the global**. Renderer code never reaches into `window`
-   directly; it imports `licenseBridge` and gets a typed object.
-2. **Provides a fallback** for pure web builds (no Electron). All
-   methods resolve to a perpetual "trial" `LicenseState` with
-   `canEdit = true` so dev / Storybook / browser preview builds keep
-   working.
-3. **Carries the wire types** (`LicenseStatus`, `LicenseState`,
-   `ActivationResult`) that flow between the main process license
-   manager and the renderer license store.
+`license-bridge` 包装 `window.apolloMapStudioLicense`（由 `electron/preload.cts` 通过 `contextBridge.exposeInMainWorld` 暴露），让渲染端的其他代码不必处理 `undefined` 检查、不必关心是否在 Electron 内运行。
 
-The bridge does NOT keep state. State lives in `useLicenseStore`,
-which subscribes via `licenseBridge.onChange(...)` and re-renders the
-banner / activation dialog / read-only enforcement when the main
-process pushes an update.
+纯网页构建（无 Electron）下所有调用退化为永恒 trial 状态（`canEdit=true`）——dev / Storybook / 浏览器预览不会因为缺少许可证基础设施而瘫痪。
 
-## Exports
+## 公共 API
 
-| Symbol             | Purpose                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------- |
-| `LicenseStatus`    | Union of every license status the main process can report.                              |
-| `LicenseState`     | Full state shape (status, canEdit, machine code, trial dates, license payload, etc.).   |
-| `ActivationResult` | `{ ok, state, errorCode?, errorMessage? }` returned by `activate(code)`.                |
-| `licenseBridge`    | The wrapper object: `getState`, `getMachineCode`, `activate`, `deactivate`, `onChange`. |
-| `isDesktopBuild`   | `() => boolean` — true iff `window.apolloMapStudioLicense` is present.                  |
+| 符号               | 类型      | 签名              | 摘要                   |
+| ------------------ | --------- | ----------------- | ---------------------- |
+| `LicenseStatus`    | union     | 8 个状态字符串    | 渲染端许可证状态       |
+| `LicenseState`     | interface | 见下              | 完整状态快照           |
+| `ActivationResult` | interface | 见下              | 激活结果               |
+| `licenseBridge`    | const     | `LicenseApi` 实例 | 默认导出对象，5 个方法 |
+| `isDesktopBuild()` | fn        | `() => boolean`   | 是否在 Electron 内     |
 
-### `LicenseStatus`
+### `type LicenseStatus`
 
 ```ts
 export type LicenseStatus =
-  | 'trial' // active trial period
-  | 'activated' // valid offline license bound to this machine
-  | 'expired_trial' // trial period ended, no license
-  | 'expired_license' // license payload past `expires`
-  | 'tampered' // signature check failed
-  | 'machine_mismatch' // license bound to a different machine code
-  | 'invalid' // malformed or unparsable
-  | 'not_started'; // license starts in the future (clock skew)
+  | 'trial'
+  | 'activated'
+  | 'expired_trial'
+  | 'expired_license'
+  | 'tampered'
+  | 'machine_mismatch'
+  | 'invalid'
+  | 'not_started';
 ```
 
-### `LicenseState`
+| 状态               | canEdit | 触发条件                              |
+| ------------------ | ------- | ------------------------------------- |
+| `trial`            | true    | 首次启动起 7 天内                     |
+| `activated`        | true    | 已激活、有效期内                      |
+| `expired_trial`    | false   | 7 天试用过期                          |
+| `expired_license`  | false   | 许可证过期                            |
+| `tampered`         | false   | 时钟回退 / HMAC 不匹配 / 机器指纹漂移 |
+| `machine_mismatch` | false   | 许可证绑定的机器码 != 当前            |
+| `invalid`          | false   | 许可证签名验证失败                    |
+| `not_started`      | false   | 系统时间 < trialStart（防止时钟超前） |
+
+### `interface LicenseState`
 
 ```ts
 export interface LicenseState {
   status: LicenseStatus;
-  canEdit: boolean; // editable-guard reads this
-  machineCode: string; // local machine fingerprint (16-char hex)
-  trialStart: number; // ms epoch
-  trialEnd: number; // ms epoch
-  daysRemaining: number | null; // null when not applicable
-  hoursRemaining: number | null;
-  license: { id; name; issued; expires } | null;
-  checkedAt: number; // ms epoch — last verification
-  reason: string; // human-readable diagnostic
+  canEdit: boolean;
+  machineCode: string; // 当前机器的 16 字符码
+  trialStart: number; // 试用起始（epoch ms）
+  trialEnd: number; // 试用结束（epoch ms）
+  daysRemaining: number | null; // 试用 / 许可剩余天数（null = 永久）
+  hoursRemaining: number | null; // 同上，小时
+  license: { id: string; name: string; issued: number; expires: number } | null;
+  checkedAt: number; // 主进程上次校验时间
+  reason: string; // 人类可读的状态说明
 }
 ```
 
-### `ActivationResult`
+### `interface ActivationResult`
 
 ```ts
 export interface ActivationResult {
   ok: boolean;
-  state: LicenseState;
+  state: LicenseState; // 激活后的状态（无论成功失败）
   errorCode?:
     | 'invalid_format'
     | 'invalid_signature'
@@ -82,7 +83,9 @@ export interface ActivationResult {
 }
 ```
 
-### `licenseBridge` shape
+`replay` —— 重放保护：同 `lic` id 已存在且新 token 的 expires 更早。
+
+### `interface LicenseApi`（内部）
 
 ```ts
 interface LicenseApi {
@@ -94,13 +97,83 @@ interface LicenseApi {
 }
 ```
 
-`onChange` returns an unsubscribe function. The license store hooks
-into this on first hydrate so subsequent main-process pushes update
-the renderer state without polling.
+## 详细条目
 
-## Behavior
+### `licenseBridge.getState()`
 
-### Global declaration
+```ts
+async getState() {
+  return window.apolloMapStudioLicense?.getState() ?? Promise.resolve(fallbackState());
+}
+```
+
+主进程返回的 `LicenseState`。浏览器构建走 `fallbackState()`：
+
+```ts
+{
+  status: 'trial',
+  canEdit: true,
+  machineCode: 'WEB-NO-LICENSE',
+  trialEnd: Date.now() + 7 * 24 * 60 * 60 * 1000,
+  // ...
+  reason: 'Browser preview — licensing disabled.',
+}
+```
+
+### `licenseBridge.getMachineCode()`
+
+主进程的 16 字符机器码，浏览器构建返回 `'WEB-NO-LICENSE'`。
+
+### `licenseBridge.activate(code)`
+
+```ts
+async activate(code: string) {
+  if (!window.apolloMapStudioLicense) {
+    return {
+      ok: false,
+      state: fallbackState(),
+      errorCode: 'unknown',
+      errorMessage: 'Activation is only available in the desktop build.',
+    };
+  }
+  return window.apolloMapStudioLicense.activate(code);
+}
+```
+
+唯一 **不应静默成功** 的 fallback——浏览器里激活毫无意义，必须明确告知用户"不在桌面构建"。
+
+### `licenseBridge.deactivate()`
+
+清除已存许可证；浏览器构建仍返回 `fallbackState()`。
+
+### `licenseBridge.onChange(handler)`
+
+```ts
+onChange(handler) {
+  return window.apolloMapStudioLicense?.onChange(handler) ?? (() => undefined);
+}
+```
+
+订阅主进程的 `license:state` IPC 广播。返回的 unsubscribe 函数在 fallback 下是 no-op。组件应在 `useEffect` 卸载时调用：
+
+```tsx
+useEffect(() => {
+  const off = licenseBridge.onChange((s) => useLicenseStore.getState().setState(s));
+  return off;
+}, []);
+```
+
+### `isDesktopBuild()`
+
+```ts
+export function isDesktopBuild(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.apolloMapStudioLicense);
+}
+```
+
+给组件渲染分支用——浏览器构建里隐藏"激活"按钮、显示"Desktop only"提示。
+
+## 全局类型扩展
 
 ```ts
 declare global {
@@ -110,10 +183,38 @@ declare global {
 }
 ```
 
-The `?` is essential: in pure web builds the global is undefined and
-`isDesktopBuild()` returns `false`.
+让 TypeScript 在所有 `.ts` 文件里直接看到 `window.apolloMapStudioLicense` 类型——不需要每个调用方都重新声明。
 
-### Fallback state
+## 副作用
+
+- 写 `window` 全局类型扩展（编译期）
+- 调用方法时通过 `ipcRenderer.invoke` 触达主进程
+- `onChange` 在 listener 注册时占用一个 IPC channel
+
+## 测试覆盖
+
+无独立测试。被 `licenseStore` 间接覆盖。可以用 vitest 的 `vi.stubGlobal('window.apolloMapStudioLicense', { ... })` 提供 mock。
+
+## 调用方
+
+- `src/store/licenseStore.ts` — `hydrate()` / `setState` / `onChange`
+- `src/components/license/ActivationDialog.tsx` — `activate(code)`
+- `src/components/license/LicenseBanner.tsx` — `getMachineCode` 用于复制按钮
+
+## 源码索引
+
+| 行      | 内容                 |
+| ------- | -------------------- |
+| 11–19   | `LicenseStatus`      |
+| 21–32   | `LicenseState`       |
+| 34–46   | `ActivationResult`   |
+| 48–54   | `LicenseApi`         |
+| 56–60   | `Window` 类型扩展    |
+| 62–75   | `fallbackState()`    |
+| 77–101  | `licenseBridge` 实例 |
+| 103–105 | `isDesktopBuild()`   |
+
+## fallbackState() 完整字段
 
 ```ts
 function fallbackState(): LicenseState {
@@ -132,126 +233,88 @@ function fallbackState(): LicenseState {
 }
 ```
 
-Every fallback method returns this object (or a copy of it) so the
-renderer never needs `if (isDesktopBuild)` branches in normal flow.
-The 7-day trial window is cosmetic — `canEdit: true` is what actually
-unlocks the editor.
+每次调用都返回新对象（带 `Date.now()`）——不是 const，避免"hydrate 多次后 trial 时间不变"误导测试。
 
-### Method dispatch
-
-Each method nullish-coalesces to the fallback:
+## 完整 `licenseBridge` 实现
 
 ```ts
-async getState() {
-  return window.apolloMapStudioLicense?.getState() ?? Promise.resolve(fallbackState());
-}
+export const licenseBridge: LicenseApi = {
+  async getState() {
+    return window.apolloMapStudioLicense?.getState() ?? Promise.resolve(fallbackState());
+  },
+  async getMachineCode() {
+    return window.apolloMapStudioLicense?.getMachineCode() ?? Promise.resolve('WEB-NO-LICENSE');
+  },
+  async activate(code: string) {
+    if (!window.apolloMapStudioLicense) {
+      return {
+        ok: false,
+        state: fallbackState(),
+        errorCode: 'unknown',
+        errorMessage: 'Activation is only available in the desktop build.',
+      };
+    }
+    return window.apolloMapStudioLicense.activate(code);
+  },
+  async deactivate() {
+    return window.apolloMapStudioLicense?.deactivate() ?? Promise.resolve(fallbackState());
+  },
+  onChange(handler) {
+    return window.apolloMapStudioLicense?.onChange(handler) ?? (() => undefined);
+  },
+};
 ```
 
-Two cases yield the fallback:
+`?.xxx() ?? Promise.resolve(...)` 的统一模式 —— 既兼容 Electron / 浏览器，又保持 Promise 接口。
 
-1. The global is undefined (pure web).
-2. The global exists but the method is undefined (unreachable in
-   practice; defensive).
-
-### Activation in web mode
+## 单测 mock 模式
 
 ```ts
-async activate(code) {
-  if (!window.apolloMapStudioLicense) {
-    return {
-      ok: false,
-      state: fallbackState(),
-      errorCode: 'unknown',
-      errorMessage: 'Activation is only available in the desktop build.',
-    };
-  }
-  return window.apolloMapStudioLicense.activate(code);
-}
+import { vi } from 'vitest';
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'window',
+    Object.assign(globalThis, {
+      apolloMapStudioLicense: {
+        getState: vi.fn().mockResolvedValue({
+          /* mock state */
+        }),
+        getMachineCode: vi.fn().mockResolvedValue('TEST-MACHINE'),
+        activate: vi.fn().mockResolvedValue({
+          ok: true,
+          state: {
+            /* ... */
+          },
+        }),
+        deactivate: vi.fn().mockResolvedValue({
+          /* ... */
+        }),
+        onChange: vi.fn().mockReturnValue(() => undefined),
+      },
+    }),
+  );
+});
 ```
 
-The web fallback for `activate` is intentionally a failure response —
-the user should know that pasting a license code in the browser preview
-isn't honoured. The dialog can render the `errorMessage` directly.
+vitest 的 `vi.stubGlobal` + jsdom 环境足以验证 `licenseStore.hydrate()` / `setState` / 等行为。
 
-### `onChange` no-op fallback
+## 与 Electron 真实路径的差异
 
-```ts
-onChange(handler) {
-  return window.apolloMapStudioLicense?.onChange(handler) ?? (() => undefined);
-}
-```
+| 操作             | Electron                      | 浏览器 fallback                            |
+| ---------------- | ----------------------------- | ------------------------------------------ |
+| `getState`       | IPC roundtrip ~5ms            | 立即 Promise.resolve                       |
+| `getMachineCode` | 主进程缓存值，~1ms            | `'WEB-NO-LICENSE'`                         |
+| `activate`       | parseToken + verify + storage | 直接 `{ ok: false, errorCode: 'unknown' }` |
+| `deactivate`     | 删 3 个文件                   | 立即 Promise.resolve                       |
+| `onChange`       | 注册 IPC listener             | 返回 no-op unsubscribe                     |
 
-Returns an inert unsubscribe. The license store calls it on cleanup
-without checking the build type.
+唯一一个 fallback **不静默成功** 的接口是 `activate`——产品决定：浏览器里告诉用户"无法激活"，而不是假装成功。
 
-### `isDesktopBuild`
+## 参见
 
-```ts
-export function isDesktopBuild(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.apolloMapStudioLicense);
-}
-```
-
-The `typeof window !== 'undefined'` guard supports SSR / Node environments
-(Vitest, type-check builds). The function is safe to call from anywhere.
-
-## Examples
-
-### Hydrate the license store on app boot
-
-```ts
-// src/main.tsx (sketch)
-import { useLicenseStore } from '@/store/licenseStore';
-
-await useLicenseStore.getState().hydrate();
-```
-
-`hydrate` calls `licenseBridge.getState()` and writes the result.
-
-### Subscribe to main-process pushes
-
-```ts
-import { licenseBridge } from '@/lib/license-bridge';
-import { useLicenseStore } from '@/store/licenseStore';
-
-useEffect(() => {
-  return licenseBridge.onChange((state) => {
-    useLicenseStore.getState().setState(state);
-  });
-}, []);
-```
-
-### Activate from the dialog
-
-```tsx
-import { licenseBridge } from '@/lib/license-bridge';
-
-const result = await licenseBridge.activate(code);
-if (result.ok) toast.success('License activated.');
-else toast.error(result.errorMessage ?? 'Activation failed.');
-```
-
-### Show the machine code in the activation dialog
-
-```ts
-const machineCode = await licenseBridge.getMachineCode();
-// "WEB-NO-LICENSE" in browser, 16-char hex on desktop
-```
-
-### Branch on desktop vs web
-
-```ts
-import { isDesktopBuild } from '@/lib/license-bridge';
-
-if (isDesktopBuild()) showActivationDialog();
-else showWebPreviewBanner();
-```
-
-## Related
-
-- [License Store](../store/license-store.md) — Zustand store that
-  wraps this bridge.
-- [Editable Guard](./editable-guard.md) — reads `state.canEdit` from
-  the store this bridge populates.
-- [/api/electron](/api/electron) — main-process license manager that
-  produces `LicenseState`.
+- [`licenseStore`](../store/license-store.md) —— React state 镜像
+- [`editable-guard`](./editable-guard.md) —— store mutator 守卫
+- [`preload.cts`](../electron/preload.md) —— 暴露 `apolloMapStudioLicense`
+- [`license-manager`](../electron/license-manager.md) —— 主进程状态机
+- `src/components/license/*` —— UI 消费方

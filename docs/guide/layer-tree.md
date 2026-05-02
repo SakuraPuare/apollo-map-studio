@@ -1,217 +1,170 @@
-# Layer tree
+---
+title: 图层树
+description: 用 react-arborist 的图层树管理 Apollo 实体层级 —— 拖拽改归属、空实体种子、组与节点种类。
+---
 
-The layer tree (Activity bar → Layers tab) shows every entity in the map
-as a hierarchy. It's the canonical way to navigate large maps, reparent
-lanes into roads or junctions, and seed empty Apollo entities you'll fill
-in later.
+# 图层树 / Layer Tree
 
-## Source map
+> 图层树（Activity Bar → Layers）把整张地图的实体表达成一棵可拖拽的树。它是导航大图、把 lane 重新归属到 road 或 junction、以及种下「空 road / 空 RSU」的主要入口。
 
-| Concern                              | File                                                         |
-| ------------------------------------ | ------------------------------------------------------------ |
-| Top-level component                  | `src/components/layout/panels/LayerTree.tsx`                 |
-| Tree builder (entities → tree nodes) | `src/components/layout/panels/LayerTree/treeBuilder.ts`      |
-| Tree node renderer                   | `src/components/layout/panels/LayerTree/Node.tsx`            |
-| Tree types                           | `src/components/layout/panels/LayerTree/types.ts`            |
-| Reparent guard                       | `canReparent()` in `src/lib/entityOps.ts`                    |
-| Reparent action                      | `reparentEntity()` in `src/store/mapStore.ts`                |
-| Tree library                         | [react-arborist](https://github.com/brimdata/react-arborist) |
+## 概览 / Overview
 
-## Tree shape
-
-```
-[+ Road]   [+ RSU]                          ← header buttons (LayerTree.tsx:101)
-
-Map
-├─ Apollo
-│  ├─ Roads
-│  │  └─ road_001                           ← RoadEntity
-│  │     └─ Section sect_001                ← RoadSection (synthetic node)
-│  │        ├─ lane_001                     ← LaneEntity (lane.section = sect_001)
-│  │        └─ lane_002
-│  ├─ Junctions
-│  │  └─ junction_001                       ← JunctionEntity
-│  │     ├─ lane_003                        ← lane.junctionId = junction_001
-│  │     ├─ lane_004
-│  │     └─ rsu_001                         ← rsu.junctionId = junction_001
-│  ├─ PNC Junctions
-│  ├─ Signals
-│  ├─ Crosswalks
-│  ├─ Stop Signs
-│  ├─ Yield Signs
-│  ├─ Speed Bumps
-│  ├─ Clear Areas
-│  ├─ Parking Spaces
-│  ├─ Barrier Gates
-│  ├─ Areas
-│  └─ Overlaps
-└─ Drawings
-   ├─ polyline_001
-   ├─ bezier_001
-   └─ …
+```mermaid
+flowchart LR
+  Store[mapStore.entities] --> Builder[buildTree]
+  Builder --> Tree[react-arborist Tree]
+  Tree -- onSelect --> FSM[SELECT_ENTITY]
+  Tree -- onMove --> Reparent[mapStore.reparentEntity]
+  Reparent -- canReparent --> Validate[entityOps]
+  Validate -- ok --> Store
+  Validate -- reject --> Console[console.warn rejected]
 ```
 
-Bucket nodes (`Apollo`, `Drawings`, type categories) are synthetic — they
-don't correspond to entities, just to grouping. Entity nodes are clickable;
-bucket nodes are not.
+数据来源是 `useMapStore.entities`；`buildTree(entities)`（`src/components/layout/panels/LayerTree/treeBuilder.ts:7-126`）一次性把扁平的 `Map<id, MapEntity>` 拼装成一棵：
 
-::: tip Closed by default
-The tree starts with all groups collapsed (`openByDefault={false}`). Click
-the chevron to expand. This keeps performance reasonable on 10k+ entity
-maps.
-:::
+```
+Roads
+├── road_xxx
+│   ├── Section sec_1
+│   │   ├── lane_aaa
+│   │   └── lane_bbb
+│   └── Section sec_2
+├── ...
+Junctions
+├── junction_yyy
+│   ├── lane_ccc        (lane.junctionId === junction_yyy)
+│   ├── road_zzz        (road.junctionId === junction_yyy)
+│   └── rsu_kkk         (rsu.junctionId === junction_yyy)
+Lanes (unparented)
+PNC Junctions
+Parking Spaces
+Crosswalks
+Signals
+Stop Signs
+Yield Signs
+Speed Bumps
+Clear Areas
+Barrier Gates
+Areas
+RSUs (unparented)
+Overlaps
+```
 
-## Selection
+`TOP_LEVEL_ORDER`（`LayerTree/constants.ts`）固定分组顺序。
 
-Click any entity node to select it:
-
-1. `LayerTree.tsx:50-60` calls `onSelect(entityId)` on the upstream prop.
-2. Upstream sends `SELECT_ENTITY` to the FSM.
-3. The FSM transitions to `selected` state.
-4. The Inspector renders the entity's form.
-5. The map canvas highlights the entity.
-
-The reverse path (clicking on the canvas) is also wired: clicking a hit-test
-target selects the entity, and `selectedId` flows back into the tree as the
-selected node.
-
-::: warning Multi-select isn't supported
-The tree uses single-select only. Selecting a node deselects the previous.
-Bulk operations (delete, reparent) are out of scope for 1.0.
-:::
-
-## Drag-and-drop reparenting
-
-Drag any entity node to a different parent to reassign it. Two checks gate
-the drop:
-
-### Compile-time check — `disableDrag`
+## 节点种类 / Node kinds
 
 ```ts
-disableDrag={(node) => node.kind !== 'entity'}
-```
-
-Bucket and section nodes are not draggable.
-
-### Runtime check — `disableDrop` → `canReparent`
-
-`canReparent(child, target, entities)` (in `src/lib/entityOps.ts`) returns
-`true` if and only if the move is structurally allowed by the Apollo proto
-schema.
-
-The allowed moves:
-
-| Child entity | Target             | Effect on entity                                                |
-| ------------ | ------------------ | --------------------------------------------------------------- |
-| Lane         | RoadSection        | Adds lane to `section.laneIds`, removes from any other section  |
-| Lane         | Junction           | Sets `lane.junctionId`, clears any RoadSection membership       |
-| Lane         | (root, "unassign") | Clears `junctionId` and any section membership                  |
-| RSU          | Junction           | Sets `rsu.junctionId`                                           |
-| Road         | Junction           | Sets `road.junctionId` (rare; mostly for ramp-style topologies) |
-
-Rejected drops display the cursor's "no" indicator and never fire `onMove`.
-If `reparentEntity` itself rejects (race condition where the user dragged
-faster than state propagated), it returns `{ rejected: '<reason>' }` and
-`LayerTree.tsx:91` console-warns. The child snaps back.
-
-::: tip A drop that "does nothing" is usually disallowed
-If you drag and the cursor flashes red, `canReparent` returned false. Check
-that the target type matches the child's allowed parents. The most
-common mistake: trying to drop a Lane onto a Junction's child Lane (you
-must drop onto the Junction itself).
-:::
-
-::: warning Reparenting recomputes topology
-Moving a lane between sections or junctions triggers a topology
-reconciliation. Predecessor / successor links may change as a result.
-If you've manually authored pred/succ via the Inspector, those won't be
-clobbered (they're tagged in `_userOverrides`); but auto-derived links
-will rebuild against the new parent. Read [Topology and junctions](/guide/topology-and-junctions)
-for the full reconciliation logic.
-:::
-
-## Header buttons
-
-Two buttons at the top of the panel:
-
-### `+ Road`
-
-Creates a new empty `RoadEntity` with one empty `RoadSection`:
-
-```ts
-const road: RoadEntity = {
-  id: nextEntityId('road', entities),
-  entityType: 'road',
-  sections: [{ id: nextSubId(SUB_PREFIX.section, []), laneIds: [] }],
-  junctionId: null,
-  type: 'CITY_ROAD',
+// LayerTree/types.ts
+type TreeNode = {
+  id: string;
+  name: string;
+  kind: 'group' | 'section' | 'entity';
+  entityType?: string;
+  entityId?: string;
+  children?: TreeNode[];
+  dropKind: 'none' | 'road' | 'junction' | 'roadSection' | 'unparented';
+  parentTarget?: ParentTarget;
 };
 ```
 
-The road appears under `Roads`, with one empty `Section` child. Drag your
-existing lanes into the section to populate it.
+- `group`：顶层分组节点（Lanes / Junctions / ...）
+- `section`：road 的 section 子节点（`Section sec_1`）
+- `entity`：单个实体节点
 
-### `+ RSU`
+## 操作步骤 / Steps
 
-Creates a new empty `RSUEntity`:
+### 1. 选中跳转
 
-```ts
-const rsu: RSUEntity = {
-  id: nextEntityId('rsu', entities),
-  entityType: 'rsu',
-  junctionId: null,
-  overlapIds: [],
-};
-```
+单击树节点 → `handleSelect` → `onSelect(entityId)` → `SELECT_ENTITY`。地图随之高亮 + Inspector 切到该 entity 的表单。
 
-The RSU appears under `RSUs`. Drag it into a Junction to assign.
+### 2. 拖拽改归属 / Reparent
 
-::: tip Why no "+ Junction" button?
-Junctions have geometry — a polygon outline. You can't seed an empty
-Junction without a polygon. Use the ToolStrip's Junction element + Polygon
-tool instead, which produces a Junction with the polygon you draw.
-:::
+`react-arborist` 的 `onMove` 触发 `handleMove`。允许性由 `canReparent(child, target, entities)` 校验（`src/lib/entityOps.ts`）：
 
-## Visibility (current state)
+| child  | 合法 parentTarget                                                                              |
+| ------ | ---------------------------------------------------------------------------------------------- |
+| `lane` | `{ kind: 'roadSection', roadId, sectionId }` / `{ kind: 'junction', id }` / `{ kind: 'none' }` |
+| `road` | `{ kind: 'junction', id }` / `{ kind: 'none' }`                                                |
+| `rsu`  | `{ kind: 'junction', id }` / `{ kind: 'none' }`                                                |
+| 其他   | 不允许拖动                                                                                     |
 
-**Today**, every entity is always visible on the canvas. There is no
-per-entity / per-type visibility toggle in the layer tree. This is a known
-gap; the cold-layer pipeline supports per-layer filtering and could front
-a tree-side toggle, but the UI hasn't shipped.
+被拒时 console 打印 `[LayerTree] reparent rejected: <reason>`。
 
-If you need to focus on a subset, use [Search](/guide/activity-bar-and-panels#search-panel-searchpanel)
-to filter, or zoom in past the cluttered region.
+### 3. 种空实体 / Seed entity
 
-## Reordering
+LayerTree 的「+」按钮（`createRoad`、`createRSU`，见 `LayerTree.tsx:25-48`）：
 
-react-arborist supports reordering siblings, and the editor allows it for
-lanes within a `RoadSection`. The order in `section.laneIds` is significant
-in Apollo — it determines the lane index used for
-`leftNeighborForwardIds[0]` / `rightNeighborForwardIds[0]` derivation. If
-you reorder lanes within a section, the neighbor links recompute on the
-next save.
+- 新 road：`{ id: nextEntityId('road'), entityType: 'road', sections: [{ id: nextSubId('section'), laneIds: [] }], junctionId: null, type: 'CITY_ROAD' }`
+- 新 RSU：`{ id: nextEntityId('rsu'), entityType: 'rsu', junctionId: null, overlapIds: [] }`
 
-::: warning Section reorder is not implemented
-You can reorder lanes within a section. You **cannot** drag sections
-themselves to reorder them — sections appear in the order they were
-created. To reorder, edit the round-tripped `.txt` proto manually.
-:::
+ID 生成器 `nextEntityId / nextSubId / SUB_PREFIX` 在 `src/lib/idGenerator.ts`，确保唯一。
 
-## Performance
+### 4. 删除 / 重命名
 
-The tree is virtualized via react-arborist (`overscanCount={10}`). Rendering
-a 10k-entity tree adds about 50 ms per render (mostly the `buildTree`
-memoized derivation). Subsequent renders that don't change the entity map
-are cached by `useMemo`.
+- 删除：选中树节点 → `Delete` → `DELETE_ENTITY` → `mapStore.removeEntity(id)`
+- 重命名：当前不支持改 ID（ID 一旦定下就被其他实体引用，重命名会破坏拓扑）。需要换 ID 应当先克隆再删除。
 
-If you see jank when expanding a large group, the cause is usually the
-inspector re-rendering on selection rather than the tree itself. Close the
-Inspector to confirm.
+## 选项与参数表 / Options Table
 
-## Where to next
+| 元素                  | 字段                                     |
+| --------------------- | ---------------------------------------- |
+| `road`                | `id`, `sections[]`, `junctionId`, `type` |
+| `road.section`        | `id`, `laneIds[]`, `boundary?`           |
+| `lane.junctionId`     | 指向 `junction`                          |
+| `rsu.junctionId`      | 指向 `junction`                          |
+| `road.junctionId`     | 指向 `junction`                          |
+| `lane._userOverrides` | reconcile 跳过路径                       |
+| `entity.id`           | `nextEntityId(type, entities)` 防冲突    |
 
-- [Inspector](/guide/inspector) — selection feeds the right-side panel.
-- [Topology and junctions](/guide/topology-and-junctions) — what
-  reparenting does to predecessor/successor.
-- [Architecture / EntityOps adapter](/architecture/entityops) — the
-  `canReparent` rule table and `reparentEntity` semantics.
+## 键盘鼠标速查表 / Shortcut Cheatsheet
+
+| 操作            | 鼠标 / 快捷键        | 说明                   |
+| --------------- | -------------------- | ---------------------- |
+| 选中实体        | 左键单击             | 同步 Map + Inspector   |
+| 多选（roadmap） | Shift / Ctrl + click | 暂未启用               |
+| 拖拽改归属      | 左键拖到目标节点     | `canReparent` 校验     |
+| 创建 road       | 工具栏 `+` `Road`    | `createRoad`           |
+| 创建 RSU        | 工具栏 `+` `RSU`     | `createRSU`            |
+| 折叠/展开       | 节点左侧三角         | react-arborist 内置    |
+| 删除            | 选中 + `Delete`      | `DELETE_ENTITY` action |
+
+## 常见问题 / Troubleshooting
+
+### Q1. 拖一条 lane 到 junction 节点，没生效
+
+`canReparent` 返回 false 时拖放被取消。打开 console 看 `[LayerTree] reparent rejected: ...`，原因可能是 lane 几何端点不在该 junction polygon 内。
+
+### Q2. 找不到「Overlaps」分组
+
+只有 `reconcileOverlaps` 产出过 overlap 实体时才显示。空地图或没相交实体时无此组。
+
+### Q3. road.junctionId 改了，但树没刷新
+
+`buildTree` 由 `useMemo` 跟随 `entities` 变化。如果不刷新，可能是 mapStore 没触发 store update（应通过 `mapStore.updateEntity` 而非直接修改 entity 对象）。
+
+### Q4. road.section 中的 lane 顺序怎么定？
+
+按 `RoadSection.laneIds` 数组顺序。拖拽暂只支持改归属，不支持组内重排（roadmap）。
+
+### Q5. 拖一条 road 到 junction 后，原来的 lanes 跟着进 junction 吗？
+
+不会。lane.junctionId 是几何派生的（PIP），不会因为 road 归属变化而改变。手动让 lane 进 junction 需要把 lane 端点拖进 polygon。
+
+## 相关源码 / Source links
+
+- 入口：`src/components/layout/panels/LayerTree.tsx:1-100`
+- 树构建：`src/components/layout/panels/LayerTree/treeBuilder.ts`
+- 节点渲染：`src/components/layout/panels/LayerTree/Node.tsx`
+- 类型：`src/components/layout/panels/LayerTree/types.ts`
+- 常量：`src/components/layout/panels/LayerTree/constants.ts`
+- canReparent：`src/lib/entityOps.ts`（搜 `canReparent`）
+- ID 生成：`src/lib/idGenerator.ts`
+- Outline 健康：`src/components/layout/panels/MapOutline.tsx`
+
+## 相关文档 / See also
+
+- [地图元素](./map-elements.md)
+- [拓扑](./topology.md)
+- [拓扑与路口](./topology-and-junctions.md)
+- [车道绘制](./drawing-lanes.md)

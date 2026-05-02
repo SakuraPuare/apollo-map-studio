@@ -177,6 +177,9 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@25.6.0)(@vitest/coverage-v8@4.1.4)(msw@2.13.2(@types/node@25.6.0)(typescript@6.0.2))(vite@8.0.7(@types/node@25.6.0)(jiti@2.6.1)(yaml@2.8.3))
+      vue:
+        specifier: 3.5.33
+        version: 3.5.33(typescript@6.0.2)
       wait-on:
         specifier: ^9.0.5
         version: 9.0.5
@@ -9331,7 +9334,7 @@ snapshots:
   vite@5.4.21(@types/node@25.6.0)(lightningcss@1.32.0):
     dependencies:
       esbuild: 0.21.5
-      postcss: 8.5.9
+      postcss: 8.5.13
       rollup: 4.60.2
     optionalDependencies:
       '@types/node': 25.6.0

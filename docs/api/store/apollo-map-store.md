@@ -1,107 +1,243 @@
-# Store / apolloMapStore
+---
+title: apolloMapStore — Apollo 原始地图缓存
+description: 保存 IO 解码后的 apollo.hdmap.Map 树及导入元数据，供 round-trip 导出复用。
+---
 
-Source: `src/store/apolloMapStore.ts`.
+# `apolloMapStore` — Apollo 原始地图缓存
 
-`apolloMapStore` holds Apollo import / export context that is **not**
-part of the editable entity graph. It exists separately from
-`mapStore` so the round-trip path stays lossless: `mapStore` carries
-edited entities, `apolloMapStore` carries everything else (the source
-filename, the projection string, header metadata, bounds for viewport
-fit, error surface for the UI).
+> 源码：`src/store/apolloMapStore.ts` · 体量约 86 行 · 无撤销
 
-## State Shape
+## 用途
+
+`apolloMapStore` 是一个 **不参与撤销** 的 Zustand 单例，专职两件事：
+
+1. 保存最近一次导入的 Apollo HD Map 元数据（`filename`、`projString`、各类型实体计数等），供状态栏、状态提示、再次导出时预填名称使用。
+2. 暂存导入时的 WGS84 边界与 `header` 副本，方便 `WorkspaceLayout` 在新地图加载完成后调用 `map.fitBounds`。
+
+它故意 **不存储 React state 中的 `entities`**——后者由 `mapStore` 持有，并由 zundo 中间件做 `partialize` 撤销追踪。把"原样保留的 proto 树"塞进 zundo 的代价（每次撤销快照都要克隆一次 50–200MB 的对象）远超收益，因此本 store 是单独一份；浏览器导入路径中 `rawMap` 字段常驻 `null`——浏览器版本会把整棵 proto 树留在 IO worker 内，避免主线程结构化克隆。
+
+## 公共 API
+
+| 符号                  | 类型      | 签名                                      | 摘要                                                         |
+| --------------------- | --------- | ----------------------------------------- | ------------------------------------------------------------ |
+| `useApolloMapStore`   | hook      | `() => ApolloMapState & ApolloMapActions` | Zustand store，组件订阅入口                                  |
+| `ApolloMapImportInfo` | interface | 见下                                      | 导入诊断元数据；填充状态栏 / 提示                            |
+| `ApolloMapBounds`     | type      | `[[number, number], [number, number]]`    | WGS84 `[[minLng, minLat], [maxLng, maxLat]]`                 |
+| `ApolloMapHeader`     | type      | `Record<string, unknown>`                 | `Map.header` 的浅拷贝                                        |
+| `setMap`              | action    | `(rawMap, info) => void`                  | 同时落 `rawMap`、`header`、`info`，重置 `bounds`/`lastError` |
+| `setImported`         | action    | `(info, bounds, header?) => void`         | 浏览器路径首选；不写 `rawMap`                                |
+| `clear`               | action    | `() => void`                              | 重置所有字段为初始值                                         |
+| `setError`            | action    | `(message: string \| null) => void`       | 把最近一次 IO 错误暴露给状态栏                               |
+
+## 详细条目
+
+### `interface ApolloMapImportInfo`
 
 ```ts
-interface ApolloMapState {
-  rawMap: Record<string, unknown> | null; // legacy in-process callers/tests
-  header: ApolloMapHeader | null; // lightweight clone of Map.header
-  bounds: ApolloMapBounds | null; // [[minLng, minLat], [maxLng, maxLat]]
-  info: ApolloMapImportInfo | null; // filename, counts, projString, importedAt
-  lastError: string | null; // import/export error surface
-}
-
-interface ApolloMapImportInfo {
+export interface ApolloMapImportInfo {
+  /** Source filename, used as the suggested name for re-export. */
   filename: string;
+  /** Per-entity counts surfaced for the status bar / toast. */
   counts: Record<string, number>;
+  /** PROJ.4 string actually used to project ENU → lon/lat. */
   projString: string;
+  /** Imported-at timestamp (ms epoch). */
   importedAt: number;
 }
-
-type ApolloMapBounds = [[number, number], [number, number]];
-type ApolloMapHeader = Record<string, unknown>;
 ```
 
-`rawMap` is intentionally optional: browser imports keep the full
-proto tree inside the IO worker so React state does not clone or
-rescan 50–200 MB maps on the main thread. Only legacy in-process
-tests populate `rawMap` directly.
+由 `mapIO.importBaseMap` 在解码完成后构造。`projString` 在 round-trip 导出时被重新喂给 `mapIO.exportBaseMap`，确保坐标回到原始 UTM 值。
 
-## Actions
+文件位置：`apolloMapStore.ts:14`。
+
+### `type ApolloMapBounds`
 
 ```ts
-interface ApolloMapActions {
-  setMap(rawMap: Record<string, unknown> | null, info: ApolloMapImportInfo): void;
-  setImported(
-    info: ApolloMapImportInfo,
-    bounds: ApolloMapBounds | null,
-    header?: ApolloMapHeader | null,
-  ): void;
-  clear(): void;
-  setError(message: string | null): void;
-}
+export type ApolloMapBounds = [[number, number], [number, number]];
 ```
+
+形态：`[[minLng, minLat], [maxLng, maxLat]]`。供 `maplibre-gl` 的 `LngLatBoundsLike` 直接消费。
+
+### `type ApolloMapHeader`
+
+```ts
+export type ApolloMapHeader = Record<string, unknown>;
+```
+
+不绑定具体字段，故意保持开放——proto 升级新增字段时不需要修改本 store；Header 面板基于 zod schema 在渲染层做白名单校验。
+
+### `interface ApolloMapState`
+
+State 字段一览：
+
+| 字段        | 类型                              | 用途                                                                                |
+| ----------- | --------------------------------- | ----------------------------------------------------------------------------------- |
+| `rawMap`    | `Record<string, unknown> \| null` | 解码后的完整 proto 树（**仅** legacy / Node 测试走这条路径；浏览器导入留在 worker） |
+| `header`    | `ApolloMapHeader \| null`         | `Map.header` 的浅副本，供 Header 面板展示                                           |
+| `bounds`    | `ApolloMapBounds \| null`         | 导入期间预计算的 WGS84 包围盒                                                       |
+| `info`      | `ApolloMapImportInfo \| null`     | 最近一次导入的元数据                                                                |
+| `lastError` | `string \| null`                  | 最近一次 IO 失败的人类可读信息                                                      |
+
+文件位置：`apolloMapStore.ts:28-43`。
 
 ### `setMap(rawMap, info)`
 
-Legacy in-process setter. Extracts `header` from the rawMap (when it
-is an object) and clears `bounds` and `lastError`.
+把 raw proto 树整体写入 store，同时从 `rawMap.header` 浅拷贝 `header` 字段。**仅** Node/Vitest 单测和 legacy 在用：浏览器内的实际导入路径走 `setImported`，`rawMap` 留 `null`。
+
+```ts
+useApolloMapStore.getState().setMap(decoded, {
+  filename: 'base_map.bin',
+  counts: { lane: 312, junction: 24 },
+  projString: '+proj=utm +zone=10 +datum=WGS84',
+  importedAt: Date.now(),
+});
+```
+
+文件位置：`apolloMapStore.ts:63-72`。
 
 ### `setImported(info, bounds, header?)`
 
-Worker-import path. Stores `info`, `bounds`, and `header` and clears
-`rawMap` and `lastError`. The bridge sends `header` and `bounds` as
-part of the `IMPORT_RESULT` message; this setter is the sink.
+浏览器导入路径专用，**不** 携带 `rawMap`。`mapIO` 在 worker 中完成解码 → 把每个实体逐一推到 `mapStore`，仅把元数据 + 包围盒回传到主线程。
+
+签名：`(info: ApolloMapImportInfo, bounds: ApolloMapBounds | null, header?: ApolloMapHeader | null) => void`
+
+副作用：清除 `lastError`、把 `rawMap` 复位为 `null`。
+
+```ts
+useApolloMapStore.getState().setImported(
+  { filename, counts, projString, importedAt: Date.now() },
+  [
+    [bbox.minLng, bbox.minLat],
+    [bbox.maxLng, bbox.maxLat],
+  ],
+  header,
+);
+```
+
+文件位置：`apolloMapStore.ts:74-76`。
 
 ### `clear()`
 
-Wipes every field — used on "New Map" / "Close map".
+`File → New Map` / 切换文件时调用，清空所有字段。**不**触发 `mapStore.clear`——后者由调用方自行编排。
+
+文件位置：`apolloMapStore.ts:78-80`。
 
 ### `setError(message)`
 
-Stores import / export error text. `mapIO`'s `try/catch/finally` calls
-this on failure so the UI surfaces the error in a banner.
-
-## Role In Export
-
-`mapIO.currentExportContext()` requires `info` to exist:
+把 IO 失败摘要写到 `lastError`。状态栏会在下次重新导入或调用 `clear` 之前持续展示。
 
 ```ts
-const { info } = useApolloMapStore.getState();
-if (!info) {
-  setError('Nothing to export - import a map first.');
-  return null;
+useApolloMapStore.getState().setError('Failed to decode header: invalid varint at offset 17');
+```
+
+文件位置：`apolloMapStore.ts:82-84`。
+
+## 内部实现
+
+- 没有 `subscribe` / `selector` 优化——store 的写入频率低（每次只在 import/export 边界触发），无需 `useShallow`。
+- 由于不参与 zundo，`rawMap` 字段在内存中可达数百兆，`Ctrl+Z` 不会触发其结构化克隆。
+- 类型守卫 `header && typeof header === 'object'` 防御 proto 解码失败时拿到 `undefined`。
+- 初始 state 全部为 `null`，组件需要 narrow 检查后再读字段。
+
+## 副作用
+
+- 没有 IPC、没有 localStorage、没有 timer——纯内存。
+- 不写 `console`；错误经由 `setError` 显式上抛。
+- 重启即清空，符合"导入态不持久化"的产品决定。
+
+## 测试覆盖
+
+无独立测试文件——本 store 的契约在 `src/io/__tests__/mapIO.test.ts` 等 IO 端到端测试中被间接覆盖（验证 `info.counts` / `bounds` 在导入后就位）。
+
+## 调用方
+
+- `src/io/mapIO.ts` — 唯一写入方（`setMap` / `setImported` / `setError`）
+- `src/components/layout/StatusBar.tsx` — 读取 `info.filename`、`lastError`、`info.counts`
+- `src/components/layout/WorkspaceLayout.tsx` — 读取 `bounds` 触发 `map.fitBounds`
+- `src/components/menu/FileMenu.tsx` — 读取 `info.filename`/`projString` 复用为导出参数
+
+## 源码索引
+
+| 行    | 内容                                           |
+| ----- | ---------------------------------------------- |
+| 13–23 | `ApolloMapImportInfo` 接口                     |
+| 25–26 | `ApolloMapBounds` / `ApolloMapHeader` 类型别名 |
+| 28–43 | `ApolloMapState` 内部接口                      |
+| 45–54 | `ApolloMapActions` 内部接口                    |
+| 56–85 | `useApolloMapStore` 工厂                       |
+
+## 与 mapStore 的协作
+
+完整 import 流程：
+
+```ts
+// mapIO.ts (简化)
+async function importBaseMap(file: File) {
+  const apolloStore = useApolloMapStore.getState();
+  const mapStore = useMapStore.getState();
+  const taskStore = useTaskProgressStore.getState();
+
+  const id = `import:${file.name}`;
+  taskStore.beginTask({ id, label: `Importing ${file.name}` });
+  try {
+    // 1. worker 解码
+    const result = await runImportWorker(file, projString);
+    // 2. 重置编辑器实体
+    mapStore.replaceAll(result.entities);
+    // 3. 落地 apollo store 元数据
+    apolloStore.setImported(
+      { filename: file.name, counts: result.counts, projString, importedAt: Date.now() },
+      result.bounds,
+      result.header,
+    );
+  } catch (e) {
+    apolloStore.setError(String(e));
+    throw e;
+  } finally {
+    taskStore.endTask(id);
+  }
 }
 ```
 
-`info.projString` is passed back to the Apollo IO worker for export
-so the round-trip reuses the same CRS as import.
+注意：
 
-## Examples
+- **mapStore 与 apolloMapStore 是两个独立 store**，调用方负责协调
+- mapStore 走 zundo，所以 `replaceAll` 进入历史；apolloMapStore 不进
+- 失败路径仍要 `endTask`（`finally`）
 
-```ts
-// Read import metadata for a status bar
-const counts = useApolloMapStore((s) => s.info?.counts ?? {});
+## 视角恢复策略
 
-// Surface an error
-useApolloMapStore.getState().setError('Import failed: invalid header.');
+`bounds` 字段一旦写入，`WorkspaceLayout` 监听到变化触发 `map.fitBounds`：
+
+```tsx
+useEffect(() => {
+  const bounds = useApolloMapStore.getState().bounds;
+  if (bounds && map) {
+    map.fitBounds(bounds, { padding: 60, duration: 800 });
+  }
+}, [bounds]);
 ```
 
-## Related
+视角调整后 `bounds` 不需要清空——后续的 import 会用 `setImported` 覆盖；中间的 zoom/pan 操作走 `settingsStore.setMapCenter`，与本 store 无关。
 
-- [/api/io/map-io](/api/io/map-io) — primary writer.
-- [/api/io/apollo-io-bridge](/api/io/apollo-io-bridge) — produces the
-  `IMPORT_RESULT` payload this store sinks.
-- [/api/io/proto-projection](/api/io/proto-projection) — `projString`
-  format.
-- [/api/store/map-store](/api/store/map-store) — sister store for
-  edited entities.
+## 错误展示模型
+
+`lastError` 字段在状态栏显示，遵循"sticky 直到下一次 import"语义：
+
+```tsx
+function StatusBarError() {
+  const err = useApolloMapStore((s) => s.lastError);
+  if (!err) return null;
+  return <span className="text-destructive">{err}</span>;
+}
+```
+
+调用 `setError(null)` 也可清空（极少用）。
+
+## 参见
+
+- `mapStore` — 实体级别的 zundo store
+- [`projDialogStore`](./proj-dialog-store.md) — 缺失 PROJ.4 时的弹窗 store
+- [`taskProgressStore`](./task-progress-store.md) — 导入进度展示
+- `mapIO`（`src/io/mapIO.ts`） — 调用 setImported 的真正作者
+- `ARCHITECTURE.md` — 关于 cold/hot layer 与 worker 边界的全局图

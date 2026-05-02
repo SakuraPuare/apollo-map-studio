@@ -1,215 +1,196 @@
-# Coordinate system
+---
+title: 坐标系与投影
+description: UTM / WGS84 / MGRS、PROJ.4 字符串与 ProjPickerDialog —— 在 Apollo Map Studio 中正确处理 Apollo HD Map 的坐标空间。
+---
 
-Apollo HD maps store geometry in a local UTM frame in meters. The editor
-displays geometry in WGS84 lng/lat on a MapLibre web-mercator basemap.
-The PROJ.4 string in the imported map's `Header.projection.proj` defines
-the transform; if it's missing, the editor prompts for one. This page
-covers the projection picker, the coordinate transforms, and how to
-recover from a wrong projection.
+# 坐标系与投影 / Coordinate System & Projection
 
-## Source map
-
-| Concern                                    | File                                          |
-| ------------------------------------------ | --------------------------------------------- |
-| Coordinate conversions (GeoPoint ↔ LngLat) | `src/core/geometry/coords.ts`                 |
-| Projection module (proj4 wrapper)          | `src/io/proto/projection.ts`                  |
-| Projection picker dialog                   | `src/components/dialogs/ProjPickerDialog.tsx` |
-| Picker store                               | `src/store/projDialogStore.ts`                |
-| Imported-map metadata                      | `src/store/apolloMapStore.ts`                 |
-| UTM presets                                | `UTM_PRESETS` in `projection.ts:75`           |
-
-## The two coordinate systems
-
-| System                        | Used by                                                   | Units   |
-| ----------------------------- | --------------------------------------------------------- | ------- |
-| WGS84 lng/lat                 | MapLibre, on-screen rendering, `GeoPoint`, `LngLat`       | degrees |
-| Local UTM (Apollo `PointENU`) | Apollo proto `central_curve.points`, all geometry on disk | meters  |
-
-The editor's runtime works exclusively in WGS84. Apollo proto coordinates
-in `PointENU` (UTM meters) are converted to WGS84 lng/lat on import and
-back to UTM on export.
-
-::: tip Why WGS84 internally
-MapLibre's basemap is web-mercator. Authoring in lng/lat aligns directly
-with what's on screen. Doing geometry in UTM meters and projecting on
-every render frame would be unnecessary computation; the conversion
-happens once per import/export.
+::: tip 一句话
+Apollo HD Map 在磁盘上是 **UTM 米**（local ENU），编辑器内部用 **WGS84 经纬度**（度），二者通过 `Header.projection.proj` 这个 PROJ.4 字符串互转。如果它缺失，必须通过 `ProjPickerDialog` 选一个。
 :::
 
-## The PROJ.4 string
+## 概览 / Overview
 
-Apollo `Header.projection.proj` is a PROJ.4 string. Examples:
-
-| Region                             | PROJ.4 string                                                                                                    |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Sunnyvale, CA                      | `+proj=utm +zone=10 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                 |
-| Beijing                            | `+proj=utm +zone=50 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                 |
-| Shanghai                           | `+proj=utm +zone=51 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                 |
-| Custom Sunnyvale (Apollo Borregas) | `+proj=tmerc +lat_0=37.413082 +lon_0=-122.013929 +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs` |
-
-The Apollo Borregas map ships with a `+proj=tmerc` string with template
-braces (`+lat_0={37.413082}`). proj4 can't parse braces; the
-`sanitizeProjString()` helper (`projection.ts:10`) strips them
-automatically before parsing.
-
-::: warning Apollo template-style braces are stripped
-A proj string like `+proj=tmerc +lat_0={37.413082} +lon_0={-122.013929}`
-is valid Apollo input but invalid PROJ.4. The sanitizer in
-`projection.ts:10` removes the braces. If you author your own proj
-strings, leave the braces out.
-:::
-
-## Projection picker dialog
-
-Source: `src/components/dialogs/ProjPickerDialog.tsx`
-
-Opens automatically when an Apollo map is imported without a
-`Header.projection.proj` value. The dialog has three modes:
-
-### Mode 1 — Region preset
-
-Four canned options, defined in `projection.ts:75`:
-
-| Preset                  | PROJ.4                   |
-| ----------------------- | ------------------------ |
-| Sunnyvale, CA (UTM 10N) | `utmProjString(10, 'N')` |
-| Beijing (UTM 50N)       | `utmProjString(50, 'N')` |
-| Shanghai (UTM 51N)      | `utmProjString(51, 'N')` |
-| Shenzhen (UTM 50N)      | `utmProjString(50, 'N')` |
-
-### Mode 2 — UTM zone
-
-Two inputs: zone number (1–60) and hemisphere (N/S). Builds a UTM
-PROJ.4 string via `utmProjString(zone, hemisphere)`. The most flexible
-option for "I know the UTM zone" cases.
-
-### Mode 3 — Custom PROJ
-
-A textarea where you paste any PROJ.4 string. Apollo template-style
-braces are stripped automatically by the sanitizer. The dialog shows
-the resolved string before submitting.
-
-::: tip Cancel = fallback projection
-Pressing Cancel resolves the dialog with `null`. The current
-`apolloIOBridge` falls back to `UTM_PRESETS.beijing` so import can still
-finish. Re-import and choose the correct projection if the map appears in the
-wrong region.
-:::
-
-::: warning Wrong projection = visually offset map
-If you pick the wrong projection (e.g. UTM 50N for a Sunnyvale map),
-the geometry will appear in the wrong place — typically miles away
-from where it should be. The map still loads; it's just at the wrong
-place on the basemap. Re-import with the correct projection.
-:::
-
-## What changes when projection changes
-
-Switching projection is a **destructive** operation: every coordinate
-in `mapStore.entities` is in lng/lat, and re-projecting them
-back-and-forth introduces floating-point drift. The editor's design
-assumption is that projection is fixed for the lifetime of an import.
-
-| Operation                                 | Re-projects?                                                    |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| Import (with projection in header)        | Yes — header proj used                                          |
-| Import (no projection in header → picker) | Yes — user-chosen proj used                                     |
-| Edit / draw / move                        | No — coordinates stay in lng/lat                                |
-| Export                                    | Yes — back to UTM meters using `apolloMapStore.info.projString` |
-| Re-import a different file                | New projection from the new file's header                       |
-
-If you need to switch projections mid-session: export the current map,
-delete the editor state, re-import, pick a different projection. There
-is no in-place re-projection UI.
-
-## Coordinate helpers
-
-`src/core/geometry/coords.ts` exposes the lng/lat ↔ GeoPoint helpers used
-across the codebase:
-
-```ts
-toLngLat(p: GeoPoint): LngLat            // [x, y]  ← {x, y}
-toGeoPoint(p: LngLat): GeoPoint          // {x, y}  ← [x, y]
-pointsToCoords(points: GeoPoint[]): LngLat[]
-coordsToPoints(coords: LngLat[]): GeoPoint[]
+```mermaid
+flowchart LR
+  Disk[Apollo .bin/.txt UTM 米] -- proj4 forward --> Mem[编辑器 WGS84 度]
+  Mem -- maplibre web-mercator --> Screen[屏幕]
+  Mem -- proj4 inverse --> Disk
 ```
 
-These are pure helpers that do no projection — they convert between the
-two in-memory shapes. Both are in WGS84 lng/lat.
+| 系统                           | 谁在用                                                 | 单位    |
+| ------------------------------ | ------------------------------------------------------ | ------- |
+| WGS84 lng/lat                  | MapLibre 渲染、`GeoPoint`、`LngLat`、所有 store 内表达 | 度      |
+| Local UTM（Apollo `PointENU`） | Apollo proto `central_curve.points`、所有磁盘几何      | 米      |
+| Web-Mercator (EPSG:3857)       | MapLibre 自动应用，仅渲染层使用，不出现在 store        | 米      |
+| MGRS (Military Grid)           | 部分场景标注、外部交付物                               | 字母+米 |
 
-## Projection at runtime (export path)
-
-On export, `apolloIO.worker.ts` reads `apolloMapStore.info.projString`
-and creates a `Projection` via `makeProjection()`:
-
-```ts
-const proj = makeProjection(projString);
-// For each GeoPoint in lng/lat:
-const utmPoint = proj.fromLonLat({ x: lng, y: lat });
-//  utmPoint is now in UTM meters
-//  Stored as Apollo PointENU
-```
-
-The reverse on import:
-
-```ts
-const proj = makeProjection(headerProj || userPickedProj);
-// For each PointENU in UTM:
-const wgs = proj.toLonLat({ x: utmEast, y: utmNorth });
-// stored as GeoPoint in WGS84
-```
-
-::: tip Per-import projection
-The projection is stored on `apolloMapStore.info.projString` per-import.
-Multiple imports in the same session would each carry their own
-projection. The current store assumes a single active map, so this
-isn't exercised — re-importing replaces the previous map entirely.
+::: info 为什么内部用 WGS84
+MapLibre 的 basemap 是 web-mercator。用 lng/lat 直接和屏幕对齐，避免每帧投影。UTM↔WGS84 的转换只在 import/export 时各做一次。
 :::
 
-## Inferring zone from longitude
+## PROJ.4 字符串 / PROJ.4 strings
 
-If you know your map's WGS84 longitude but not the UTM zone, use
-`utmZoneFromLon(lonDeg)` (`projection.ts:61`):
+Apollo `Header.projection.proj` 是一段 PROJ.4 文本。常见样例：
 
-```ts
-utmZoneFromLon(116.4); // 50  (Beijing)
-utmZoneFromLon(-122.0); // 10  (Sunnyvale)
-utmZoneFromLon(121.5); // 51  (Shanghai)
+| 区域                                                    | PROJ.4 字符串                                                                                                        |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Sunnyvale, CA (UTM 10N)                                 | `+proj=utm +zone=10 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                     |
+| Beijing (UTM 50N)                                       | `+proj=utm +zone=50 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                     |
+| Shanghai (UTM 51N)                                      | `+proj=utm +zone=51 +ellps=WGS84 +datum=WGS84 +units=m +no_defs`                                                     |
+| Apollo Borregas (TMERC, with templated `lat_0`/`lon_0`) | `+proj=tmerc +lat_0={37.413082} +lon_0={-122.013929} +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs` |
+
+::: warning 模板大括号
+Apollo 内部某些 demo（borregas, garage）的 PROJ 字符串带 `{}`，例如 `+lat_0={37.413082}`。proj4 不接受这种语法。`sanitizeProjString`（`projection.ts:10-12`）会自动剥掉大括号。
+:::
+
+## ProjPickerDialog 解析
+
+只有 `header.projection.proj` 缺失或留空时才会弹出。三种 fallback 模式：
+
+```mermaid
+flowchart LR
+  Worker -- NEEDS_PROJECTION --> Main
+  Main --> Dialog{选择模式}
+  Dialog -- preset --> Preset[UTM_PRESETS]
+  Dialog -- utm zone --> UTM[utmProjString]
+  Dialog -- custom --> Custom[sanitizeProjString]
+  Preset --> Resolved
+  UTM --> Resolved
+  Custom --> Resolved
+  Resolved --> WorkerCont[continueImport]
 ```
 
-UTM zones are 6° wide starting at -180. Hemisphere is N for positive
-latitudes, S for negative.
+`ProjPickerDialog.tsx:1-231` 的核心：
 
-## Common projection scenarios
+| 模式          | 对应函数                 | 说明                                                                           |
+| ------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| Region preset | `UTM_PRESETS[id]`        | sunnyvale (UTM 10N)、beijing (UTM 50N)、shanghai (UTM 51N)、shenzhen (UTM 50N) |
+| UTM zone      | `utmProjString(zone, h)` | 1–60 + N/S；不接受越界                                                         |
+| Custom PROJ   | `sanitizeProjString(s)`  | 任意 PROJ.4，自动剥模板大括号                                                  |
 
-### Apollo Borregas demo map
+```ts
+export function utmProjString(zone: number, hemisphere: 'N' | 'S' = 'N'): string {
+  if (zone < 1 || zone > 60) throw new Error(`UTM zone out of range: ${zone}`);
+  const south = hemisphere === 'S' ? ' +south' : '';
+  return `+proj=utm +zone=${zone}${south} +ellps=WGS84 +datum=WGS84 +units=m +no_defs`;
+}
+```
 
-The demo ships with a `+proj=tmerc` string with template braces. The
-sanitizer strips them; no picker prompt because the header is present.
+（`projection.ts:51-55`）
 
-### Self-collected fleet map (no header)
+## UTM zone 推断 / Inferring UTM zone
 
-Picker opens. Pick the appropriate UTM zone for your collection
-region (or paste your fleet's PROJ.4 string).
+```ts
+export function utmZoneFromLon(lonDeg: number): number {
+  let lon = lonDeg;
+  while (lon < -180) lon += 360;
+  while (lon > 180) lon -= 360;
+  return Math.min(60, Math.max(1, Math.floor((lon + 180) / 6) + 1));
+}
+```
 
-### Re-importing after edit
+（`projection.ts:60-66`）
 
-The previous projection is discarded. The new file's header (or
-picker) drives the new transform.
+::: warning 不能从 (x, y) 反推 zone
+UTM 是分 zone 的本地坐标，每个 zone 都有 (500_000, 4_500_000) 这样的点。**必须**通过 region preset、用户输入、或外部已知的经度来确定 zone。
+:::
 
-### Map straddling UTM zone boundaries
+## 操作步骤 / Steps
 
-Pick one zone for the whole map. Apollo's coordinate system is
-single-zone by design; if your geometry truly spans multiple zones,
-you'll see distortion at the edges. Split the map into per-zone
-sub-maps in this case.
+### 1. 选投影
 
-## Where to next
+- 导入触发 `NEEDS_PROJECTION` → ProjPickerDialog；
+- 选 region preset / UTM zone / custom；
+- 点 `Use this projection` 提交，回到 worker `continueImport(projString)`；
+- 选定后写入 `apolloMapStore.header.projection.proj`，导出时回写。
 
-- [Importing](/guide/import) — file picker flow that triggers the
-  projection picker.
-- [Exporting](/guide/export) — projection used to re-encode UTM.
-- [Architecture / IO pipeline](/architecture/worker-protocol) — full
-  worker-backed encode/decode.
-- Projection mismatch: re-import with the correct projection string or UTM
-  zone.
+### 2. 排查偏移
+
+如果导入后地图明显偏移：
+
+```mermaid
+flowchart TD
+  Q[地图偏移?] --> Z{偏移量?}
+  Z -- ~700 km --> ZoneWrong[UTM zone 错了]
+  Z -- ~50 km --> Hemis[南北半球反了]
+  Z -- 数百米 --> Datum[ellps/datum 不匹配]
+  Z -- 几米 --> 正常[正常投影误差]
+```
+
+### 3. 修正
+
+- 重导入时换一个 zone；
+- 在 inspector 的 Map 元数据面板可看到当前 PROJ；
+- 通过 `MapMetadataForm` 改 PROJ.4（如已实现）。
+
+## 选项与参数表 / Options Table
+
+| 项目          | 值                       | 说明                                |
+| ------------- | ------------------------ | ----------------------------------- |
+| 内部坐标系    | WGS84 lng/lat (度)       | `GeoPoint = { x: lng, y: lat, z? }` |
+| 磁盘坐标系    | Apollo PointENU (UTM 米) | 与 `Header.projection.proj` 关联    |
+| Mercator 渲染 | EPSG:3857                | maplibre 内部                       |
+| sanitize 规则 | 移除 `{...}` 模板花括号  | `sanitizeProjString`                |
+| 默认 preset   | beijing (UTM 50N)        | `ProjPickerDialog.tsx:14-19`        |
+| 半球          | N / S                    | `utmProjString(zone, hemisphere)`   |
+| 椭球          | WGS84                    | 大部分 Apollo 图都用 WGS84          |
+
+## 键盘鼠标速查表 / Shortcut Cheatsheet
+
+| 操作                       | 快捷键                    | 说明                  |
+| -------------------------- | ------------------------- | --------------------- |
+| 切换 ProjPickerDialog 模式 | 鼠标点击 tab              | preset / UTM / custom |
+| 提交 PROJ                  | `Enter` / `Use this proj` | 等价 OK               |
+| 取消                       | `Esc`                     | 终止导入              |
+| 复制 PROJ 到剪贴板         | （在 Resolved 区域选择）  | 浏览器原生复制        |
+
+## 常见问题 / Troubleshooting
+
+### Q1. 导入后地图位置在太平洋中央
+
+zone 错。检查源图的实际经度（百度/谷歌地图取一个城市坐标），用 `utmZoneFromLon` 算 zone。
+
+### Q2. 同一文件，两次导入投影对话框结果不一致
+
+确认你没有在两次中间手改 header。`apolloMapStore.header.projection.proj` 是单例；导出时会写回它。
+
+### Q3. PROJ.4 中有 `+lat_0={37.4}` 报 `proj4 invalid`
+
+旧版 sanitizer 漏剥某些模板时会出现。确认 `projection.ts:10-12` 的正则是 `/\{([^}]+)\}/g`。
+
+### Q4. 导出后第三方工具（QGIS）打开偏移
+
+QGIS 的 EPSG:32650（UTM 50N）与 `+proj=utm +zone=50` 在椭球上一致。如果偏移，多半是 `+ellps` 或 `+datum` 字段被写丢——检查 `entityOps.compileApolloMap` 是否原样回写 PROJ。
+
+### Q5. 我想切换到 MGRS 显示
+
+MGRS 是 UTM 的 25-character grid 版本。当前编辑器只显示 lng/lat 与 PROJ.4；MGRS 需要外部转换器（roadmap）。
+
+### Q6. proj4 正反向不一致
+
+可能是 PROJ 缺 `+no_defs` 或带了 unsupported 项。在 DevTools 跑：
+
+```js
+const p = proj4(
+  '+proj=utm +zone=50 +ellps=WGS84 +datum=WGS84 +units=m +no_defs',
+  '+proj=longlat +datum=WGS84 +no_defs',
+);
+p.forward([500000, 4500000]);
+```
+
+## 相关源码 / Source links
+
+- `src/io/proto/projection.ts:1-81`
+- `src/components/dialogs/ProjPickerDialog.tsx:1-231`
+- `src/store/projDialogStore.ts`
+- `src/store/apolloMapStore.ts`
+- `src/core/geometry/coords.ts`
+- `src/lib/geo.ts:22-58` — haversine 与米/度换算
+
+## 相关文档 / See also
+
+- [导入概览](./import.md)
+- [导入深入](./importing.md)
+- [地图元素](./map-elements.md)
+- [车道绘制](./drawing-lanes.md)

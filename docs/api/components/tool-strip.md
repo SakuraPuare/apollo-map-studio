@@ -1,201 +1,121 @@
+---
+title: ToolStrip
+description: 36px 高度的工具条——默认/连接模式按钮 + 11 个元素图标 + 元素特定的工具变体 + 视图切换，全部由 Action Registry 驱动。
+---
+
 # ToolStrip
 
-> Source: `src/components/layout/ToolStrip.tsx`
+> 源码：`src/components/layout/ToolStrip.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`ToolStrip` is the 36px-tall horizontal toolbar between the menu bar
-and the canvas. It exposes three groups:
+`ToolStrip` 是 MenuBar 下方的 36px 高工具条。它有四个功能区（左→右）：
 
-1. **Mode switches** — Default (Hand) and Connect-Lanes — modal toggles
-   that aren't FSM draw tools.
-2. **Element bar** — 11 icon buttons for Apollo element types (lane,
-   junction, signal, etc.) plus drawing primitives.
-3. **Available tools** — once an element is picked, the tools allowed
-   for that element (polyline / bezier / arc / etc.) appear after a
-   divider.
-4. **View slot** — registry-driven (Grid, Snap toggles) plus the
-   command-palette launcher.
+1. **Default + Connect** — 两个 modal-switch 按钮（不是绘制工具），分别走 `defaultMode` 和 `connectLanes` action。
+2. **ElementBar** — 11 个 Apollo 元素图标（lane / road / signal / crosswalk …），点击切换 `currentElement`。
+3. **Tool variants**（条件渲染）— 一旦选中 element，只有该 element 允许的工具会出现：例如 lane 支持 `drawCatmullRom` / `drawBezier`，crosswalk 只支持 `drawPolygon`。
+4. **Spacer + Command Palette 触发器**。
+5. **View slot** — 由 Action Registry 中 `slot=view` 的 action 自动填充（比如 `toggleGrid`、`toggleSnap`）。
 
-Every button funnels through the same `useActionDispatcher` so behavior
-matches keyboard shortcuts and the menu bar.
+## 组件组合树
 
-## Component props
+```mermaid
+flowchart TB
+  TS[ToolStrip]
+  TS --> Modal[ToolButton defaultMode]
+  TS --> Conn[ToolButton connectLanes]
+  TS --> Div1[Divider]
+  TS --> EB[ElementBar 11×]
+  TS --> Div2{conditional Divider}
+  TS --> TV[Tool variants \(filtered by element\)]
+  TS --> Spacer
+  TS --> CP[Command Palette button ⌘K]
+  TS --> Div3[Divider]
+  TS --> View[View slot \(toggleGrid/toggleSnap …\)]
+```
+
+## Props 接口
 
 ```ts
 interface ToolStripProps {
-  currentTool: string; // FSM state value
-  currentElement: MapElementType | null; // FSM context.activeElement
+  currentTool: string;
+  currentElement: MapElementType | null;
   onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
   onOpenCommandPalette?: () => void;
-  /** Action Registry dispatcher — required for view slot (grid/snap). */
   onExecuteAction: (actionId: ActionId) => void;
-  /** Action Registry toggle state reader — required for view slot. */
   getToggleState: (actionId: ActionId) => boolean;
 }
 ```
 
-| Prop              | Source                                                        |
-| ----------------- | ------------------------------------------------------------- |
-| `currentTool`     | `useSelector(actorRef, s => s.value)`                         |
-| `currentElement`  | `useSelector(actorRef, s => s.context.activeElement)`         |
-| `onSelectTool`    | Wraps `actorRef.send({ type: 'SELECT_TOOL', tool, element })` |
-| `onExecuteAction` | `useActionDispatcher().execute`                               |
-| `getToggleState`  | `useActionDispatcher().getToggleState`                        |
+| Prop                   | 类型                                                 | 默认值 | 说明                                                                                      |
+| ---------------------- | ---------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| `currentTool`          | `string`                                             | —      | 当前 FSM 状态（`drawPolyline` / `idle` / …）                                              |
+| `currentElement`       | `MapElementType \| null`                             | —      | 当前选中元素类型；为 `null` 时隐藏工具变体                                                |
+| `onSelectTool`         | `(tool: DrawTool, element?: MapElementType) => void` | —      | 选择 element 或工具时的回调；通常 `actorRef.send({ type: 'SELECT_TOOL', tool, element })` |
+| `onOpenCommandPalette` | `() => void`                                         | —      | ⌘K 按钮的 onClick                                                                         |
+| `onExecuteAction`      | `(actionId: ActionId) => void`                       | —      | View slot / default / connect 按钮调用此函数                                              |
+| `getToggleState`       | `(actionId: ActionId) => boolean`                    | —      | 仅对 `isToggle` action 返回开关状态（Grid / Snap / DefaultMode）                          |
 
-## Behavior
+## 子组件
 
-### Element bar
+### `ToolButton`
 
-```ts
-import { MAP_ELEMENTS } from '@/core/elements';
+通用图标按钮，激活态使用 `bg-ams-accent/20 text-ams-accent shadow-[inset_0_-2px_0_0_var(--color-ams-accent)]`，未激活悬停时 `hover:bg-ams-surface-hover`。
 
-<div>{MAP_ELEMENTS.map((el) => <button onClick={() => onSelect(el.type)}>...)}</div>
-```
+### `Divider`
 
-`MAP_ELEMENTS` is the canonical list from `core/elements`. Each entry
-has `type`, `label`, `icon`, `color`, `defaultTool`, `tools[]`.
+竖线 `w-px h-5 bg-ams-border-strong`。
 
-Clicking an element calls `handleElementSelect(type)`:
+### `ElementBar`
 
-```ts
-const handleElementSelect = (type: MapElementType) => {
-  const def = ELEMENT_MAP.get(type)!;
-  onSelectTool(def.defaultTool, type); // arms the FSM with the element + its default tool
-};
-```
+11 个图标按钮，无文本；激活时背景 `bg-ams-surface-active` + 字色取自 `el.color`（每个 element 在 `MAP_ELEMENTS` 里定义自身颜色）。
 
-### Available-tool resolution
+## 内部状态
 
-```ts
-const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
-const availableTools = elementDef
-  ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool))
-  : [];
-```
+`ToolStrip` 是无状态组件——所有状态来自父级（`currentTool` / `currentElement`）或 Action Registry / `useActionDispatcher`（`getToggleState`）。
 
-Lane allows polyline / bezier / catmullRom; signal allows polyline
-only; clear-area allows polygon only — each element declares its
-allowed tools.
+## 副作用
 
-### Tool button rendering
+无 effect。所有交互通过 callback 传到父级。
 
-```ts
-{availableTools.map(({ tool }) => {
-  const action = getToolAction(tool);   // registry lookup
-  const Icon = action?.icon ?? FaMagnifyingGlass;
-  return (
-    <ToolButton
-      icon={Icon}
-      label={`${elementDef?.label ?? ''} · ${action?.label ?? tool}`}
-      shortcut={action?.shortcut}
-      active={currentTool === tool}
-      onClick={() => handleToolSelect(tool)}
-    />
-  );
-})}
-```
+## 渲染逻辑
 
-`getToolAction(tool)` is the integration point — the action registry's
-single source for icon, label, and shortcut. Adding a new draw tool
-means:
+1. 从 Action Registry 取 `defaultMode` 与 `connectLanes` 两个 action，渲染顶部按钮（`ToolStrip.tsx:134-161`）。
+2. 渲染 `ElementBar`：点击触发 `onSelectTool(def.defaultTool, type)`（`ToolStrip.tsx:113-115`）。
+3. 如果 `currentElement` 非空，过滤 `ALL_DRAW_TOOLS` 取该 element 允许的工具，逐一渲染 `ToolButton`（`ToolStrip.tsx:108-186`）。
+4. 渲染 `<button>⌘K</button>`，调 `onOpenCommandPalette`。
+5. 用 `getToolStripSlotActions('view')` 取所有 `slot==='view'` 的 action，渲染到右侧（`ToolStrip.tsx:204-216`）。
 
-1. Adding a record to the action registry with `drawTool: 'newTool'`.
-2. Adding `'newTool'` to one or more elements' `tools[]` in
-   `core/elements`.
+## 性能注释
 
-The ToolStrip picks it up automatically.
+- **无 memoization**：组件足够轻量；`ALL_DRAW_TOOLS.filter` 数组很小（最多 6 项）。
+- **`ACTION_DEFS.find` 每次 render 触发**：考虑改用 `ACTION_MAP.get('defaultMode')`（在 registry 内有 O(1) 查询），但对于 5 项以下的 array 影响可忽略。
+- **稳定的 onClick lambda**：每次 render 都是新闭包，但子组件没 memo，影响为 0。
 
-### Default-mode and Connect-Lanes
+## 设计 token 注释
 
-The two leftmost buttons sit before the element bar because they're
-**modal switches**, not drawing tools:
+`ToolStrip` 是 `ams-*` 设计 token 的**示范迁移点**。未激活元素颜色取 `text-ams-text-secondary`，hover `bg-ams-surface-hover`，激活背景 `bg-ams-accent/20` + `shadow-[inset_0_-2px_0_0_var(--color-ams-accent)]` 形成底部高亮线。详见 [架构](/architecture/) 的"设计 tokens"章节。
 
-- **Default (Hand)** — escape hatch. Active when the FSM is `idle`
-  with no armed element and connect-mode is off. Clicking dispatches
-  `defaultMode` action which sends CANCEL+RESET to the FSM and exits
-  connect-mode.
-- **Connect Lanes** — arms a non-FSM modal. Click → toggle
-  `uiStore.connectMode`.
+## 源码索引
 
-Both render via `getToggleState(...)` for active state.
+| 关注点               | 文件位置                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| 组件主体             | `ToolStrip.tsx:100-219`                                                                    |
+| `ToolButton`         | `ToolStrip.tsx:38-56`                                                                      |
+| `ElementBar`         | `ToolStrip.tsx:71-96`                                                                      |
+| Default + Connect 段 | `ToolStrip.tsx:134-161`                                                                    |
+| Tool variants 过滤   | `ToolStrip.tsx:108-111`, `166-187`                                                         |
+| View slot            | `ToolStrip.tsx:204-216`                                                                    |
+| Element 注册表       | `src/core/elements.ts` (`MAP_ELEMENTS`, `ELEMENT_MAP`, `ALL_DRAW_TOOLS`)                   |
+| Action 注册表        | `src/core/actions/registry.ts` (`ACTION_DEFS`, `getToolAction`, `getToolStripSlotActions`) |
 
-### View slot
+## 跨页参考
 
-```ts
-const viewActions = getToolStripSlotActions('view');
-```
+- [WorkspaceLayout](./workspace-layout.md) — 父组件
+- [MenuBar](./menu-bar.md) / [CommandPalette](./command-palette.md) — 共享 Action Registry
+- [`editorMachine`](/api/core) — `SELECT_TOOL` / `DEFAULT_MODE` / `CONNECT_LANES` 事件
+- [架构](/architecture/) — Action Registry 设计、ams-\* 设计 token
 
-Returns the registry actions tagged for the toolstrip's view slot
-(currently: `toggleGrid`, `toggleSnap`). Each renders identically:
+## 英文镜像
 
-```tsx
-<ToolButton
-  active={action.isToggle ? getToggleState(action.id) : false}
-  onClick={() => onExecuteAction(action.id)}
-  ...
-/>
-```
-
-The slot is fully registry-driven — adding a new view toggle is one
-record in `registry.ts`.
-
-### Command palette launcher
-
-```tsx
-<button onClick={onOpenCommandPalette}>
-  <FaTerminal />
-  <kbd>⌘K</kbd>
-</button>
-```
-
-A small launcher button that hints at the `⌘K` shortcut.
-
-### Why "Selection" is gone
-
-Earlier versions had Select / Pan tool buttons. They're removed —
-ESC + MapLibre's native dragPan covers the same cases without a modal
-selection. `useDragPan` re-enables drag during `idle` / `selected`,
-and ESC always dispatches CANCEL to the FSM.
-
-## Examples
-
-### Mounting
-
-```tsx
-<ToolStrip
-  currentTool={currentState}
-  currentElement={activeElement as MapElementType | null}
-  onSelectTool={handleSelectTool}
-  onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-  onExecuteAction={execute}
-  getToggleState={getToggleState}
-/>
-```
-
-### Adding a new view toggle
-
-```ts
-// In registry.ts
-{
-  id: 'toggleScaleBar',
-  category: 'view',
-  isToggle: true,
-  label: 'Scale Bar',
-  icon: FaRulerHorizontal,
-  shortcut: 'Cmd+Shift+R',
-  toolStripSlot: 'view',
-  inCommandPalette: true,
-}
-```
-
-Add a handler in `useActionDispatcher`, a toggle case in
-`getToggleState`, and the button shows up next to Grid/Snap.
-
-## Related
-
-- [Action Registry](/api/core/action-registry)
-- [useActionDispatcher](/api/hooks/use-action-dispatcher)
-- [Menu bar](/api/components/menu-bar)
-- [Element registry](/api/core/elements)
-- [editorMachine FSM](/api/core/editor-machine)
+[/en/api/components/tool-strip](/en/api/components/tool-strip)

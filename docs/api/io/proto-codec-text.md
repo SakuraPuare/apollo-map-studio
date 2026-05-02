@@ -1,114 +1,81 @@
-# IO / proto text codec
+---
+title: io / proto-codec-text
+description: src/io/proto/textCodec.ts + textCodec/* — Apollo HD-map 文本 protobuf 编解码
+---
 
-Sources:
+# io / proto-codec-text
 
-- `src/io/proto/textCodec.ts`
-- `src/io/proto/textCodec/decoder.ts`
-- `src/io/proto/textCodec/encoder.ts`
-- `src/io/proto/textCodec/tokenStream.ts`
+`src/io/proto/textCodec.ts` 是 Apollo HD-map 文本 protobuf 的 facade，
+内部委托给 `textCodec/decoder.ts` 与 `textCodec/encoder.ts`。
+`textCodec/tokenStream.ts` 提供低层词法分析。
 
-The text codec reads and writes Apollo text protobuf (`.txt` /
-`.pb.txt`). It is hand-rolled because Google's public text-proto
-reference does not specify Apollo's quirks (mixed `{}` / `<>`
-brackets, `[a, b, c]` arrays, octal/hex escapes in `bytes` fields).
-
-## Layers
-
-```
-text bytes
-   │
-   ▼  TokenStream (tokenStream.ts)
-identifier / string / number / symbol tokens
-   │
-   ▼  decoder.ts: parseMessage(stream, type)
-plain object (snake_case, same shape as binCodec)
-```
-
-```
-plain object
-   │
-   ▼  encoder.ts: encodeMessage(type, msg)
-indented text bytes
-```
-
-## Top-level Exports (`textCodec.ts`)
-
-- `decodeMapText(text)` — load `apollo.hdmap.Map` and call
-  `decodeMessage`.
-- `encodeMapText(obj)` — load the same type and call `encodeMessage`.
-- `decodeMessage` / `encodeMessage` — re-exports for tests and tools
-  that operate on non-Map types.
-
-## Decode
-
-`decodeMapText(text)` loads the Apollo `Map` type and calls
-`decodeMessage(type, text)`.
-
-The parser supports:
-
-- nested messages with `{}` or `<>`;
-- `:` before scalar or nested values;
-- repeated scalar lists with `[...]`;
-- repeated message fields by repeating blocks;
-- unknown fields, which are skipped (forward compatibility with
-  newer schemas);
-- enum names or numeric enum values;
-- bool, integer, float/double, string and bytes scalars;
-- C-style escape sequences in strings (`\n`, `\NNN` octal,
-  `\xHH` hex), required for `bytes` round-trip.
-
-Number specials: `inf`, `+inf`, `-inf`, `nan`, `+nan`, `-nan` decode
-to JavaScript `Infinity` / `-Infinity` / `NaN`. Trailing `f` / `F`
-suffixes are consumed.
-
-## Encode
-
-`encodeMapText(obj)` emits fields in protobuf declaration order
-(`type.fieldsArray`). Repeated fields are emitted as repeated blocks
-or scalar lines. Enum ids are written as names when possible (numeric
-fallback). Sub-messages use two-space indent.
-
-`Map` fields are currently skipped by the encoder because the Apollo
-map schema used by the editor does not require text map-field round
-trips.
-
-## TokenStream
+## 公开符号
 
 ```ts
-class TokenStream {
-  peek(): Token | null;
-  consume(): Token | null;
-  expect(kind, value?): Token; // throws on mismatch
-  position(): number;
-}
+// src/io/proto/textCodec.ts
+export function decodeMapText(text: string): Promise<Record<string, unknown>>;
+export function encodeMapText(obj: Record<string, unknown>): Promise<string>;
 
-interface Token {
+// 也直接 re-export 内部两个低层函数，方便 sub-message 复用：
+export function decodeMessage(type: protobuf.Type, text: string): Record<string, unknown>;
+export function encodeMessage(type: protobuf.Type, msg: unknown, level?: number): string;
+```
+
+## textCodec/decoder.ts
+
+```ts
+export function decodeMessage(type: protobuf.Type, text: string): Record<string, unknown>;
+```
+
+要点：
+
+- 用 `TokenStream` 一次性 tokenise；
+- 已知字段调用 `parseFieldValue` 递归 / 标量解析；
+- 未知字段（schema 里没声明的）走 `skipFieldValue` —— 注释式
+  forward-compat，避免上游加新字段时编辑器报错；
+- 支持 `name { ... }` 和 angle-bracket group 两种 sub-message 语法；
+- 数字字面量支持 `inf` / `-inf` / `nan` / `0xHEX` / 小数 / `f` 后缀；
+- 布尔字面量支持 `true / True / t / 1` 与 `false / False / f / 0`；
+- 字符串字面量支持 `\n / \r / \t / \xHH / \OOO / \" / \\` 等转义，
+  还有简单 `\a / \b / \f / \v` octal-style escapes。
+
+## textCodec/encoder.ts
+
+```ts
+export function encodeMessage(type: protobuf.Type, msg: unknown, level?: number): string;
+```
+
+要点：
+
+- 缩进 = 2 spaces；
+- nested message：`name { ... }` 多行 + 自动缩进；
+- enum：尝试用 `valuesById` 输出符号名，失败时退回数字字符串；
+- bytes：`bytesToLatin1` + `encodeQuoted`（小于 `0x20` 或 `>= 0x7f` 走
+  3 位八进制 `\OOO`）；
+- 数值：处理 `Infinity / -Infinity / NaN` 输出 `inf / -inf / nan`。
+
+## textCodec/tokenStream.ts
+
+```ts
+export interface Token {
   kind: 'identifier' | 'string' | 'number' | 'symbol';
   value: string;
 }
+
+export class TokenStream {
+  constructor(text: string);
+  peek(): Token | null;
+  consume(): Token | null;
+  expect(kind: Token['kind'], value?: string): Token;
+  position(): number;
+}
 ```
 
-Whitespace and `# comments` are skipped between tokens. Errors carry
-the stream position for human-readable diagnostics:
-`Expected number for s, got identifier "abc" near pos 4271`.
+`peek()` 读取下一个 token 但不消费；`consume()` 消费一个；`expect()`
+按 kind/value 检查并 throw on mismatch（错误信息形如
+`Expected kind ..., got kind "value" near pos N`）。
 
-## Examples
+## 何时偏向用 binary
 
-```ts
-import { decodeMapText, encodeMapText } from '@/io/proto/textCodec';
-
-const input = await readFileAsText(file);
-const obj = await decodeMapText(input);
-const output = await encodeMapText(obj);
-// `output` is canonical (consistent indent, schema-ordered fields)
-// but encodes the same proto bytes as `input`.
-```
-
-## Related
-
-- [/api/io/proto-loader](/api/io/proto-loader) — provides the type.
-- [/api/io/proto-codec-bin](/api/io/proto-codec-bin) — binary sibling;
-  same plain-object shape.
-- [/api/io/proto-adapter](/api/io/proto-adapter) — projection step.
-- [/api/io/proto-entity-bridge](/api/io/proto-entity-bridge) — final
-  bridge to `MapEntity[]`.
+文本格式调试方便，体积约是 binary 的 6–10 倍；生产部署、CI 的导入
+基线、benchmark 输入都用 binary。

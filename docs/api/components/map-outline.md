@@ -1,251 +1,156 @@
-# MapOutline + SidebarPanel + SchemaForm + MapMetadataForm
+---
+title: MapOutline
+description: 只读结构概要面板——按 Apollo 实体类型逐项计数，做孤儿/悬挂引用健康检查，并在底部嵌入 Apollo 头部元数据。
+---
 
-> Source: `src/components/layout/panels/MapOutline.tsx`, `src/components/layout/panels/SidebarPanel.tsx`, `src/components/layout/panels/SchemaForm.tsx`, `src/components/layout/panels/MapMetadataForm.tsx`
+# MapOutline
 
-## Overview
+> 源码：
+>
+> - `src/components/layout/panels/MapOutline.tsx`
+> - `src/components/layout/panels/MapMetadataForm.tsx`（嵌入在底部）
 
-This page covers the four pieces that make up the left sidebar's
-content layer:
+## 用途与 UX 角色
 
-- **`SidebarPanel`** — the Dockview panel host that switches between
-  Outline / Layers / Search / Timeline based on the activity bar tab.
-- **`MapOutline`** — read-only structural summary of the current map:
-  per-type counts, orphan / unparented checks, plus the imported
-  Apollo header.
-- **`SchemaForm`** — the schema-driven form engine reused across
-  Inspector and any future schema-based panel.
-- **`MapMetadataForm`** — read-only display of the imported Apollo
-  `Map.header` fields.
+`MapOutline` 是 Sidebar 的**只读概要**面板（`activeTab === 'explorer'`），让用户在导出前快速审核地图内容。它做三件事：
 
-## SidebarPanel
+1. **总实体数** — 顶部一行 `Total entities: N`。
+2. **按 Apollo 类型分组的计数**（17 类）— 仅显示 N>0 的类型。
+3. **绘图原语计数** — `polyline / catmullRom / bezier / arc / rect / polygon` 合并为一项 "Drawing Primitives · Total"。
+4. **健康检查**：
+   - **Unparented Lanes** — lane 既无 `junctionId` 也未在任何 RoadSection 中
+   - **Dangling junction_id** — `lane.junctionId` / `road.junctionId` / `rsu.junctionId` 引用的 junction 不存在
+5. **MapMetadataForm**（底部嵌入）— 显示 `apollo.hdmap.Map.header` 的 12 个字段：version / date / projection.proj / district / generation / rev_major / rev_minor / vendor / left / top / right / bottom。
 
-```ts
-interface SidebarPanelContentProps {
-  /** Hook to open the global Settings modal when the user clicks the settings tab. */
-  onOpenSettings(): void;
-}
-export function SidebarPanelContent(props: SidebarPanelContentProps): JSX.Element;
-```
+整个面板**只读**——任何编辑都通过其他面板（LayerTree, Inspector）进行。
 
-### Behavior
+## Props 接口
 
-The component reads `activeTab` from `SidebarContext` and renders one
-of four lazy panels:
-
-| Tab        | Component               |
-| ---------- | ----------------------- |
-| `explorer` | `MapOutline`            |
-| `layers`   | `LayerTree`             |
-| `search`   | `SearchPanel`           |
-| `timeline` | `TimelinePanel`         |
-| `settings` | (modal — handled below) |
-
-Selection is forwarded into the FSM:
+`MapOutline` 不接受 props。
 
 ```ts
-const handleSelect = useCallback(
-  (id: string | null) => {
-    if (id) actorRef.send({ type: 'SELECT_ENTITY', id });
-  },
-  [actorRef],
-);
+export function MapOutline(): JSX.Element;
 ```
 
-This callback is passed to `LayerTree` and `SearchPanel` so a click
-in either panel selects the entity through the same code path as a
-canvas click.
+## 内部状态
 
-### Settings tab is a modal trigger
+| 钩子                          | 用途                                                                   |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `useMapStore(s.entities)`     | 订阅整个实体 Map（依赖触发 useMemo 重算）                              |
+| `useMemo(() => computeStats)` | 把 entities 流式扫描成 `OutlineStats`：apollo counts、绘图计数、孤儿数 |
 
-```ts
-useEffect(() => {
-  if (activeTab === 'settings') {
-    onOpenSettings();
-    setActiveTab('explorer');
-  }
-}, [activeTab, onOpenSettings, setActiveTab]);
+`computeStats` 步骤（`MapOutline.tsx:64-100`）：
+
+1. 第一遍扫描收集 RoadSection 中的 lane id 集合 `lanesInSection`。
+2. 第二遍扫描每个 entity：
+   - 绘图类型 → `drawingCount++`
+   - 否则 → `apolloCounts.set(type, n+1)`
+   - 对 lane / road / rsu 做 dangling-junction 检测
+
+## 副作用
+
+无 effect。该组件是纯派生视图。
+
+## 渲染骨架
+
+```jsx
+<div className="h-full overflow-y-auto p-3 text-xs text-zinc-300 font-mono">
+  <div className="mb-3 pb-2 border-b border-white/10">
+    <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Map Outline</div>
+    <div className="text-zinc-400">Total entities: <span className="text-cyan-400">{n}</span></div>
+  </div>
+  {hasAnything ? (
+    <>
+      <Section title="Apollo HD-Map">{/* per-type rows */}</Section>
+      {drawingCount > 0 && <Section title="Drawing Primitives"><Row label="Total" /></Section>}
+      <Section title="Health"><Row label="Unparented Lanes" warn={…} /><Row label="Dangling junction_id" warn={…} /></Section>
+    </>
+  ) : <div>No entities yet.</div>}
+  <MapMetadataForm />
+</div>
 ```
 
-Clicking the Settings activity-bar icon opens the modal and snaps
-back to Outline so the sidebar isn't left blank — the modal is
-_not_ a sidebar panel.
+`Section` 与 `Row` 是文件内的小组件：
 
-## MapOutline
+- `Section` — 大写小标题 + 子项 `space-y-0.5` 容器。
+- `Row` — `flex justify-between`，warn 时变 amber，否则 cyan。
 
-`MapOutline` reads `mapStore.entities` and computes:
+## MapMetadataForm 嵌入
 
-```ts
-interface OutlineStats {
-  apolloCounts: Map<string, number>;
-  drawingCount: number;
-  unparentedLanes: number;
-  orphanedJunctionRefs: number;
-}
-```
+底部 `<MapMetadataForm />` 通过 `useApolloMapStore(s.rawMap, s.header, s.info)` 读 Apollo 导入数据。如果用户尚未导入 Apollo `.bin/.txt`，显示占位文本：
 
-### Health checks
+> No Apollo map imported. Header metadata becomes available after import.
 
-- **Unparented Lanes** — lanes whose `junctionId` doesn't resolve **and**
-  that aren't claimed by any `RoadSection.laneIds`. These are
-  un-discoverable in the layer tree's Roads/Junctions hierarchy.
-- **Dangling junction_id** — entities (lane/road/rsu) whose
-  `junctionId` references a non-existent entity. Surfaced as an
-  amber-tinted count.
+如果已导入：分三段（Source / Header / Bounds）显示。**只读**——`apolloMapStore` 当前没有 `setHeader` mutator（详见组件源码顶部注释，`MapMetadataForm.tsx:6-26`）。
 
-Both counts render via the inline `<Row warn>` styling — green on
-zero, amber when non-zero.
+## 性能注释
 
-### Sections
+- **O(N) 扫描两次**：`computeStats` 显式做两次遍历。N 通常 ≤ 1e4，可忽略。
+- **`useMemo`** 锁定在 `entities` 引用上——store 设置 `entities` 用 immutable Map，新引用会触发重算，旧引用复用结果。
+- **不订阅 selectedEntityId**：与 LayerTree 不同，MapOutline 不关心选中状态，避免无谓重渲染。
 
-```
-Apollo HD-Map (per-type counts)
-Drawing Primitives (single total)
-Health (warn rows)
-Map Metadata (read-only Apollo header)
-```
+## 已知缺口
 
-### TYPE_LABELS
+- 无法编辑 header（详见组件顶部注释）；
+- 无法点击某行跳转过滤（未来可考虑链接到 SearchPanel）；
+- "Total" 行没有按图层可见性过滤——隐藏图层的实体仍然计入。
 
-The component carries its own label map to title-case entity types
-("Stop Signs", "PNC Junctions"). This duplicates the `LayerTree`
-constants — kept inline because each panel cares about a different
-subset.
+## 源码索引
 
-## SchemaForm
+| 关注点            | 文件位置                        |
+| ----------------- | ------------------------------- |
+| 组件主体          | `MapOutline.tsx:102-158`        |
+| `computeStats`    | `MapOutline.tsx:64-100`         |
+| `Section`         | `MapOutline.tsx:160-167`        |
+| `Row`             | `MapOutline.tsx:169-176`        |
+| 类型常量          | `MapOutline.tsx:10-55`          |
+| `MapMetadataForm` | `MapMetadataForm.tsx`（整文件） |
 
-```ts
-interface SchemaFormProps<TEntity extends MapEntity, TFormValues extends FieldValues> {
-  schema: EntitySchema<TEntity, TFormValues>;
-  entity: TEntity;
-}
-export function SchemaForm<...>(props: SchemaFormProps): JSX.Element;
-```
+## 跨页参考
 
-### Five-step contract
+- [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → MapOutline（`activeTab='explorer'`）
+- [LayerTree](./layer-tree.md) — 互补的可编辑视图
+- [`apolloMapStore`](/api/store) — header / rawMap / info 来源
+- [`mapStore`](/api/store/store-map) — `entities` 来源
 
-The component's docstring spells out the contract explicitly:
+## 英文镜像
 
-1. Seed `react-hook-form` defaults via `formValuesFromEntity(schema,
-entity)`.
-2. **Re-seed on entity ID change** via `methods.reset(...)` — keeps
-   mid-edit external store updates from clobbering the active field.
-3. **Cherry-pick same-id drift** via `setValue` per field for fields
-   whose store-side value moved away from the form-side value.
-4. Persist changes through `applyFormValuesToEntity(...)`,
-   short-circuited by `shouldPersistForm(...)` to break the
-   store→sync→watch→update loop.
-5. Render sections in `schema.sectionOrder` — editable fields first,
-   read-only rows after.
+[/en/api/components/map-outline](/en/api/components/map-outline)
 
-::: warning Behavior contract
-`mode: 'onChange'` is **non-negotiable**. It's the gate that makes
-`formState.isValid` reflect live keystroke status — the LaneForm
-regression test (commit 6a83d9d) pins this.
+## 与其他组件的协作
+
+本组件位于 [WorkspaceLayout](./workspace-layout.md) 装配的 React 树中——大部分协作通过 store / context 完成，少量通过 props 直接传递。下表枚举可观察到的耦合点：
+
+| 组件                                     | 协作方式                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| [WorkspaceLayout](./workspace-layout.md) | 直接 mount 并/或注入 `actorRef` / 调度 callback                     |
+| [MapCanvas](./map-canvas.md)             | 通过 `mapStore.entities` 间接联动（修改后冷层 round-trip 重渲染）   |
+| [LayerTree](./layer-tree.md)             | 通过 `mapStore` 共享实体状态                                        |
+| [InspectorForms](./inspector-forms.md)   | 通过 `editorMachine.context.selectedEntityId` 同步选中实体          |
+| [Action Registry](/api/core)             | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
+
+::: tip 维护建议
+当组件之间需要**直接 prop 传递**时，先问自己：能不能改放到 store？如果该数据被 ≥3 个组件读取，store 通常更合适；2 个之间则 props 更轻量。
 :::
 
-### Internal helpers
+## 设计 Token 与样式约定
 
-```ts
-function renderField<TEntity, TFormValues>(field: AnyFieldDef): React.ReactElement;
-function groupBySections<TEntity, TFormValues>(schema): Array<SectionGroup>;
-```
+本组件遵循 [架构](/architecture/) "Design tokens" 章节的命名约定：
 
-`renderField` switches on `field.kind`:
+- 背景：`bg-ams-bg-base` / `bg-ams-surface-active` / `bg-ams-surface-hover`
+- 文字：`text-ams-text-primary` / `text-ams-text-secondary` / `text-ams-text-muted` / `text-ams-text-disabled`
+- 边界：`border-ams-border-subtle` / `border-ams-border-strong`
+- 强调：`text-ams-accent` / `bg-ams-accent`
 
-- `number` → `<Input type="number" min max step />`
-- `enum` → `<Select options enumCategory />`
+新增样式应优先复用以上 token。如果当前 token 不能精确表达意图，再扩展 `src/index.css` 的 `@theme` 块。
 
-`groupBySections` buckets schema fields and read-only definitions by
-section title, ordered first by `schema.sectionOrder` and then by
-declaration order for any leftovers.
+## 测试策略
 
-### Used by
+| 测试类型                | 关注点                                                         |
+| ----------------------- | -------------------------------------------------------------- |
+| 单元（vitest）          | Pure 函数、reducer、derived selector                           |
+| 组件（testing-library） | props → render output、用户交互 → 回调触发                     |
+| 集成                    | 与 store 协同（mock 全局 store） / 与 actor 协同（mock actor） |
+| E2E（Playwright）       | 跨组件流程（draw → undo → redo / import → 编辑 → export）      |
 
-- `LaneForm` (`InspectorForms/lane.tsx`) — the only production
-  consumer today.
-
-Future inspector forms can opt into the schema engine by exporting an
-`EntitySchema` from `inspectorSchema.ts` and substituting a one-line
-`<SchemaForm schema={...} entity={entity} />`.
-
-## MapMetadataForm
-
-`MapMetadataForm` is the read-only viewer for `apolloMapStore.header`.
-
-### Why read-only
-
-The component's leading comment explains:
-
-> The current `apolloMapStore` is a read-after-import bucket — it has
-> no `setHeader(...)` mutator and `mapStore` doesn't carry a header at
-> all. Wiring an editable header would require: (1) adding an
-> `updateHeader` action to `apolloMapStore`, OR (2) promoting
-> `MapHeader` into `mapStore` proper (so undo/redo/zundo see header
-> edits as part of history), AND (3) threading header writes back
-> through the export adapter.
-
-All three touch cross-cutting concerns and were out of scope for the
-introducing patch.
-
-### Coercion helpers
-
-```ts
-function asString(value: unknown): string | null;
-function asNumber(value: unknown): number | null;
-function fmt(s: string | null): string; // null → '—'
-function fmtNum(n: number | null, digits?): string;
-```
-
-`asString` decodes `Uint8Array` via `TextDecoder` so proto-decoded
-binary fields surface as text. Both helpers tolerate missing values
-and snake-case ↔ camelCase variants (`rev_major` and `revMajor` both
-resolve).
-
-### Sections
-
-| Section | Fields                                                                             |
-| ------- | ---------------------------------------------------------------------------------- |
-| Source  | filename, imported timestamp, PROJ used                                            |
-| Header  | version, date, district, generation, rev_major, rev_minor, vendor, projection.proj |
-| Bounds  | left, top, right, bottom (numeric, 6-digit precision)                              |
-
-A footer note reminds that header editing is gated.
-
-## Examples
-
-### Mounting the sidebar
-
-```tsx
-<SidebarPanelContent onOpenSettings={() => setSettingsOpen(true)} />
-```
-
-### Building a SchemaForm-driven inspector
-
-```tsx
-import { SchemaForm } from '@/components/layout/panels/SchemaForm';
-import { CrosswalkInspectorSchema } from '@/types/inspectorSchema';
-
-export function CrosswalkForm({ entity }: { entity: CrosswalkEntity }) {
-  return <SchemaForm schema={CrosswalkInspectorSchema} entity={entity} />;
-}
-```
-
-### Reading outline stats programmatically
-
-```ts
-// (No public API — but the helpers can be lifted out for testing)
-import { computeStats } from './MapOutline'; // not exported, but trivially extractable
-```
-
-For now, the stats are component-local. Promoting `computeStats` to a
-`lib/` helper would let CI / scripts audit map health pre-export.
-
-## Related
-
-- [Inspector forms](/api/components/inspector-forms)
-- [Layer tree](/api/components/layer-tree)
-- [Search panel](/api/components/search-panel)
-- [Timeline panel](/api/components/timeline-panel)
-- [apolloMapStore](/api/store/apollo-map-store)
-- [mapStore](/api/store/store-map)
-- [Inspector schema](/api/types/inspector-schema)
+测试文件遵循 `__tests__/{component}.test.tsx` 命名约定，与组件同级。

@@ -1,52 +1,62 @@
-# Adding a New Drawing Tool
+---
+title: 新增一个绘制工具
+description: 在 editorMachine 中注册新的 draw FSM 状态、补 ToolStrip 按钮、串通 useDrawCommit 与 snap/connect 模式。
+---
 
-Drawing tools are FSM states. Adding one means extending
-`src/core/fsm/editorMachine.ts` with a new state, teaching
-`useDrawCommit` how to materialise an entity from that state's
-context, and registering a tool action so users can switch to it.
+# 新增一个绘制工具
 
-The running example is a hypothetical `drawCircle` tool — click center,
-click radius, commit. It produces a `CircleEntity` (you'd add the type
-following [adding-a-new-element](./adding-a-new-element.md); this recipe
-focuses on the FSM and dispatch path).
+绘制工具 = `editorMachine` 的一个 **draw 状态** + 一个 ToolStrip 按钮 +
+落盘 commit。我们把 "新增工具" 拆成三个独立的子任务，分别可单测，
+最后串成完整链路。
 
-## FSM state shapes already in the registry
-
-`editorMachine.ts` exports the `DrawTool` literal union and an internal
-`DRAW_STATES` array used to fan out generic transitions:
-
-```ts
-export type DrawTool =
-  | 'drawPolyline'
-  | 'drawCatmullRom'
-  | 'drawBezier'
-  | 'drawArc'
-  | 'drawRotatedRect'
-  | 'drawPolygon';
-```
-
-Three reusable transition shapes already exist:
-
-| Shape                             | Used by                                                        | Commit trigger                           |
-| --------------------------------- | -------------------------------------------------------------- | ---------------------------------------- |
-| `sharedDrawEvents`                | `drawPolyline`, `drawCatmullRom`                               | DOUBLE_CLICK / CONFIRM (≥ 2 points)      |
-| `threeClickCommitEvents`          | `drawArc`, `drawRotatedRect`                                   | 3rd MOUSE_DOWN auto-commits              |
-| Bespoke (drawBezier, drawPolygon) | one-off — handle drag (bezier), self-intersect guard (polygon) | DOUBLE_CLICK / CONFIRM with extra guards |
-
-If your tool fits one of the first two shapes, reuse it. Otherwise
-write a bespoke `on:` handler.
-
-::: warning `// @ts-nocheck` reality
-`editorMachine.ts` carries a deliberate `// @ts-nocheck` because
-XState 5 generic inference still has open bugs around
-`setup({}).createMachine(...)` typed actions. Until upstream fixes
-land or we migrate, the file is excluded from typechecking. Treat it
-like you would untyped JS — verify your changes by running the FSM
-unit tests under `src/core/fsm/__tests__/` and exercising the tool
-manually.
+::: tip 现存的 6 个 draw 状态
+`drawPolyline` / `drawCatmullRom` / `drawBezier` / `drawArc` /
+`drawRotatedRect` / `drawPolygon`。新增的 draw 工具应当遵循同样的事件
+契约（`MOUSE_DOWN`、`MOUSE_MOVE`、`DOUBLE_CLICK`、`CONFIRM`、`CANCEL`）。
 :::
 
-## Step 1 — Extend the literal union and DRAW_STATES
+## 目标 (Goal)
+
+新增一个 **椭圆 (Ellipse)** 绘制工具：
+
+- 第一次点击 = 椭圆中心。
+- 拖拽 / 移动 = 实时预览长短轴。
+- 第二次点击或双击 = 落盘。
+- ESC = 取消。
+
+## 前置条件 (Prerequisites)
+
+- 已经走完 [新增 Action](./adding-a-new-action)。
+- 知道 XState 5 的 `setup({}).createMachine(...)` 写法（虽然
+  `editorMachine.ts` 当前还带 `@ts-nocheck`，写法本身仍是 v5）。
+- 熟悉 `useDrawCommit` 监听 FSM transitions 的方式。
+
+## 绘制全链路
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ToolStrip
+    participant FSM as editorMachine
+    participant Commit as useDrawCommit
+    participant Store as mapStore
+
+    User->>ToolStrip: 点击 Ellipse 按钮
+    ToolStrip->>FSM: SELECT_TOOL { tool: 'drawEllipse' }
+    FSM->>FSM: idle → drawEllipse
+    User->>FSM: MOUSE_DOWN p1
+    FSM->>FSM: drawPoints = [p1]
+    User->>FSM: MOUSE_MOVE p2
+    FSM->>FSM: previewPoint = p2
+    User->>FSM: MOUSE_DOWN p2
+    FSM->>FSM: drawEllipse → idle
+    Commit->>Store: addEntity(ellipse)
+    FSM->>FSM: RESET (清空 draw context)
+```
+
+## 步骤 (Step-by-step)
+
+### 1. 在 `editorMachine.ts` 加状态
 
 ```ts
 // src/core/fsm/editorMachine.ts
@@ -57,7 +67,7 @@ export type DrawTool =
   | 'drawArc'
   | 'drawRotatedRect'
   | 'drawPolygon'
-  | 'drawCircle';
+  | 'drawEllipse'; // 新增
 
 const DRAW_STATES: readonly DrawTool[] = [
   'drawPolyline',
@@ -66,193 +76,232 @@ const DRAW_STATES: readonly DrawTool[] = [
   'drawArc',
   'drawRotatedRect',
   'drawPolygon',
-  'drawCircle',
+  'drawEllipse',
 ];
-```
 
-`DRAW_STATES` powers `selectToolTransitions`, so all draw states can
-freely switch to any other draw state via `SELECT_TOOL`. Adding to
-this array is mandatory.
-
-## Step 2 — Add the state node
-
-For our two-click `drawCircle`:
-
-```ts
-// src/core/fsm/editorMachine.ts
+// 在 states 块里：
 states: {
-  // … existing states …
-
-  drawCircle: {
+  // ...
+  drawEllipse: {
     on: {
-      SELECT_TOOL: selectToolTransitions,
       MOUSE_DOWN: [
-        // 2nd click commits
-        { guard: ({ context }) => context.drawPoints.length === 1, target: 'idle', actions: 'addPoint' },
-        // 1st click records center
-        { actions: 'addPoint' },
+        {
+          guard: ({ context }) => context.drawPoints.length === 0,
+          actions: assign({
+            drawPoints: ({ context, event }) => [...context.drawPoints, event.point],
+          }),
+        },
+        {
+          // 第二次点击：触发 commit
+          target: 'idle',
+        },
       ],
-      MOUSE_MOVE: { actions: 'updatePreview' },
-      CANCEL: { target: 'idle', actions: 'resetDraw' },
+      MOUSE_MOVE: {
+        actions: assign({ previewPoint: ({ event }) => event.point }),
+      },
+      DOUBLE_CLICK: { target: 'idle' },
+      CANCEL: { target: 'idle', actions: 'clearDrawCtx' },
     },
   },
-},
+}
 ```
 
-If your tool needs a brand-new guard or action, add it inside the
-`setup({ ... })` block — `guards` and `actions` keys collect every
-named handler. Keep names verb-shaped (`circleCanCommit`, `pinAnchor`)
-for readability.
-
-::: warning Don't apply `actions: 'resetDraw'` on commit transitions
-The `idle` target on a successful commit must **not** carry
-`resetDraw`. `useDrawCommit` reads the post-transition snapshot to
-materialise the entity — clearing context inside the transition would
-strip the data before commit runs. Reset happens later via the
-explicit `RESET` event that `useDrawCommit` sends after `addEntity`.
-This is the "POST-transition snapshot" rule called out in
-[/architecture/overview](../architecture/overview.md).
+::: warning 状态名 = 工具名
+`drawEllipse` 这个字符串既是 FSM state value，也是 `DrawTool` 联合类型成员。
+保持一致让 ToolStrip 能直接复用 `getToolAction(state.value)`。
 :::
 
-## Step 3 — Teach `useDrawCommit` to materialise the entity
-
-`src/hooks/useDrawCommit.ts` watches every transition. When the FSM
-moves from a draw state to `idle`, it builds an entity from the
-post-transition snapshot's `drawPoints` / `bezierAnchors` /
-`activeElement` and calls `mapStore.addEntity`.
-
-Two extension points:
-
-### 3a. `hasGeometryForState`
-
-Tells the commit guard whether the snapshot has enough geometry:
+### 2. 在 `registry/definitions.ts` 加 Action
 
 ```ts
-export function hasGeometryForState(
-  state: string,
-  points: LngLat[],
-  anchors: BezierAnchor[],
-): boolean {
-  return (
-    // … existing branches …
-    state === 'drawCircle' && points.length >= 2
-  );
-}
-```
-
-### 3b. `commitEntity`
-
-Adds a branch for the new state. If the user is drawing a basic
-geometry primitive (no Apollo element armed), build the corresponding
-`MapEntity`:
-
-```ts
-} else if (state === 'drawCircle' && points.length >= 2) {
-  addEntity({
-    id: nextEntityId('circle', entities),
-    entityType: 'circle',
-    center: toGeoPoint(points[0]!),
-    radiusPoint: toGeoPoint(points[1]!),
-  } as CircleEntity);
-}
-```
-
-If the tool participates in Apollo element creation, route through
-`createApolloEntity(element, state, points, anchors, …)` like the
-existing branches.
-
-## Step 4 — Register the action
-
-Follow [adding-a-new-action](./adding-a-new-action.md) for the full
-shape. The minimum is:
-
-```ts
-// src/core/actions/registry/types.ts
-export type ActionId =
-  | // … existing ids …
-  | 'tool:drawCircle';
-
-// src/core/actions/registry/definitions.ts
 {
-  id: 'tool:drawCircle',
-  label: 'Draw Circle',
+  id: 'tool.drawEllipse',
+  label: '椭圆',
   category: 'tool',
-  shortcut: 'O',
-  keybinding: { key: 'o' },
-  icon: FaRegCircle,
+  icon: 'Circle',
+  drawTool: 'drawEllipse',
+  keybinding: { key: 'e' },
+  toolStripSlot: 'shape',
+  toolStripOrder: 60,
   inCommandPalette: true,
-  drawTool: 'drawCircle',
-},
+}
 ```
 
-`useActionDispatcher` automatically picks up every def with a
-`drawTool` field and dispatches `SELECT_TOOL` to the FSM. No
-component-level wiring needed.
+带 `drawTool` 字段的 Action 自动出现在 `ToolStrip`。
 
-## Step 5 — Hot layer preview (optional)
+### 3. 在 `useDrawCommit` 里加分支
 
-`useHotLayer` (`src/hooks/useHotLayer.ts`) renders the in-flight
-drawing as a separate GeoJSON source. If your tool's preview shape is
-not naturally expressible as the existing primitives (polyline / bezier
-preview / polygon hull), extend the hot layer's preview builder to
-emit the right `Feature[]` from `(state, drawPoints, previewPoint)`.
+```ts
+// src/hooks/useDrawCommit.ts
+useEffect(() => {
+  const sub = editorActor.subscribe((snapshot, event) => {
+    if (event.type !== 'COMPLETE') return;
+    const { value, context } = snapshot;
+    switch (value) {
+      // ... 现有 case
+      case 'drawEllipse': {
+        if (context.drawPoints.length < 1 || !context.previewPoint) return;
+        const [center] = context.drawPoints;
+        const edge = context.previewPoint;
+        const ellipse = createEllipse(center, edge);
+        mapStore.getState().addEntity(ellipse);
+        editorActor.send({ type: 'RESET' });
+        return;
+      }
+    }
+  });
+  return () => sub.unsubscribe();
+}, []);
+```
 
-For our `drawCircle` example, the preview is a circle of radius
-`distance(drawPoints[0], previewPoint)` centered at `drawPoints[0]` —
-emit a polygon approximation (32 segments is enough for visual
-smoothness).
+### 4. 写几何工厂
 
-## Step 6 — Cold layer compile
+```ts
+// src/core/elements/ellipse.ts
+import { nanoid } from 'nanoid';
+import type { EllipseEntity, LngLat } from '@/types/entities';
 
-Once committed, the entity flows through `mapStore` → `useColdLayer` →
-spatial worker. The worker (`src/core/workers/spatial.worker.ts` and
-its delegated `spatialFeatures.ts`) needs a branch for the new
-`entityType` so it produces feature output. Without this branch the
-entity exists in state but never renders.
+export function createEllipse(center: LngLat, edge: LngLat): EllipseEntity {
+  const a = Math.abs(edge[0] - center[0]);
+  const b = Math.abs(edge[1] - center[1]);
+  return {
+    id: `ellipse_${nanoid(12)}`,
+    entityType: 'ellipse',
+    center,
+    semiMajorAxis: a,
+    semiMinorAxis: b,
+    rotation: 0,
+  };
+}
+```
 
-## Step 7 — Tests
+::: tip 几何参数化
+存最小参数集 `{ center, a, b, rotation }`，渲染时由 `apolloCompile` 编译成
+GeoJSON Polygon。这样旋转 / 缩放 / undo 不会丢精度，也不会污染 cold 层缓存。
+详见 [新增地图元素](./adding-a-new-element)。
+:::
 
-Tests for FSM live under `src/core/fsm/__tests__/`. Add a test that:
+### 5. 整合 snap / connect
 
-1. Spawns an actor, sends `SELECT_TOOL` for the new tool.
-2. Sends two `MOUSE_DOWN` events.
-3. Asserts the snapshot is back in `idle` and `context.drawPoints`
-   has the expected length.
+如果椭圆需要参与捕捉（snap）或拓扑连接（connect），在
+`src/core/geometry/snap.ts` 注册其端点 / 中心点。
 
-The `useDrawCommit` test in `src/hooks/__tests__/` should be extended
-to cover the new branch by exercising `hasGeometryForState` and
-`commitEntity` with synthetic input.
+```ts
+// src/core/geometry/snap.ts
+case 'ellipse':
+  return [{ kind: 'centerPoint', position: entity.center, entityId: entity.id }];
+```
 
-## Step 8 — Manual verification
+否则光标靠近椭圆时不会出现 snap 高亮圈。
 
-1. `pnpm dev`
-2. Press `O` (or whatever shortcut you chose). The ToolStrip button
-   should activate.
-3. Click on the canvas — a center point should appear.
-4. Move the mouse — a hot-layer preview should follow.
-5. Click again — the entity should commit, FSM returns to `idle`, the
-   tool button deactivates (because `RESET` runs after commit).
-6. `Ctrl+Z` — the entity disappears, FSM stays clean.
-7. While in `drawCircle` mid-draw, press `Esc` — `CANCEL` aborts and
-   resets context.
+### 6. 写测试
 
-## Common mistakes
+```ts
+// src/core/elements/__tests__/ellipse.test.ts
+import { createEllipse } from '../ellipse';
 
-- **`actions: 'resetDraw'` on the commit transition** — clears
-  context before `useDrawCommit` reads it, entity never gets created.
-- **Forgetting `DRAW_STATES`** — `SELECT_TOOL` from another draw
-  state to your new one will not transition because the
-  `selectToolTransitions` fan-out missed your tool.
-- **Forgetting to send `RESET` after commit** — `useDrawCommit`
-  already does this on every commit, so don't add a second one.
-- **Adding the def with no underlying FSM state** — the dispatcher
-  will send `SELECT_TOOL`, the FSM will silently ignore it (XState 5
-  no-ops unhandled transitions), and the user's tool selection
-  appears to do nothing.
+it('builds an ellipse with correct semi-axes', () => {
+  const e = createEllipse([0, 0], [3, 2]);
+  expect(e.semiMajorAxis).toBe(3);
+  expect(e.semiMinorAxis).toBe(2);
+});
 
-## Cross-references
+// src/core/fsm/__tests__/editorMachine.test.ts
+it('drawEllipse stays in state until second MOUSE_DOWN', () => {
+  const actor = createActor(editorMachine).start();
+  actor.send({ type: 'SELECT_TOOL', tool: 'drawEllipse' });
+  actor.send({ type: 'MOUSE_DOWN', point: [0, 0] });
+  expect(actor.getSnapshot().value).toBe('drawEllipse');
+  actor.send({ type: 'MOUSE_DOWN', point: [3, 2] });
+  expect(actor.getSnapshot().value).toBe('idle');
+});
+```
 
-- [/architecture/state-management](../architecture/state-management.md) — FSM states and post-transition snapshot rule
-- [/api/core](../api/core/) — `editorMachine`, `useDrawCommit` APIs
-- [adding-a-new-element](./adding-a-new-element.md) — entity-side wiring
-- [adding-a-new-action](./adding-a-new-action.md) — registry shape
+## 修改的文件 (Files modified)
+
+| 文件                                           | 改动                         |
+| ---------------------------------------------- | ---------------------------- |
+| `src/core/fsm/editorMachine.ts`                | 新增 draw 状态 & DRAW_STATES |
+| `src/core/actions/registry/definitions.ts`     | 新 ActionDef                 |
+| `src/hooks/useDrawCommit.ts`                   | 新 commit 分支               |
+| `src/core/elements/ellipse.ts`                 | 新工厂                       |
+| `src/types/entities.ts`                        | `EllipseEntity` 加入联合     |
+| `src/core/geometry/snap.ts`                    | snap 注册                    |
+| `src/core/elements/__tests__/ellipse.test.ts`  | 新测试                       |
+| `src/core/fsm/__tests__/editorMachine.test.ts` | 新 FSM 路径测试              |
+
+## 测试清单 (Testing checklist)
+
+- [ ] FSM 路径测试：`idle → drawEllipse → idle` 完整跑通。
+- [ ] 双击落盘：双击直接 commit（即便只画了一个 anchor 也要安全失败）。
+- [ ] ESC 取消：FSM 回到 `idle`，drawPoints 清空。
+- [ ] mid-draw undo：开始画椭圆 → 按 Ctrl+Z，FSM 必须先收 `CANCEL` 再
+      `temporal.undo()`，否则会复现 R1 缺陷。
+- [ ] snap 高亮：靠近其它实体时端点 / 中心点能吸附。
+- [ ] cold layer 渲染：commit 后 1 帧内出现在地图上。
+- [ ] 性能：连续画 50 个椭圆，p99 帧时间 < 16ms。
+
+## 常见坑 (Common pitfalls)
+
+### 双击触发两次 commit
+
+`MOUSE_DOWN` 与 `DOUBLE_CLICK` 都会触发 transition。在 `MOUSE_DOWN` 的 guard
+里加 dedupe，或让 `DOUBLE_CLICK` 走专门的 transition 而不是叠加。
+参考 [`clickDedup` 回归测试](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/hooks/__tests__/clickDedup.test.ts)。
+
+### previewPoint 不更新
+
+`MOUSE_MOVE` 事件没接到。检查 `mapEventRouter.ts` 是否在该 FSM 状态下
+转发了 `mousemove`。
+
+### Undo 后 FSM 残留 drawPoints
+
+R1 闭合：`useActionDispatcher.ts:76-82` 必须先发 `CANCEL` 再 `temporal.undo()`。
+没改这里 ⇒ undo 后 mapStore 回滚了，但 FSM 的 `drawPoints` 还指向不存在的
+context，下次 `CONFIRM` 会崩。回归测试在
+[`undoCancel.test.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/hooks/__tests__/undoCancel.test.ts)。
+
+### ToolStrip 不显示按钮
+
+ActionDef 没加 `drawTool` 字段，或 `toolStripSlot` 拼错。`toolStripSlot`
+合法值见 `ToolStripSlot` 类型。
+
+## 相关源码 (Source links)
+
+- [`src/core/fsm/editorMachine.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/fsm/editorMachine.ts)
+- [`src/hooks/useDrawCommit.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/hooks/useDrawCommit.ts)
+- [`src/core/elements/`](https://github.com/SakuraPuare/apollo-map-studio/tree/main/src/core/elements)
+- [`src/core/geometry/snap.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/geometry/snap.ts)
+- [`src/hooks/__tests__/undoCancel.test.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/hooks/__tests__/undoCancel.test.ts)
+- [`src/hooks/__tests__/clickDedup.test.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/hooks/__tests__/clickDedup.test.ts)
+
+## 进阶 (Advanced)
+
+### Apollo 元素工具
+
+如果你画的不是几何图形而是 Apollo 元素（如 Lane、Junction），把
+`activeElement` 一起注入 FSM 上下文：
+
+```ts
+actor.send({ type: 'SELECT_TOOL', tool: 'drawPolyline', element: 'lane' });
+```
+
+`useDrawCommit` 会根据 `activeElement` 选择对应工厂（`createLane`、
+`createJunction` 等）。
+
+### 自定义 commit 守卫
+
+在 `useDrawCommit` 里前置校验：
+
+```ts
+if (polygonSelfIntersects(context.drawPoints)) {
+  toastError('多边形自相交，已撤销');
+  editorActor.send({ type: 'CANCEL' });
+  return;
+}
+```
+
+::: danger 永远不要让无效几何进 mapStore
+落盘 = 真相。一旦无效几何写入 mapStore，后续所有计算（overlap、
+junction graph、export）都会被污染。所有几何校验在 commit 前完成。
+:::

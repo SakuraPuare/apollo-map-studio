@@ -1,17 +1,33 @@
-# CI Pipeline
+---
+title: CI 流水线
+description: .github/workflows/ci.yml 与 docs-preview.yml 的逐 job、step、env、trigger 参考。
+---
 
-GitHub Actions handles every quality gate, build artefact, and release
-deliverable. Two workflows live under `.github/workflows/`:
+# CI 流水线
 
-- `ci.yml` — typecheck, tests, perf budget, and cross-platform desktop
-  packaging on push to `main`/`v1`, on PR, and on `v*` tag.
-- `docs-preview.yml` — VitePress build + GitHub Pages deploy on push to
-  `main`/`v1` when docs / changelog / lockfile change.
+本页是 `.github/workflows/` 下两份 workflow 文件的「逐 job 参考」。GitHub
+Actions 全权管理质量门禁、构建产物、桌面打包、文档发布与 GitHub Release，
+本页与源 YAML 保持 1:1 镜像。
 
-A `.github/dependabot.yml` config is also present (not part of the run
-matrix; tracked here for completeness).
+::: tip 阅读约定
 
-## `ci.yml` — main quality gate
+- **触发器**：决定 workflow / job 何时运行。
+- **runner**：执行环境（ubuntu-latest、macos-latest、windows-latest）。
+- **secrets**：通过 GitHub Actions 的 `secrets.*` 表达式注入；除 `GITHUB_TOKEN` 外当前无其他 secrets。
+  :::
+
+## 工作流文件
+
+| 文件                                 | 用途                                               |
+| ------------------------------------ | -------------------------------------------------- |
+| `.github/workflows/ci.yml`           | 主流水线：质量门禁 + Web 构建 + 桌面打包 + Release |
+| `.github/workflows/docs-preview.yml` | VitePress 文档发布到 GitHub Pages                  |
+
+---
+
+## `ci.yml`
+
+### Workflow 头部
 
 ```yaml
 name: CI
@@ -22,107 +38,176 @@ on:
   pull_request:
     branches: [main, v1]
 concurrency:
-  group: $&#123;&#123; github.workflow &#125;&#125;-$&#123;&#123; github.ref &#125;&#125;
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 ```
 
-Three jobs in sequence: `check` → `desktop-package` (matrix) →
-`github-release` (tag-only).
+| 项目     | 值                          |
+| -------- | --------------------------- |
+| 触发分支 | `main`, `v1` 上的 push / PR |
+| 触发 tag | `v*` 形如 `v1.0.0`          |
+| 并发策略 | 同 ref 新提交会取消上一轮跑 |
 
-### `check` — typecheck & test
+### Job 1：`check` — 质量门禁与 Web 构建
 
-| Property     | Value           |
-| ------------ | --------------- |
-| Runs on      | `ubuntu-latest` |
-| Timeout      | 10 min          |
-| Triggers     | All triggers    |
-| Node version | 20              |
-| pnpm version | 10              |
-| Cache        | `cache: pnpm`   |
+```yaml
+check:
+  name: Typecheck & Test
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+```
 
-Steps:
+#### 环境
 
-1. `actions/checkout@v6`
-2. `pnpm/action-setup@v4` (pnpm 10)
-3. `actions/setup-node@v6` (Node 20, pnpm cache)
-4. `pnpm install --frozen-lockfile`
-5. `pnpm typecheck` — `tsc --noEmit`
-6. `pnpm lint` — ESLint 9 flat config
-7. `pnpm format:check` — Prettier check
-8. `pnpm build:web` — Vite production build
-9. `pnpm docs:build` — VitePress production build
-10. `pnpm test` — Vitest unit suite
-11. `pnpm bench --outputJson bench-results.json`
-12. `node scripts/check-bench-budget.mjs bench-results.json`
-13. `actions/upload-artifact@v7` — uploads `dist/` as
-    `apollo-map-studio-web` (fails the job if missing)
+| 项      | 值              |
+| ------- | --------------- |
+| Runner  | `ubuntu-latest` |
+| 超时    | 10 分钟         |
+| Node.js | 20              |
+| pnpm    | 10              |
 
-The bench-budget gate in step 12 is documented in
-[Benchmark Budgets](/reference/benchmark-budgets).
+#### Step 表
 
-### `desktop-package` — cross-platform Electron builds
+| #   | Step 名              | Action                       | 命令 / 用途                                                              |
+| --- | -------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| 1   | Checkout repository  | `actions/checkout@v6`        | 拉代码                                                                   |
+| 2   | Install pnpm         | `pnpm/action-setup@v4`       | `version: 10`                                                            |
+| 3   | Setup Node.js        | `actions/setup-node@v6`      | `node-version: 20`, `cache: pnpm`                                        |
+| 4   | Install dependencies | —                            | `pnpm install --frozen-lockfile`                                         |
+| 5   | TypeScript typecheck | —                            | `pnpm typecheck`                                                         |
+| 6   | ESLint               | —                            | `pnpm lint`                                                              |
+| 7   | Prettier formatting  | —                            | `pnpm format:check`                                                      |
+| 8   | Web production build | —                            | `pnpm build:web`                                                         |
+| 9   | Documentation build  | —                            | `pnpm docs:build`                                                        |
+| 10  | Unit tests           | —                            | `pnpm test`                                                              |
+| 11  | Benchmarks           | —                            | `pnpm bench --outputJson bench-results.json`                             |
+| 12  | Perf budget guard    | —                            | `node scripts/check-bench-budget.mjs bench-results.json`                 |
+| 13  | Upload web artifact  | `actions/upload-artifact@v7` | `name: apollo-map-studio-web`, `path: dist/`, `if-no-files-found: error` |
 
-| Property   | Value                   |
-| ---------- | ----------------------- |
-| Depends on | `check`                 |
-| Timeout    | 30 min per matrix entry |
-| Strategy   | `fail-fast: false`      |
+::: tip Step 9 与 docs-preview 的关系
+`pnpm docs:build` 只是验证 docs 能编译；真正发布 GitHub Pages 由
+`docs-preview.yml` 处理。两条流水线互不依赖。
+:::
 
-Matrix:
+### Job 2：`desktop-package` — 三平台 Electron 打包
 
-| `os`             | `package-script` | `artifact-name`             |
-| ---------------- | ---------------- | --------------------------- |
-| `ubuntu-latest`  | `package:linux`  | `apollo-map-studio-linux`   |
-| `macos-latest`   | `package:mac`    | `apollo-map-studio-macos`   |
-| `windows-latest` | `package:win`    | `apollo-map-studio-windows` |
+```yaml
+desktop-package:
+  name: Desktop package (${{ matrix.os }})
+  runs-on: ${{ matrix.os }}
+  timeout-minutes: 30
+  needs: check
+  strategy:
+    fail-fast: false
+    matrix:
+      include:
+        - os: ubuntu-latest
+          package-script: package:linux
+          artifact-name: apollo-map-studio-linux
+        - os: macos-latest
+          package-script: package:mac
+          artifact-name: apollo-map-studio-macos
+        - os: windows-latest
+          package-script: package:win
+          artifact-name: apollo-map-studio-windows
+```
 
-Steps (per matrix entry):
+| 项          | 值                                    |
+| ----------- | ------------------------------------- |
+| 依赖        | `needs: check`（先跑过质量门禁）      |
+| 超时        | 30 分钟                               |
+| 矩阵        | 3 个 runner × 1 配置                  |
+| `fail-fast` | `false`（一个平台失败不会取消另两个） |
 
-1. `actions/checkout@v6`
-2. `pnpm/action-setup@v4` (pnpm 10)
-3. `actions/setup-node@v6` (Node 20)
-4. `pnpm install --frozen-lockfile`
-5. `pnpm <package-script>`
-   - `CSC_IDENTITY_AUTO_DISCOVERY=false` — disables electron-builder's
-     macOS code-signing auto-discovery; CI-built artefacts are unsigned.
-   - `GH_TOKEN: $&#123;&#123; secrets.GITHUB_TOKEN &#125;&#125;` — passed for
-     electron-builder publishing flows.
-6. `actions/upload-artifact@v7` — uploads matching `release/*`:
-   - `release/*.AppImage`, `release/*.deb` (Linux)
-   - `release/*.dmg`, `release/*.zip` (macOS)
-   - `release/*.exe` (Windows)
-   - excludes `builder-debug.yml` and `builder-effective-config.yaml`
-   - fails the job if no files match.
+#### Step 表
 
-### `github-release` — tag publishing
+| #   | Step 名                  | Action                       | 命令 / 用途                      |
+| --- | ------------------------ | ---------------------------- | -------------------------------- |
+| 1   | Checkout repository      | `actions/checkout@v6`        | —                                |
+| 2   | Install pnpm             | `pnpm/action-setup@v4`       | `version: 10`                    |
+| 3   | Setup Node.js            | `actions/setup-node@v6`      | `node-version: 20`               |
+| 4   | Install dependencies     | —                            | `pnpm install --frozen-lockfile` |
+| 5   | Build desktop artifacts  | —                            | `pnpm` + matrix `package-script` |
+| 6   | Upload desktop artifacts | `actions/upload-artifact@v7` | 见下表                           |
 
-| Property    | Value                                       |
-| ----------- | ------------------------------------------- |
-| Runs on     | `ubuntu-latest`                             |
-| Timeout     | 10 min                                      |
-| Depends on  | `[check, desktop-package]`                  |
-| Conditional | `if: startsWith(github.ref, 'refs/tags/v')` |
-| Permissions | `contents: write`                           |
+#### Step 5 环境变量
 
-Steps:
+| 变量                          | 值                                    | 用途                                                         |
+| ----------------------------- | ------------------------------------- | ------------------------------------------------------------ |
+| `CSC_IDENTITY_AUTO_DISCOVERY` | `false`                               | 关闭 electron-builder 的 codesign 自动发现，避免无证书时报错 |
+| `GH_TOKEN`                    | GitHub Actions `secrets.GITHUB_TOKEN` | electron-builder publish 需要                                |
 
-1. `actions/download-artifact@v5` — pulls every artefact from prior
-   jobs into `artifacts/`.
-2. Zip the web artefact:
-   ```bash
-   cd artifacts/apollo-map-studio-web
-   zip -r ../apollo-map-studio-web.zip .
-   ```
-3. `softprops/action-gh-release@v3` — publishes a GitHub Release with:
-   - `apollo-map-studio-web.zip`
-   - `artifacts/apollo-map-studio-linux/*`
-   - `artifacts/apollo-map-studio-macos/*`
-   - `artifacts/apollo-map-studio-windows/*`
+#### Step 6 上传产物
 
-Tag pushes matching `v*` are the only trigger. Push a properly-prefixed
-annotated tag (e.g. `v1.0.0`) to publish a release.
+```yaml
+path: |
+  release/*.AppImage
+  release/*.deb
+  release/*.dmg
+  release/*.zip
+  release/*.exe
+  !release/**/builder-debug.yml
+  !release/**/builder-effective-config.yaml
+if-no-files-found: error
+```
 
-## `docs-preview.yml` — VitePress to GitHub Pages
+| Artifact                    | 平台    | 文件类型            |
+| --------------------------- | ------- | ------------------- |
+| `apollo-map-studio-linux`   | Linux   | `.AppImage`, `.deb` |
+| `apollo-map-studio-macos`   | macOS   | `.dmg`, `.zip`      |
+| `apollo-map-studio-windows` | Windows | `.exe`, `.zip`      |
+
+::: warning `if-no-files-found: error`
+任何一个平台上传到的文件为空都会让该 job 失败，阻止后续 release。
+:::
+
+### Job 3：`github-release` — Tag 发布
+
+```yaml
+github-release:
+  name: GitHub Release
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+  needs: [check, desktop-package]
+  if: startsWith(github.ref, 'refs/tags/v')
+  permissions:
+    contents: write
+```
+
+| 项       | 值                                |
+| -------- | --------------------------------- |
+| 依赖     | `check`、`desktop-package` 全成功 |
+| 触发条件 | `refs/tags/v*`                    |
+| 权限     | `contents: write`（发布 release） |
+
+#### Step 表
+
+| #   | Step 名                  | Action                           | 用途                                                                          |
+| --- | ------------------------ | -------------------------------- | ----------------------------------------------------------------------------- |
+| 1   | Download build artifacts | `actions/download-artifact@v5`   | 拉前两个 job 上传的 4 个 artifact                                             |
+| 2   | Archive web artifact     | bash 内联                        | `cd artifacts/apollo-map-studio-web && zip -r ../apollo-map-studio-web.zip .` |
+| 3   | Publish release          | `softprops/action-gh-release@v3` | 见下面 files 列表                                                             |
+
+#### `files` 列表
+
+```yaml
+files: |
+  artifacts/apollo-map-studio-web.zip
+  artifacts/apollo-map-studio-linux/*
+  artifacts/apollo-map-studio-macos/*
+  artifacts/apollo-map-studio-windows/*
+```
+
+::: tip 完整发布矩阵
+打 tag `v1.2.3` 后，GitHub Release 页会出现一份 web zip 加 Linux / macOS /
+Windows 三平台对应的桌面安装文件。
+:::
+
+---
+
+## `docs-preview.yml`
+
+### Workflow 头部
 
 ```yaml
 name: Docs Preview
@@ -144,93 +229,95 @@ concurrency:
   cancel-in-progress: false
 ```
 
-Single `deploy` job:
+| 项       | 值                                                          |
+| -------- | ----------------------------------------------------------- |
+| 触发分支 | `main`, `v1`                                                |
+| 触发路径 | `docs/**`, `CHANGELOG.md`, `package.json`, `pnpm-lock.yaml` |
+| 手动触发 | `workflow_dispatch`                                         |
+| 并发策略 | `pages`（**不**取消上一轮，避免 Pages 状态污染）            |
 
-| Property          | Value                           |
-| ----------------- | ------------------------------- |
-| Runs on           | `ubuntu-latest`                 |
-| Environment       | `github-pages`                  |
-| Concurrency group | `pages` (no cancel-in-progress) |
+### Job：`deploy`
 
-Steps:
-
-1. `actions/checkout@v6`
-2. `pnpm/action-setup@v4`
-3. `actions/setup-node@v6` (Node 20)
-4. `pnpm install --frozen-lockfile`
-5. `pnpm docs:build`
-   - `VITEPRESS_BASE: /$&#123;&#123; github.event.repository.name &#125;&#125;/` ensures
-     VitePress emits asset URLs scoped to the repo's GitHub Pages path.
-6. `actions/configure-pages@v6`
-7. `actions/upload-pages-artifact@v5` (`path: docs/.vitepress/dist`)
-8. `actions/deploy-pages@v5` — deploys to the `github-pages`
-   environment; `steps.deployment.outputs.page_url` is exposed.
-
-The `concurrency.cancel-in-progress: false` setting means deploys
-queue rather than aborting each other — matters when several
-docs-touching commits land in quick succession.
-
-## Triggers and matrix summary
-
-| Event             | `check` | `desktop-package` | `github-release` | `docs-preview`     |
-| ----------------- | ------- | ----------------- | ---------------- | ------------------ |
-| Push to `main/v1` | yes     | yes               | no               | only if docs paths |
-| Pull request      | yes     | yes               | no               | no                 |
-| Tag `v*`          | yes     | yes               | yes              | no                 |
-| Manual dispatch   | no      | no                | no               | yes                |
-
-## Required secrets and permissions
-
-| Secret / setting               | Used by           | Purpose                               |
-| ------------------------------ | ----------------- | ------------------------------------- |
-| `secrets.GITHUB_TOKEN`         | `desktop-package` | electron-builder publishing           |
-| `permissions: contents: write` | `github-release`  | Create / update GitHub Releases       |
-| `permissions: pages: write`    | `docs-preview`    | Deploy GitHub Pages                   |
-| `permissions: id-token: write` | `docs-preview`    | OIDC token for `actions/deploy-pages` |
-
-No third-party tokens are required. Macos signing is intentionally
-disabled (`CSC_IDENTITY_AUTO_DISCOVERY=false`) — release artefacts are
-unsigned and ship via the GitHub Release page.
-
-## Releasing
-
-```bash
-# from a clean working tree on v1 (or main, when v1 lands)
-git tag -a v1.0.1 -m "v1.0.1"
-git push origin v1.0.1
+```yaml
+deploy:
+  name: Deploy Docs
+  runs-on: ubuntu-latest
+  environment:
+    name: github-pages
+    url: ${{ steps.deployment.outputs.page_url }}
 ```
 
-This triggers `check` → matrix `desktop-package` → `github-release`,
-which publishes the desktop binaries and the web zip to a new GitHub
-Release. The `v` prefix is mandatory; tags without it bypass
-`github-release`.
+#### Step 表
 
-## Local equivalents
+| #   | Step 名               | Action                             | 命令 / 配置                                                         |
+| --- | --------------------- | ---------------------------------- | ------------------------------------------------------------------- |
+| 1   | Checkout repository   | `actions/checkout@v6`              | —                                                                   |
+| 2   | Install pnpm          | `pnpm/action-setup@v4`             | `version: 10`                                                       |
+| 3   | Setup Node.js         | `actions/setup-node@v6`            | `node-version: 20`, `cache: pnpm`                                   |
+| 4   | Install dependencies  | —                                  | `pnpm install --frozen-lockfile`                                    |
+| 5   | Build docs            | —                                  | `pnpm docs:build`，`VITEPRESS_BASE` 使用 repository name 组成子路径 |
+| 6   | Configure Pages       | `actions/configure-pages@v6`       | —                                                                   |
+| 7   | Upload Pages artifact | `actions/upload-pages-artifact@v5` | `path: docs/.vitepress/dist`                                        |
+| 8   | Deploy Pages          | `actions/deploy-pages@v5`          | `id: deployment`                                                    |
 
-```bash
-# pre-flight checks (same as `check` job)
-pnpm typecheck
-pnpm lint
-pnpm format:check
-pnpm build:web
-pnpm docs:build
-pnpm test
-pnpm bench --outputJson bench-results.json
-node scripts/check-bench-budget.mjs bench-results.json
+::: tip `VITEPRESS_BASE` 的作用
+GitHub Pages 默认部署在 `https://<owner>.github.io/<repo>/` 子路径下，
+VitePress 需要知道 base 才能正确解析资源路径。`docs-preview.yml` 把
+仓库名注入为 `/<repo-name>/`。详见 `docs/.vitepress/config.ts:6`。
+:::
 
-# desktop packaging (per platform; pick one)
-pnpm package:linux
-pnpm package:mac
-pnpm package:win
-```
+---
 
-The husky pre-commit hook also runs `lint-staged` (eslint --fix +
-prettier --write on changed files).
+## 失败定位手册
 
-## See also
+### 「typecheck 失败」
 
-- [Benchmark Budgets](/reference/benchmark-budgets) — perf gate detail
-- [Architecture overview](/architecture/overview) — quality gate policy
-- [`scripts/check-bench-budget.mjs`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/scripts/check-bench-budget.mjs)
-- [`.github/workflows/ci.yml`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/.github/workflows/ci.yml)
-- [`.github/workflows/docs-preview.yml`](https://github.com/SakuraPuare/apollo-map-studio/blob/v1/.github/workflows/docs-preview.yml)
+- 本地复现：`pnpm typecheck`
+- 常见原因：新增类型未导出 / `apollo.ts` 字段不匹配
+- 关联：[Apollo Types](/reference/apollo-types)
+
+### 「lint 失败」
+
+- 本地复现：`pnpm lint`
+- 常见原因：未排序 import、unused vars、react-hooks 规则
+- 修复：`pnpm lint --fix`
+
+### 「format:check 失败」
+
+- 本地复现：`pnpm format:check`
+- 修复：`pnpm format`
+
+### 「bench 预算被踩」
+
+- 本地复现：`pnpm bench --outputJson bench-results.json && node scripts/check-bench-budget.mjs bench-results.json`
+- 处理流程：详见 [Benchmark Budgets](/reference/benchmark-budgets)
+
+### 「desktop-package 单平台失败」
+
+- `fail-fast: false`，其他平台不会被取消，但 release 不会出
+- 本地复现：相应 `pnpm package:linux | package:mac | package:win`
+- 常见原因：electron-builder 平台依赖缺失（macOS dmg-license、Windows wine）
+
+### 「Pages 部署失败」
+
+- 进入 GitHub Settings → Pages，查看 Environment 状态
+- 检查 `pnpm docs:build` 是否本地通过
+- 检查仓库 Pages 已启用为 GitHub Actions 模式
+
+## 触发器矩阵
+
+| 事件                      | `ci.yml::check` | `ci.yml::desktop-package` | `ci.yml::github-release` | `docs-preview.yml::deploy` |
+| ------------------------- | --------------- | ------------------------- | ------------------------ | -------------------------- |
+| push main / v1            | ✅              | ✅                        | ❌                       | 仅当路径命中               |
+| pull_request to main / v1 | ✅              | ✅                        | ❌                       | ❌                         |
+| tag `v*`                  | ✅              | ✅                        | ✅                       | ❌                         |
+| `workflow_dispatch`       | ❌              | ❌                        | ❌                       | ✅                         |
+
+## 相关文档
+
+- [Benchmark Budgets](/reference/benchmark-budgets)
+- [更新日志](/changelog)
+- [Electron 集成](/architecture/electron-integration)
+- [测试策略](/architecture/testing-strategy)
+- [构建打包](/architecture/build-and-bundle)
+- [架构总览](/architecture/overview)

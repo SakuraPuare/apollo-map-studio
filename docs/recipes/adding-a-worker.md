@@ -1,266 +1,302 @@
-# Adding a Web Worker
+---
+title: 新增一个 Web Worker
+description: 在 core/workers 中定义协议消息、创建 worker 文件、写主线程 bridge、用 RAF 合并请求、规避 postMessage 拷贝陷阱。
+---
 
-Workers carry CPU-heavy work off the main thread so React stays
-responsive. The codebase uses two production workers — **spatial**
-(cold layer indexing + hit testing) and **apollo IO** (proto
-import/export) — plus an **overlap** worker for derived geometry.
-This recipe shows when to spin up a new worker, the file layout the
-codebase expects, the postMessage protocol, and the gotchas that have
-bitten us before.
+# 新增一个 Web Worker
 
-## When to add a worker
+Workers 把昂贵的同步计算挪出主线程：cold layer 编译、空间索引、几何
+裁剪、overlap 派生都在 worker 里跑。本章演示如何新增一个 worker：
+契约、合并、bridge、测试。
 
-Add a worker when **all** of these hold:
+::: tip 何时新增 worker
 
-1. The work is CPU-bound (parsing, geometry, indexing, large
-   array transforms) — not I/O-bound.
-2. A single invocation can exceed ~16ms on a representative dataset.
-3. The work has a stable, structured-clone-able request/response
-   shape — no DOM access, no React refs, no class instances with
-   methods.
-4. The result fits in a single postMessage (or can be naturally
-   chunked).
+- 主线程长任务 > 16ms（卡帧）。
+- 计算可异步且没有 DOM/Canvas 依赖。
+- 输入输出可结构化克隆（无函数、无 class instance、无 SharedArrayBuffer
+  之外的不可克隆类型）。
 
-Don't add a worker for one-off ~1ms helpers or for code that needs DOM
-access (e.g. SVG rasterising — `mapIcons.ts` rasterises on the main
-thread because workers can't reach `<canvas>` 2D context with the
-right text metrics).
+否则（短任务 / 高频小数据）放主线程更省事，跨线程的 postMessage 开销会
+吃掉收益。
+:::
 
-## File layout
+## 目标 (Goal)
 
-The codebase pins three files per worker, all under
-`src/core/workers/`:
+新增一个 **车道宽度直方图 worker**：输入 mapStore 全部 lanes，输出每条 lane
+的宽度采样直方图（离线统计，不卡帧）。
 
-```text
-src/core/workers/
-  spatial.worker.ts       # the worker entry — runs in the worker thread
-  spatialBridge.ts        # main-thread RPC bridge — class with .send() / .dispose()
-  protocol.ts             # shared request/response types
-  spatialState.ts         # in-worker state (cache, index, …)
-  spatialRequests.ts      # request → response handler dispatch
-  spatialFeatures.ts      # pure geometry → feature builders
-  spatialHitTest.ts       # pure hit-test geometry
-  laneJunctionGraph.ts    # in-worker derivation logic
-  __tests__/
+## 前置条件 (Prerequisites)
+
+- 已读 [Cold Layer Pipeline](../architecture/cold-layer)。
+- 知道 `spatial.worker.ts` / `overlap.worker.ts` 的契约。
+- 你的工作内容确实 > 16ms（先 measure 再下手）。
+
+## Worker 总览
+
+```mermaid
+sequenceDiagram
+    participant Main as 主线程
+    participant Bridge as histogramBridge
+    participant Worker as histogram.worker
+    participant Cache as worker 内部缓存
+
+    Main->>Bridge: requestHistogram(entities)
+    Bridge->>Bridge: RAF 合并多次调用
+    Bridge->>Worker: postMessage { type: SYNC, ... }
+    Worker->>Cache: 增量更新
+    Worker-->>Bridge: postMessage { type: HISTO_READY, bins }
+    Bridge-->>Main: resolve(promise)
 ```
 
-When adding a new worker (e.g. `routing.worker.ts`):
+## 步骤 (Step-by-step)
 
-1. `routing.worker.ts` — the entry point. Subscribes to
-   `self.onmessage` and dispatches.
-2. `routingBridge.ts` — the main-thread class. Mirror the
-   `SpatialWorkerBridge` shape exactly: pending request map, request
-   id counter, timeout per pending request.
-3. `routingProtocol.ts` (or extend `protocol.ts`) — the shared types
-   for request and response messages, both directions.
-
-Keep transformation helpers in separate `.ts` files imported from the
-worker entry. This keeps the worker entry small and leaves the heavy
-logic unit-testable from the main thread.
-
-## Protocol shape
-
-Look at `src/core/workers/protocol.ts` for the canonical pattern:
+### 1. 在 `protocol.ts` 中定义消息
 
 ```ts
-// Main → Worker
-export type WorkerPublicRequest =
-  | { type: 'SYNC'; requestId: string; entities: SerializedEntity[]; … }
-  | { type: 'INCREMENTAL'; requestId: string; added: …; removed: …; updated: …; … }
-  | { type: 'HIT_TEST'; requestId: string; point: [number, number]; radius: number };
+// src/core/workers/protocol.ts
+export type HistogramRequest =
+  | { type: 'HISTO_SYNC'; requestId: string; entities: SerializedEntity[] }
+  | { type: 'HISTO_QUERY'; requestId: string; binCount: number };
 
-// Worker → Main
-export type WorkerResponse =
-  | { type: 'COLD_READY'; requestId: string; … }
-  | { type: 'COLD_DELTA'; requestId: string; changed: …; removed: string[] }
-  | { type: 'HIT_RESULT'; requestId: string; hits: HitResult[] };
+export type HistogramResponse = { type: 'HISTO_READY'; requestId: string; bins: number[] };
 ```
 
-Three rules:
+::: warning 给消息名加前缀
+`HISTO_*` 前缀避免与 `SYNC`、`HIT_TEST` 等公用名字冲突。Worker 单文件 OK，
+将来若多 worker 共享一个 channel 则必须前缀。
+:::
 
-- **Every message carries `requestId`** so the bridge can match
-  responses to their pending promises. Use a monotonic counter:
-  `req_${++this.counter}`.
-- **Responses are discriminated by `type`** so TypeScript narrows
-  inside the bridge.
-- **Internal messages** (`SYNC_BEGIN`, `SYNC_CHUNK`, `SYNC_FINISH`)
-  belong to a separate `WorkerRequest` type that the bridge can use
-  but external callers cannot — keep the public surface narrow.
-
-## Bridge skeleton
-
-`SpatialWorkerBridge` is the reference. Critical pieces:
+### 2. 创建 worker 文件
 
 ```ts
-export class SpatialWorkerBridge {
-  private worker: Worker;
-  private pending = new Map<string, PendingEntry>();
-  private counter = 0;
-  private disposed = false;
+// src/core/workers/histogram.worker.ts
+/// <reference lib="webworker" />
+import type { HistogramRequest, HistogramResponse } from './protocol';
 
-  constructor() {
-    this.worker = new Worker(new URL('./spatial.worker.ts', import.meta.url), { type: 'module' });
-    this.worker.onmessage = (e) => {
-      /* resolve pending */
-    };
-    this.worker.onerror = (e) => {
-      /* reject all pending */
-    };
+let cache = new Map<string, number[]>(); // entityId -> width samples
+
+self.onmessage = (ev: MessageEvent<HistogramRequest>) => {
+  const msg = ev.data;
+  switch (msg.type) {
+    case 'HISTO_SYNC': {
+      cache = new Map();
+      for (const e of msg.entities) {
+        if (e.entityType !== 'lane') continue;
+        cache.set(
+          e.id,
+          e.leftSamples.map((s) => s.width),
+        );
+      }
+      reply({ type: 'HISTO_READY', requestId: msg.requestId, bins: computeBins(8) });
+      break;
+    }
+    case 'HISTO_QUERY':
+      reply({ type: 'HISTO_READY', requestId: msg.requestId, bins: computeBins(msg.binCount) });
+      break;
   }
+};
 
-  send<T extends WorkerResponse>(
-    request: WorkerRequestPayload,
-    timeout = DEFAULT_TIMEOUT,
-  ): Promise<T> {
-    /* ... */
-  }
+function computeBins(n: number): number[] {
+  // ... 直方图算法
+  return new Array(n).fill(0);
+}
 
-  dispose() {
-    this.disposed = true;
-    this.worker.terminate();
-    this.pending.forEach(({ reject, timer }) => {
-      clearTimeout(timer);
-      reject(new Error('Worker terminated'));
+function reply(r: HistogramResponse) {
+  (self as unknown as Worker).postMessage(r);
+}
+```
+
+::: danger 不要在 worker 里 import React / DOM
+worker 上下文没有 `window`、`document`、`React`。任何此类 import 在打包时
+看不出错，运行时崩溃。把工具放在 `src/core/workers/utils/` 子目录，明确
+worker-only。
+:::
+
+### 3. 写主线程 bridge
+
+```ts
+// src/core/workers/histogramBridge.ts
+import HistogramWorker from './histogram.worker?worker';
+import type { HistogramRequest, HistogramResponse } from './protocol';
+import { nanoid } from 'nanoid';
+import type { MapEntity } from '@/types/entities';
+
+const worker = new HistogramWorker();
+const pending = new Map<string, (r: HistogramResponse) => void>();
+
+worker.onmessage = (ev) => {
+  const r = ev.data as HistogramResponse;
+  pending.get(r.requestId)?.(r);
+  pending.delete(r.requestId);
+};
+
+let rafToken: number | null = null;
+let queuedEntities: MapEntity[] | null = null;
+
+export function requestHistogramSync(entities: MapEntity[]): void {
+  queuedEntities = entities;
+  if (rafToken !== null) return;
+  rafToken = requestAnimationFrame(() => {
+    const requestId = nanoid(8);
+    worker.postMessage({ type: 'HISTO_SYNC', requestId, entities: queuedEntities! });
+    queuedEntities = null;
+    rafToken = null;
+  });
+}
+
+export function queryBins(binCount: number): Promise<number[]> {
+  return new Promise((resolve) => {
+    const requestId = nanoid(8);
+    pending.set(requestId, (r) => {
+      if (r.type === 'HISTO_READY') resolve(r.bins);
     });
-    this.pending.clear();
-  }
+    worker.postMessage({ type: 'HISTO_QUERY', requestId, binCount });
+  });
 }
 ```
 
-The `new URL('./your.worker.ts', import.meta.url)` constructor is
-Vite-aware — it ensures the worker bundle is built and the import
-resolves at runtime. Do not import the worker module by relative
-path; that bypasses Vite's worker bundling.
+::: tip RAF 合并 = 60fps 的命脉
+mapStore 在一次 zundo 操作里可能触发 5 次订阅回调。直接每次 postMessage
+就是 5 次跨线程 clone。用 RAF 合并到下一帧只发 1 次，ToolStrip 流畅度
+立竿见影。
+:::
 
-## structuredClone boundary
+### 4. Vite worker import 配置
 
-Every object you pass to `postMessage` is **deep-cloned** by the
-browser. Three implications:
+`?worker` 后缀是 Vite 内置语法，会把 worker 打包成独立 chunk。无需额外
+配置。`?worker&inline` 则内联（小文件可用，大文件别用）。
 
-- **No functions, no class instances with methods.** An entity that
-  carries a `compile()` method gets stripped. Stick to plain data.
-- **No shared mutability.** Mutating the entity on one side does not
-  reflect on the other. Treat each side's copy as immutable.
-- **Cost scales with size.** Cloning 50k features per draw click
-  shows up in profiles. Use INCREMENTAL deltas (`COLD_DELTA`) to ship
-  only what changed, not the entire feature collection.
-
-`SpatialWorkerBridge.postChunkedSync` chunks large SYNC payloads to
-avoid blowing out the postMessage budget on 50k+ entity maps. If your
-worker's request can grow unbounded, mirror that pattern.
-
-## Transferables
-
-For payloads that include `ArrayBuffer` / `MessagePort` /
-`OffscreenCanvas` / `ImageBitmap`, pass them as **transferables** to
-hand ownership over instead of cloning:
+### 5. 主线程调用
 
 ```ts
-const buffer = new ArrayBuffer(1_000_000);
-worker.postMessage({ type: 'INGEST', buffer }, [buffer]);
-// `buffer` is detached on the main thread — accessing .byteLength now
-// throws. Transfer is one-way and one-shot.
-```
+// src/components/StatsPanel.tsx
+import { requestHistogramSync, queryBins } from '@/core/workers/histogramBridge';
 
-The spatial worker doesn't currently use transferables because its
-data is plain JSON-shaped; the apollo IO worker uses `ArrayBuffer`
-transferables for the binary `.bin` payload to avoid cloning a few MB
-on every import.
+useEffect(() => {
+  const unsub = mapStore.subscribe((s) => requestHistogramSync([...s.entities.values()]));
+  return unsub;
+}, []);
 
-## Cancellation
-
-The bridges in this codebase do not implement explicit per-request
-cancellation — they rely on **request-id supersession**. Pattern:
-
-```ts
-private latestRequestId: string | null = null;
-
-async sync(entities: Entity[]) {
-  const reqId = `req_${++this.counter}`;
-  this.latestRequestId = reqId;
-  const result = await this.send({ type: 'SYNC', entities });
-  if (this.latestRequestId !== reqId) {
-    // a newer SYNC has been issued — drop this result
-    return;
-  }
-  // apply result
-}
-```
-
-For hard cancellation (long-running parses), terminate and respawn
-the worker — `dispose()` then re-construct. This is a heavy hammer;
-only do it when the worker is genuinely stuck.
-
-## Worker-side lifecycle
-
-The worker entry is small:
-
-```ts
-// src/core/workers/routing.worker.ts
-import type { WorkerRequest, WorkerResponse } from './routingProtocol';
-import { handleRequest } from './routingRequests';
-import { createRoutingState } from './routingState';
-
-const state = createRoutingState();
-
-function respond(msg: WorkerResponse) {
-  postMessage(msg);
-}
-
-self.onmessage = (e: MessageEvent<WorkerRequest>) => {
-  handleRequest(state, e.data, respond);
+const refresh = async () => {
+  const bins = await queryBins(16);
+  setBins(bins);
 };
 ```
 
-`handleRequest` is a pure dispatcher — switch on `request.type`,
-mutate `state` in place, call `respond` with the result. Keep all
-geometry / parsing logic in separate modules so they can be unit
-tested from the main thread without spinning up a worker.
+### 6. 测试
 
-## Testing
+Vitest 默认在 jsdom 环境，worker 不可用。两种方案：
 
-Workers are awkward to spin up in Vitest. The convention:
+**A. 直接测算法**（推荐）：把 worker 逻辑分到纯函数 `computeBins.ts`
+独立测，worker 只做 message routing。
 
-- **Unit-test the helpers, not the worker entry.** `spatialFeatures.ts`,
-  `spatialHitTest.ts`, `laneJunctionGraph.ts` all test cleanly without
-  a worker.
-- **Bridge tests use a `vi.fn()`-shaped fake worker.** Don't try to
-  load the real bundled worker; mock the `Worker` constructor.
-- **Integration tests run end-to-end at the hook level.**
-  `useColdLayer` tests instantiate the real bridge in jsdom-with-worker
-  setup.
+```ts
+// src/core/workers/__tests__/computeBins.test.ts
+import { computeBins } from '../computeBins';
+it('produces 8 bins from samples', () => {
+  expect(computeBins([1, 2, 3], 8)).toHaveLength(8);
+});
+```
 
-## Common mistakes
+**B. 用 `vitest --environment node` + `worker_threads`** 跑端到端，
+仅在确实需要时使用，集成测试代价高。
 
-- **Importing main-thread modules from the worker entry.** If a
-  module pulls in zustand, react, or anything DOM-aware, the worker
-  bundle blows up at import time. Keep the dependency tree disciplined
-  — only `core/`, `types/`, `config/` are safe.
-- **Forgetting `requestId` on a response.** The bridge's pending map
-  never resolves and the timeout fires after `DEFAULT_TIMEOUT`
-  (120s in the spatial bridge). Symptom: hang followed by a generic
-  timeout error.
-- **Returning DOM types** (e.g. an `HTMLImageElement`). They're not
-  structured-clone-able — postMessage throws synchronously.
-- **Holding state on the bridge instead of in the worker.** State
-  belongs **inside** the worker so it survives between messages and
-  the main thread can stay stateless. The bridge only tracks pending
-  promises.
+## 修改的文件 (Files modified)
 
-## Verification
+| 文件                                             | 改动            |
+| ------------------------------------------------ | --------------- |
+| `src/core/workers/protocol.ts`                   | 新消息类型      |
+| `src/core/workers/histogram.worker.ts`           | worker 实现     |
+| `src/core/workers/histogramBridge.ts`            | RAF 合并 bridge |
+| `src/core/workers/computeBins.ts`                | 纯函数（可测）  |
+| `src/core/workers/__tests__/computeBins.test.ts` | 单测            |
+| `src/components/StatsPanel.tsx`                  | 使用方          |
 
-1. `pnpm typecheck` — protocol types are referenced from both ends.
-2. `pnpm test` — helper tests pass.
-3. `pnpm dev` — DevTools → Sources → look for the worker bundle
-   under `worker.js?worker_file&type=module`. Network panel shows the
-   worker request when the bridge instantiates.
-4. Profiler: a 60fps interaction should not show your worker's
-   handler on the main thread flame chart.
+## 测试清单 (Testing checklist)
 
-## Cross-references
+- [ ] worker 文件单独打包：`pnpm build` 后 `dist/assets/` 有
+      `histogram-*.js` chunk。
+- [ ] 1k entities SYNC 不卡主线程：DevTools Performance 看 main thread
+      gap < 4ms。
+- [ ] 同帧 100 次调用合并为 1 次 postMessage（看 worker `onmessage` 计数）。
+- [ ] 错误消息有 `requestId`，pending map 能定位回响应。
+- [ ] worker 崩溃后 bridge 不死锁：用 `worker.onerror` 兜底所有 pending。
 
-- [/architecture/overview](../architecture/overview.md) — cold-layer
-  pipeline diagram
-- [/api/core](../api/core/) — `SpatialWorkerBridge` API
-- [debugging-the-map-pipeline](./debugging-the-map-pipeline.md) — how
-  to trace a worker round-trip
+## 常见坑 (Common pitfalls)
+
+### `postMessage` clone 慢
+
+数据里有 `Map`、`Set`、circular reference，结构化克隆退化甚至失败。
+传输前 normalize 成 plain object / array。检查工具：
+
+```ts
+console.time('clone');
+structuredClone(payload);
+console.timeEnd('clone');
+```
+
+### Transferable 没用上
+
+`ArrayBuffer` 大数组应当 transfer 而不是 clone：
+
+```ts
+worker.postMessage({ buffer }, [buffer]); // 第二参数 = transfer list
+```
+
+GeoJSON Feature 字符串无法 transfer，先 `JSON.stringify` + `TextEncoder`
+变 `Uint8Array` 再 transfer 是常见优化。
+
+### Worker import 路径不对
+
+Vite 要求 `?worker` 后缀。直接 `import` worker 文件会被当普通模块打包，
+浏览器执行时拿不到 `WorkerGlobalScope`。
+
+### 多次 RAF 嵌套导致永不发送
+
+`rafToken !== null` 守卫一定要在 RAF 回调中清除，否则后续调用全部被吞。
+单测用 `vi.useFakeTimers()` + `vi.advanceTimersToNextFrame()` 验证。
+
+### worker 与 main 共享类型
+
+Workers 自己也是 TS 编译，但它们 **不能** import `@/components/*`。
+保持 worker 只依赖 `@/types/*`、`@/core/workers/*`、`@/core/geometry/*`。
+否则 tree-shake 失败时整个 React 都会被打进 worker chunk。
+
+## 相关源码 (Source links)
+
+- [`src/core/workers/protocol.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/workers/protocol.ts)
+- [`src/core/workers/spatial.worker.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/workers/spatial.worker.ts)
+- [`src/core/workers/spatialBridge.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/workers/spatialBridge.ts) — RAF 合并参考实现
+- [`src/core/workers/overlap.worker.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/workers/overlap.worker.ts)
+
+## 进阶 (Advanced)
+
+### 增量协议
+
+参考 `spatial.worker.ts` 的 `INCREMENTAL` 消息：只传 `added` /
+`removed` / `updated`，worker 内部维护 cache，避免每次 SYNC 整表重算。
+P1 phase 完成后大幅降低 postMessage 开销。
+
+### 流式响应
+
+worker 可以把结果分块返回：
+
+```ts
+self.postMessage({ type: 'HISTO_CHUNK', offset: 0, total: 1000, items: chunk });
+// ...
+self.postMessage({ type: 'HISTO_DONE' });
+```
+
+主线程边收边渲，1k entities 时首屏延迟从 80ms 降到 10ms。
+
+### Shared Worker 与 ServiceWorker
+
+跨多个 tab 共享计算？用 SharedWorker。但注意：MapLibre 与 Electron
+渲染进程的兼容性需要单独验证。本项目当前未使用 SharedWorker。
+
+::: warning 不要做的事
+
+- 在 worker 里 fetch 用户文件（违反 CSP，且不可靠）。
+- 在 worker 里 `eval()`（CSP `script-src` 直接 block）。
+- 在 worker 里维持长期 setInterval（页面切走仍跑，电池杀手）。
+  :::

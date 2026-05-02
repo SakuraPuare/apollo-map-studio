@@ -1,96 +1,84 @@
-# Proto Apollo GeoJSON
+---
+title: io / proto-apollo-geojson
+description: src/io/proto/apolloGeoJson.ts — 导入预览 / 自动 fitBounds 用的 bounds 计算
+---
 
-> Source: `src/io/proto/apolloGeoJson.ts`
+# io / proto-apollo-geojson
 
-## Overview
+`src/io/proto/apolloGeoJson.ts` 是为「导入预览自动 fitBounds」服务的
+轻量计算模块。它从一份**已转 lon/lat 的 raw Apollo Map**里走一遍所有
+点，返回 `[[minX, minY], [maxX, maxY]]` 的 WGS84 bbox。
 
-`apolloGeoJson.ts` is a read-only view that walks a decoded Apollo
-HD-map (in WGS84 lon/lat — see [Adapter](./proto-adapter.md)) and
-extracts geometry suitable for downstream tools that don't speak
-Apollo proto. It is **not** the rendering path the editor uses (that
-goes through `entityBridge` + the cold layer). It exists for two
-narrower needs:
+> 注意：尽管文件名带 `apolloGeoJson`，当前**没有**对应的 GeoJSON
+> 编译入口；GeoJSON 编译走 `src/core/geometry/compile.ts` +
+> `apolloCompile/features.ts`。本文件只剩 `computeApolloMapBounds`。
 
-1. **Bounding-box computation on import.** `mapIO` needs to fit the
-   viewport to the imported map's extent before the cold layer has
-   compiled features. `computeApolloMapBounds` walks every reachable
-   point in the proto tree and returns the WGS84 bbox.
-2. **Future export to GeoJSON-consuming tools.** The shape of the
-   helpers is set up to be extended into a per-entity-type
-   `FeatureCollection` builder for QGIS / external diff tooling.
-
-The module is **pure** — no DOM, no store dependency, no React. It
-operates on the same plain-object shape produced by `binCodec` /
-`textCodec` after `apolloMapToLonLat` projection.
-
-## Exports
-
-| Symbol                   | Signature                                                 | Purpose                                      |
-| ------------------------ | --------------------------------------------------------- | -------------------------------------------- |
-| `computeApolloMapBounds` | `(map: RawApolloMap) => [[lng, lat], [lng, lat]] \| null` | WGS84 bounding box of every reachable point. |
-
-The internal `RawApolloMap` interface is intentionally narrow — only
-the proto fields whose geometry contributes to the bbox are typed.
-Fields the editor doesn't render (e.g. `parking_island`, `signal_v2`)
-are ignored without error.
-
-## Behavior
-
-### `computeApolloMapBounds`
+## 公开符号
 
 ```ts
-let minX = Infinity,
-  minY = Infinity,
-  maxX = -Infinity,
-  maxY = -Infinity;
-const visit = (p) => {
-  if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
-  if (p.x < minX) minX = p.x;
-  if (p.x > maxX) maxX = p.x;
-  if (p.y < minY) minY = p.y;
-  if (p.y > maxY) maxY = p.y;
-};
+export function computeApolloMapBounds(
+  map: RawApolloMap,
+): [[number, number], [number, number]] | null;
 ```
 
-The walker traverses every PointENU reachable from these proto fields:
+> Source: `src/io/proto/apolloGeoJson.ts:1-158`
 
-| Proto path                                                                            | Geometry kind |
-| ------------------------------------------------------------------------------------- | ------------- |
-| `lane[].central_curve.segment[].line_segment.point[]`                                 | polyline      |
-| `lane[].left_boundary.curve.segment[].line_segment.point[]`                           | polyline      |
-| `lane[].right_boundary.curve.segment[].line_segment.point[]`                          | polyline      |
-| `crosswalk[].polygon.point[]`                                                         | polygon       |
-| `junction[].polygon.point[]`                                                          | polygon       |
-| `clear_area[].polygon.point[]`                                                        | polygon       |
-| `parking_space[].polygon.point[]`                                                     | polygon       |
-| `road[].section[].boundary.outer_polygon.edge[].curve.segment[].line_segment.point[]` | polyline      |
-| `signal[].boundary.point[]`                                                           | polygon       |
-| `signal[].stop_line[].segment[].line_segment.point[]`                                 | polyline      |
-| `stop_sign[].stop_line[].segment[].line_segment.point[]`                              | polyline      |
-| `speed_bump[].position[].segment[].line_segment.point[]`                              | polyline      |
-
-Coverage is intentionally generous — including the road outer polygon
-and signal boundary helps fit the viewport even when the lane network
-is sparse.
-
-### Defensive parsing
-
-Every accessor uses optional chaining and `?? []` so the walker never
-crashes on partial input:
+`RawApolloMap` 是仅供本模块用的内部 type，覆盖了：
 
 ```ts
-const visitCurve = (c) => {
-  for (const seg of c?.segment ?? []) {
-    for (const pt of seg.line_segment?.point ?? []) visit(pt);
+interface RawApolloMap {
+  lane?: RawLane[];
+  crosswalk?: RawCrosswalk[];
+  junction?: RawJunction[];
+  road?: RawRoad[];
+  signal?: RawSignal[];
+  stop_sign?: RawStopSign[];
+  speed_bump?: RawSpeedBump[];
+  clear_area?: RawClearArea[];
+  parking_space?: RawParkingSpace[];
+}
+```
+
+每个 RawXxx 都是「只列出 bbox 计算需要的字段」的简化版。
+
+## 实现
+
+```ts
+let minX = Infinity;
+let minY = Infinity;
+let maxX = -Infinity;
+let maxY = -Infinity;
+
+const visit = (p: PointLL | undefined) => {
+  /* update min/max */
+};
+const visitCurve = (c: Curve | undefined) => {
+  /* iterate segments + line_segment.point */
+};
+const visitPolygon = (p: ApolloPolygon | undefined) => {
+  /* iterate point */
+};
+
+for (const lane of map.lane ?? []) {
+  visitCurve(lane.central_curve);
+  visitCurve(lane.left_boundary?.curve);
+  visitCurve(lane.right_boundary?.curve);
+}
+for (const cw of map.crosswalk ?? []) visitPolygon(cw.polygon);
+for (const j of map.junction ?? []) visitPolygon(j.polygon);
+for (const ca of map.clear_area ?? []) visitPolygon(ca.polygon);
+for (const ps of map.parking_space ?? []) visitPolygon(ps.polygon);
+for (const r of map.road ?? [])
+  for (const sec of r.section ?? []) {
+    for (const e of sec.boundary?.outer_polygon?.edge ?? []) visitCurve(e.curve);
   }
-};
-```
+for (const sig of map.signal ?? []) {
+  visitPolygon(sig.boundary);
+  for (const sl of sig.stop_line ?? []) visitCurve(sl);
+}
+for (const ss of map.stop_sign ?? []) for (const sl of ss.stop_line ?? []) visitCurve(sl);
+for (const sb of map.speed_bump ?? []) for (const c of sb.position ?? []) visitCurve(c);
 
-A map missing every geometry field returns `null` (no finite bounds).
-
-### Return shape
-
-```ts
 if (!Number.isFinite(minX)) return null;
 return [
   [minX, minY],
@@ -98,66 +86,20 @@ return [
 ];
 ```
 
-The shape matches MapLibre's `LngLatBounds` constructor:
-`[[swLng, swLat], [neLng, neLat]]`. The bounds are in WGS84 lon/lat
-because the input map should already have been projected by
-`apolloMapToLonLat`.
+每个点位的 `x / y` 必须是 number 才参与 min/max 计算（防御非法输入）。
+完全没有合法点时返回 `null`，caller 跳过 fitBounds。
 
-### Performance
-
-The walker is single-pass and allocation-free per point. On the
-borregas_ave reference map (~3 K lanes, ~2 K junctions) the function
-runs in ~5 ms in the worker. It runs once per import inside the IO
-worker, so there is no perf budget on the main thread.
-
-## Examples
-
-### Inside the import worker
-
-```ts
-import { decodeMapBin } from './proto/binCodec';
-import { apolloMapToLonLat } from './proto/adapter';
-import { computeApolloMapBounds } from './proto/apolloGeoJson';
-
-const raw = await decodeMapBin(bytes);
-const { map: lonLatMap, projString } = await apolloMapToLonLat(raw, headerProj);
-const bounds = computeApolloMapBounds(lonLatMap);
-postMessage({
-  type: 'IMPORT_RESULT',
-  requestId,
-  info: { filename, projString, ... },
-  header: lonLatMap.header,
-  bounds,  // → ApolloLayer.fitBounds(...)
-});
-```
-
-### Fit viewport on import
-
-```ts
-import { useApolloMapStore } from '@/store/apolloMapStore';
-
-useApolloMapStore.subscribe((s) => {
-  if (s.bounds) map.fitBounds(s.bounds, { padding: 40, duration: 500 });
-});
-```
-
-### Standalone usage on a fixture
+## 用法
 
 ```ts
 import { computeApolloMapBounds } from '@/io/proto/apolloGeoJson';
 
-const map = JSON.parse(await fs.readFile('borregas-decoded.json', 'utf8'));
-const bbox = computeApolloMapBounds(map);
-console.log(bbox); // [[-122.0144, 37.4055], [-122.0079, 37.4093]]
+const bounds = computeApolloMapBounds(lonLatMap as Parameters<typeof computeApolloMapBounds>[0]);
+if (bounds) {
+  map.fitBounds(bounds, { padding: 64, duration: 600 });
+}
 ```
 
-## Related
-
-- [Proto Adapter](./proto-adapter.md) — produces the lon/lat-projected
-  map this walker consumes.
-- [Bin Codec](./proto-codec-bin.md) / [Text Codec](./proto-codec-text.md) —
-  produce the input plain-object shape.
-- [Apollo Map Store](../store/apollo-map-store.md) — destination of the
-  `bounds` payload (via `setImported`).
-- [Map IO](./map-io.md) — orchestration that triggers the bbox
-  computation.
+`apolloIO.worker` 在 `runImport` 末尾调用并把结果作为
+`IMPORT_RESULT.bounds` 回传，主线程在 `apolloMapStore.setImported`
+之后用 `apolloMapStore.bounds` 触发 `mapStore` 视图收敛。

@@ -1,91 +1,68 @@
-# IO / proto projection
+---
+title: io / proto-projection
+description: src/io/proto/projection.ts — proj4 包装与 UTM presets
+---
 
-Source: `src/io/proto/projection.ts`.
+# io / proto-projection
 
-Wraps `proj4` for the Apollo-specific case: every imported `.bin` /
-`.txt` map declares (or omits) a PROJ.4 string in
-`Header.projection.proj`, and the editor needs forward and inverse
-conversions between that local CRS and WGS84 lon/lat for rendering.
+> 本页是 [Geo / Projection](/api/geo-projection) 的同源镜像。
+> 内容相同，存在两份方便从不同入口跳转。
 
-This page mirrors [Geo / Projection](/api/geo-projection) for callers
-working inside the IO namespace.
-
-## Exports
-
-- `sanitizeProjString(s)` — strip Apollo's `{...}` template
-  placeholders that proj4 rejects.
-- `makeProjection(projString)` — build a `Projection` with `toLonLat`
-  / `fromLonLat` and the sanitised `projString`.
-- `utmProjString(zone, hemisphere?)` — compose a UTM PROJ string from
-  zone + hemisphere.
-- `utmZoneFromLon(lonDeg)` — infer the zone for a given longitude.
-- `UTM_PRESETS` — `{ sunnyvale, beijing, shanghai, shenzhen }`.
-
-## Projection Interface
+## 公开符号
 
 ```ts
-interface PointXY {
+export function sanitizeProjString(s: string): string;
+
+export interface PointXY {
   x: number;
   y: number;
   z?: number;
 }
 
-interface Projection {
+export interface Projection {
   readonly projString: string;
-  toLonLat(p: PointXY): PointXY; // UTM ENU → WGS84 lon/lat
-  fromLonLat(p: PointXY): PointXY; // WGS84 lon/lat → UTM ENU
+  toLonLat(p: PointXY): PointXY;
+  fromLonLat(p: PointXY): PointXY;
 }
+
+export function makeProjection(projString: string): Projection;
+
+export function utmProjString(zone: number, hemisphere?: 'N' | 'S'): string;
+export function utmZoneFromLon(lonDeg: number): number;
+
+export const UTM_PRESETS: {
+  readonly sunnyvale: string;
+  readonly beijing: string;
+  readonly shanghai: string;
+  readonly shenzhen: string;
+};
 ```
 
-`makeProjection()` builds the bidirectional conversion between Apollo
-`PointENU` meter coordinates and WGS84 lon/lat editor coordinates. The
-two inner proj4 transformers are constructed once and reused — a
-critical perf detail since real Apollo imports call them millions of
-times. `z` (elevation) passes through unprojected.
+> Source: `src/io/proto/projection.ts:1-81`
 
-## Sanitiser
+## 行为速览
 
-Apollo's reference Sunnyvale / garage maps embed PROJ strings with
-literal `{}` around numeric arguments (`+lat_0={37.413082}`). proj4
-rejects them. `sanitizeProjString` strips the braces; `makeProjection`
-calls it transparently.
+- `sanitizeProjString` 去除 Apollo 风格的 `+lat_0={...}` 模板花括号；
+- `makeProjection` 用 `proj4` 在 PROJ string 与 WGS84 之间构造双向
+  pipeline；
+- `toLonLat` / `fromLonLat` 不会写入 `z=0`（保留缺省以保 round-trip
+  fidelity）；
+- `utmProjString` 在 `zone < 1 || zone > 60` 时抛错；
+- `utmZoneFromLon` 用每 6° 一区的规则反推；
+- `UTM_PRESETS` 提供 sunnyvale / beijing / shanghai / shenzhen 4 个
+  常见 PROJ string，`apolloIOBridge.FALLBACK_PROJ = UTM_PRESETS.beijing`。
 
-## UTM Presets
+## 调用图
 
-`UTM_PRESETS` covers ~95 % of public Apollo reference maps:
+| 调用方                         | 用法                                          |
+| ------------------------------ | --------------------------------------------- |
+| `src/io/proto/adapter.ts`      | `makeProjection` + `transformPointsInMessage` |
+| `src/io/apolloIOBridge.ts`     | `UTM_PRESETS.beijing` 作为 fallback           |
+| `src/store/projDialogStore.ts` | 给 UI 选择器列出 presets                      |
 
-- `sunnyvale` → UTM zone 10N (Bay Area).
-- `beijing`, `shenzhen` → UTM zone 50N.
-- `shanghai` → UTM zone 51N.
+## 注意事项
 
-`apolloIOBridge` falls back to `UTM_PRESETS.beijing` when the
-projection picker is cancelled.
-
-## Round-trip Contract
-
-The projection string is stored in `apolloMapStore.info.projString`
-after import and reused during export so coordinates land back at
-their original UTM values byte-for-byte.
-
-## Examples
-
-```ts
-import { makeProjection, UTM_PRESETS, utmZoneFromLon } from '@/io/proto/projection';
-
-const proj = makeProjection(UTM_PRESETS.beijing);
-const lonLat = proj.toLonLat({ x: 587456.12, y: 4140822.45 });
-const back = proj.fromLonLat(lonLat);
-
-const zone = utmZoneFromLon(116.4); // → 50
-```
-
-## Related
-
-- [/api/io/proto-adapter](/api/io/proto-adapter) — primary consumer
-  via `apolloMapToLonLat` / `apolloMapFromLonLat`.
-- [/api/io/apollo-io-bridge](/api/io/apollo-io-bridge) — uses
-  `UTM_PRESETS.beijing` as cancellation fallback.
-- [/api/store/apollo-map-store](/api/store/apollo-map-store) — stores
-  the effective `projString`.
-- [/api/store/proj-dialog-store](/api/store/proj-dialog-store) —
-  surfaces presets to the user.
+- 内部不缓存 Projection 实例 —— proj4 自身已经按 (src, dst) 缓存
+  pipeline，重复 `makeProjection(sameStr)` 成本可控；
+- `proj4` 在解析非法字符串时会抛错，bridge 会传播为 `IMPORT/EXPORT
+ERROR`。

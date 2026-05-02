@@ -1,43 +1,24 @@
-# Proto Codec — Binary
+---
+title: io / proto-codec-bin
+description: src/io/proto/binCodec.ts — Apollo HD-map 二进制 protobuf 编解码
+---
 
-> Source: `src/io/proto/binCodec.ts`
+# io / proto-codec-bin
 
-## Overview
+`src/io/proto/binCodec.ts` 是 Apollo HD-map 二进制 protobuf 的编解码
+入口。文件本身只有 23 行，但它的两个函数承载着每次导入/导出走的
+关键路径。
 
-`binCodec.ts` is the thinnest possible wrapper around protobufjs's
-own binary encode / decode for the Apollo `apollo.hdmap.Map` message.
-It exposes two functions:
+## 公开符号
 
-- `decodeMapBin(bytes)` — wire bytes → plain object tree.
-- `encodeMapBin(obj)` — plain object tree → wire bytes.
-
-The "plain object" shape uses snake_case field names (because the proto
-root is loaded with `keepCase: true`) and is the lingua franca that
-every other proto module in `src/io/proto/` operates on:
-
-```
-.bin file
-   │
-   ▼  decodeMapBin
-plain object (snake_case, ENU coordinates)
-   │
-   ▼  apolloMapToLonLat        (adapter.ts)
-plain object (snake_case, lon/lat coordinates)
-   │
-   ▼  apolloMapToEntities       (entityBridge/map.ts)
-MapEntity[]
+```ts
+export function decodeMapBin(bytes: Uint8Array): Promise<Record<string, unknown>>;
+export function encodeMapBin(obj: Record<string, unknown>): Promise<Uint8Array>;
 ```
 
-## Exports
+> Source: `src/io/proto/binCodec.ts:1-23`
 
-| Symbol         | Signature                                                 | Purpose                                     |
-| -------------- | --------------------------------------------------------- | ------------------------------------------- |
-| `decodeMapBin` | `(bytes: Uint8Array) => Promise<Record<string, unknown>>` | Decode Apollo binary protobuf to JS object. |
-| `encodeMapBin` | `(obj: Record<string, unknown>) => Promise<Uint8Array>`   | Encode JS object back to wire bytes.        |
-
-## Behavior
-
-### `decodeMapBin`
+## `decodeMapBin(bytes)`
 
 ```ts
 const Map = await getMapType();
@@ -51,26 +32,17 @@ return Map.toObject(msg, {
 });
 ```
 
-Each `toObject` option is deliberate:
+参数解释：
 
-| Option     | Value    | Why                                                                                                                                          |
-| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `longs`    | `Number` | Apollo never uses int64 ids; JS `Number` is safe and avoids importing `long.js`.                                                             |
-| `enums`    | `Number` | Keeps enum fields as raw numeric tags so `entityBridge/enums.ts` can map them to discriminated string unions.                                |
-| `defaults` | `false`  | **Critical for proto2 fidelity** — does NOT synthesise default values for unset optional fields; round-tripping preserves byte-equal output. |
-| `arrays`   | `true`   | Repeated fields default to `[]`, simplifying downstream walkers.                                                                             |
-| `objects`  | `true`   | Map fields default to `{}` (currently unused but future-proof).                                                                              |
+| 选项              | 设置                   | 原因                                                  |
+| ----------------- | ---------------------- | ----------------------------------------------------- |
+| `longs: Number`   | int64 → JS number      | Apollo HD-map 字段不会触发 64-bit overflow            |
+| `enums: Number`   | enum 数字              | 与 `entityBridge/enums.ts` 的 `*_INV` 映射一致        |
+| `defaults: false` | 不补缺省值             | 保证 round-trip fidelity（重写时不写多余 wire bytes） |
+| `arrays: true`    | repeated 必返回数组    | 下游遍历不必 null guard                               |
+| `objects: true`   | sub-message 必返回对象 | 同上                                                  |
 
-::: warning Proto2 fidelity invariant
-Setting `defaults: false` is what makes the editor's
-"import → export → diff" round-trip lossless. Apollo's reference
-maps frequently leave optional fields like `lane.length`,
-`lane.speed_limit`, `road.type` unset. Synthesising `0` on import
-would re-emit those zeros on export and diverge the bytes from the
-source.
-:::
-
-### `encodeMapBin`
+## `encodeMapBin(obj)`
 
 ```ts
 const Map = await getMapType();
@@ -80,64 +52,19 @@ const msg = Map.fromObject(obj);
 return Map.encode(msg).finish();
 ```
 
-`Map.verify(obj)` runs protobufjs's structural check before encoding.
-Failures throw with the field path that violated the schema —
-catching the error in the worker turns into an `ERROR` IO response
-the bridge reports to the user.
+`Map.verify` 是 protobufjs 在 schema 上预生成的 sanity check
+函数；不通过则抛 `Map.verify failed: <reason>`。
 
-`fromObject` rebuilds the protobufjs message instance from the plain
-JS dictionary; `encode().finish()` serialises to wire bytes.
+## 调用方
 
-### Async-only API
+二进制 codec 的 caller 集中在：
 
-Both exports are async because `getMapType()` awaits the proto-root
-promise. The first call pays the proto-load cost (~5-30ms cold);
-subsequent calls hit the cached `Promise<Root>` and resolve
-synchronously-ish (still through a microtask).
+- `src/io/apolloIO.worker.ts` — `runImport` / `runExport`；
+- `src/io/proto/textCodec.ts` 不依赖 binCodec，但共用
+  `getMapType()`。
 
-## Examples
+## 测试
 
-### Inside the Apollo IO worker (`apolloIO.worker.ts`)
-
-```ts
-import { decodeMapBin, encodeMapBin } from './proto/binCodec';
-
-// import path
-const obj = await decodeMapBin(bytes);
-const projected = await apolloMapToLonLat(obj, projString);
-const entities = apolloMapToEntities(projected.map);
-post({ type: 'IMPORT_RESULT', requestId, ... });
-
-// export path (after collecting entities from main thread)
-const baseMap = { header: importedHeader, ... };
-const withEntities = entitiesToApolloMap(baseMap, entities);
-const utm = await apolloMapFromLonLat(withEntities, projString);
-const bytes = await encodeMapBin(utm.map);
-post({ type: 'EXPORT_BIN_RESULT', requestId, bytes });
-```
-
-### Round-trip test pattern
-
-```ts
-import { readFileSync } from 'fs';
-import { decodeMapBin, encodeMapBin } from '@/io/proto/binCodec';
-
-it('round-trips byte-equal', async () => {
-  const input = new Uint8Array(readFileSync('fixtures/borregas_ave/base_map.bin'));
-  const obj = await decodeMapBin(input);
-  const output = await encodeMapBin(obj);
-  expect(output).toEqual(input); // proto2 fidelity contract
-});
-```
-
-## Related
-
-- [Proto Loader](./proto-loader.md) — `getMapType()` upstream.
-- [Text Codec](/api/io/proto-codec-text) — text-proto sibling that operates
-  on the same plain-object shape.
-- [Adapter](/api/io/proto-adapter) — projection step between decode and
-  entity-bridge.
-- [Entity Bridge](/api/io/proto-entity-bridge) — proto plain object ↔
-  `MapEntity[]`.
-- [Editor Meta](/api/io/proto-editor-meta) — sub-tree the codec preserves
-  but does not interpret.
+`src/io/proto/__tests__/binRoundtrip.test.ts` 把官方 `map_data/sunnyvale_loop`
+做 decode → encode round-trip，断言字节级等价（除掉
+`apollo.hdmap.Map.editor_meta` 这种 round-trip 不会被引入的字段）。

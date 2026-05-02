@@ -1,318 +1,309 @@
-# Debugging the Map Pipeline
+---
+title: 调试地图管线
+description: DevTools、source maps、worker 调试、maplibre debug=true、FSM inspector、log channels。
+---
 
-The map pipeline has four moving parts that often get blamed for each
-other:
+# 调试地图管线
 
-- **FSM** (`editorMachine`) — what mode is the editor in, what's the
-  active draft / drag.
-- **Stores** (`mapStore`, `uiStore`, `settingsStore`) — committed
-  entities, UX preferences.
-- **Cold layer** (worker round-trip → maplibre `setData`) — committed
-  geometry on screen.
-- **Hot layer** (RAF, no worker) — in-flight drawing / drag preview.
+地图管线 = mapStore → entityOps → spatial.worker → maplibre cold layer →
+渲染。任何一节卡住都会出现 "实体在数据里但没显示"、"FPS 跳水" 等症状。
+本章给你一套系统化排查方法。
 
-This recipe gives concrete debug recipes for the failure modes that
-recur most often, plus a quick-reference flag matrix.
+::: tip 调试金字塔
 
-## Debug flag matrix
+1. **看数据**（mapStore） —— 实体在不在？
+2. **看 worker** —— SYNC 是否成功？hit-test 走没走？
+3. **看 maplibre** —— source 是否更新？feature 是否进了 layer？
+4. **看 FSM** —— 当前 state 是不是预期？
+5. **看 React** —— 组件 render 次数？
 
-| Symptom                                 | First check                                                | Then                                 |
-| --------------------------------------- | ---------------------------------------------------------- | ------------------------------------ |
-| Cold layer stale after edit             | `SpatialWorkerBridge` postMessage in DevTools / Worker tab | `useColdLayer` RAF coalesce          |
-| Hot layer flicker / off-by-one          | FSM POST-transition snapshot in `useDrawCommit`            | XState devtools state log            |
-| Hit test selects nothing / wrong entity | `spatialHitTest` Mercator scale + radius                   | RBush bbox in worker state           |
-| Junction stitching wrong                | `decorationCache` invalidation, `LaneJunctionGraph` deps   | INCREMENTAL affected-set             |
-| Undo corrupts next CONFIRM              | R1 closure in `useActionDispatcher` (CANCEL before undo)   | `undoCancel.test.ts` regression      |
-| Inspector edit ignored                  | `assertEditable()` license gate                            | `methods.watch` diff returning early |
-| Tool button doesn't activate            | `getToggleState('defaultMode')` / FSM `activeElement`      | action registry `drawTool` field     |
+按顺序往下查，不要乱跳。
+:::
 
-## Pipeline overview
+## 调试链路全景
 
 ```mermaid
 sequenceDiagram
-  participant User
-  participant FSM
-  participant MapStore as mapStore
-  participant Bridge as SpatialWorkerBridge
-  participant Worker as spatial.worker
-  participant ML as maplibre
+    participant UI
+    participant Store as mapStore
+    participant Bridge as spatialBridge
+    participant Worker as spatial.worker
+    participant Map as MapLibre
 
-  User->>FSM: MOUSE_DOWN
-  FSM->>FSM: addPoint
-  Note right of FSM: hot layer reads context, redraws preview
-  User->>FSM: DOUBLE_CLICK
-  FSM->>FSM: → idle (post-snapshot keeps drawPoints)
-  FSM->>MapStore: useDrawCommit.commitEntity → addEntity
-  MapStore->>Bridge: useColdLayer detects diff (RAF coalesced)
-  Bridge->>Worker: INCREMENTAL { added, removed, updated }
-  Worker->>Worker: featureCache update + decorationCache patch
-  Worker->>Bridge: COLD_DELTA { changed, removed }
-  Bridge->>ML: GeoJSONSource.setData merged FC
-  ML-->>User: cold layer reflects edit
+    UI->>Store: addEntity()
+    Store-->>UI: subscribe 触发
+    UI->>Bridge: requestSync(entities)
+    Bridge->>Worker: postMessage SYNC
+    Worker-->>Bridge: COLD_READY
+    Bridge->>Map: source.setData(fc)
+    Map-->>UI: 渲染
 ```
 
-## Recipe 1 — Cold layer not updating
+## 1. 浏览器 DevTools 基础配置
 
-Symptom: edit committed, FSM idle, but the cold-layer GeoJSON looks
-stale.
+### Source Maps
 
-### Where the data flows
+`vite.config.ts` 已经默认开启 dev sourcemaps。验证：
 
-`mapStore.entities` → `useColdLayer` (RAF coalesced) → `SpatialWorkerBridge.send({ type: 'INCREMENTAL', ... })` → `spatial.worker.ts` → `COLD_DELTA` → `useColdLayer` → `map.getSource('cold').setData(...)`.
+```bash
+pnpm dev
+# 打开 DevTools → Sources → 应能看到 .ts/.tsx 文件而不是 .js
+```
 
-### Diagnosis
-
-1. **Open DevTools → Application → Storage**, then DevTools → Sources
-   → Workers (Chrome) and confirm `spatial.worker.ts` is listed.
-2. **Switch to the Network tab → Worker filter** and reload. You
-   should see one request for the worker bundle.
-3. **Open the Console with the worker context selected** (top-left
-   dropdown) and check for thrown errors. A worker exception kills
-   subsequent processing silently from the main thread's POV — the
-   `SpatialWorkerBridge.onerror` handler rejects all pending
-   promises but doesn't always surface to the user.
-4. **In the main-thread console**, log the bridge round-trip:
-   ```js
-   const { useMapStore } = await import('/@fs/.../store/mapStore.ts');
-   useMapStore.subscribe((s) => console.log('entities:', s.entities.size));
-   ```
-   Edit the map; the count should change. If it does, mapStore is
-   fine. If not, the dispatcher / form bypassed `mapStore`.
-5. **Confirm `useColdLayer` is firing.** Add a `console.warn` inside
-   the RAF callback and watch the timing — a missing animation
-   schedule (component unmounted? a `useEffect` cleanup left a stale
-   handle?) means the worker never gets the message.
-6. **Confirm the worker received the request.** Add
-   `console.warn('worker req:', e.data.type)` inside
-   `self.onmessage` in `spatial.worker.ts` (debug only, revert
-   before commit).
-
-### Common cause
-
-A handler that calls `mapStore.set(...)` in a way that bypasses the
-zundo-wrapped store getters. Always use `addEntity` /
-`updateEntity` / `removeEntity` from `mapStore.getState()`.
-
-## Recipe 2 — Hot layer flicker / off-by-one
-
-Symptom: while drawing, the live preview shows the wrong number of
-points, or the last click "doesn't take" until the next mousemove.
-
-### The post-transition snapshot rule
-
-`useDrawCommit` subscribes to FSM transitions:
+production build 默认 **不** 出 sourcemap，避免源码泄漏。如果排查
+production 构建，临时打开：
 
 ```ts
-// src/hooks/useDrawCommit.ts
-const subscription = actorRef.subscribe((snapshot) => {
-  const prevState = prevSnapshot.value as string;
-  const nextState = snapshot.value as string;
+// vite.config.ts
+build: {
+  sourcemap: true;
+}
+```
 
-  if (nextState === 'idle' && isDrawingState(prevState)) {
-    commitEntity(prevState, snapshot.context.drawPoints, …);
-    actorRef.send({ type: 'RESET' });
-  }
-  prevSnapshot = snapshot;
+### React DevTools
+
+安装 React DevTools 浏览器扩展。重点看：
+
+- **Components 面板**：选中组件，看 props 和 hooks state。
+- **Profiler 面板**：录一段交互，看哪个组件 re-render 多了。
+
+::: warning re-render 不一定是性能问题
+React 重渲非常快，真正卡的是 maplibre 重绘。先用 maplibre debug 模式
+确认 GPU 路径，再回头看 React。
+:::
+
+### MapLibre debug=true
+
+```ts
+// src/components/map/MapCanvas.tsx
+const map = new maplibregl.Map({
+  // ...
+  debug: import.meta.env.DEV,
 });
 ```
 
-The commit reads **`snapshot.context.drawPoints`** (post-transition),
-not `prevSnapshot.context.drawPoints`. The transition's `addPoint`
-action runs before the state changes, so `prevSnapshot` is missing
-exactly one point.
-
-### Diagnosis
-
-1. Reproduce the flicker, then check FSM transitions in the XState
-   devtools panel (or a `console.log` in the FSM subscription):
-   - Confirm `prevState` is a draw state and `nextState` is `idle`.
-   - Confirm `drawPoints.length` in the **post-transition** snapshot
-     matches what the user clicked.
-2. If `drawPoints` is short by one, somewhere in the transition you
-   have `actions: 'resetDraw'` on the commit edge — that clears the
-   context before commit reads it. Move `resetDraw` out; let
-   `useDrawCommit` send `RESET` after commit instead.
-3. If the polyline silently drops the last point on double-click,
-   verify `useMapEventRouter.isDuplicateInput`. The dblclick dedup
-   is in the input layer; if the FSM also slices the last point, the
-   user loses one click. The FSM trusts the input layer here — see
-   the comments in `editorMachine.ts` near `sharedDrawEvents`.
-
-## Recipe 3 — Hit test wrong
-
-Symptom: clicking on a lane near the edge selects a different lane,
-or no entity at all.
-
-### Where the work happens
-
-`spatialHitTest.ts` performs RBush bbox lookup, then geo-distance
-filter. The geo-distance is **Mercator-aware** — at high latitudes,
-1° of longitude is much shorter than 1° of latitude. The radius is
-expressed in metres and converted using the Mercator scale at the
-clicked latitude.
-
-### Diagnosis
-
-1. Confirm the click reached the worker. Add a temporary
-   `console.warn('HIT_TEST:', point, radius)` at the top of the
-   hit-test handler in `spatialRequests.ts`.
-2. Confirm the radius is reasonable. The default in `useColdLayer`
-   converts pixel tolerance to metres using the current zoom. At
-   zoom 18, ~6px ≈ 0.5m; at zoom 12, ~6px ≈ 30m.
-3. Check the RBush bbox includes the clicked point. The bbox is
-   `[minX, minY, maxX, maxY]` in **lon/lat**. If you migrated a
-   feature to a different coordinate system somewhere, the entity is
-   indexed at coordinates the test will never reach.
-4. Check the geo-distance comparison. The worker uses
-   `mercatorScaleAt(latitude)` to scale longitude differences before
-   computing distance. A hit test that misses lanes only at high
-   latitudes is almost always a missing scale call.
-
-## Recipe 4 — Junction not stitching
-
-Symptom: two lanes sharing an endpoint don't join their boundaries
-visually.
-
-### Where the work happens
-
-`src/core/geometry/laneJunctions.ts` performs boundary stitching;
-`src/core/workers/laneJunctionGraph.ts` tracks the dependency
-graph (`LaneJunctionGraph.getDependents(id)`) so INCREMENTAL updates
-re-decorate only the affected set.
-
-### Diagnosis
-
-1. Confirm the two lanes share an endpoint within tolerance. The
-   stitching test compares endpoints with a small epsilon; if your
-   lanes are 0.6m apart at endpoints, they don't stitch.
-2. Confirm `decorationCache` invalidation. In INCREMENTAL flow, the
-   affected set is `pre-update dependents ∪ changed lanes ∪
-post-update dependents`. If you edited a lane that **becomes** a
-   junction neighbour after the edit, the pre-update graph doesn't
-   know about it — the affected set is built across both snapshots.
-3. Force a full SYNC to confirm whether the issue is incremental
-   logic or the underlying stitch:
-   - Trigger an action that re-runs SYNC (e.g. import the same map,
-     or temporarily disable INCREMENTAL in `useColdLayer`).
-   - If the stitch shows up after SYNC, the bug is in incremental
-     dependency tracking.
-   - If it still doesn't, the bug is in `decorateBoundary` itself.
-4. `LaneJunctionGraph` debug: add a `console.warn` inside
-   `getDependents` showing the lane id and returned set. Compare
-   against what you expect from the edited lane's neighbours.
-
-## Recipe 5 — Undo corrupts next CONFIRM
-
-Symptom: drawing → `Ctrl+Z` mid-draw → continue drawing → the next
-CONFIRM produces a malformed entity.
-
-This is the R1 regression. `useMapStore` is partialised
-(`partialize: { entities }`), so `temporal.undo()` rolls back
-`mapStore.entities` but leaves the FSM holding stale `drawPoints` /
-`dragPointIndex`. The next CONFIRM writes against a corrupted draft.
-
-### Fix (already shipped)
-
-`useActionDispatcher.ts` wraps undo/redo:
-
-```ts
-const historyWithCancel = (op: 'undo' | 'redo') => {
-  actorRef.send({ type: 'CANCEL' });
-  if (op === 'undo') useMapStore.temporal.getState().undo();
-  else useMapStore.temporal.getState().redo();
-};
-```
-
-CANCEL is safe in every state — draw → idle+resetDraw, selected →
-idle+deselect, editingPoint → selected, idle is a no-op.
-
-### Regression test
-
-`src/hooks/__tests__/undoCancel.test.ts` asserts the ordering. If
-you change the dispatcher's history wiring, run that test first.
-
-::: warning Don't bypass the dispatcher
-Calling `useMapStore.temporal.getState().undo()` directly from any
-new menu item / keyboard handler / IPC bridge defeats this fix. Route
-through the dispatcher's `execute('undo')` so CANCEL fires.
-:::
-
-## Recipe 6 — Inspector edit ignored
-
-Symptom: typing into the inspector form has no effect on the canvas.
-
-### Diagnosis ladder
-
-1. **License gate**: open the license banner. If the app is in any
-   non-editable state, edits short-circuit at `assertEditable()`.
-   Verify `LicenseState.canEdit === true`.
-2. **Watch diff returns early**: `simpleForms.tsx` patterns return
-   early when the new value equals the entity's current value. If
-   you accidentally normalise input (`Number(value)` → `0` from `''`),
-   the form thinks the value didn't change.
-3. **`updateEntity` not called**: instrument the form's
-   `methods.watch(...)` callback with a console log to confirm it
-   fires on input.
-4. **`updateEntity` returns null**: `mapStore.updateEntity` is a
-   no-op when the entity doesn't exist. Confirm the entity id from
-   the form matches `mapStore.entities`.
-
-## Recipe 7 — Tool button doesn't activate
-
-Symptom: clicking a ToolStrip tool selects it, but the cursor / FSM
-state doesn't reflect the new tool.
-
-### Diagnosis
-
-1. Open DevTools → Console and dispatch the action manually:
-   ```js
-   window.__dispatcher.execute('tool:drawPolyline');
-   ```
-   (Only available if you wired `__dispatcher` to `window` for
-   debugging — it's not in production.)
-2. Verify the action def in `definitions.ts` has `drawTool:
-'<state>'` matching a real FSM state name. Misspell `drawPolyline`
-   as `drawPolyLine` and the FSM silently ignores `SELECT_TOOL`.
-3. Verify the dispatcher's auto-handler loop:
-   ```ts
-   for (const action of ACTION_DEFS) {
-     if (action.drawTool) {
-       map.set(action.id, () => actorRef.send({ type: 'SELECT_TOOL', tool: action.drawTool }));
-     }
-   }
-   ```
-   If you replaced this with explicit `map.set` calls, you risk
-   missing newly-added tools.
-
-## Console / DevTools cheat sheet
+或运行时切换：
 
 ```js
-// 1. Inspect committed entities count
-useMapStore.getState().entities.size;
-
-// 2. Inspect FSM state
-__actorRef?.getSnapshot().value;
-
-// 3. Inspect FSM context
-__actorRef?.getSnapshot().context;
-
-// 4. Force a SYNC instead of INCREMENTAL (debug only)
-useColdLayer.__forceSync = true;
-
-// 5. Snapshot the cold layer GeoJSON
-JSON.stringify(map.getSource('cold')._data);
-
-// 6. Inspect license state
-useLicenseStore.getState();
+// DevTools console
+window.__map.showTileBoundaries = true;
+window.__map.showCollisionBoxes = true;
+window.__map.showOverdrawInspector = true;
 ```
 
-(Some of these helpers require a tiny `window.__actorRef = actorRef`
-patch in dev mode. Add and revert as needed.)
+`showOverdrawInspector` 红 = 重绘，亮红区域是性能罪魁。
 
-## Cross-references
+## 2. 看 mapStore
 
-- [/architecture/overview](../architecture/overview.md) — full pipeline diagram
-- [/architecture/state-management](../architecture/state-management.md) — store + FSM contracts
-- [/api/core](../api/core/) — worker bridge, FSM, hit-test APIs
-- [adding-a-worker](./adding-a-worker.md) — for tracing a new worker round-trip
-- [adding-a-new-drawing-tool](./adding-a-new-drawing-tool.md) — post-transition snapshot rule
+```js
+// DevTools console
+const s = window.__mapStore.getState();
+console.log('entity count:', s.entities.size);
+console.log(
+  'first lane:',
+  [...s.entities.values()].find((e) => e.entityType === 'lane'),
+);
+```
+
+::: tip 暴露 store 给 console
+`src/store/mapStore.ts` 在 `import.meta.env.DEV` 下挂到 `window.__mapStore`，
+production 自动剥离。
+:::
+
+### 验证 zundo 历史
+
+```js
+const tmp = window.__mapStore.temporal.getState();
+console.log('past:', tmp.pastStates.length, 'future:', tmp.futureStates.length);
+```
+
+`pastStates.length` 不增长 = 你的 mutation 没被记录（可能用了 `setState`
+而非 `produce`）。
+
+## 3. Worker 调试
+
+### Chrome DevTools
+
+DevTools → Sources → Threads 面板会列出 worker 线程。点进去能下断点、看
+console。
+
+### console 跨线程
+
+worker 里 `console.log` 出现在 worker 自己的 console group（顶部 dropdown
+切换）。看不到别忘了切线程。
+
+### postMessage 监控
+
+```js
+const original = window.__spatialWorker.postMessage.bind(window.__spatialWorker);
+window.__spatialWorker.postMessage = (msg) => {
+  console.log('TX', msg.type, msg);
+  original(msg);
+};
+window.__spatialWorker.addEventListener('message', (ev) =>
+  console.log('RX', ev.data.type, ev.data),
+);
+```
+
+::: warning 不要用 `JSON.stringify(msg)` 打长消息
+1k entity 的 SYNC 字符串化几兆，DevTools 直接卡死。打 `msg.type` 即可。
+:::
+
+### Worker 不响应
+
+按顺序排查：
+
+1. **Worker 加载失败？** Network 面板看 `*.worker.js` 状态。
+2. **Worker 抛异常？** `worker.onerror` 应该在 bridge 里日志化。
+3. **消息名拼错？** worker `onmessage` switch 里 default 加 warn。
+4. **死循环？** Performance 面板录制，worker thread 100% CPU = 死循环。
+
+## 4. MapLibre 内部状态
+
+```js
+// 当前所有 source
+window.__map.getStyle().sources;
+
+// cold source 的 GeoJSON
+window.__map.getSource('cold').serialize();
+
+// 当前所有 layer
+window.__map.getStyle().layers.map((l) => l.id);
+
+// 某个 lane 的 feature
+window.__map.querySourceFeatures('cold', { filter: ['==', 'id', 'lane_xxx'] });
+```
+
+### "feature 在 source 里但没渲染"
+
+99% 是 layer filter 不匹配。检查 `properties.kind` 拼写、layer 顺序
+（被遮盖）、`paint.fill-opacity` 是否为 0。
+
+### "缩放级别看不见"
+
+layer `minzoom` / `maxzoom` 限制。`window.__map.getZoom()` 看当前级别。
+
+## 5. FSM Inspector
+
+XState 5 提供了 `@statelyai/inspect`：
+
+```ts
+// src/core/fsm/editorMachine.ts
+import { createBrowserInspector } from '@statelyai/inspect';
+const { inspect } = createBrowserInspector({ autoStart: import.meta.env.DEV });
+
+export const editorActor = createActor(editorMachine, { inspect }).start();
+```
+
+打开 https://stately.ai/registry/inspect 即可看到实时 FSM transitions。
+
+### 命令行查看当前状态
+
+```js
+window.__editorActor.getSnapshot().value;
+window.__editorActor.getSnapshot().context;
+```
+
+## 6. Log Channels
+
+`browser DevTools console / worker protocol logs` 定义了分类日志：
+
+| Channel        | 用途                     |
+| -------------- | ------------------------ |
+| `FSM`          | FSM transitions          |
+| `WORKER_SYNC`  | spatial worker SYNC 时序 |
+| `KEY_BINDINGS` | 键盘事件匹配             |
+| `COLD_LAYER`   | cold source setData      |
+| `OVERLAP`      | overlap 推导             |
+| `IMPORT`       | apollo 导入解码          |
+| `EXPORT`       | apollo 导出编码          |
+
+启用：
+
+```js
+// DevTools console
+localStorage.setItem('log:channels', 'FSM,WORKER_SYNC,COLD_LAYER');
+location.reload();
+```
+
+或 URL 参数：`?log=FSM,WORKER_SYNC`。
+
+::: tip 默认全关
+production 全关 = 0 噪音。dev 也全关 = 最低开销。按需打开。
+:::
+
+## 7. Electron 调试
+
+```bash
+pnpm electron:dev
+```
+
+主进程：在终端里看 `console.log`。
+渲染进程：和 web 一样，DevTools `Cmd+Opt+I`（macOS）或 `Ctrl+Shift+I`。
+
+主进程加断点：
+
+```bash
+# 启动时
+electron --inspect=5858 .
+# Chrome 打开 chrome://inspect → Configure → 加 localhost:5858
+```
+
+## 8. 性能 profiling
+
+### 录帧
+
+DevTools → Performance → Record 5 秒，跑你的复现路径。
+
+关注：
+
+- **Main thread 长任务**（红条）—— 大于 16ms 必须修。
+- **Layout shift / forced reflow** —— 通常是 React + maplibre style 变更
+  顺序不对。
+- **Worker 线程**（最下方 swimlane）—— SYNC 时间不应阻塞主线程。
+
+### Vitest bench
+
+不复现卡顿但想看回归：
+
+```bash
+pnpm bench
+node scripts/check-bench-budget.mjs bench-results.json
+```
+
+详见 [基准测试](../contributing/benchmarking)。
+
+## 修改的文件 (Files modified)
+
+调试不直接改文件，但你可能需要：
+
+| 文件                                              | 改动               |
+| ------------------------------------------------- | ------------------ |
+| `vite.config.ts`                                  | 临时打开 sourcemap |
+| `src/components/map/MapCanvas.tsx`                | `debug: true`      |
+| `browser DevTools console / worker protocol logs` | 加新 channel       |
+
+## 常见症状速查
+
+| 症状                 | 第一步排查                             |
+| -------------------- | -------------------------------------- |
+| 实体没出现           | mapStore 数据 → cold source feature    |
+| 撤销后崩溃           | FSM 是否收到 CANCEL                    |
+| Pan 卡顿             | maplibre debug overdraw inspector      |
+| Worker 不响应        | Network 面板 + worker.onerror          |
+| 快捷键无效           | log channel `KEY_BINDINGS`             |
+| 导出 proto 字段空    | proto2 optional 是否显式 set           |
+| 导入后文本框为空     | inspector schema read adapter          |
+| FPS 在 1k 实体后骤降 | RAF 合并是否生效（看 worker 调用频率） |
+
+## 相关源码 (Source links)
+
+- [`browser DevTools console / worker protocol logs`](browser DevTools console / worker protocol logs)
+- [`src/store/mapStore.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/store/mapStore.ts) — `__mapStore` 全局挂载
+- [`src/components/map/MapCanvas.tsx`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/components/map/MapCanvas.tsx)
+- [Architecture: Cold Layer Pipeline](../architecture/cold-layer)
+
+::: danger 不要在 production 留 console.log
+ESLint 已经配 `no-console: warn (allow: warn,error)`。如果你必须 log
+生产线索，用 log channel + `localStorage` 控制开关。
+:::

@@ -1,24 +1,45 @@
+---
+title: LayerTree
+description: 基于 react-arborist 的 Apollo 实体层级树——按 Junction / Road / Section / Lane 关系拖放重 parenting，含可见性和锁定切换。
+---
+
 # LayerTree
 
-> Source: `src/components/layout/panels/LayerTree.tsx`, `src/components/layout/panels/LayerTree/{Node.tsx,treeBuilder.ts,types.ts,constants.ts}`
+> 源码：
+>
+> - `src/components/layout/panels/LayerTree.tsx`
+> - `src/components/layout/panels/LayerTree/Node.tsx`
+> - `src/components/layout/panels/LayerTree/treeBuilder.ts`
+> - `src/components/layout/panels/LayerTree/types.ts`
+> - `src/components/layout/panels/LayerTree/constants.ts`
 
-## Overview
+## 用途与 UX 角色
 
-`LayerTree` is the sidebar's hierarchical view of the map document.
-It uses [react-arborist](https://github.com/brimdata/react-arborist)
-to render a virtualized tree with drag-and-drop reparenting:
+`LayerTree` 是 Sidebar 的**结构编辑视图**（`activeTab === 'layers'`）。它使用 [`react-arborist`](https://github.com/brimdata/react-arborist) 渲染所有实体的虚拟化树形结构，并支持：
 
-- **Group** rows — top-level type buckets (Roads, Junctions, Lanes,
-  …). Visibility / lock toggles per group.
-- **Section** rows — each road's `RoadSection` lists its lanes.
-- **Entity** rows — actual entities, draggable. Hovered actions:
-  detach from parent, delete.
+- **拖放 reparent**：把 lane 拖入 Junction、把 lane 拖入 RoadSection、把 lane 拖回 unparented group。
+- **可见性切换**（眼睛图标）：基于 `uiStore.layerStates`，即时控制冷层渲染。
+- **锁定切换**（锁图标）：锁定后该层实体不可被画布交互选择。
+- **删除**（垃圾桶图标）：直接 `removeEntity(id)`。
+- **Detach 解除 parent**（链接图标）：`reparentEntity(id, { kind: 'none' })`。
+- **快速建 Road / RSU**：顶部 `+ Road` / `+ RSU` 按钮。
 
-The tree is built from `mapStore.entities` via
-`buildTree(entities)` and re-runs whenever the entity map reference
-changes.
+树构建逻辑由 `treeBuilder.ts` 提供，集中处理 lane 双隶属（要么属 Junction，要么属 Road×Section）以及 Apollo 17 类的分组顺序。
 
-## Component props
+## 组件组合树
+
+```mermaid
+flowchart TB
+  LT[LayerTree]
+  LT --> Toolbar[Toolbar: + Road / + RSU]
+  LT --> ArboristTree[<Tree> from react-arborist]
+  ArboristTree --> Node[Node renderer]
+  Node --> Group[Group: Roads / Junctions / Lanes / …]
+  Node --> Section[Section: roadId:sectionId]
+  Node --> Entity[Entity row \(name, icon, actions\)]
+```
+
+## Props 接口
 
 ```ts
 interface LayerTreeProps {
@@ -27,216 +48,162 @@ interface LayerTreeProps {
 }
 ```
 
-| Prop         | Source                                                        |
-| ------------ | ------------------------------------------------------------- |
-| `onSelect`   | Forwarded as `SELECT_ENTITY` to FSM via `SidebarPanelContent` |
-| `selectedId` | FSM `context.selectedEntityId`, drives row highlighting       |
+| Prop         | 类型                                 | 默认值      | 说明                                                                    |
+| ------------ | ------------------------------------ | ----------- | ----------------------------------------------------------------------- |
+| `onSelect`   | `(entityId: string \| null) => void` | `undefined` | 节点选择变化时回调。group / section 触发 `null`，entity 触发实体 id     |
+| `selectedId` | `string \| null`                     | `null`      | 外部当前选中实体 id，用于 react-arborist 的 controlled `selection` prop |
 
-## Behavior
+## 内部状态
 
-### Tree shape
+| 钩子                                 | 用途                                     |
+| ------------------------------------ | ---------------------------------------- |
+| `useMapStore(s.entities)`            | 订阅整个实体 Map                         |
+| `useMapStore(s.reparentEntity)`      | 调用 `reparentEntity(id, target)` 改父级 |
+| `useMapStore(s.addEntity)`           | `+ Road` / `+ RSU` 按钮                  |
+| `useRef<TreeApi<TreeNode>>`          | `treeRef` — react-arborist 命令式句柄    |
+| `useMemo(() => buildTree(entities))` | 把 entities 流式构建成 TreeNode 数组     |
 
-```
-Roads
-├─ road_1 (entity, expandable)
-│  ├─ Section sec_a   (drop target → roadSection)
-│  │  ├─ lane_x
-│  │  └─ lane_y
-│  └─ Section sec_b
-│     └─ lane_z
-Junctions
-├─ junction_1 (drop target → junction)
-│  ├─ lane_under_junction
-│  ├─ road_under_junction
-│  └─ rsu_under_junction
-Lanes
-└─ lane_unparented        ← orphan bucket
-RSUs
-└─ rsu_unparented
-Signals, Crosswalks, …
-```
+`useCallback` 包装的回调：`createRoad` / `createRSU` / `handleSelect` / `checkDisableDrop` / `handleMove`。
 
-The grouping rules:
+## 副作用
 
-- **Lanes** with a resolvable `junctionId` go under that junction.
-- **Lanes** that appear in any `RoadSection.laneIds` go under that
-  section.
-- **Lanes** that satisfy neither show under the top-level "Lanes"
-  group as orphans.
-- **Roads** with a resolvable `junctionId` go under that junction;
-  otherwise top-level "Roads".
-- **RSUs** with a resolvable `junctionId` go under that junction;
-  otherwise top-level "RSUs".
-- All other types live under their type group only.
+无 `useEffect`——所有动作均通过 react-arborist 的回调触发。
 
-### Drag and drop
+### `handleMove`
 
-```ts
-disableDrag={(node) => node.kind !== 'entity'}
-disableDrop={checkDisableDrop}
-onMove={handleMove}
-```
+接收 `dragNodes`（被拖节点）+ `parentNode`（目标）。流程：
 
-`checkDisableDrop` runs `canReparent(child, target, entities)` from
-`@/lib/entityOps`. Drop is blocked if:
+1. 取出被拖 entity id 和目标 `parentTarget`（`{ kind: 'junction' | 'road' | 'roadSection' | 'none', … }`）。
+2. 调用 `mapStore.reparentEntity(id, target)`。
+3. 该 store 方法委托 `entityOps.reparent` 做合法性验证和 proto 转换（见 [架构](/architecture/) 的 anti-corruption layer 说明）。
+4. 若返回 `{ rejected: '...' }`，控制台 warn——例如不能把 road 拖入 lane。
 
-- The drag node isn't an entity.
-- The target node has no `parentTarget` (groups for non-reparentable
-  types).
-- The reparent would create a cycle or violate type constraints.
+### `checkDisableDrop`
 
-`handleMove` dispatches `mapStore.reparentEntity(id, target)`. If the
-store rejects (e.g. mid-flight race condition), the rejection is
-logged.
+react-arborist 在拖动过程中调用此函数判定能否 drop。逻辑：
 
-### Top-level Road / RSU creation
+- 拖的不是 entity → disable
+- 没有目标父节点 → disable
+- 目标 `parentTarget` 不存在 → disable
+- 否则委托 `entityOps.canReparent(child, target, entities)`
 
-```tsx
-<button onClick={createRoad}>+ Road</button>
-<button onClick={createRSU}>+ RSU</button>
+`canReparent` 是抗腐蚀层中的合法性 oracle，集中处理 Apollo proto 关系约束。
+
+## treeBuilder 算法
+
+`buildTree(entities)` 按以下顺序：
+
+1. **预扫描**：分离 roads + junctions，构造 `laneSection` Map（lane id → 所属 RoadSection）。
+2. **主扫描**：每个 entity 选一个父桶（lane → junction / section / unparented；road → junction / unparented；rsu → 同 lane；其他 → group）。
+3. **顶层 group 排序**：按 `TOP_LEVEL_ORDER` 常量数组（17 类 Apollo 类型 + 6 类绘图原语，详见 `constants.ts:27-51`）。
+
+`TreeNode` 的 `parentTarget` 字段编码"如果 drop 在我这里，调用 `reparentEntity` 应当传什么 target"，是 `entityOps` 与 react-arborist 的接口。
+
+## Node 渲染（`Node.tsx`）
+
+每个节点 39px 行：
+
+```jsx
+<div ref={dragHandle} onClick={…} className={…}>
+  <Chevron />
+  <Icon /> {/* group: FaLayerGroup; section: §; entity: emoji */}
+  <span>{name}</span>
+  {(group||section) && <span>{children.length}</span>}
+  <ActionButtons /> {/* 悬停可见 */}
+</div>
 ```
 
-Both buttons allocate an id via `nextEntityId(...)` and call
-`addEntity(...)`. New roads come with one empty section so the user
-can immediately drag lanes into it.
+- **Group 上**：眼睛 / 锁两个按钮，绑定 `useUIStore.toggleLayerVisible(groupKey)` / `toggleLayerLocked(groupKey)`。
+- **Entity 上**：链接（detach）+ 垃圾桶（delete）。
+- 选中态用 `bg-cyan-500/15`；隐藏 group 用 `opacity-50`；接收 drop 时 `bg-cyan-500/10 ring-1 ring-cyan-500/30`。
 
-### Inline visibility / lock
+## 渲染骨架
 
-Per-group, the user can toggle:
-
-- **Visibility** — `uiStore.toggleLayerVisible(entityType)`. The cold
-  layer reads `layerStates[type].visible` to filter features.
-- **Lock** — `uiStore.toggleLayerLocked(entityType)`. Locked layers
-  cannot be hit-tested or selected; the canvas event router filters
-  them.
-
-These actions only render on group rows (entity rows show detach +
-delete instead).
-
-## LayerTree/Node.tsx
-
-Each tree row uses the `Node` component. It renders:
-
-1. A chevron for internal nodes (rotates open).
-2. An icon — `FaLayerGroup` for groups, `§` for sections, or the
-   per-type emoji from `entityIcon(...)`.
-3. The display name (truncated id for entities).
-4. Child count for groups / sections.
-5. Hover-revealed action buttons (visibility/lock for groups,
-   detach/delete for entities).
-
-Drag handle uses `dragHandle` from react-arborist's NodeRendererProps.
-Selection state is internal to react-arborist; clicking either
-toggles open (internal) or selects (leaf).
-
-## LayerTree/treeBuilder.ts
-
-```ts
-export function buildTree(entities: ReadonlyMap<string, MapEntity>): TreeNode[];
+```jsx
+<div className="h-full flex flex-col">
+  <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
+    <button onClick={createRoad}><FaPlus />Road</button>
+    <button onClick={createRSU}><FaPlus />RSU</button>
+  </div>
+  {treeData.length === 0 ? <Empty /> : (
+    <Tree<TreeNode> ref={treeRef} data={treeData} … >{Node}</Tree>
+  )}
+</div>
 ```
 
-Pure function. Two-pass build:
+## 性能注释
 
-1. **Pass 1** — collect roads + junctions; precompute the
-   `lane → {roadId, sectionId}` lookup.
-2. **Pass 2** — walk every entity once, decide its parent bucket via
-   the rules above, and push it into the appropriate
-   `Map<key, TreeNode[]>`.
+- **`buildTree` 是 O(N)** + 几次 Map 操作；N ≤ 1e4 时 < 1ms。
+- **react-arborist 虚拟化**：`overscanCount=10`、`rowHeight=26`，无论树多大都只渲染可见行 + buffer。
+- **drag over 频繁触发 `checkDisableDrop`**：`canReparent` 必须保持 O(1)~O(K) 复杂度——它已基于 Map / Set 查询实现。
+- **selection prop 是 controlled**：传入 `entity:${selectedId}` 字符串，避免内部状态不一致。
 
-Then assemble groups in `TOP_LEVEL_ORDER`, falling through to any
-remaining keys for forward compatibility.
+## 已知约束
 
-```ts
-function dropKindForGroup(entityType: string): DropKind {
-  if (entityType === 'lane' || entityType === 'rsu' || entityType === 'road') return 'unparented';
-  return 'none';
-}
+- `Tree` 的 `height={600}` 是硬编码常数——目前不响应容器高度变化。如果 Sidebar 拖动调整高度，会出现内部滚动条而不是面板滚动条。修复需要 `ResizeObserver`。
+- 创建的 `Road` 默认包含一个空 RoadSection；用户必须手动把 lane 拖进去才完成 assign。
 
-function parentTargetForGroup(entityType: string): ParentTarget | undefined {
-  if (entityType === 'lane' || entityType === 'rsu' || entityType === 'road') {
-    return { kind: 'none' };
-  }
-  return undefined;
-}
-```
+## 源码索引
 
-Lane / RSU / Road groups can receive drops with target `{ kind: 'none' }`,
-which is interpreted by `entityOps.reparentEntity` as "remove from
-current parent".
+| 关注点                        | 文件位置                             |
+| ----------------------------- | ------------------------------------ |
+| 主组件                        | `LayerTree.tsx:17-142`               |
+| `+ Road` / `+ RSU` 创建       | `LayerTree.tsx:25-48`                |
+| `handleSelect`                | `LayerTree.tsx:50-60`                |
+| `checkDisableDrop`            | `LayerTree.tsx:62-77`                |
+| `handleMove`                  | `LayerTree.tsx:79-97`                |
+| Node 渲染器                   | `LayerTree/Node.tsx`（整文件）       |
+| 树构建器                      | `LayerTree/treeBuilder.ts`（整文件） |
+| TYPE_LABELS / TOP_LEVEL_ORDER | `LayerTree/constants.ts`             |
+| `TreeNode` / `DropKind`       | `LayerTree/types.ts`                 |
+| `entityOps.canReparent`       | `src/lib/entityOps.ts`               |
 
-## LayerTree/types.ts
+## 跨页参考
 
-```ts
-export type DropKind = 'junction' | 'road' | 'roadSection' | 'unparented' | 'none';
+- [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → LayerTree（`activeTab='layers'`）
+- [`mapStore.reparentEntity`](/api/store/store-map)
+- [`entityOps`](/api/lib) — proto 抗腐蚀层入口
+- [架构](/architecture/) — Anti-corruption layer
+- [InspectorForms](./inspector-forms.md) — 选中实体后的细节编辑
 
-export interface TreeNode {
-  id: string; // 'group:lane', 'section:road1:secA', 'entity:lane_42'
-  name: string;
-  kind: 'group' | 'section' | 'entity';
-  entityType?: string;
-  entityId?: string;
-  parentTarget?: ParentTarget;
-  dropKind: DropKind;
-  children?: TreeNode[];
-}
-```
+## 英文镜像
 
-The `id` field uses prefixes (`group:`, `section:`, `entity:`) so
-react-arborist's keyed lookups don't collide between buckets.
+[/en/api/components/layer-tree](/en/api/components/layer-tree)
 
-## LayerTree/constants.ts
+## 与其他组件的协作
 
-```ts
-export const TYPE_LABELS: Record<string, string>; // 'lane' → 'Lanes'
-export const TOP_LEVEL_ORDER: readonly string[]; // canonical group order
-export function entityIcon(entityType: string): string;
-export function entityDisplayId(id: string): string; // truncated id
-```
+本组件位于 [WorkspaceLayout](./workspace-layout.md) 装配的 React 树中——大部分协作通过 store / context 完成，少量通过 props 直接传递。下表枚举可观察到的耦合点：
 
-`TOP_LEVEL_ORDER` is the source of truth for which type group renders
-first (Roads → Junctions → Lanes → Signals → …). Adding a new entity
-type means appending to this list and to `TYPE_LABELS` /
-`ENTITY_GLYPH`.
+| 组件                                     | 协作方式                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------- |
+| [WorkspaceLayout](./workspace-layout.md) | 直接 mount 并/或注入 `actorRef` / 调度 callback                     |
+| [MapCanvas](./map-canvas.md)             | 通过 `mapStore.entities` 间接联动（修改后冷层 round-trip 重渲染）   |
+| [LayerTree](./layer-tree.md)             | 通过 `mapStore` 共享实体状态                                        |
+| [InspectorForms](./inspector-forms.md)   | 通过 `editorMachine.context.selectedEntityId` 同步选中实体          |
+| [Action Registry](/api/core)             | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
 
-`entityIcon` returns an emoji glyph per type — fast and recognizable
-without an icon font dependency. Falls back to `📄` for unknown
-types.
+::: tip 维护建议
+当组件之间需要**直接 prop 传递**时，先问自己：能不能改放到 store？如果该数据被 ≥3 个组件读取，store 通常更合适；2 个之间则 props 更轻量。
+:::
 
-`entityDisplayId(id)` truncates to last 12 chars if longer than 16,
-prefixed with `…`. Long Apollo ids stay readable without wrapping.
+## 设计 Token 与样式约定
 
-## Examples
+本组件遵循 [架构](/architecture/) "Design tokens" 章节的命名约定：
 
-### Mounting
+- 背景：`bg-ams-bg-base` / `bg-ams-surface-active` / `bg-ams-surface-hover`
+- 文字：`text-ams-text-primary` / `text-ams-text-secondary` / `text-ams-text-muted` / `text-ams-text-disabled`
+- 边界：`border-ams-border-subtle` / `border-ams-border-strong`
+- 强调：`text-ams-accent` / `bg-ams-accent`
 
-```tsx
-<LayerTree onSelect={handleSelect} selectedId={selectedId} />
-```
+新增样式应优先复用以上 token。如果当前 token 不能精确表达意图，再扩展 `src/index.css` 的 `@theme` 块。
 
-`handleSelect(id)` dispatches `SELECT_ENTITY` to the FSM, which is the
-same path canvas clicks use.
+## 测试策略
 
-### Adding a new entity type
+| 测试类型                | 关注点                                                         |
+| ----------------------- | -------------------------------------------------------------- |
+| 单元（vitest）          | Pure 函数、reducer、derived selector                           |
+| 组件（testing-library） | props → render output、用户交互 → 回调触发                     |
+| 集成                    | 与 store 协同（mock 全局 store） / 与 actor 协同（mock actor） |
+| E2E（Playwright）       | 跨组件流程（draw → undo → redo / import → 编辑 → export）      |
 
-1. Append to `TOP_LEVEL_ORDER` and `TYPE_LABELS`.
-2. Add an emoji to `ENTITY_GLYPH`.
-3. If the type allows reparenting, extend
-   `dropKindForGroup` / `parentTargetForGroup` and update
-   `entityOps.canReparent`.
-
-### Inspecting the tree
-
-```ts
-import { buildTree } from '@/components/layout/panels/LayerTree/treeBuilder';
-
-const tree = buildTree(useMapStore.getState().entities);
-console.log(JSON.stringify(tree, null, 2));
-```
-
-## Related
-
-- [react-arborist](https://github.com/brimdata/react-arborist)
-- [entityOps reparent](/api/lib/entity-ops) — `canReparent`, `reparentEntity`
-- [mapStore.reparentEntity](/api/store/store-map)
-- [uiStore.layerStates](/api/store/store-ui) — visibility/lock state
-- [SidebarPanel](/api/components/map-outline)
+测试文件遵循 `__tests__/{component}.test.tsx` 命名约定，与组件同级。

@@ -1,93 +1,115 @@
-# import / Apollo base_map
+---
+title: Import / Apollo Base Map
+description: src/io/mapIO.ts pickAndImportApollo — Apollo .bin / .pb.txt 全流程导入
+---
 
-当前导入入口是 `src/io/mapIO.ts` 的 `pickAndImportApollo()`，不是旧版 `parseBaseMap()`。
+# Import / Apollo Base Map
 
-```ts
-export async function pickAndImportApollo(): Promise<ApolloMapImportInfo | null>;
-```
+> 编辑器**没有**单独的 `parseBaseMap()` 函数。当前导入入口是
+> `src/io/mapIO.ts` 的 `pickAndImportApollo`，会通过 `apolloIOBridge`
+> 把解码、投影、entity 桥接、reconcile 全程派到 worker 里。
 
-## Main Thread
-
-流程：
-
-1. `pickFile('.bin,.txt,.pb.txt,application/octet-stream,text/plain')`。
-2. `readFileAsBytes(file)` 读成 `Uint8Array`。
-3. 文件名匹配 `.(pb.txt|txt)` 时走 `apolloIOBridge.importText()`，否则走 `importBin()`。
-4. 用 task id `apollo-import` 展示 progress。
-5. 成功后：
-   - `useApolloMapStore.getState().setImported(result.info, result.bounds, result.header)`
-   - `useMapStore.getState().replaceImportedEntities(result.entities)`
-6. 失败时写入 `Import failed: ...` 并返回 `null`。
-
-## Worker Protocol
+## 公开符号
 
 ```ts
-type ApolloIORequest =
-  | { type: 'IMPORT_BIN'; requestId: string; filename: string; bytes: Uint8Array }
-  | { type: 'IMPORT_TEXT'; requestId: string; filename: string; bytes: Uint8Array }
-  | { type: 'RESOLVE_PROJECTION'; requestId: string; projString: string };
-```
+// src/io/mapIO.ts
+export function pickAndImportApollo(): Promise<ApolloMapImportInfo | null>;
 
-导入响应包括：
-
-- `PROGRESS`
-- `NEEDS_PROJECTION`
-- `IMPORT_ENTITIES_CHUNK`
-- `IMPORT_RESULT`
-- `ERROR`
-
-实体按 2000 个一块返回。`ApolloIOBridge` 为请求设置 10 分钟超时。
-
-## Worker Pipeline
-
-`runImport()` 的真实步骤：
-
-1. 解码。
-   - bin：`decodeMapBin(bytes)`。
-   - text：`decodeMapText(TEXT_DECODER.decode(bytes))`。
-2. 读取 `header.projection.proj`。
-   - `readHeaderProjString()` 支持 string、`Uint8Array`、number array。
-   - 缺失时发送 `NEEDS_PROJECTION`，主线程用户取消则 fallback 到 `UTM_PRESETS.beijing`。
-3. 投影到 lon/lat。
-   - `apolloMapToLonLat(decodedEnu, projString)` 递归转换所有 schema 类型为 `apollo.common.PointENU` 的点。
-   - 导入后的编辑器约定：`PointENU.x = longitude`，`PointENU.y = latitude`。
-4. 缓存 lon/lat raw map。
-   - `cachedRawLonLatMap = lonLatMap`。
-   - 当前导出依赖这份导入底稿。
-5. bridge 到 `MapEntity[]`。
-   - `apolloMapToEntities(lonLatMap)`。
-6. 计算 bounds。
-   - `computeApolloMapBounds(lonLatMap)`。
-7. 重算拓扑与 overlap。
-   - `reconcileLaneTopology(entityMap)`。
-   - `reconcileOverlaps(entityMap, { mode: 'full' }, new SpatialIndex())`。
-8. 分块发送实体，再发送 `IMPORT_RESULT`。
-
-## Result
-
-```ts
-interface ApolloImportWorkerResult {
-  info: ApolloMapImportInfo;
-  header: ApolloMapHeader | null;
-  bounds: ApolloMapBounds | null;
-  entities: MapEntity[];
-  stats: ApolloImportStats;
+// src/store/apolloMapStore.ts
+export interface ApolloMapImportInfo {
+  filename: string;
+  counts: Record<string, number>;
+  projString: string;
+  importedAt: number;
 }
 ```
 
-`info` 包含文件名、顶层数组浅计数、实际使用的清洗后 PROJ 字符串和导入时间。`stats` 包含 `decodeMs`、`projectMs`、`bridgeMs`、`topologyMs`、`overlapMs`、`totalMs`。
+返回 `null` 表示用户取消文件对话框；导入失败也返回 `null`，错误
+通过 `apolloMapStore.setError` 记录。
 
-## Boundaries
+> Source: `src/io/mapIO.ts:54-73`
 
-- 文件内容不做魔数检查，后缀只决定 text/bin 解码器。
-- text proto 未知字段跳过，已知字段类型错误抛异常。
-- raw entity 缺失 id 时对应 bridge 返回 `null` 并跳过。
-- `z` 坐标投影时原样保留。
-- 导入后 overlap 会被当前几何规则重算，源 overlap id 顺序不作为保真目标。
+## 完整流程
 
-## Tests
+```mermaid
+sequenceDiagram
+  participant UI as MenuBar / Command Palette
+  participant mapIO as src/io/mapIO.ts
+  participant fileIO as src/io/fileIO.ts
+  participant Bridge as apolloIOBridge
+  participant Worker as apolloIO.worker
+  participant Adapter as proto/adapter.ts
+  participant EntityBridge as proto/entityBridge
+  participant Topology as core/geometry/laneTopology
+  participant Overlap as core/elements/overlap
+  participant Store as mapStore + apolloMapStore
 
-- `src/io/__tests__/endToEnd.test.ts`：fixture 导入、投影、bridge、bin/text 再编码。
-- `src/io/proto/__tests__/projection.test.ts`：投影清洗与往返。
-- `src/io/proto/__tests__/mapDataPerformance.test.ts`：真实 map_data 性能阶段。
-- `curveFidelity`、`subsignalFidelity`、`overlapFidelity`：关键结构保真。
+  UI->>mapIO: pickAndImportApollo()
+  mapIO->>fileIO: pickFile('.bin,.txt,.pb.txt,...')
+  fileIO-->>mapIO: File | null
+  alt cancelled
+    mapIO-->>UI: null
+  else file selected
+    mapIO->>fileIO: readFileAsBytes(file)
+    fileIO-->>mapIO: Uint8Array
+    mapIO->>mapIO: beginTask('apollo-import')
+    alt .pb.txt or .txt
+      mapIO->>Bridge: importText(filename, bytes, onProgress)
+    else .bin
+      mapIO->>Bridge: importBin(filename, bytes, onProgress)
+    end
+    Bridge->>Worker: IMPORT_BIN / IMPORT_TEXT
+    Worker->>Worker: decodeMapBin / decodeMapText
+    Worker->>Adapter: readHeaderProjString(map)
+    alt header missing projString
+      Worker->>Bridge: NEEDS_PROJECTION
+      Bridge->>UI: useProjDialogStore.request()
+      UI-->>Bridge: chosen PROJ string (or null → fallback)
+      Bridge->>Worker: RESOLVE_PROJECTION
+    end
+    Worker->>Adapter: apolloMapToLonLat(map, projString)
+    Worker->>EntityBridge: apolloMapToEntities(lonLatMap)
+    Worker->>Topology: reconcileLaneTopology(entityMap)
+    Worker->>Overlap: reconcileOverlaps(entityMap, { mode: 'full' })
+    Worker-->>Bridge: IMPORT_ENTITIES_CHUNK × N
+    Worker-->>Bridge: IMPORT_RESULT { info, header, bounds, stats }
+    Bridge-->>mapIO: ApolloImportWorkerResult
+    mapIO->>Store: useApolloMapStore.setImported(info, bounds, header)
+    mapIO->>Store: useMapStore.replaceImportedEntities(entities)
+    mapIO->>mapIO: endTask('apollo-import')
+    mapIO-->>UI: ApolloMapImportInfo
+  end
+```
+
+## `ApolloImportStats`
+
+worker 上报的子阶段时长：
+
+| 字段         | 含义                                       |
+| ------------ | ------------------------------------------ |
+| `decodeMs`   | protobuf decode 时间                       |
+| `projectMs`  | UTM ENU → WGS84 投影时间                   |
+| `bridgeMs`   | `apolloMapToEntities` 时间                 |
+| `topologyMs` | `reconcileLaneTopology` 时间（full 模式）  |
+| `overlapMs`  | `reconcileOverlaps({ mode: 'full' })` 时间 |
+| `totalMs`    | runImport 总时间                           |
+
+5 万实体规模的实测约 1.5–2.5s，主线程不被阻塞。
+
+## 投影对话框
+
+`Header.projection.proj` 缺失时，worker 主动发 `NEEDS_PROJECTION`：
+
+- `apolloIOBridge` 拿到后通过 `useProjDialogStore.request()` 弹出
+  Projection 选择器（包含 sunnyvale / beijing / shanghai / shenzhen
+  presets，以及自定义 PROJ.4 字符串输入）；
+- 用户选择 → `RESOLVE_PROJECTION`；
+- 用户取消 → 默认 `UTM_PRESETS.beijing`（fallback）。
+
+## 异常处理
+
+- 文件选择取消 → 返回 `null`，不弹错误；
+- decode 失败 / verify 失败 → worker 发 `ERROR`，bridge reject，
+  `mapIO` catch → `setError('Import failed: ${msg}')`；
+- 超时 → bridge 内部 `DEFAULT_TIMEOUT_MS = 10 * 60_000`（10 分钟），
+  超过则 reject。

@@ -1,25 +1,33 @@
-# Store / UI、Action 与面板 API
+---
+title: Store / UI
+description: src/store/uiStore.ts — drawing/scene 模式、grid/snap、layer 显隐、connect 模式、cursor / zoom 等瞬时 UI 状态
+---
 
-`src/store/uiStore.ts` 是 Apollo Map Studio 的瞬时 UI 状态层。它不持久化、不接入 zundo，也不保存地图实体。地图实体见 `docs/api/store-map.md`；本文覆盖当前 UI store、settings store、Action Registry、Action Dispatcher、侧边栏面板、Inspector 和 renderer 侧授权 UI。
+# Store / UI
 
-## UI Store 边界
+`src/store/uiStore.ts` 是 Apollo Map Studio 的瞬时 UI 状态层。它不持久化、
+不接入 zundo，也不保存地图实体。地图实体见
+[Store / Map](/api/store-map)。本节列出 `uiStore` 的全部状态字段、actions、
+布尔不变量与典型使用模式。
 
-- `uiStore` 保存模式、网格、吸附、图层显隐/锁定、鼠标经纬度、zoom、侧边栏、当前吸附目标和 lane 连接模式。
-- 选择状态不在 `uiStore`，而在编辑 FSM context，例如 `selectedEntityId`。
-- Settings 在 `settingsStore`，写 localStorage。
-- License 在 `licenseStore`，通过 Electron preload bridge 同步主进程状态。
-- UI 状态不可 undo/redo；zundo 只覆盖 `mapStore.entities`。
-
-## UI State
+## 类型签名
 
 ```ts
+import { create } from 'zustand';
+import type { SnapTarget } from '@/core/geometry/snap';
+
 export type AppMode = 'drawing' | 'scene';
+
+interface LayerState {
+  visible: boolean;
+  locked: boolean;
+}
 
 interface UIState {
   appMode: AppMode;
   gridEnabled: boolean;
   snapEnabled: boolean;
-  layerStates: Record<string, { visible: boolean; locked: boolean }>;
+  layerStates: Record<string, LayerState>;
   cursorLngLat: [number, number] | null;
   currentZoom: number;
   sidebarVisible: boolean;
@@ -29,334 +37,148 @@ interface UIState {
     firstLaneId: string | null;
   };
 }
-```
 
-初始值：
-
-| 字段                | 初始值    | 说明                  |
-| ------------------- | --------- | --------------------- |
-| `appMode`           | `drawing` | 默认绘图/编辑模式     |
-| `gridEnabled`       | `true`    | 默认显示网格          |
-| `snapEnabled`       | `false`   | 默认关闭吸附          |
-| `cursorLngLat`      | `null`    | 鼠标经纬度            |
-| `currentZoom`       | `18`      | 当前 zoom             |
-| `sidebarVisible`    | `true`    | 左侧栏默认打开        |
-| `currentSnapTarget` | `null`    | 绘制/拖拽实时吸附目标 |
-| `connectMode`       | inactive  | lane 两步连接模式     |
-
-默认注册图层类型：
-
-```text
-lane, junction, parkingSpace, signal, crosswalk, stopSign, speedBump,
-polyline, catmullRom, bezier, arc, rect, polygon
-```
-
-未注册 type 读取时回退 `visible=true`、`locked=false`，避免新实体类型因缺少 UI 配置而默认不可见。
-
-## UI Actions
-
-```ts
-setAppMode(mode: AppMode): void;
-toggleAppMode(): void;
-toggleGrid(): void;
-toggleSnap(): void;
-setLayerVisible(type: string, visible: boolean): void;
-setLayerLocked(type: string, locked: boolean): void;
-toggleLayerVisible(type: string): void;
-toggleLayerLocked(type: string): void;
-isLayerVisible(type: string): boolean;
-isLayerLocked(type: string): boolean;
-setCursorLngLat(pos: [number, number] | null): void;
-setCurrentZoom(zoom: number): void;
-toggleSidebar(): void;
-setSnapTarget(target: SnapTarget | null): void;
-toggleConnectMode(): void;
-exitConnectMode(): void;
-setConnectFirstLane(id: string | null): void;
-```
-
-实现要点：
-
-- layer 写入通过 `patchLayer()` 返回新对象，保证 React selector 能感知变化。
-- `setSnapTarget()` 有同值去重，避免鼠标移动时 overlay 高频重渲染。
-- `toggleConnectMode()` 关闭时会清空 `firstLaneId`。
-- `exitConnectMode()` 用于 ESC、Default Mode 或第二次 lane 点击提交后强制退出。
-
-## Settings Store
-
-`src/store/settingsStore.ts` 持久化全局设置，localStorage key 都以 `apollo-map-studio:` 开头。
-
-```ts
-interface SettingsState {
-  historyLimit: number; // default 100, range 10-1000
-  mapCenterLng: number; // default 116.4
-  mapCenterLat: number; // default 39.9
-  mapZoom: number; // default 18, range 1-22
-  laneHalfWidth: number; // default 1.75, range 0.5-10
-  laneArrowSpacing: number; // default 160, range 40-500
+interface UIActions {
+  setAppMode(mode: AppMode): void;
+  toggleAppMode(): void;
+  toggleGrid(): void;
+  toggleSnap(): void;
+  setLayerVisible(type: string, visible: boolean): void;
+  setLayerLocked(type: string, locked: boolean): void;
+  toggleLayerVisible(type: string): void;
+  toggleLayerLocked(type: string): void;
+  isLayerVisible(type: string): boolean;
+  isLayerLocked(type: string): boolean;
+  setCursorLngLat(pos: [number, number] | null): void;
+  setCurrentZoom(zoom: number): void;
+  toggleSidebar(): void;
+  setSnapTarget(target: SnapTarget | null): void;
+  toggleConnectMode(): void;
+  exitConnectMode(): void;
+  setConnectFirstLane(id: string | null): void;
 }
+
+type UIStore = UIState & UIActions;
+
+export const useUIStore: import('zustand').UseBoundStore<UIStore>;
 ```
 
-setter 会 clamp 并持久化：
+> Source: `src/store/uiStore.ts:29-202`
 
-- `setHistoryLimit()`：四舍五入，10-1000。
-- `setMapCenter()`：经度 -180 到 180，纬度 -90 到 90。
-- `setMapZoom()`：1-22，允许小数。
-- `setLaneHalfWidth()`：0.5-10。
-- `setLaneArrowSpacing()`：四舍五入，40-500。
+## State 字段
 
-导出读取函数：`readHistoryLimit()`、`readMapCenter()`、`readMapZoom()`、`readLaneHalfWidth()`、`readLaneArrowSpacing()`。这些函数供 Map 初始化或 store 初始化在 React effect 外读取。
+| 字段                | 类型                                      | 默认值                                  | 说明                             |
+| ------------------- | ----------------------------------------- | --------------------------------------- | -------------------------------- |
+| `appMode`           | `'drawing' \| 'scene'`                    | `'drawing'`                             | 顶层模式切换；只读视图也走 scene |
+| `gridEnabled`       | `boolean`                                 | `true`                                  | 网格层是否绘制                   |
+| `snapEnabled`       | `boolean`                                 | `false`                                 | 顶点/边吸附是否生效              |
+| `layerStates`       | `Record<entityType, { visible, locked }>` | 全部 `{ visible: true, locked: false }` | 13 种实体类型的可见性与锁状态    |
+| `cursorLngLat`      | `[lng, lat] \| null`                      | `null`                                  | 鼠标当前经纬度（footer 显示用）  |
+| `currentZoom`       | `number`                                  | `18`                                    | maplibre 当前 zoom level         |
+| `sidebarVisible`    | `boolean`                                 | `true`                                  | 左侧面板可见                     |
+| `currentSnapTarget` | `SnapTarget \| null`                      | `null`                                  | 实时吸附目标（drawing/dragging） |
+| `connectMode`       | `{ active, firstLaneId }`                 | `{ active: false, firstLaneId: null }`  | 「连接两条 lane」临时模式状态    |
 
-风险点：`mapStore` 的 zundo limit 在 store 创建时读取 `readHistoryLimit()`。SettingsPanel 修改 history limit 后，当前 temporal store 不会自动重建，通常需要 reload 才完整生效。
+`ENTITY_TYPES` 数组定义了 layerStates 的初始 keys：`lane`、`junction`、
+`parkingSpace`、`signal`、`crosswalk`、`stopSign`、`speedBump`、`polyline`、
+`catmullRom`、`bezier`、`arc`、`rect`、`polygon`。
 
-## Action Registry
+## Actions
 
-动作定义在 `src/core/actions/registry/*`。
+### App mode
 
 ```ts
-export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
-export type ToolStripSlot = 'selection' | 'view';
-
-interface ActionDef {
-  id: ActionId;
-  label: string;
-  category: ActionCategory;
-  shortcut?: string;
-  keybinding?: KeyBinding;
-  icon?: IconType;
-  inCommandPalette: boolean;
-  menu?: string;
-  menuOrder?: number;
-  isToggle?: boolean;
-  drawTool?: DrawTool;
-  uiSlot?: ToolStripSlot;
-  uiOrder?: number;
-}
+setAppMode(mode: AppMode): void
+toggleAppMode(): void  // drawing ↔ scene
 ```
 
-当前 ActionId：
-
-```text
-importApollo, exportApolloBin, exportApolloText, settings,
-undo, redo, delete, toggleGrid, toggleSnap, resetLayout, commandPalette,
-defaultMode, connectLanes,
-tool:drawPolyline, tool:drawBezier, tool:drawArc, tool:drawRotatedRect,
-tool:drawPolygon, tool:drawCatmullRom
-```
-
-helper：
-
-- `ACTION_MAP`
-- `getActionsByCategory(category)`
-- `getMenuActions(menu)`：按 `menuOrder` 排序。
-- `getMenuNames()`
-- `getCommandPaletteActions()`
-- `getKeyBindingActions()`
-- `getToolAction(drawTool)`
-- `getToolStripSlotActions(slot)`：按 `uiOrder` 排序。
-- `matchesKeybinding(e, kb)`：大小写不敏感，Ctrl 和 Meta 等价。
-- `formatShortcut(shortcut)`：Mac 保留 glyph，非 Mac 转为 `Ctrl+` / `Shift+` / `Alt+`。
-
-快捷键规则：
+### Grid / Snap
 
 ```ts
-interface KeyBinding {
-  key: string;
-  ctrl?: boolean;
-  shift?: boolean;
-  alt?: boolean;
-  global?: boolean;
-}
+toggleGrid(): void
+toggleSnap(): void
 ```
 
-未声明的 modifier 不能被按下。输入控件中，只有 `global=true` 的快捷键继续生效。
+`gridEnabled` 由 `useGridLayer` 订阅，`snapEnabled` 由 `mapEventRouter` 检查。
 
-## Action Dispatcher
-
-`src/hooks/useActionDispatcher.ts` 把 registry 接到真实副作用。
+### Layer 可见性 / 锁
 
 ```ts
-interface ActionDispatcher {
-  execute(actionId: ActionId): void;
-  getToggleState(actionId: ActionId): boolean;
-  actions: ActionDef[];
-}
+setLayerVisible(type: string, visible: boolean): void
+setLayerLocked(type: string, locked: boolean): void
+toggleLayerVisible(type: string): void
+toggleLayerLocked(type: string): void
+isLayerVisible(type: string): boolean   // 读取，未注册类型默认 true
+isLayerLocked(type: string): boolean    // 读取，未注册类型默认 false
 ```
 
-handler 映射：
+未在 `layerStates` 注册的 `type`（例如 Apollo 6.0 新增的实体类型）
+默认 `visible: true / locked: false`，避免新增类型默认隐形。
 
-- File：`pickAndImportApollo()`、`exportApolloBin()`、`exportApolloText()`、打开 Settings。
-- Edit：undo/redo、删除、connect lanes。
-- View：toggle grid/snap、reset layout、command palette。
-- Selection：Default Mode 发送 `CANCEL` 和 `RESET`，并退出 connect mode。
-- Tools：所有带 `drawTool` 的 action 自动映射为 `SELECT_TOOL`。
-
-undo/redo 必须先：
+### Viewport
 
 ```ts
-actorRef.send({ type: 'CANCEL' });
+setCursorLngLat(pos: [number, number] | null): void
+setCurrentZoom(zoom: number): void
 ```
 
-再调用 `useMapStore.temporal.getState().undo/redo()`，避免实体回滚后 FSM 继续持有旧 draw/drag 上下文。
+由 `useMapEventRouter` 在 `mousemove` / `zoom` 事件里调用。
 
-授权拦截：
-
-- `category === 'edit' | 'tool' | 'selection'` 需要编辑权限。
-- `connectLanes` 需要编辑权限。
-- `execute()` 在 handler 前调用 `assertEditable(actionId)`。
-
-当前实现中 undo/redo 也属于 edit，因此只读状态下会被拦截，防止通过历史回滚改变文档。
-
-## Command Palette
-
-`CommandPalette` 使用 `cmdk`，动作来自 `getCommandPaletteActions()`。
-
-输入：
+### Sidebar
 
 ```ts
-interface CommandPaletteProps {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-  onExecute(actionId: ActionId): void;
-  getToggleState?(actionId: ActionId): boolean;
-}
+toggleSidebar(): void
 ```
 
-行为：
-
-- 按 action category 分组。
-- 执行动作后关闭并清空搜索。
-- toggle action 显示选中标记。
-- shortcut 通过 `formatShortcut()` 平台化显示。
-- 组件内部监听 Ctrl/Cmd+K 和 Escape；全局 dispatcher 也有 `commandPalette` action，调用方应保证 open state 单一。
-
-## 侧边栏面板
-
-`SidebarPanelContent` 是左侧 Dockview panel 容器。当前 tab 来自 `SidebarContext`：
-
-- `explorer` -> `MapOutline`
-- `layers` -> `LayerTree`
-- `search` -> `SearchPanel`
-- `timeline` -> `TimelinePanel`
-- `settings` -> 打开 Settings modal，然后回到 `explorer`
-
-### MapOutline
-
-只读结构概览：
-
-- `entities.size` 总数。
-- Apollo 顶层类型计数。
-- Drawing primitives 计数。
-- Health：unparented lanes、dangling junction refs。
-- 底部显示 `MapMetadataForm`，读取导入 Apollo header。
-
-### LayerTree
-
-使用 `react-arborist` 和 `buildTree(entities)`：
-
-- 点击实体节点调用 `onSelect(entityId)`，由容器发送 FSM `SELECT_ENTITY`。
-- 可新建 Road 和 RSU。
-- 拖拽前用 `canReparent()` 判断 drop 是否允许。
-- drop 后调用 `reparentEntity()`。
-- rejected 当前只 `console.warn`，没有 toast。
-
-### SearchPanel
-
-对 `entities` 线性扫描，按 ID 或 `entityType` 子串匹配，最多返回 200 条。点击结果选择实体。它没有索引层，超大图复杂查询需要另建索引。
-
-### TimelinePanel
-
-当前是本地 state 的 UI 原型面板：duration、currentTime、tracks、播放控制都在组件内部；track 数据是静态示例，不接 `mapStore`。
-
-### SettingsPanel
-
-modal 面板，Escape 或 backdrop 关闭。写入 `settingsStore`。Reset Layout 删除 `ams-layout-v2` 并 reload。默认视口和 history limit 的设置都存在“需要 reload 才完整应用”的初始化时机限制。
-
-## Inspector 表单
-
-入口是 `EntityForm({ entity })`。它按 `entity.entityType` 分发：
-
-- `lane` -> `LaneForm` -> `SchemaForm(LaneInspectorSchema)`
-- `junction`、`parkingSpace`、`signal`、`stopSign`、`road`、`area`、`barrierGate` 等 -> 手写属性表单
-- `pncJunction` -> passage group / passage 编辑
-- `overlap` -> 参与对象摘要、lane `isMerge` 覆盖、region overlap pin
-- 其它绘制对象 -> `DrawingForm`
-
-`SchemaForm` 合同：
-
-1. schema read adapter 生成默认值。
-2. 只有 `entity.id` 变化时 reset。
-3. 同 ID drift 用 `diffFormAgainstEntity()` 逐字段同步。
-4. `watch()` 自动保存前用 `shouldPersistForm()` 去重。
-5. `mode: 'onChange'` 是测试固定的实时校验行为。
-
-风险点：
-
-- `SignalForm` 改 type 会重新生成 signal geometry。
-- `OverlapForm` 写 `_userOverrides`，会影响后续 overlap reconcile。
-- Crosswalk、SpeedBump、YieldSign、ClearArea、RSU 等当前主要是只读摘要，几何由 canvas 编辑。
-
-## License Renderer UI
-
-### licenseStore
+### Snap target indicator
 
 ```ts
-interface LicenseStoreState {
-  state: LicenseState;
-  initialized: boolean;
-  hydrate(): Promise<void>;
-  setState(s: LicenseState): void;
-  promptActivation: () => void;
-  registerPromptActivation(fn: () => void): void;
-}
+setSnapTarget(target: SnapTarget | null): void
 ```
 
-非 Electron 浏览器预览的初始状态是 permissive trial。Electron 中 `hydrate()` 会通过 `licenseBridge.getState()` 从主进程覆盖。
+实现里有 dedup：如果与上一次同 `kind / entityId / point.x / point.y`
+就 short-circuit return，避免每帧 60fps mousemove 都触发 React 重渲。
 
-selectors：
+### Connect mode
 
-- `selectCanEdit(s)`
-- `selectStatus(s)`
+```ts
+toggleConnectMode(): void
+exitConnectMode(): void
+setConnectFirstLane(id: string | null): void
+```
 
-### useLicenseSync
+工作流：
 
-挂载后：
+1. `toggleConnectMode()` 进入 connect mode (active=true, firstLaneId=null)；
+2. 用户点击第一条 lane → `setConnectFirstLane(laneId)`；
+3. 用户点击第二条 lane → `mapEventRouter.connectMode` 调
+   `applyLaneConnection` 完成连接 → `exitConnectMode()`；
+4. ESC 或第二次切换 → 任意时刻 `exitConnectMode()` 恢复。
 
-1. 调用 `hydrate()`。
-2. 订阅 `licenseBridge.onChange(setState)`。
-3. window focus 时重新 hydrate，覆盖休眠唤醒或 timer miss。
-4. 卸载时取消订阅。
+## 使用模式
 
-### LicenseBanner
+```ts
+// React selector（推荐）
+const gridEnabled = useUIStore((s) => s.gridEnabled);
+const toggleGrid = useUIStore((s) => s.toggleGrid);
 
-顶部 banner：
+// 非 React 上下文
+const layerLocked = useUIStore.getState().isLayerLocked('lane');
 
-- 永久 activated 不显示。
-- trial 剩余大于 3 天不显示。
-- activated 剩余大于 14 天不显示。
-- expired、tampered、machine_mismatch、invalid 等只读状态显示提示。
-- Activate / Manage license 调用 `promptActivation()`。
+// 多字段订阅 + shallow
+import { useShallow } from 'zustand/react/shallow';
+const [zoom, cursor] = useUIStore(useShallow((s) => [s.currentZoom, s.cursorLngLat]));
+```
 
-### ActivationDialog
+## 不变量
 
-弹窗行为：
+- `layerStates` 的引用稳定性：所有 set/toggle 都通过 `patchLayer` 返回**新对象**，
+  不会原地 mutate；React 选择器/`useShallow` 比较有效。
+- `connectMode.firstLaneId` 仅在 `connectMode.active === true` 时有意义。
+- `currentSnapTarget` 的更新经 dedup 过滤，引用稳定 = 没有几何变化。
 
-- mount 时注册 `promptActivation()`。
-- 显示并复制 `machineCode`。
-- 粘贴 activation code 后调用 `licenseBridge.activate()`。
-- 成功时关闭，失败时显示错误。
-- tampered 状态额外提示修正系统时钟和授权文件后重新激活。
+## 不进 store 的状态
 
-## 测试参考
-
-相关测试：
-
-- `src/store/__tests__/uiStore.test.ts`
-- `src/store/__tests__/settingsStore.test.ts`
-- `src/core/actions/__tests__/registry.test.ts`
-- `src/hooks/__tests__/useActionDispatcher.test.ts`
-- `src/hooks/__tests__/undoCancel.test.ts`
-- `src/components/layout/panels/__tests__/InspectorForms.test.ts`
-- `src/components/layout/panels/__tests__/overlapInspector.test.ts`
-
-关键断言包括默认 UI 状态、layer fallback、Action ID 唯一性、菜单排序、所有 tool action 都有 drawTool、快捷键 modifier 匹配、平台化 shortcut 展示，以及 undo/redo 前置 CANCEL。
+- 当前选中实体 id：在 `editorMachine`（XState）里，参考 `useActionDispatcher`；
+- 当前 hover 实体：在 hot layer / overlay layer 的局部 state；
+- localStorage 偏好：在 `settingsStore`。

@@ -1,276 +1,267 @@
+---
+title: WorkspaceLayout
+description: 编辑器根 shell——挂载 MenuBar / LicenseBanner / ToolStrip / Dockview / StatusBar，注入 EditorProvider + SidebarProvider，托管所有 modal 与 overlay。
+---
+
 # WorkspaceLayout
 
-> Source: `src/components/layout/WorkspaceLayout.tsx`, `src/components/layout/WorkspaceLayout/{dockviewLayout,lazyPanels}.tsx`
+> 源码：
+>
+> - `src/components/layout/WorkspaceLayout.tsx`
+> - `src/components/layout/WorkspaceLayout/dockviewLayout.ts`
+> - `src/components/layout/WorkspaceLayout/lazyPanels.tsx`
 
-## Overview
+## 用途与 UX 角色
 
-`WorkspaceLayout` is the root chrome of the editor — the Photoshop-
-style menubar + toolstrip + sidebar + canvas + statusbar shell. It
-hosts the `EditorProvider` (XState 5 actor), the `SidebarProvider`
-(activity-bar tab state), and Dockview as the resizable panel manager.
-Modal overlays (Command Palette, Settings, ProjPicker, Activation,
-TaskProgress) sit at the same level so they can layer above any panel.
+`WorkspaceLayout` 是 Apollo Map Studio 的**根 chrome**——Photoshop 风格的桌面编辑器外壳，包含：
 
-## Component tree
+1. **顶部 MenuBar**（File / Edit / View / Tools / Help + 模式切换）。
+2. **LicenseBanner**（试用倒计时 / 过期警示）。
+3. **ToolStrip**（默认工具 + 11 元素图标 + 工具变体 + 视图切换）。
+4. **Dockview shell**——左 Sidebar、中 MapCanvas、右 Inspector，外加 Scene 模式下的 Timeline 底部面板。
+5. **底部 StatusBar**（模式 / 实体计数 / 光标坐标 / Zoom / Apollo 信息）。
+6. **Overlays**：CommandPalette（⌘K）、SettingsPanel（modal）、ProjPickerDialog、TaskProgressOverlay、ActivationDialog。
 
-```
-WorkspaceLayout
-  └─ EditorProvider (actor)
-     └─ SidebarProvider (tab state)
-        └─ WorkspaceLayoutInner
-           ├─ MenuBar
-           ├─ LicenseBanner
-           ├─ ToolStrip
-           ├─ ActivityBar + DockviewReact (key={appMode})
-           │   ├─ Map panel       → MapPanelContent → MapCanvas
-           │   ├─ Sidebar panel   → SidebarPanelContent
-           │   ├─ Inspector panel → InspectorPanelContent
-           │   └─ Timeline panel  → TimelinePanelContent (scene mode only)
-           ├─ StatusBar
-           └─ overlays: CommandPalette, SettingsPanel, ProjPickerDialog,
-              TaskProgressOverlay, ActivationDialog
-```
+它同时挂载两个 React Context：
 
-## Component props
+- **`EditorProvider`** — 提供 XState 5 actor（`editorMachine`），供 ToolStrip / MapCanvas / Inspector 通过 `useEditorActor()` 获取。
+- **`SidebarProvider`** — 持有 `activeTab`（`ActivityBar`）、搜索查询等侧边栏临时状态。
 
-`WorkspaceLayout` takes no props — it's mounted at the application
-root.
+## 组件组合树
 
-`WorkspaceLayoutInner` is internal and reads everything from context
-and stores.
-
-## Behavior
-
-### Provider stack
-
-```tsx
-export function WorkspaceLayout() {
-  const actorRef = useActorRef(editorMachine);
-  return (
-    <EditorProvider actorRef={actorRef}>
-      <SidebarProvider>
-        <WorkspaceLayoutInner />
-      </SidebarProvider>
-    </EditorProvider>
-  );
-}
+```mermaid
+flowchart TB
+  WL[WorkspaceLayout]
+  WL --> EP[EditorProvider \(actor\)]
+  EP --> SP[SidebarProvider \(tabs/search\)]
+  SP --> Inner[WorkspaceLayoutInner]
+  Inner --> MB[MenuBar]
+  Inner --> LB[LicenseBanner]
+  Inner --> TS[ToolStrip]
+  Inner --> AB[ActivityBar]
+  Inner --> DV[DockviewReact]
+  DV --> MapPanel
+  DV --> SidebarPanel
+  DV --> InspectorPanel
+  DV --> TimelinePanel
+  Inner --> SB[StatusBar]
+  Inner --> CP[CommandPalette \(lazy\)]
+  Inner --> SetP[SettingsPanel \(lazy modal\)]
+  Inner --> PPD[ProjPickerDialog \(lazy\)]
+  Inner --> TPO[TaskProgressOverlay]
+  Inner --> AD[ActivationDialog]
 ```
 
-`useActorRef(editorMachine)` instantiates the FSM exactly once. The
-`EditorProvider` makes the actor available to nested components via
-`useEditorActor()`.
+## Props 接口
 
-### Mounting useLicenseSync
-
-`WorkspaceLayoutInner` calls `useLicenseSync()` on mount — this is the
-single subscription point for the license bridge. See
-[useLicenseSync](/api/hooks/use-license).
-
-### Action dispatcher binding
+`WorkspaceLayout` 是入口组件，**无 props**。
 
 ```ts
-const { execute, getToggleState } = useActionDispatcher({
-  actorRef,
-  onOpenCommandPalette: () => setCommandPaletteOpen(true),
-  onOpenSettings: () => setSettingsOpen(true),
-  onResetLayout: handleResetLayout,
-});
+export function WorkspaceLayout(): JSX.Element;
 ```
 
-The two callbacks `execute` and `getToggleState` are passed down to
-`MenuBar`, `ToolStrip`, and `CommandPalette`, ensuring every UI surface
-runs through the same handler set + license guard.
+`WorkspaceLayoutInner`（默认未导出）也无 props。所有跨子树通信通过 `EditorProvider` / `SidebarProvider` / Zustand 完成。
 
-### Dockview wiring
+## 内部状态
 
-```tsx
-<DockviewReact
-  key={appMode}
-  components={components}
-  onReady={onReady}
-  className="dockview-theme-dark"
-/>
+| 钩子                                             | 类型                                  | 用途                                                                     |
+| ------------------------------------------------ | ------------------------------------- | ------------------------------------------------------------------------ |
+| `useActorRef(editorMachine)`                     | `ActorRefFrom<editorMachine>`         | 顶层创建 XState actor，注入 `EditorProvider`                             |
+| `useSelector(actorRef, s.value)`                 | `string`                              | 当前 FSM 状态名（`idle` / `selected` / `drawPolyline` / …）              |
+| `useSelector(actorRef, s.context.activeElement)` | `MapElementType \| null`              | 当前选中元素类型                                                         |
+| `useMapStore(s.entities.size)`                   | `number`                              | 实体数量，注入到 StatusBar                                               |
+| `useUIStore(s.appMode)`                          | `'drawing' \| 'scene'`                | 应用模式；用于 Dockview 布局 keying（`<DockviewReact key={appMode} />`） |
+| `useSidebar()`                                   | `{ activeTab, setActiveTab }`         | 活动栏当前选中页                                                         |
+| `useState(false)` × 2                            | `commandPaletteOpen` / `settingsOpen` | overlay 开关                                                             |
+| `useRef<DockviewApi>()`                          | `apiRef`                              | Dockview 命令式 API 句柄（保存/加载布局）                                |
+| `useRef({...components})`                        | 稳定引用                              | Dockview 要求 component map 引用稳定，重建只在 `openSettings` 改变时     |
+| `useActionDispatcher`                            | `{ execute, getToggleState }`         | Action Registry 唯一调度入口；同时绑定全局键盘快捷键                     |
+| `useLicenseSync()`                               | `void`                                | 副作用：拉取 + 监听许可状态                                              |
+
+## 副作用
+
+| 时机                                | 行为                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `useEffect(() => keydown listener)` | `Cmd/Ctrl+K` 切换 CommandPalette；`Esc` 关闭 CommandPalette。在组件卸载时 cleanup。                                                              |
+| `onReady(event)` Dockview           | 优先 `loadLayout(api, appMode)`（从 localStorage），失败则 `createDefaultLayout`。订阅 `onDidLayoutChange` 自动持久化。布局键按 `appMode` 拆开。 |
+| `<DockviewReact key={appMode}>`     | `appMode` 变化时强制重建 Dockview 实例——避免 `drawing` ↔ `scene` 间布局污染。                                                                    |
+| `useActionDispatcher` 内部          | 注册全局键盘事件监听器；此处同时把 `onOpenCommandPalette` / `onOpenSettings` / `onResetLayout` 三个 callback 注入。                              |
+
+::: warning 撤销与绘制状态一致性
+`useActionDispatcher` 在 `undo` action 之前发送 `CANCEL` 给 actor，确保 mid-draw `Ctrl+Z` 不会让 FSM `drawPoints` 与 `mapStore.entities` 错位。详见 [`useActionDispatcher`](/api/hooks/) 与 [架构](/architecture/) 的绘制状态说明。
+:::
+
+## 渲染骨架
+
+```jsx
+<div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
+  <MenuBar onExecute={execute} getToggleState={getToggleState} />
+  <LicenseBanner />
+  <ToolStrip … />
+  <div className="flex-1 flex overflow-hidden">
+    <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} />
+    <div className="flex-1">
+      <DockviewReact key={appMode} components={components} onReady={onReady} className="dockview-theme-dark" />
+    </div>
+  </div>
+  <StatusBar mode={currentState} entityCount={entityCount} />
+  {commandPaletteOpen && <Suspense><LazyCommandPalette … /></Suspense>}
+  {settingsOpen && <Suspense><LazySettingsPanel … /></Suspense>}
+  <Suspense fallback={null}><LazyProjPickerDialog /></Suspense>
+  <TaskProgressOverlay />
+  <ActivationDialog />
+</div>
 ```
 
-The `key={appMode}` is load-bearing: switching between drawing and
-scene modes mounts a fresh Dockview instance, which in turn re-runs
-`onReady` — that's where the per-mode default layout or saved layout
-is restored.
+### Dockview 默认布局
 
-### onReady → load or default layout
+`createDefaultLayout(api, mode)` 按以下顺序添加面板：
+
+1. `map`（中央，title=`Map Editor`）
+2. `sidebar`（左，`width: 240`）
+3. `inspector`（右，`width: 280`）
+4. `timeline`（底，仅 `scene` 模式，`height: 180`）
+
+布局序列化键：
 
 ```ts
-const onReady = useCallback(
-  (event: DockviewReadyEvent) => {
-    apiRef.current = event.api;
-    if (!loadLayout(event.api, appMode)) {
-      createDefaultLayout(event.api, appMode);
-    }
-    event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
-  },
-  [appMode],
-);
-```
-
-`loadLayout` tries to restore the JSON layout from `localStorage`. If
-nothing's saved (or parse fails), `createDefaultLayout` runs.
-Subsequent changes are persisted via `onDidLayoutChange`.
-
-### Reset-layout action
-
-```ts
-const handleResetLayout = useCallback(() => {
-  if (apiRef.current) {
-    clearSavedLayout(appMode);
-    apiRef.current.clear();
-    createDefaultLayout(apiRef.current, appMode);
-  }
-}, [appMode]);
-```
-
-Clears localStorage, wipes the live Dockview, recreates the default.
-Wired to the `resetLayout` action via `useActionDispatcher`.
-
-### Cmd+K shortcut for command palette
-
-`WorkspaceLayoutInner` adds its own `keydown` listener for `⌘K` /
-`Ctrl+K` to toggle the command palette. This is intentionally separate
-from `useActionDispatcher`'s registry-driven shortcuts because the
-palette toggle needs to also short-circuit ESC behavior independent of
-the registry.
-
-## WorkspaceLayout/dockviewLayout.ts
-
-Persistence helpers for Dockview layouts.
-
-```ts
-export function clearSavedLayout(mode: AppMode): void;
-export function saveLayout(api: DockviewApi, mode: AppMode): void;
-export function loadLayout(api: DockviewApi, mode: AppMode): boolean;
-export function createDefaultLayout(api: DockviewApi, mode: AppMode): void;
-```
-
-### Per-mode storage keys
-
-```ts
-const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
+const LAYOUT_KEY_BY_MODE = {
   drawing: 'ams-layout-v3-drawing',
   scene: 'ams-layout-v3-scene',
 };
 ```
 
-Drawing and scene modes have completely separate saved layouts. The
-`v3` suffix lets us bump and invalidate old stale shapes without
-breaking users on existing installs.
+### 懒加载面板
 
-### Default layout
+`lazyPanels.tsx` 把以下面板封装为 `React.lazy(...)`：
 
-```ts
-api.addPanel({ id: 'map', component: 'map', title: 'Map Editor' });
-api.addPanel({ id: 'sidebar', position: { referencePanel: 'map', direction: 'left' }, ... });
-api.addPanel({ id: 'inspector', position: { referencePanel: 'map', direction: 'right' }, ... });
+- `MapCanvas` → `MapPanelContent`
+- `SidebarPanelContent`（探索者/层/搜索/设置 tabs）
+- `TimelinePanel`
+- `CommandPalette` / `SettingsPanel` / `ProjPickerDialog` / `EntityForm`
 
-api.getPanel('sidebar')?.api.setSize({ width: 240 });
-api.getPanel('inspector')?.api.setSize({ width: 280 });
+每个 lazy 边界外都有 `<Suspense fallback={<PanelFallback label="Loading…" />}>`，未加载时显示加载占位符。
 
-if (mode === 'scene') {
-  api.addPanel({ id: 'timeline', position: { referencePanel: 'map', direction: 'below' }, ... });
-  api.getPanel('timeline')?.api.setSize({ height: 180 });
-}
+## 性能注释
+
+- **Dockview component map 引用稳定**：在 `useRef({...}).current` 中固化，避免 React 每次 re-render 重新挂载面板。
+- **App mode 边界 re-mount**：`<DockviewReact key={appMode}>` 通过 React key 强制重建。`scene` 模式额外的 timeline 面板因此能干净地 mount/unmount。
+- **Lazy boundaries**：所有 modal/overlay 都通过 `React.lazy` 拆 chunk；CommandPalette / SettingsPanel / ProjPicker 的代码不在初始包内。
+- **入口 actor 唯一**：`useActorRef` 在最外层调用一次。所有子组件通过 `useEditorActor()` 拿到同一个引用，避免重复实例化 FSM。
+
+## 源码索引
+
+| 关注点                        | 文件位置                                  |
+| ----------------------------- | ----------------------------------------- |
+| 入口 / Provider 装配          | `WorkspaceLayout.tsx:186-195`             |
+| Internal layout               | `WorkspaceLayout.tsx:41-182`              |
+| Keyboard `⌘K` / `Esc`         | `WorkspaceLayout.tsx:63-77`               |
+| Reset layout                  | `WorkspaceLayout.tsx:80-86`               |
+| `useActionDispatcher` 调用    | `WorkspaceLayout.tsx:89-94`               |
+| Dockview onReady + 布局持久化 | `WorkspaceLayout.tsx:106-115`             |
+| 默认布局 builder              | `WorkspaceLayout/dockviewLayout.ts:34-60` |
+| Lazy 面板封装                 | `WorkspaceLayout/lazyPanels.tsx:6-39`     |
+| Inspector 内嵌实体表单分发    | `WorkspaceLayout/lazyPanels.tsx:79-112`   |
+
+## 跨页参考
+
+- [MenuBar](./menu-bar.md) / [ToolStrip](./tool-strip.md) / [ActivityBar](./activity-bar.md) / [StatusBar](./status-bar.md) — 子组件
+- [MapCanvas](./map-canvas.md) — 中央面板内容
+- [InspectorForms](./inspector-forms.md) — Inspector 面板内容
+- [CommandPalette](./command-palette.md) / [SettingsPanel](./settings-panel.md) / [ProjPickerDialog](./proj-picker-dialog.md) / [TaskProgressOverlay](./task-progress-overlay.md) / [ActivationDialog](./activation-dialog.md) — overlay
+- [`useActionDispatcher`](/api/hooks) — 单一 action 分发与全局快捷键
+- [架构总览](/architecture/) — 层级约束、撤销与绘制状态一致性
+- [布局演变](/architecture/) — VS Code → Photoshop 重新设计
+
+## 英文镜像
+
+[/en/api/components/workspace-layout](/en/api/components/workspace-layout)
+
+## 详细生命周期
+
+### 应用启动时序
+
+```mermaid
+sequenceDiagram
+  participant ER as Electron Renderer
+  participant App as <App />
+  participant WL as WorkspaceLayout
+  participant Actor as useActorRef(editorMachine)
+  participant License as useLicenseSync
+  participant Dock as DockviewReact
+  participant LS as localStorage
+
+  ER->>App: ReactDOM.createRoot
+  App->>WL: <WorkspaceLayout />
+  WL->>Actor: 创建 actor
+  Actor-->>WL: actorRef
+  WL->>License: useLicenseSync()
+  License->>License: bridge.getInitialState()
+  WL->>Dock: <DockviewReact key={appMode} onReady />
+  Dock->>WL: onReady(event)
+  WL->>LS: loadLayout('ams-layout-v3-drawing')
+  LS-->>WL: saved layout JSON
+  WL->>Dock: api.fromJSON(saved) 或 createDefaultLayout
+  Dock->>Dock: onDidLayoutChange → saveLayout
 ```
 
-Drawing mode has 3 panels (sidebar / map / inspector). Scene mode adds
-a 180px timeline below the map.
+### 模式切换
 
-## WorkspaceLayout/lazyPanels.tsx
+切换 `appMode` 时序：
 
-Code-splitting boundary for the heavy panel implementations. Every
-panel that's not always-visible loads lazily.
+1. 用户点击 ModeToggle（MenuBar 内）。
+2. `setAppMode('scene')` 写入 `useUIStore`。
+3. `WorkspaceLayoutInner` re-render，`<DockviewReact key="scene">` —— React 视为新组件，旧实例 unmount。
+4. 旧实例 unmount 时 `apiRef.current` 的 `onDidLayoutChange` 监听一并解绑。
+5. 新实例 mount，`onReady(event)` 重新执行：
+   - 尝试 `loadLayout('ams-layout-v3-scene')`
+   - 没有则 `createDefaultLayout(api, 'scene')`，比 drawing 多一个 `timeline` 面板。
 
-| Lazy import            | Module                                  |
-| ---------------------- | --------------------------------------- |
-| `LazyMapCanvas`        | `@/components/map/MapCanvas`            |
-| `LazySidebarPanel`     | `../panels/SidebarPanel`                |
-| `LazyTimelinePanel`    | `../panels/TimelinePanel`               |
-| `LazyCommandPalette`   | `../panels/CommandPalette`              |
-| `LazySettingsPanel`    | `../panels/SettingsPanel`               |
-| `LazyProjPickerDialog` | `@/components/dialogs/ProjPickerDialog` |
-| `LazyEntityForm`       | `../panels/InspectorForms`              |
+::: warning 跨模式拖布局不互通
+布局存储 key 按 mode 拆分。在 drawing 模式调好的 sidebar/inspector 宽度，**不会**自动同步到 scene 模式——这是有意为之，让两种模式有完全不同的工作区。
+:::
 
-### Panel content components
+## Slot 一览
 
-```tsx
-export function MapPanelContent(): JSX.Element;
-export function makeSidebarPanel(onOpenSettings: () => void): React.FC;
-export function InspectorPanelContent(): JSX.Element;
-export function TimelinePanelContent(): JSX.Element;
-```
+下表枚举 WorkspaceLayout 提供的所有"插槽"，让二开开发者知道在何处嵌入新组件：
 
-Each wraps its lazy import in a `<Suspense fallback={<PanelFallback />}>`
-boundary. `InspectorPanelContent` reads `selectedEntityId` from the
-FSM and `entity` from `mapStore`, then renders the schema-driven form
-or a placeholder.
+| Slot 位置           | 文件位置                                 | 何时考虑使用                            |
+| ------------------- | ---------------------------------------- | --------------------------------------- |
+| MenuBar 菜单组      | `src/core/actions/registry.ts` 加 action | 添加新菜单项                            |
+| ToolStrip view slot | `slot: 'view'` 的 action                 | 添加视图切换（如 toggle minimap）       |
+| ActivityBar tab     | `ActivityBar.tsx:11-17` `tabs` 数组      | 加新的 sidebar 视图                     |
+| Sidebar tab content | `SidebarPanel.tsx`                       | 实现某个 ActivityTab 的内容             |
+| Inspector 子表单    | `InspectorForms.tsx:46-80` switch        | 给新的 entityType 增加表单              |
+| Modal overlay       | `WorkspaceLayout.tsx:152-180`            | 加全局 modal（参考 SettingsPanel 模式） |
+| Status bar 段       | `StatusBar.tsx`                          | 加底部状态指示器                        |
 
-### makeSidebarPanel pattern
+## 故障排查
 
-```tsx
-export function makeSidebarPanel(onOpenSettings: () => void) {
-  return function SidebarSlot() {
-    return (
-      <Suspense fallback={<PanelFallback label="Loading sidebar..." />}>
-        <LazySidebarPanel onOpenSettings={onOpenSettings} />
-      </Suspense>
-    );
-  };
-}
-```
+| 症状                           | 可能原因                                                                 | 修复路径                                                       |
+| ------------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| Dockview 永远显示空白          | localStorage 中的 layout JSON 与组件 ID 不匹配（升级后旧 layout 不兼容） | `clearSavedLayout(appMode)` 或更新 `LAYOUT_KEY_BY_MODE` 版本号 |
+| ⌘K 无反应                      | CommandPalette 未懒加载完成 / `onOpenCommandPalette` 未传入              | 检查 `WorkspaceLayout.tsx:91` callback                         |
+| 切换模式后旧 timeline 面板残留 | `key={appMode}` 缺失或被绕过                                             | 确保 `<DockviewReact key={appMode}>` 存在                      |
+| 撤销时绘制状态错位             | `useActionDispatcher` 的取消绘制顺序被破坏                               | 检查 `useActionDispatcher.ts:76-82`                            |
+| 多个 actor 实例                | 误在子组件 `useActorRef`                                                 | 仅在 `WorkspaceLayout` 顶层创建一次                            |
 
-Dockview's component map needs stable references; `WorkspaceLayoutInner`
-calls `makeSidebarPanel(onOpenSettings)` inside a `useRef(...).current`
-so the function reference stays the same across renders.
+## 测试要点
 
-### Fallback components
+1. **布局持久化**：mock localStorage 验证 saveLayout / loadLayout 往返。
+2. **模式切换**：使用 testing-library 的 `userEvent.click` 触发 ModeToggle，断言 timeline 面板出现/消失。
+3. **快捷键**：模拟 `keydown`（`{ key: 'k', metaKey: true }`），断言 CommandPalette 状态切换。
+4. **Esc 关闭**：CommandPalette open 时按 Esc，断言关闭。
+5. **Dockview 重置**：调用 `handleResetLayout`，断言面板回到默认布局。
 
-```tsx
-export function PanelFallback({ label }: { label: string }): JSX.Element;
-export function OverlayFallback({ label }: { label: string }): JSX.Element;
-```
+E2E 覆盖位于 `e2e/workspace-layout.spec.ts`（如果未来添加 Playwright）。
 
-Inline loading placeholders so a slow chunk doesn't black-flash. The
-overlay variant covers the full viewport with a scrim — used while
-the command palette / settings panel chunks load.
+## 常见问答
 
-## Examples
+**Q：为什么 Dockview 用 React key 而不是 effect 销毁？**
+A：Dockview 内部维护非 React 的 DOM 状态。React key 触发的 unmount → mount 是干净的销毁路径，比 ref-based 销毁可靠。
 
-### Mounting the editor
+**Q：`useRef({...components}).current` 而不是 `useMemo` 的原因？**
+A：`useMemo` 不保证不在 cache miss 时重算；`useRef` 保证 component map 引用永远稳定。Dockview 在 component map 变化时会重 mount 所有面板，必须避免。
 
-```tsx
-import { WorkspaceLayout } from '@/components/layout/WorkspaceLayout';
-
-ReactDOM.createRoot(document.getElementById('root')!).render(<WorkspaceLayout />);
-```
-
-### Adding a new panel
-
-1. Add the lazy import + content component to `lazyPanels.tsx`.
-2. Add it to the `components` map in `WorkspaceLayoutInner`.
-3. Add a panel record to `createDefaultLayout` with a `position`.
-
-### Swapping the dockview key
-
-```ts
-useUIStore.getState().setAppMode('scene');
-// → DockviewReact remounts → onReady → loadLayout('scene') or default
-```
-
-## Related
-
-- [Menu bar](/api/components/menu-bar)
-- [Activity bar](/api/components/activity-bar)
-- [Tool strip](/api/components/tool-strip)
-- [Status bar](/api/components/status-bar)
-- [Map canvas](/api/components/map-canvas)
-- [Inspector forms](/api/components/inspector-forms)
-- [Action dispatcher](/api/hooks/use-action-dispatcher)
-- [License sync](/api/hooks/use-license)
-- [uiStore](/api/store/store-ui)
+**Q：为什么 ActivationDialog 和 TaskProgressOverlay 不通过 lazy 加载？**
+A：两者都很轻（< 4KB），且需要在 mount 时立即注册全局 callback / 监听 store——延迟会让 `licenseStore.promptActivation` 初次调用无响应。

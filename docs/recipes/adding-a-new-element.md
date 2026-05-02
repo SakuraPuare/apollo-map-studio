@@ -1,435 +1,386 @@
-# Adding a New Map Element
+---
+title: 新增一个地图元素
+description: 扩展 MapEntity 联合、加工厂与 type guard、串通 cold layer 特征、注册 inspector schema 与 export 流水线。
+---
 
-End-to-end walkthrough for introducing a new Apollo map element type. The
-running example is a hypothetical `tollGate` element — a polygon with a
-`type` enum (`MANUAL`, `ETC`, `MIXED`) and a foreign key to its parent
-junction.
+# 新增一个地图元素
 
-The codebase is layered (`core → lib → store → hooks → components`).
-When you add an element you must touch every layer in the same direction
-the imports flow, otherwise the build will fail or the element will be
-invisible to downstream consumers.
+地图元素 (Map Element) 是 Apollo HD Map 的具名实体：Lane、Junction、
+Crosswalk、Signal、StopSign、SpeedBump、Yield、ClearArea、RSU、ParkingSpace、
+BarrierGate、PNCJunction…… 它和[绘制工具](./adding-a-new-drawing-tool)是不同
+的概念：绘制工具是 **怎么画**，元素是 **画出来的是什么**。
 
-::: warning Layer-import order
-Imports flow downward only. `core/` cannot import from `lib/`, `lib/`
-cannot import from `store/`, etc. See
-[/architecture/overview](../architecture/overview.md) for the
-enforcement matrix. Adding the element from the top down (component
-first) will break the build.
-:::
+::: tip 何时新增元素
+当你需要：
 
-## Preconditions
+- 协议层（Apollo proto）有对应字段
+- 在 inspector 里需要一组特定属性
+- 在 cold layer 里有独立的样式
+- 在 export 时需要序列化为单独的 message
+  满足任一条都建议建为元素。否则用通用几何（Polyline/Polygon）即可。
+  :::
 
-- You know what the element looks like in the Apollo proto. If you're
-  adding a brand new field that has no proto, write a `.proto` first
-  under `src/proto/map_msgs/` and regenerate the bundled types.
-- You have a clean `pnpm typecheck` baseline. Adding an element creates
-  cross-cutting type changes; starting from an already-broken tree
-  makes diagnosing failures much harder.
-- You've decided whether the element belongs under a parent (lane,
-  road, junction) or floats at the top of the layer tree.
+## 目标 (Goal)
 
-## Step 1 — Define or extend the proto
+新增一个 **TollStation (收费站)** 元素：
 
-Apollo `.proto` definitions live in `src/proto/map_msgs/`. Existing
-files for reference:
+- 几何：单个矩形多边形 + heading。
+- 属性：站点编号、车道数、是否启用 ETC。
+- inspector 显示：站点编号 / 车道数 / ETC 开关。
+- export：进 `tollStation` repeated 字段。
 
-```text
-src/proto/map_msgs/
-  map.proto                # the root Map message
-  map_lane.proto
-  map_junction.proto
-  map_pnc_junction.proto
-  map_signal.proto
-  map_stop_sign.proto
-  map_yield_sign.proto
-  map_speed_bump.proto
-  map_clear_area.proto
-  map_crosswalk.proto
-  map_parking_space.proto
-  map_barrier_gate.proto
-  map_rsu.proto
-  map_area.proto
-  …
+## 前置条件 (Prerequisites)
+
+- 已读 [Anti-corruption Layer](../architecture/anti-corruption)，理解
+  `entityOps` 适配层为什么存在。
+- 知道 cold layer / hot layer 的差异。
+- 你要新增的元素已经在 `src/proto/*.proto` 里有对应 message（或你愿意先
+  扩 proto）。
+
+## 元素链路全景
+
+```mermaid
+flowchart LR
+    Type["src/types/entities.ts<br/>MapEntity 联合"] --> Factory["src/core/elements/tollStation.ts<br/>createTollStation()"]
+    Factory --> Guard["isTollStation() 类型守卫"]
+    Guard --> Compile["src/core/geometry/apolloCompile.ts<br/>编译为 GeoJSON"]
+    Compile --> ColdFeatures["src/core/workers/spatialFeatures.ts<br/>cold layer features"]
+    Type --> Inspector["src/types/inspectorSchema.ts<br/>tollStationSchema"]
+    Inspector --> Form["SchemaForm UI"]
+    Compile --> Export["src/io/proto/entityBridge.ts<br/>encodeTollStation"]
+    Export --> Proto["src/proto/map_msgs/map.proto"]
 ```
 
-For our `tollGate` example, create `src/proto/map_msgs/map_toll_gate.proto`
-and add it to `map.proto`'s top-level `Map` message as
-`repeated TollGate toll_gate = N;`.
+## 步骤 (Step-by-step)
 
-Do **not** edit the generated runtime under `src/io/proto/` by hand —
-those are produced by the proto loader and rebuilt on each Vite run.
-
-## Step 2 — TypeScript entity type
-
-Open `src/types/apollo.ts` and add the entity-side type. Mirror Apollo's
-proto2 optional semantics (`type?: …`) where the proto field uses
-`optional`. Always include:
-
-- An `id: string`
-- A discriminator `entityType: 'tollGate'` (literal-typed so unions
-  narrow correctly)
-- Foreign-key fields as `string | null` (use `null`, not `undefined`,
-  for explicit "no parent" — this keeps cascade-delete logic uniform)
-- An `overlapIds: string[]` if the element participates in overlap
-  derivation
-
-```ts
-// src/types/apollo.ts
-export interface TollGateEntity {
-  id: string;
-  entityType: 'tollGate';
-  type: TollGateType;
-  polygon: ApolloPolygon;
-  junctionId: string | null;
-  overlapIds: string[];
-}
-
-export type TollGateType = 'MANUAL' | 'ETC' | 'MIXED';
-```
-
-Then surface it in `src/types/entities.ts` so downstream code only
-imports from one location:
+### 1. 扩展 `MapEntity` 联合
 
 ```ts
 // src/types/entities.ts
-export type {
-  // … existing exports …
-  TollGateEntity,
-  TollGateType,
-} from './apollo';
+export interface TollStationEntity {
+  id: string;
+  entityType: 'tollStation';
+  polygon: PointENU[]; // 4 点矩形
+  heading: number; // 弧度
+  stationCode: string;
+  laneCount: number;
+  etcEnabled: boolean;
+  overlapIds: string[];
+}
+
+export type MapEntity =
+  | LaneEntity
+  | JunctionEntity
+  | CrosswalkEntity
+  // ...
+  | TollStationEntity; // 新增
 ```
 
-`MapEntity` is already a discriminated union of `DrawingEntity |
-ApolloEntity`. Since `TollGateEntity` is part of `ApolloEntity` (define
-it on the union in `apollo.ts`), no change to `MapEntity` itself is
-needed — but verify the union by running `pnpm typecheck` immediately.
+::: warning 顺序敏感
+TS 联合的成员顺序会影响 `entityType` 自动补全的展示。把新成员放在末尾，
+不要在中间插入，避免 git diff 大爆炸。
+:::
 
-## Step 3 — Zod schema
-
-`src/lib/schemas.ts` is the source of truth for inspector form validation.
-Add the enum option list and the schema:
+### 2. 写 type guard
 
 ```ts
-// src/lib/schemas.ts
-export const tollGateTypeOptions = ['MANUAL', 'ETC', 'MIXED'] as const;
+// src/core/elements/tollStation.ts
+import type { MapEntity, TollStationEntity } from '@/types/entities';
 
-export const tollGateSchema = z.object({
-  type: z.enum(tollGateTypeOptions),
-});
-
-export type TollGateFormValues = z.infer<typeof tollGateSchema>;
-```
-
-Keep the schema small — it only validates user-editable fields, not
-geometry. Geometry is edited on the canvas, not the inspector.
-
-## Step 4 — Entity ops
-
-`src/lib/entityOps.ts` is the anti-corruption boundary between the
-proto layer and the UI. UI code never imports from
-`@/core/geometry/apolloCompile` — only from `@/lib/entityOps`. Anything
-proto-shaped goes through here.
-
-The folder is split by concern:
-
-```text
-src/lib/entityOps/
-  cascadeDeleteRefs.ts   # patch references when ids are removed
-  edit.ts                # createEntity / moveEntity / setEditPoint / …
-  reparent.ts            # canReparent / reparent
-  typeGuards.ts          # isAreaEntity / isPolygonEditEntity / …
-```
-
-### 4a. `typeGuards.ts`
-
-If your element is polygon-edited (vertices addressable by index), add
-it to `isPolygonEditEntity`. If it counts as an "area" element (filled
-polygon overlay), add it to `isAreaEntity`. Add to
-`isApolloEntityType`:
-
-```ts
-// src/lib/entityOps/typeGuards.ts
-export function isApolloEntityType(t: string): t is ApolloEntityType {
-  return (
-    // … existing types …
-    t === 'tollGate'
-  );
+export function isTollStation(e: MapEntity): e is TollStationEntity {
+  return e.entityType === 'tollStation';
 }
 ```
 
-### 4b. `cascadeDeleteRefs.ts`
-
-If your element references other ids (junction, overlap, lane, …),
-extend `patchOne` so that deleting one of those upstream entities
-strips the dangling reference instead of leaving it broken:
+### 3. 写工厂 + 默认值
 
 ```ts
-// src/lib/entityOps/cascadeDeleteRefs.ts
-case 'tollGate': {
-  const t = next as TollGateEntity;
-  if (t.junctionId && removed.has(t.junctionId)) {
-    next = { ...t, junctionId: null };
-  }
-  break;
-}
-```
+import { nanoid } from 'nanoid';
+import type { LngLat } from '@/types/entities';
 
-`overlapIds` is already handled wholesale by `stripOverlapIds`, so
-nothing extra is needed for that field.
-
-### 4c. `reparent.ts`
-
-If users can drag the element under a different parent in the layer
-tree, extend `canReparent` and `reparent` to know about your new
-parent target shape. If it lives only at the top level, no change is
-needed.
-
-### 4d. `edit.ts`
-
-Extend `createEntity` so the FSM commit path (see Step 8) can
-materialise an instance from `{ element, state, points, anchors }`. For
-polygon elements this is usually a single new branch:
-
-```ts
-// src/lib/entityOps/edit.ts
-if (element === 'tollGate') {
+export function createTollStation(rect: LngLat[], heading: number): TollStationEntity {
+  if (rect.length !== 4) throw new Error('TollStation requires 4-point rect');
   return {
-    id: nextEntityId('tollGate', entities),
-    entityType: 'tollGate',
-    type: 'MANUAL',
-    polygon: { points: coordsToPoints(points) },
-    junctionId: null,
+    id: `toll_${nanoid(12)}`,
+    entityType: 'tollStation',
+    polygon: rect.map(([x, y]) => ({ x, y })),
+    heading,
+    stationCode: '',
+    laneCount: 1,
+    etcEnabled: false,
     overlapIds: [],
   };
 }
 ```
 
-If you want to support per-vertex editing, also extend `getEditPoints`,
-`setEditPoint`, `setAllEditPoints`, and `deleteVertex`.
+### 4. 接入 `entityOps` 适配层
 
-## Step 5 — Wire the proto bridge
+```ts
+// src/lib/entityOps.ts
+import { isTollStation } from '@/core/elements/tollStation';
 
-The proto round-trip lives under `src/io/proto/`. Two halves:
-
-- `entityBridge` (or equivalent — the file names may have evolved):
-  proto-message → entity, entity → proto-message.
-- `apolloIO.worker.ts`: uses the bridge inside the import/export worker.
-
-Open the file that maps Apollo proto messages to entities (search for
-`entityType: 'lane'` to find the existing converter) and add a
-`tollGate` branch in **both** directions. Round-trip test fixtures
-live under `src/io/__fixtures__/apollo/` — drop a small map containing
-your new element there and assert that
-`importApolloMap(fixture)` and `exportApolloMap(entities)` are
-idempotent.
-
-::: warning ACL audit
-Run this grep before merging — anything that imports
-`apolloCompile` from outside `lib/entityOps` is a leak that bypasses
-the anti-corruption layer:
-
-```sh
-git grep "from '@/core/geometry/apolloCompile'" \
-  -- 'src/components/**' 'src/hooks/**'
+export function getEntityCenter(e: MapEntity): LngLat {
+  if (isTollStation(e)) {
+    const cx = e.polygon.reduce((s, p) => s + p.x, 0) / e.polygon.length;
+    const cy = e.polygon.reduce((s, p) => s + p.y, 0) / e.polygon.length;
+    return [cx, cy];
+  }
+  // ... 其它分支
+}
 ```
 
-A non-empty result fails review. Route the access through a new helper
-in `entityOps` instead.
+::: danger 不要绕过 entityOps
+任何要触碰 Apollo proto 字段的 UI 代码必须走 `entityOps`。直接 import
+`@/core/geometry/apolloCompile` 是协议泄漏，proto v2 升级时会全场翻车。
+检查命令：
+
+```bash
+git grep "from '@/core/geometry/apolloCompile'" -- 'src/components/**' 'src/hooks/**'
+```
+
+非空结果 = 新泄漏。
 :::
 
-## Step 6 — Inspector form
+### 5. 写 cold layer feature 编译
 
-`src/components/layout/panels/InspectorForms/` holds one file per
-"shape" of form. The two split-out modules are `lane.tsx`,
-`overlap.tsx`, and `pncJunction.tsx` (their forms are large enough
-to warrant their own file). Everything else lives in `simpleForms.tsx`.
-
-For our `tollGate` example, add a `TollGateForm` to `simpleForms.tsx`
-following the same pattern as `JunctionForm` / `BarrierGateForm`:
-
-```tsx
-// src/components/layout/panels/InspectorForms/simpleForms.tsx
-import { tollGateSchema, tollGateTypeOptions, type TollGateFormValues } from '@/lib/schemas';
-import type { TollGateEntity } from '@/types/apollo';
-import { zodResolverZ4 } from './resolver';
-
-export function TollGateForm({ entity }: { entity: TollGateEntity }) {
-  const updateEntity = useMapStore((s) => s.updateEntity);
-  const entityRef = useRef(entity);
-  entityRef.current = entity;
-
-  const methods = useForm<TollGateFormValues>({
-    resolver: zodResolverZ4<TollGateFormValues>(tollGateSchema),
-    mode: 'onChange',
-    defaultValues: { type: entity.type },
-  });
-
-  // ... reset/sync useEffects (mirror JunctionForm) ...
-
-  useEffect(() => {
-    const sub = methods.watch((value) => {
-      const live = entityRef.current;
-      if (value.type === live.type) return;
-      updateEntity(live.id, { ...live, type: value.type! });
-    });
-    return () => sub.unsubscribe();
-  }, [methods, updateEntity]);
-
-  return (
-    <FormProvider {...methods}>
-      <form>
-        <Section title="Attributes">
-          <Value label="ID" value={entity.id} />
-          <Select
-            name="type"
-            label="Type"
-            options={tollGateTypeOptions}
-            enumCategory="tollGateType"
-          />
-          <Value label="Junction" value={entity.junctionId ?? '—'} />
-          <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
-        </Section>
-      </form>
-    </FormProvider>
-  );
+```ts
+// src/core/workers/spatialFeatures.ts
+function compileTollStationFeatures(e: TollStationEntity): GeoJSON.Feature[] {
+  return [
+    {
+      type: 'Feature',
+      id: e.id,
+      properties: {
+        id: e.id,
+        kind: 'tollStation',
+        etc: e.etcEnabled,
+        layer: 'tollStation/fill',
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[...e.polygon.map((p) => [p.x, p.y]), [e.polygon[0].x, e.polygon[0].y]]],
+      },
+    },
+  ];
 }
 ```
 
-Wire it into the dispatcher in `src/components/layout/panels/InspectorForms.tsx`:
-
-```tsx
-case 'tollGate':
-  return <TollGateForm entity={entity as TollGateEntity} />;
-```
-
-Add `tollGateType` to `src/lib/enumLabels.ts` so the `Select` displays
-human-readable labels.
-
-## Step 7 — Layer tree
-
-`src/components/layout/panels/LayerTree/treeBuilder.ts` builds the
-hierarchical view. Two sub-files matter:
-
-- `constants.ts` — `TOP_LEVEL_ORDER` and `TYPE_LABELS`
-- `treeBuilder.ts` — `buildTree` walks `mapStore.entities` and groups them
-
-Add `'tollGate'` to `TOP_LEVEL_ORDER` (in display order — usually after
-`area` for ground-truth elements) and `TYPE_LABELS['tollGate'] =
-'Toll Gates'`.
-
-If toll gates can nest under junctions, mirror the lane pattern in
-`buildTree`:
+然后在 `compileEntity()` 里加分支：
 
 ```ts
-if (e.entityType === 'tollGate') {
-  const t = e as TollGateEntity;
-  if (t.junctionId && junctions.has(t.junctionId)) {
-    ensureJunction(t.junctionId).push(baseNode({}));
-    continue;
-  }
-  ensureGroup('tollGate').push(baseNode({}));
-  continue;
-}
+case 'tollStation':
+  return compileTollStationFeatures(entity);
 ```
 
-## Step 8 — Action and drawing tool
-
-The action registry is the **only** place to register new menu items,
-shortcuts, palette entries, and tool-strip entries. Edit
-`src/core/actions/registry/types.ts`:
+### 6. 注册 inspector schema
 
 ```ts
-export type ActionId =
-  | // … existing ids …
-  | 'tool:drawTollGate';
-```
-
-Then add the `ActionDef` to `src/core/actions/registry/definitions.ts`:
-
-```ts
-{
-  id: 'tool:drawTollGate',
-  label: 'Draw Toll Gate',
-  category: 'tool',
-  shortcut: 'T',
-  keybinding: { key: 't' },
-  icon: FaRoadBarrier,         // or any react-icon
-  inCommandPalette: true,
-  drawTool: 'drawPolygon',     // reuse polygon FSM state
-},
-```
-
-The `drawTool` field tells `useActionDispatcher` to fire
-`SELECT_TOOL` to the FSM. If your element needs a brand-new draw state
-(neither polygon nor polyline fits), follow
-[adding-a-new-drawing-tool](./adding-a-new-drawing-tool.md) instead of
-reusing an existing one.
-
-The `MapElementType` union in `src/core/elements.ts` also needs the new
-member so `useDrawCommit.commitEntity` knows what to construct. Wire
-the action's element argument through the tool-select flow.
-
-## Step 9 — Map icon
-
-If your element renders as a glyph on the map (signal, stop sign,
-parking…), register it in `src/lib/mapIcons.ts`:
-
-```ts
-import { FaSquareTollBooth } from 'react-icons/fa6';
-
-const REGISTRY: Record<string, ComponentType<IconProps>> = {
-  // … existing icons …
-  'icon-toll-gate': FaSquareTollBooth,
+// src/types/inspectorSchema.ts
+export const tollStationSchema: EntitySchema<TollStationEntity, TollStationFormValues> = {
+  entityType: 'tollStation',
+  label: '收费站',
+  validation: tollStationFormSchema, // zod
+  fields: [
+    {
+      kind: 'string',
+      name: 'stationCode',
+      label: '站点编号',
+      section: '基础',
+      read: (e) => e.stationCode,
+      write: (e, v) => ({ ...e, stationCode: v }),
+    },
+    {
+      kind: 'number',
+      name: 'laneCount',
+      label: '车道数',
+      section: '基础',
+      min: 1,
+      max: 32,
+      step: 1,
+      read: (e) => e.laneCount,
+      write: (e, v) => ({ ...e, laneCount: v }),
+    },
+    {
+      kind: 'boolean',
+      name: 'etcEnabled',
+      label: 'ETC',
+      section: '设备',
+      read: (e) => e.etcEnabled,
+      write: (e, v) => ({ ...e, etcEnabled: v }),
+    },
+  ],
 };
 ```
 
-Reference the icon id (`icon-toll-gate`) in your GeoJSON `icon`
-property when compiling the spatial worker output. Polygon-only
-elements can skip this step.
+详见 [扩展 Inspector](./extending-the-inspector)。
 
-## Step 10 — Tests
+### 7. 接 export
 
-Write a thin slice of tests at each layer that has new code. Convention:
-test file lives next to the module under `__tests__/`.
+```ts
+// src/io/proto/entityBridge.ts
+function encodeTollStation(e: TollStationEntity): proto.TollStation {
+  return proto.TollStation.create({
+    id: { id: e.id },
+    polygon: { points: e.polygon },
+    heading: e.heading,
+    stationCode: e.stationCode,
+    laneCount: e.laneCount,
+    etcEnabled: e.etcEnabled,
+  });
+}
 
-| Layer        | Test file                                                               |
-| ------------ | ----------------------------------------------------------------------- |
-| Schema       | `src/lib/__tests__/schemas.test.ts`                                     |
-| Entity ops   | `src/lib/entityOps/__tests__/cascadeDeleteRefs.test.ts`, `edit.test.ts` |
-| Type guards  | `src/lib/entityOps/__tests__/typeGuards.test.ts`                        |
-| Proto bridge | `src/io/__tests__/entityBridge.test.ts` (round-trip a fixture)          |
-| Inspector    | `src/components/layout/panels/__tests__/InspectorForms.test.tsx`        |
-| Action       | `src/core/actions/__tests__/registry.test.ts`                           |
+// 在 buildMapMessage 里追加 repeated:
+mapMessage.tollStation = entities.filter(isTollStation).map(encodeTollStation);
+```
 
-Minimum bar:
+### 8. 接 import
 
-- A `tollGateSchema.parse({ type: 'MANUAL' })` happy path and one
-  invalid-input rejection.
-- A cascade-delete test: delete a junction, assert the toll gate's
-  `junctionId` becomes `null`.
-- A round-trip test: import a fixture containing a toll gate, export,
-  re-parse, deep-equal.
-- An inspector test: render `<TollGateForm entity={…} />`, change
-  `type`, assert `updateEntity` was called with the new value.
+```ts
+// src/io/proto/entityBridge.ts
+function decodeTollStation(m: proto.TollStation): TollStationEntity {
+  return {
+    id: m.id?.id ?? `toll_${nanoid(12)}`,
+    entityType: 'tollStation',
+    polygon: m.polygon?.points ?? [],
+    heading: m.heading ?? 0,
+    stationCode: m.stationCode ?? '',
+    laneCount: m.laneCount ?? 1,
+    etcEnabled: m.etcEnabled ?? false,
+    overlapIds: [],
+  };
+}
+```
 
-## Verification checklist
+### 9. 写测试
 
-1. `pnpm typecheck` — all unions narrow.
-2. `pnpm lint` — no ACL leaks, no `as unknown as X`.
-3. `pnpm test` — the new tests pass and existing tests still pass.
-4. `pnpm dev` — manually:
-   - Press the new shortcut, draw a toll gate.
-   - Open Inspector, change `type`, observe canvas update.
-   - Drag it under a junction in the layer tree.
-   - Delete the junction, observe `junctionId` cleared.
-   - Export `.bin`, re-import, observe round-trip.
-5. `pnpm bench` — no new perf regression.
+```ts
+// src/core/elements/__tests__/tollStation.test.ts
+it('factory builds rect with heading 0', () => {
+  const e = createTollStation(
+    [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ],
+    0,
+  );
+  expect(e.polygon).toHaveLength(4);
+  expect(isTollStation(e)).toBe(true);
+});
 
-## Cross-references
+// src/io/__tests__/roundTrip.test.ts
+it('TollStation survives import-export round trip', () => {
+  const original = createTollStation(
+    [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ],
+    0,
+  );
+  const encoded = encodeTollStation(original);
+  const decoded = decodeTollStation(encoded);
+  expect(decoded.stationCode).toBe(original.stationCode);
+  expect(decoded.polygon).toEqual(original.polygon);
+});
+```
 
-- [/architecture/overview](../architecture/overview.md) — layer-import rules
-- [/architecture/state-management](../architecture/state-management.md) — entity store + undo
-- [adding-a-new-action](./adding-a-new-action.md) — registry shape detail
-- [adding-a-new-drawing-tool](./adding-a-new-drawing-tool.md) — FSM extension
-- [Types / inspectorSchema](/api/types/inspector-schema) — form patterns
+## 修改的文件 (Files modified)
+
+| 文件                                              | 改动             |
+| ------------------------------------------------- | ---------------- |
+| `src/types/entities.ts`                           | 加联合成员       |
+| `src/core/elements/tollStation.ts`                | 工厂 + guard     |
+| `src/lib/entityOps.ts`                            | 适配层分支       |
+| `src/core/workers/spatialFeatures.ts`             | cold layer 编译  |
+| `src/types/inspectorSchema.ts`                    | inspector schema |
+| `src/lib/schemas.ts`                              | zod form schema  |
+| `src/io/proto/entityBridge.ts`                    | 解码             |
+| `src/io/proto/entityBridge.ts`                    | 编码             |
+| `src/proto/map_msgs/map.proto` （如不存在）       | 新 message       |
+| `src/core/elements/__tests__/tollStation.test.ts` | 单测             |
+| `src/io/__tests__/roundTrip.test.ts`              | round-trip       |
+
+## 测试清单 (Testing checklist)
+
+- [ ] 工厂参数缺失会抛错，不会落盘半成品。
+- [ ] type guard 在所有现有元素上返回 false。
+- [ ] cold layer 渲染：实际看到收费站填充色。
+- [ ] inspector 字段双向：读 -> 改 -> 写回，FormState 与 mapStore 一致。
+- [ ] import/export round-trip 数值精确（包括 proto2 optional 字段）。
+- [ ] 与 lane / junction overlap 时，`overlapIds` 自动维护。
+
+## 常见坑 (Common pitfalls)
+
+### overlap 不更新
+
+`overlapIds` 由 `overlap.worker.ts` 派生，不要手填。如果 worker 没识别新
+元素，去 `src/core/workers/overlapBridge.ts` 加分支。
+
+### 渲染层缺样式
+
+`maplibre` style 里没有该 `properties.kind`，cold layer 编译出来了但是
+不可见。在 `src/components/map/style.ts` 加 layer：
+
+```ts
+{
+  id: 'tollStation/fill',
+  type: 'fill',
+  source: 'cold',
+  filter: ['==', ['get', 'kind'], 'tollStation'],
+  paint: { 'fill-color': 'var(--ams-tollstation-fill)' },
+}
+```
+
+### inspector 编辑后地图不变
+
+读写 adapter 不对称。`read(write(e, v))` 必须等于 `v`。写一条单测验证。
+
+### 导出 proto 字段为 0/空
+
+proto2 optional 字段需要显式 set。检查 `src/types/apollo.ts` 的字段是否
+为 optional，并在 encode 里用 `!== undefined` 判断而不是 truthy。
+
+## 相关源码 (Source links)
+
+- [`src/types/entities.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/types/entities.ts)
+- [`src/core/elements/`](https://github.com/SakuraPuare/apollo-map-studio/tree/main/src/core/elements)
+- [`src/lib/entityOps.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/lib/entityOps.ts)
+- [`src/core/workers/spatialFeatures.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/core/workers/spatialFeatures.ts)
+- [`src/types/inspectorSchema.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/types/inspectorSchema.ts)
+- [`src/io/proto/entityBridge.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/io/proto/entityBridge.ts)
+- [`src/io/proto/entityBridge.ts`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/io/proto/entityBridge.ts)
+- [`src/proto/map_msgs/map.proto`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/src/proto/map_msgs/map.proto)
+
+## 进阶 (Advanced)
+
+### 衍生字段
+
+如果元素有 derivable 字段（例如 lane 的 `length` 由 centralCurve 推算），
+在 `src/core/elements/derive.ts` 写派生函数，并用 `markUserOverride` 跟踪
+用户覆盖：
+
+```ts
+import { markUserOverride } from '@/core/elements/derive';
+
+write: (e, v) => markUserOverride({ ...e, laneCount: v }, 'laneCount'),
+```
+
+这让 import 时不会用 proto 默认值覆盖用户手动改过的字段。
+
+### 与 lane 拓扑联动
+
+如果新元素需要参与拓扑图（如 PNCJunction），在
+`src/core/workers/laneJunctionGraph.ts` 加端点贡献逻辑。否则 graph
+recompute 会忽略它。
+
+::: tip 上线节奏
+推荐三段式提交：
+
+1. types + factory + guard + 单测
+2. import/export + round-trip 单测
+3. inspector schema + cold layer 样式 + UI 手测
+   每段独立 review，互不阻塞。
+   :::

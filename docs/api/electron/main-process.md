@@ -1,119 +1,27 @@
-# Main process
+---
+title: electron/main.cts — 主进程入口
+description: BrowserWindow 创建、应用生命周期管理（single instance / activate / before-quit）、LicenseManager 启停。
+---
 
-> Source: `electron/main.cts`
+# `electron/main.cts` — 主进程入口
 
-## Overview
+> 源码：`electron/main.cts` · 106 行 · CommonJS 模块（`.cts`）
 
-`main.cts` is the Electron main-process entrypoint. It handles app
-lifecycle, BrowserWindow creation, the single-instance lock, and
-wires up the `LicenseManager` before the first window opens. The
-file is intentionally small — most logic lives in
-`electron/license/*` and the renderer.
+## 用途
 
-::: tip Why .cts (CommonJS)
-The Electron main process runs in CommonJS. `*.cts` is the TypeScript
-extension that emits CJS unconditionally, regardless of `package.json
-"type": "module"`. The renderer can stay ESM; main + preload must be
-CJS so `require('electron')` resolves at boot.
-:::
+`main.cts` 是 Electron 主进程入口。它做四件事：
 
-## Exports
+1. 创建 `BrowserWindow`（启用所有 Electron 14+ 安全基线选项）
+2. 管理应用生命周期：单实例锁、`activate`、`window-all-closed`、`before-quit`
+3. 启动 `LicenseManager`，让 IPC 在创建窗口前就绪
+4. 绑定外部链接拦截（`setWindowOpenHandler`）
 
-`main.cts` is an entrypoint; it doesn't export anything for downstream
-consumption. Its public surface is the IPC channels registered by
-`LicenseManager` and the `apolloMapStudio` /
-`apolloMapStudioLicense` globals exposed by the preload.
+## 关键代码
 
-## Behavior
-
-### Module-level state
+### Window 创建
 
 ```ts
-const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-let licenseManager: LicenseManager | null = null;
-```
-
-`ELECTRON_RENDERER_URL` is set by the dev script (Vite dev server).
-Production reads from the bundled `dist/index.html`.
-
-### App identity
-
-```ts
-app.setName('Apollo Map Studio');
-if (process.platform === 'win32') {
-  app.setAppUserModelId('com.apollo-map-studio.app');
-}
-```
-
-The Windows app user model id is required for taskbar grouping and
-notification identity — without it, multiple updates would show as
-separate apps in the start menu.
-
-### Single-instance lock
-
-```ts
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-
-if (!gotSingleInstanceLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    const [mainWindow] = BrowserWindow.getAllWindows();
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  });
-  // ... whenReady ...
-}
-```
-
-If the user double-clicks the app icon while it's already running, the
-second instance dies and the existing window comes to the foreground.
-
-### Boot order
-
-```ts
-app.whenReady().then(() => {
-  // Wire the license manager *before* creating any window so the renderer
-  // can request state from a fully-initialised IPC surface.
-  licenseManager = new LicenseManager();
-  licenseManager.start();
-
-  void createMainWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      void createMainWindow();
-    }
-  });
-});
-```
-
-The order matters: `LicenseManager` registers its IPC handlers in
-`start()`. Creating the window first would race the renderer's
-opening `getState()` call.
-
-```mermaid
-sequenceDiagram
-    participant App as Electron app
-    participant LM as LicenseManager
-    participant Win as BrowserWindow
-    participant Renderer as Preload + React
-
-    App->>App: app.whenReady()
-    App->>LM: new LicenseManager()
-    App->>LM: start() (register IPC)
-    App->>Win: createMainWindow()
-    Win->>Renderer: load index.html / dev URL
-    Renderer->>Renderer: useLicenseSync mounts
-    Renderer->>LM: ipcRenderer.invoke(license:get-state)
-    LM-->>Renderer: LicenseState
-```
-
-### Window options
-
-```ts
-new BrowserWindow({
+const mainWindow = new BrowserWindow({
   width: 1440,
   height: 960,
   minWidth: 1024,
@@ -130,20 +38,44 @@ new BrowserWindow({
 });
 ```
 
-Security baseline:
+- `show: false` + `ready-to-show` 监听器消除"白屏一闪"
+- `backgroundColor: '#101318'` 与设计系统的 `--ams-bg-deep` 对齐，避免 mode 切换时颜色抖动
+- 三项安全选项见 [Electron overview](../electron.md#安全配置mainckts)
 
-| Flag               | Value                                                 |
-| ------------------ | ----------------------------------------------------- |
-| `contextIsolation` | `true` — renderer can't reach Node globals            |
-| `nodeIntegration`  | `false` — `require()` not exposed in DOM              |
-| `sandbox`          | `true` — preload runs in a sandboxed renderer process |
+### Preload 路径解析
 
-`backgroundColor: '#101318'` paints the window dark immediately so
-there's no white flash before the renderer mounts. `show: false` +
-`once('ready-to-show')` defers showing the window until the renderer
-has painted at least one frame.
+```ts
+function getPreloadPath() {
+  return path.join(__dirname, 'preload.cjs');
+}
 
-### External link handling
+function getRendererIndexPath() {
+  return path.join(__dirname, '..', 'dist', 'index.html');
+}
+```
+
+注意：编译产物用 `.cjs` 后缀，而源码是 `.cts`——`tsconfig.electron.json` 的 `module: "commonjs"` 编译时改后缀，让 ESM `import` 在打包后仍能解析。
+
+### Dev / Prod 渲染端加载
+
+```ts
+const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+
+// ...
+
+if (rendererUrl) {
+  await mainWindow.loadURL(rendererUrl);
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  return;
+}
+
+await mainWindow.loadFile(getRendererIndexPath());
+```
+
+- Dev：从 Vite dev server 拉资源（`vite.config.ts` 中 electron-vite 注入 `ELECTRON_RENDERER_URL`），自动打开 detach 模式 DevTools
+- Prod：加载打包后的 `dist/index.html`
+
+### 外部链接拦截
 
 ```ts
 mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -154,26 +86,42 @@ mainWindow.webContents.setWindowOpenHandler(({ url }) => {
 });
 ```
 
-Any `target="_blank"` or `window.open(...)` from the renderer is
-intercepted: HTTP(S) URLs open in the OS's default browser, anything
-else is silently denied. This keeps the editor from spawning
-unintended Electron sub-windows.
+任何 `target="_blank"` / `window.open` 调用都被拒绝创建新窗口；http/https URL 改走系统默认浏览器。**关键安全特性** —— 没有这条，恶意/被劫持的链接可以在 Electron 进程内打开任意页面。
 
-### Renderer URL resolution
+### Single-instance lock
 
 ```ts
-if (rendererUrl) {
-  await mainWindow.loadURL(rendererUrl);
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
-  return;
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const [mainWindow] = BrowserWindow.getAllWindows();
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
+
+  app.whenReady().then(() => {
+    licenseManager = new LicenseManager();
+    licenseManager.start(); // ← 在创建 window 之前启动！
+    void createMainWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        void createMainWindow();
+      }
+    });
+  });
 }
-await mainWindow.loadFile(getRendererIndexPath());
 ```
 
-In dev (URL set), DevTools opens detached automatically. In production
-the bundled HTML loads from `__dirname/../dist/index.html`.
+- 第二次启动 `requestSingleInstanceLock` 返回 `false` → 退出
+- `second-instance` 事件：把现有窗口置顶（更友好的用户体验）
+- LicenseManager **必须** 在 `createMainWindow` 之前 start——否则 renderer 启动时 IPC handler 还没注册，第一次 `getState` 会拒绝
 
-### Quit lifecycle
+### Quit 路径
 
 ```ts
 app.on('before-quit', () => {
@@ -181,52 +129,97 @@ app.on('before-quit', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 ```
 
-`LicenseManager.stop()` flushes the time guard's last-seen timestamp
-to disk before exit (otherwise a swift quit could leave the timestamp
-behind real time). On macOS, closing the last window keeps the app
-alive (standard Cocoa convention).
+- `before-quit` —— 调用 `licenseManager.stop()` 持久化 TimeGuard 状态、清理 setInterval
+- `window-all-closed` —— 非 macOS 退出（macOS 关闭窗口不退出，按 dock icon 重开）
 
-## Examples
-
-### Adding a new IPC handler
-
-Register in main:
+### Windows AppUserModelId
 
 ```ts
-ipcMain.handle('my-feature:do-thing', async (_e, arg: string) => {
-  return await doThingInMain(arg);
-});
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.apollo-map-studio.app');
+}
 ```
 
-Expose in preload:
+让通知 / 任务栏分组使用稳定 ID（Windows 规范要求）。
+
+## 公共 API
+
+### 内部函数
+
+| 符号                     | 类型     | 摘要                                  |
+| ------------------------ | -------- | ------------------------------------- |
+| `getPreloadPath()`       | fn       | 返回 `__dirname/preload.cjs` 绝对路径 |
+| `getRendererIndexPath()` | fn       | 返回 `dist/index.html` 绝对路径       |
+| `createMainWindow()`     | async fn | 创建 BrowserWindow + 加载渲染端       |
+
+### 模块级 state
 
 ```ts
-contextBridge.exposeInMainWorld('apolloMapStudioMyFeature', {
-  doThing: (arg: string) => ipcRenderer.invoke('my-feature:do-thing', arg),
-});
+const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+let licenseManager: LicenseManager | null = null;
 ```
 
-Consume in renderer:
+`licenseManager` 用 `let` 是为了在 `before-quit` 中调用 `stop()` 前不会被 GC。
 
-```ts
-declare const apolloMapStudioMyFeature: { doThing(arg: string): Promise<...> };
-```
+## 副作用
 
-### Disabling sandbox for debugging
+- 注册 `app.on(...)` 事件 listener
+- 创建 `BrowserWindow`（GPU / OS 资源）
+- 启动 `LicenseManager`（持久化 + 计时器）
+- 启动 `setWindowOpenHandler`
 
-::: warning Don't ship without sandbox
-Setting `sandbox: false` would let the preload `require()` Node
-modules directly — useful for debugging IPC issues, but a security
-regression. Re-enable before merging.
-:::
+## 测试覆盖
 
-## Related
+主进程逻辑通常用 Spectron / Playwright Electron 做端到端测试，本 repo 暂无（或在 CI 中走 `pnpm package` smoke test）。
 
-- [Preload](/api/electron/preload)
-- [License manager](/api/electron/license-manager)
-- [License crypto](/api/electron/license-crypto)
-- [Architecture: license system](/architecture/license-system)
+## 相关 IPC
+
+主进程注册的 IPC channel 由 `LicenseManager.start()` 注册，参见 [License Manager](./license-manager.md):
+
+- `license:get-state`
+- `license:get-machine-code`
+- `license:activate`
+- `license:deactivate`
+
+广播 channel：`license:state`（向所有 BrowserWindow 推）。
+
+## 安全注记
+
+| 项                 | 配置                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| `contextIsolation` | ✓ true                                                          |
+| `nodeIntegration`  | ✗ false                                                         |
+| `sandbox`          | ✓ true                                                          |
+| External links     | 默认拒绝，HTTP(S) 走 `shell.openExternal`                       |
+| File dialogs       | **未启用** —— 当前桌面构建无文件 IPC，IO 走 worker / 浏览器路径 |
+| Auto-updater       | **未启用**                                                      |
+
+## 源码索引
+
+| 行      | 内容                                      |
+| ------- | ----------------------------------------- |
+| 1–2     | imports                                   |
+| 4       | `LicenseManager` import                   |
+| 6       | `rendererUrl` from env                    |
+| 8       | `licenseManager` 模块状态                 |
+| 10–16   | `getPreloadPath` / `getRendererIndexPath` |
+| 18–54   | `createMainWindow`                        |
+| 56–57   | `app.setName`                             |
+| 58–60   | Win32 AppUserModelId                      |
+| 62–95   | Single-instance lock + `whenReady`        |
+| 97–99   | `before-quit`                             |
+| 101–105 | `window-all-closed`                       |
+
+## 参见
+
+- [Electron overview](../electron.md)
+- [Preload](./preload.md)
+- [License Manager](./license-manager.md)
+- `tsconfig.electron.json` —— 编译配置（输出 `.cjs`）
+- `vite.config.ts` —— `ELECTRON_RENDERER_URL` 注入

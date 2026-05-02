@@ -1,264 +1,283 @@
-# License activation
+---
+title: 许可证激活
+description: AMS Desktop 的离线激活流程、机器码生成、Ed25519 签名校验、激活状态机、Banner 与 Dialog UI、八种 status、过期与篡改处理。
+---
 
-::: info Desktop only
-The license layer is part of the Electron desktop build. The web build
-runs in a permissive "trial" state that never expires and accepts no
-activation code. If you're using `pnpm dev` in a browser, this page is
-informational only — none of the gating fires.
+# 许可证激活 / License Activation
+
+> AMS 桌面端 (Electron) 内置一套**离线激活**机制：本机生成机器码 → 你把机器码发给厂商 → 厂商返回一段绑定本机的激活码 → 桌面端做 Ed25519 验签并落盘。整个过程**无需联网**。
+
+::: info 仅限 Desktop / Desktop only
+浏览器预览版（`pnpm dev`）会跳过激活，永远显示 `trial`，且 `canEdit=true`。生产桌面包才会真正强制激活——这是为了让前端贡献者依然可以本地开发。详见 `src/lib/license-bridge.ts:62-75`。
 :::
 
-The desktop build ships with a 7-day trial. After the trial expires,
-the editor enters read-only mode until you activate with a license
-token bound to your machine. Tokens are issued offline by your vendor;
-no internet round-trip is required.
+## 概览 / Overview
 
-## Source map
+| 维度     | 说明                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------- |
+| 安全模型 | Ed25519 公钥校验 + 机器绑定 + 重放检测 + 系统时钟反作弊                                  |
+| 数据走向 | Renderer 通过 `licenseBridge` 与主进程 IPC；主进程持久化 `license.json` + `machine.bind` |
+| UI 入口  | `LicenseBanner` 顶部条；点 “Activate” / “Manage license” 弹出 `ActivationDialog`         |
+| 试用期   | 7 天                                                                                     |
+| 状态种类 | 8 种 (`LicenseStatus`)                                                                   |
+| 离线性   | 全离线                                                                                   |
+| 加密格式 | `APMS1.<base64url(payload)>.<base64url(signature)>`                                      |
 
-| Concern                       | File                                          |
-| ----------------------------- | --------------------------------------------- |
-| Renderer state store          | `src/store/licenseStore.ts`                   |
-| Renderer-side bridge          | `src/lib/license-bridge.ts`                   |
-| Banner                        | `src/components/license/LicenseBanner.tsx`    |
-| Activation dialog             | `src/components/license/ActivationDialog.tsx` |
-| Sync hook                     | `useLicenseSync` in `src/hooks/useLicense.ts` |
-| Editable guard                | `src/lib/editable-guard.ts`                   |
-| Main-process license verifier | `electron/license/`                           |
-| Issuer (vendor side)          | `tools/license-gen/`                          |
+## 状态机 / Status Machine
 
-## License states
+`LicenseStatus` 共 8 种 (`license-bridge.ts:11-19`)：
 
-| Status             | `canEdit` | Banner                               | What it means                                        |
-| ------------------ | :-------: | ------------------------------------ | ---------------------------------------------------- |
-| `trial`            |    yes    | quiet (only when ≤ 3d remaining)     | First 7 days after install                           |
-| `activated`        |    yes    | quiet (only when ≤ 14d remaining)    | Valid license token loaded                           |
-| `expired_trial`    |    no     | amber, "Trial expired"               | 7 days elapsed without activation                    |
-| `expired_license`  |    no     | amber, "License expired"             | License token's `expires` timestamp passed           |
-| `tampered`         |    no     | rose, "Tampering detected"           | System clock manipulation or license file corruption |
-| `machine_mismatch` |    no     | rose, "Bound to a different machine" | Token's machine code doesn't match this machine      |
-| `invalid`          |    no     | rose, "Signature failed"             | Ed25519 verification failed                          |
-| `not_started`      |    no     | gray, "Pending"                      | Trial hasn't started yet (rare; clock skew)          |
+| Status             | 中文含义   | `canEdit` | Banner 颜色                | 触发条件                          |
+| ------------------ | ---------- | --------- | -------------------------- | --------------------------------- |
+| `trial`            | 试用中     | ✅        | 青色（短于 3 天才显示）    | 首次启动、无任何激活信息          |
+| `activated`        | 已激活     | ✅        | 绿色（剩余 ≤ 14 天才显示） | 验签通过 + 在有效期内             |
+| `expired_trial`    | 试用过期   | ❌        | 琥珀色                     | trial 7 天用完且未激活            |
+| `expired_license`  | 许可证过期 | ❌        | 琥珀色                     | 激活码合法但已过期                |
+| `tampered`         | 检测到篡改 | ❌        | 红色                       | 系统时钟回拨、license.json 被改   |
+| `machine_mismatch` | 机器不匹配 | ❌        | 红色                       | 把别人机器上的 license 拷贝过来   |
+| `invalid`          | 验签失败   | ❌        | 红色                       | 激活码格式正确但 Ed25519 签名错误 |
+| `not_started`      | 待启动     | ❌        | 灰色                       | 激活码 `notBefore` 还未到         |
 
-## Trial mode
+### 状态转换
 
-On first launch, the main process records `trialStart` and computes
-`trialEnd = trialStart + 7 days`. The renderer reads
-`useLicenseStore.state.daysRemaining` / `hoursRemaining` and surfaces:
+```mermaid
+stateDiagram-v2
+    [*] --> trial: 首次启动
+    trial --> activated: 用户输入有效激活码
+    trial --> expired_trial: 7 天用完
+    activated --> expired_license: 到 expires
+    activated --> machine_mismatch: license 被复制到别的机器
+    activated --> tampered: 系统时钟回拨 / 文件被改
+    expired_trial --> activated: 用户输入新激活码
+    expired_license --> activated: 续期
+    tampered --> activated: 用户修正时钟 + 删除文件 + 重激活
+    machine_mismatch --> activated: 用户输入本机绑定的新码
+    invalid --> activated: 用户重新粘贴正确码
+    not_started --> activated: 时间到达 notBefore
+```
 
-- **More than 3 days remaining**: no banner. Status bar unaffected.
-- **3 days or fewer**: cyan banner — "Trial: Nd remaining". Banner
-  "Activate" button opens the dialog.
-- **24 hours or fewer**: cyan banner with hours — "Trial ends in Nh".
-- **0**: trial expired. Banner turns amber, status flips to
-  `expired_trial`, `canEdit = false`.
+## 界面导览 / UI Tour
 
-::: tip Trial state survives reinstalls (sort of)
-The trial start timestamp is written to `userData/license/`. Removing
-that directory restarts the trial. This is intentional — the editor
-trusts the local file as the trial record, not a remote server. If
-you're a long-term user, just activate.
-:::
+### LicenseBanner（顶部条）
 
-## Activation flow
+`src/components/license/LicenseBanner.tsx:106-129` 渲染。展示规则：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🛡 Licensed · 13d remaining            [🔑 Manage license] │   activated（≤14天）
+│ ⏱ Trial: 5d remaining                  [🔑 Activate]       │   trial（≤3天）
+│ ⚠ License expired — read-only mode...   [🔑 Activate]       │   expired_*
+│ ⚠ Tampering detected — read-only mode...[🔑 Activate]       │   tampered
+└─────────────────────────────────────────────────────────────┘
+```
+
+试用剩余 > 3 天、激活后剩余 > 14 天 → **不显示 banner**（避免干扰）。
+
+### ActivationDialog（激活对话框）
+
+`src/components/license/ActivationDialog.tsx:103-213`：
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Apollo Map Studio License        status: trial · 5d trial left   │
+├──────────────────────────────────────────────────────────────────┤
+│ THIS MACHINE'S CODE                                              │
+│  M-AB12-CD34-EF56-GH78-IJ90      [📋 Copy]                       │
+│  Send this code to your license vendor. They will reply with     │
+│  an activation code that is valid only on this machine.          │
+│                                                                  │
+│ PASTE ACTIVATION CODE                                            │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ APMS1.eyJ2IjoxLCJsaWMiOiIuLi4ifQ.…                         │  │
+│  │                                                            │  │
+│  └────────────────────────────────────────────────────────────┘  │
+├──────────────────────────────────────────────────────────────────┤
+│                                       [Close]   [Activate]       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+## 操作步骤 / Steps
+
+### 首次激活
+
+1. 启动桌面端，顶部出现青色 banner：`Trial: 7d remaining`。
+2. 点 `Activate`（或在试用期内的任意时刻自行打开）。
+3. 弹出 ActivationDialog；点 `Copy` 复制机器码。
+4. 把机器码（形如 `M-XXXX-XXXX-...`）发给厂商。
+5. 厂商把激活码 (`APMS1.<...>.<...>`) 邮件回复给你。
+6. 在 ActivationDialog 中粘贴激活码 → 点 `Activate`。
+7. Renderer 把激活码 IPC 发给主进程；主进程做 4 步校验：
+   - **格式检查**：必须 `APMS1.<base64>.<base64>`
+   - **Ed25519 验签**：用内置公钥
+   - **机器绑定**：payload.machineCode === 当前机器码
+   - **重放检测**：如果同一 license id 已被吊销则拒绝
+8. 校验通过 → `license.json` 落盘 → `LicenseState.status === 'activated'` → banner 变绿。
+9. 一切失败都会在 dialog 内红条显示原因 (`errorMessage`)。
+
+### 续期 / 升级
+
+激活已存在时再开 dialog，标题会显示 `status: activated · ...`，并出现一段绿色面板列出当前 license 的 id / name / expires。粘贴新的 token，覆盖旧的。
+
+### 撤销 / 切机
+
+`licenseBridge.deactivate()` 会清掉 `license.json`，下次启动回到 trial。**注意：deactivate 不会续重置剩余 trial 天数**——deactivate 只针对 license 部分。
+
+## 协议 / Activation Code Format
+
+激活码字符串格式（出 `ActivationDialog.tsx:173` 的 placeholder）：
+
+```
+APMS1.<base64url(JSON payload)>.<base64url(Ed25519 signature)>
+```
+
+JSON payload 字段：
+
+| 字段        | 类型      | 含义                           |
+| ----------- | --------- | ------------------------------ |
+| `v`         | int       | schema 版本（当前为 1）        |
+| `lic`       | string    | license id（厂商发放唯一 ID）  |
+| `name`      | string    | 显示名（如 “Lumina Internal”） |
+| `machine`   | string    | 绑定的机器码                   |
+| `issued`    | int (ms)  | 签发时间                       |
+| `expires`   | int (ms)  | 失效时间，0 表示永不过期       |
+| `notBefore` | int (ms)? | 提前下发但延迟生效（可选）     |
+
+签名采用 Ed25519，密钥对由厂商持有。renderer 仅持有公钥常量。
+
+## 激活时序 / Sequence
 
 ```mermaid
 sequenceDiagram
-  User->>Banner: click Activate (or trial expired)
-  Banner->>licenseStore: promptActivation()
-  licenseStore->>ActivationDialog: open
-  ActivationDialog->>ActivationDialog: display machine code (Ed25519-derived)
-  User->>Vendor: send machine code (out of band)
-  Vendor->>tools/license-gen: issue token (machineCode, expires, name)
-  Vendor->>User: deliver token
-  User->>ActivationDialog: paste token, click Activate
-  ActivationDialog->>licenseBridge: activate(token)
-  licenseBridge->>Main: IPC.activate
-  Main->>Main: Ed25519 verify (release pubkey)
-  Main->>Main: check machineCode matches
-  Main->>Main: check expires not in past
-  Main-->>licenseBridge: { ok, state }
-  licenseBridge-->>ActivationDialog: result
-  alt ok
-    ActivationDialog->>licenseStore: setState(activated)
-    ActivationDialog->>UI: close dialog
-  else fail
-    ActivationDialog->>UI: show error message
-  end
+    participant U as User
+    participant R as Renderer (LicenseBanner / ActivationDialog)
+    participant Br as licenseBridge
+    participant M as Main process
+    participant FS as License store (license.json)
+
+    R->>Br: getState()
+    Br->>M: ipc:license:getState
+    M->>FS: read license.json + machine.bind
+    M-->>Br: LicenseState
+    Br-->>R: hydrate
+
+    U->>R: paste code, click Activate
+    R->>Br: activate(code)
+    Br->>M: ipc:license:activate
+    M->>M: parse + ed25519.verify(pubkey, payload, sig)
+    M->>M: check machineCode + expires + notBefore
+    alt OK
+      M->>FS: write license.json
+      M-->>Br: { ok: true, state: activated }
+      Br-->>R: render green banner
+    else fail
+      M-->>Br: { ok: false, errorCode, errorMessage }
+      Br-->>R: red error in dialog
+    end
 ```
 
-### Machine code
+## 配置存储位置 / Persistence
 
-A short, fingerprintable identifier derived from stable hardware
-properties (typically a hash of MAC address + CPU id + OS user). The
-machine code is shown at the top of the activation dialog with a
-copy button:
+| 文件           | 路径（Linux 举例）                         | 写入方                                 |
+| -------------- | ------------------------------------------ | -------------------------------------- |
+| `license.json` | `~/.config/apollo-map-studio/license.json` | 主进程 `electron/main/license/storage` |
+| `machine.bind` | 同目录                                     | 同                                     |
 
-```
-This machine's code:  AMS-AB12-CD34-EF56-7890   [Copy]
-```
-
-Send this code to your vendor when requesting an activation token.
-
-::: warning Machine code is stable but not universal
-The fingerprint is derived from your local hardware. If you swap your
-network card or reinstall the OS, the machine code will change and
-your existing license will report `machine_mismatch`. Contact your
-vendor for a re-issued token.
+::: warning 不要手动改 license 文件
+任何手动修改都会触发 `tampered` 状态。如需重置，**直接删除文件**而非编辑。
 :::
 
-### Activation token format
+## 防作弊设计 / Anti-tamper
 
-Activation tokens look like:
+| 机制            | 实现位置                              | 说明                                    |
+| --------------- | ------------------------------------- | --------------------------------------- |
+| Ed25519 签名    | `electron/main/license/verify.ts`     | 任何字段被改都会让签名失败              |
+| Machine binding | 同上 + `machine.bind` 文件            | payload.machine 必须等于本机生成的 hash |
+| Replay 检测     | `electron/main/license/replay.ts`     | 同 license id 重复使用 → 拒绝           |
+| 系统时钟反作弊  | `electron/main/license/clockGuard.ts` | 上次启动时间 > 当前时间 → 标记 tampered |
 
-```
-APMS1.eyJ2IjoxLCJsaWMiOiIuLi4ifQ.MEUCIQDxxxxxxxx...
-       └─ payload ─┘ └─ signature ─┘
-```
-
-`APMS1.` prefix is the format version. The payload is a base64-url
-JSON object `{ v, lic, ... }` containing:
-
-- `id` — license id (uuid)
-- `name` — friendly name (e.g. "Acme Robotaxi Fleet")
-- `machineCode` — bound machine code
-- `expires` — expiry timestamp (0 = perpetual)
-- `issuedAt` — issuance timestamp
-
-The signature is Ed25519 over the payload, signed by the vendor's
-release key.
-
-### Activation success
-
-After successful activation:
-
-| State change                         | Effect                                 |
-| ------------------------------------ | -------------------------------------- |
-| `status` → `activated`               | Editor unlocks                         |
-| `canEdit` → `true`                   | All actions allowed                    |
-| `license` → token payload            | Banner shows "Licensed · Nd remaining" |
-| Token written to `userData/license/` | Persists across reboots                |
-
-## Read-only enforcement
-
-When `canEdit === false`, every editable action checks
-`assertEditable()` (`src/lib/editable-guard.ts`):
-
-```ts
-function actionRequiresEdit(id: ActionId): boolean {
-  if (id === 'connectLanes') return true;
-  const def = ACTION_MAP.get(id);
-  if (!def) return false;
-  return def.category === 'edit' || def.category === 'tool' || def.category === 'selection';
-}
-```
-
-Categories blocked when read-only:
-
-- `edit` — Undo, Redo, Delete, Connect Lanes
-- `tool` — Every drawing tool
-- `selection` — Default mode
-
-Categories **allowed** when read-only:
-
-- `file` — Import, Export, Settings (you can still inspect data)
-- `view` — Toggle Grid, Toggle Snap, Reset Layout, Command Palette
-
-::: warning Export is allowed in read-only mode
-You can still export the current map even when the license is
-expired. This is deliberate — losing access to your existing work
-when a trial expires would be hostile. Editing is gated; reading is
-not.
+::: tip 受控失败模式
+即便检测到篡改，应用**不会闪退**——只把 `canEdit` 设为 false，进入只读模式。这样标注员不会丢数据，可以联系厂商解锁。
 :::
 
-## Banner behavior
+## 常见问题 / Troubleshooting
 
-`LicenseBanner.tsx:63-104` decides when and how to show the banner:
+| 问题                                         | 原因                                      | 解决                                                                        |
+| -------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| Banner 一直是 `trial` 即便我贴了码           | 你在 `pnpm dev` 浏览器版（fallback 状态） | 用 `pnpm dist` 打出的桌面包                                                 |
+| `invalid_signature`                          | 你拷错了字符（多空格/换行）               | 重新粘贴；ActivationDialog 的 `setCode(...replace(/\s+/g,''))` 会自动清空白 |
+| `machine_mismatch`                           | license 是别的机器的码                    | 联系厂商签发新码                                                            |
+| `tampered` 但我没改文件                      | 系统时钟跳过；或挂载的目录不一致          | 同步 NTP；删除 `license.json` 重激活                                        |
+| `expired_license`                            | 到 `expires`                              | 联系厂商续期                                                                |
+| Manage license 按钮不出现                    | 当前在永久许可（expires=0）剩余 > 14 天   | 这是设计，banner 主动隐藏                                                   |
+| 删除 license.json 后 banner 还显示 activated | renderer 缓存旧 state                     | 重启应用                                                                    |
 
-| Condition                                   | Banner                                                       |
-| ------------------------------------------- | ------------------------------------------------------------ |
-| `activated` + perpetual (`expires === 0`)   | hidden                                                       |
-| `activated` + > 14 days remaining           | hidden                                                       |
-| `activated` + ≤ 14 days                     | quiet "Licensed · Nd remaining" with "Manage license" button |
-| `trial` + > 3 days                          | hidden                                                       |
-| `trial` + ≤ 3 days                          | cyan "Trial: Nd remaining" + Activate button                 |
-| `trial` + ≤ 24 hours                        | cyan "Trial ends in Nh" + Activate button                    |
-| `expired_trial` / `expired_license`         | amber + Activate button                                      |
-| `tampered` / `machine_mismatch` / `invalid` | rose + Activate button                                       |
-| `not_started`                               | gray                                                         |
+## 相关源码 / Source
 
-## Tampered state
+- `src/components/license/ActivationDialog.tsx` — UI 对话框
+- `src/components/license/LicenseBanner.tsx` — 顶部状态条
+- `src/lib/license-bridge.ts` — renderer ↔ main IPC bridge
+- `src/store/licenseStore.ts` — Zustand store（mirror main 状态）
+- `src/hooks/useLicense.ts` — `useLicenseSync` 注入 `WorkspaceLayout`
+- `electron/main/license/` — 主进程验签 + 落盘逻辑
+- `electron/preload.cts` — `contextBridge.exposeInMainWorld('apolloMapStudioLicense', ...)`
 
-The main process flags `tampered` when:
+## LicenseState 字段全表 / LicenseState Glossary
 
-- The system clock moved backward by more than the configured
-  threshold (typically days).
-- License files in `userData/license/` were modified outside the
-  editor (file hashes don't match expected values).
-- The token's `issuedAt` is in the future relative to the trial start.
+`src/lib/license-bridge.ts:21-32`：
 
-Recovery from tampered:
+| 字段             | 类型                                    | 含义                                  |
+| ---------------- | --------------------------------------- | ------------------------------------- |
+| `status`         | `LicenseStatus`                         | 8 种之一                              |
+| `canEdit`        | boolean                                 | 是否允许写入（影响 Inspector / 绘制） |
+| `machineCode`    | string                                  | `M-XXXX-XXXX-...`                     |
+| `trialStart`     | int (ms)                                | 首次启动时间                          |
+| `trialEnd`       | int (ms)                                | 试用结束时间                          |
+| `daysRemaining`  | int \| null                             | 剩余天数；null 表示永久               |
+| `hoursRemaining` | int \| null                             | 剩余小时数（短期更精确）              |
+| `license`        | `{ id, name, issued, expires } \| null` | 已激活时的描述                        |
+| `checkedAt`      | int (ms)                                | 主进程最后一次校验时间                |
+| `reason`         | string                                  | 状态文字，banner 与 dialog title 都用 |
 
-1. Correct your system clock.
-2. Remove any modified license files (the activation dialog warns
-   about this).
-3. Re-activate with the original token (or request a re-issued one
-   from your vendor if the token itself is suspect).
+## ActivationResult 字段 / ActivationResult Glossary
 
-::: warning Tampering doesn't lock you out forever
-The tampered state is recoverable. Restoring the clock and
-re-activating returns you to `activated`. We don't write any
-"poisoned" markers that would prevent future activation.
+`license-bridge.ts:34-46`：
+
+| 字段           | 类型           | 含义                                                                                                               |
+| -------------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `ok`           | boolean        | 总成功标记                                                                                                         |
+| `state`        | `LicenseState` | 激活后的最新 state                                                                                                 |
+| `errorCode`    | union          | `'invalid_format' / 'invalid_signature' / 'machine_mismatch' / 'expired' / 'replay' / 'storage_error' / 'unknown'` |
+| `errorMessage` | string         | 用户可见错误，dialog 红条展示                                                                                      |
+
+## 与同类工具对比 / Comparison
+
+| 工具          | 模型                | 是否离线 | 客户端验签 |
+| ------------- | ------------------- | -------- | ---------- |
+| AMS           | 离线 + Ed25519      | ✅       | ✅         |
+| JetBrains IDE | 服务器换 token      | ❌       | 部分       |
+| Sublime Text  | 离线 license code   | ✅       | RSA        |
+| Adobe CC      | 联网 license server | ❌       | —          |
+| 1Password     | 联网 + biometric    | ❌       | —          |
+
+AMS 选离线模型是因为目标场景（车厂内部数据/机密路网）**不允许联网激活**。
+
+## 多机部署 / Fleet Deployment
+
+如果你需要在 50 台标注员机器上批量部署：
+
+1. 各机器分别生成机器码（不能复用别人的）。
+2. 厂商使用同一证书签发 50 个独立的 token，每个绑定不同 machineCode。
+3. 通过统一渠道（共享盘 / IT 工具）下发激活码。
+4. 用户首次启动 → ActivationDialog → 粘贴 → 激活。
+
+::: tip 自动化激活
+如需脚本化，主进程暴露了 `apolloMapStudioLicense.activate(code)`。可写一个 init 脚本读 `~/.apollo-map-studio/init-token.txt` 自动激活。该接口未在文档中正式承诺向后兼容；请固定 AMS 版本。
 :::
 
-## Sync model
+## 相关文档 / See also
 
-`useLicenseSync()` in `src/hooks/useLicense.ts`:
-
-```ts
-useEffect(() => {
-  void hydrate(); // pull initial state from main
-  const unsub = licenseBridge.onChange(setState); // subscribe to changes
-  const onFocus = () => void hydrate(); // re-poll on window focus
-  window.addEventListener('focus', onFocus);
-  return () => {
-    unsub();
-    window.removeEventListener('focus', onFocus);
-  };
-}, [hydrate, setState]);
-```
-
-Three sync paths:
-
-- **On mount**: `hydrate()` reads current state.
-- **On main-process events**: `licenseBridge.onChange` subscribes to
-  IPC pushes.
-- **On window focus**: re-`hydrate()`. Catches the case where the
-  user wakes a sleeping laptop — main-process timer ticks may have
-  missed.
-
-## Activating offline
-
-The vendor-side issuer (`tools/license-gen/`) is a CLI that runs on the
-vendor's offline machine. It signs a token using the vendor's private
-key. The renderer never talks to the vendor's server; the entire flow
-is:
-
-1. User → vendor (out of band, e.g. email): machine code.
-2. Vendor → user (out of band): signed activation token.
-3. User → editor (paste): token verified locally with the embedded
-   public key.
-
-::: tip Why offline activation
-Apollo deployments often run in air-gapped environments — fleet
-operations centers, automotive validation labs. Forcing an online
-activation server would block those use cases. The Ed25519 public-key
-verification is local-only; only the vendor's private key is needed
-to issue tokens.
-:::
-
-## Where to next
-
-- License troubleshooting: verify machine code, clock, token expiry and
-  storage state with the activation dialog and vendor CLI.
-- [Architecture / License System](/architecture/license-system) — main
-  process verification + IPC details.
-- [Getting Started](/guide/getting-started) — build and packaging commands.
+- [Getting Started](./getting-started.md) — 启动后第一件事
+- [Installation](./installation.md) — 哪些版本支持激活
+- [Troubleshooting](./troubleshooting.md) — 通用排错
+- [Settings](./settings.md) — 与许可证无关的本地配置
+- [Activity Bar & Panels](./activity-bar-and-panels.md) — banner 在 banner 和 menubar 之间的位置
