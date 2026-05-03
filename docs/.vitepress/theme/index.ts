@@ -1,18 +1,16 @@
 import DefaultTheme from 'vitepress/theme';
+import { NolebaseGitChangelogPlugin } from '@nolebase/vitepress-plugin-git-changelog/client';
+import '@nolebase/vitepress-plugin-git-changelog/client/style.css';
 import type { Theme } from 'vitepress';
-import { h } from 'vue';
-import PageContributors from './components/PageContributors.vue';
 import GitHubRepoLink from './components/GitHubRepoLink.vue';
+import MermaidDiagram from './components/MermaidDiagram.vue';
 import './styles.css';
 
 export default {
   extends: DefaultTheme,
-  Layout: () =>
-    h(DefaultTheme.Layout, null, {
-      'doc-after': () => h(PageContributors),
-      'home-features-after': () => h(PageContributors, { home: true }),
-    }),
   enhanceApp({ app }) {
+    app.use(NolebaseGitChangelogPlugin);
     app.component('GitHubRepoLink', GitHubRepoLink);
+    app.component('MermaidDiagram', MermaidDiagram);
   },
 } satisfies Theme;

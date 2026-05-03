@@ -7,6 +7,7 @@ import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar, type ActivityTab } from './ActivityBar';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
+import { AboutDialog } from '@/components/dialogs/AboutDialog';
 import { LicenseBanner } from '@/components/license/LicenseBanner';
 import { ActivationDialog } from '@/components/license/ActivationDialog';
 import { useLicenseSync } from '@/hooks/useLicense';
@@ -49,9 +50,11 @@ function WorkspaceLayoutInner() {
   const { activeTab, setActiveTab } = useSidebar();
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const apiRef = useRef<DockviewApi | null>(null);
 
   const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openAbout = useCallback(() => setAboutOpen(true), []);
   const components = useDockviewComponents(openSettings);
   useCommandPaletteKeys(setCommandPaletteOpen);
 
@@ -69,6 +72,7 @@ function WorkspaceLayoutInner() {
     actorRef,
     onOpenCommandPalette: () => setCommandPaletteOpen(true),
     onOpenSettings: () => setSettingsOpen(true),
+    onOpenAbout: openAbout,
     onResetLayout: handleResetLayout,
   });
 
@@ -103,10 +107,12 @@ function WorkspaceLayoutInner() {
       <WorkspaceOverlays
         commandPaletteOpen={commandPaletteOpen}
         settingsOpen={settingsOpen}
+        aboutOpen={aboutOpen}
         execute={execute}
         getToggleState={getToggleState}
         onCommandPaletteOpenChange={setCommandPaletteOpen}
         onSettingsClose={() => setSettingsOpen(false)}
+        onAboutClose={() => setAboutOpen(false)}
       />
     </div>
   );
@@ -215,19 +221,23 @@ function useDockviewReady(apiRef: React.RefObject<DockviewApi | null>, appMode: 
 interface WorkspaceOverlaysProps {
   commandPaletteOpen: boolean;
   settingsOpen: boolean;
+  aboutOpen: boolean;
   execute: ReturnType<typeof useActionDispatcher>['execute'];
   getToggleState: ReturnType<typeof useActionDispatcher>['getToggleState'];
   onCommandPaletteOpenChange: React.Dispatch<React.SetStateAction<boolean>>;
   onSettingsClose: () => void;
+  onAboutClose: () => void;
 }
 
 function WorkspaceOverlays({
   commandPaletteOpen,
   settingsOpen,
+  aboutOpen,
   execute,
   getToggleState,
   onCommandPaletteOpenChange,
   onSettingsClose,
+  onAboutClose,
 }: WorkspaceOverlaysProps) {
   return (
     <>
@@ -246,6 +256,7 @@ function WorkspaceOverlays({
           <LazySettingsPanel open={settingsOpen} onClose={onSettingsClose} />
         </Suspense>
       )}
+      <AboutDialog open={aboutOpen} onClose={onAboutClose} />
       <Suspense fallback={null}>
         <LazyProjPickerDialog />
       </Suspense>

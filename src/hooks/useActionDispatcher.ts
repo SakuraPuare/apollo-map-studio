@@ -23,6 +23,7 @@ import {
   type ActionId,
 } from '@/core/actions/registry';
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
+import { appBridge } from '@/lib/app-bridge';
 import { assertEditable } from '@/lib/editable-guard';
 
 /**
@@ -54,6 +55,7 @@ interface ActionDispatcherOptions {
   actorRef: ActorRefFrom<typeof editorMachine>;
   onOpenCommandPalette: () => void;
   onOpenSettings: () => void;
+  onOpenAbout: () => void;
   onResetLayout: () => void;
 }
 
@@ -90,6 +92,11 @@ function registerViewHandlers(map: Map<ActionId, () => void>, options: ActionDis
   map.set('commandPalette', options.onOpenCommandPalette);
 }
 
+function registerHelpHandlers(map: Map<ActionId, () => void>, options: ActionDispatcherOptions) {
+  map.set('about', options.onOpenAbout);
+  map.set('openHelp', () => void appBridge.openHelp());
+}
+
 function registerModeHandlers(map: Map<ActionId, () => void>, options: ActionDispatcherOptions) {
   map.set('defaultMode', () => {
     options.actorRef.send({ type: 'CANCEL' });
@@ -116,16 +123,24 @@ function buildActionHandlers(options: ActionDispatcherOptions): Map<ActionId, ()
   registerFileHandlers(map, options);
   registerHistoryHandlers(map, options);
   registerViewHandlers(map, options);
+  registerHelpHandlers(map, options);
   registerModeHandlers(map, options);
   registerToolHandlers(map, options);
   return map;
 }
 
 function useActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () => void> {
-  const { actorRef, onOpenCommandPalette, onOpenSettings, onResetLayout } = options;
+  const { actorRef, onOpenAbout, onOpenCommandPalette, onOpenSettings, onResetLayout } = options;
   return useMemo(
-    () => buildActionHandlers({ actorRef, onOpenCommandPalette, onOpenSettings, onResetLayout }),
-    [actorRef, onOpenCommandPalette, onOpenSettings, onResetLayout],
+    () =>
+      buildActionHandlers({
+        actorRef,
+        onOpenAbout,
+        onOpenCommandPalette,
+        onOpenSettings,
+        onResetLayout,
+      }),
+    [actorRef, onOpenAbout, onOpenCommandPalette, onOpenSettings, onResetLayout],
   );
 }
 

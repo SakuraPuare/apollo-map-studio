@@ -1,9 +1,5 @@
 import { defineConfig } from 'vitepress';
 import type MarkdownIt from 'markdown-it';
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { version } from '../../package.json';
 import abbr from 'markdown-it-abbr';
 import footnote from 'markdown-it-footnote';
@@ -11,6 +7,10 @@ import mark from 'markdown-it-mark';
 import sub from 'markdown-it-sub';
 import sup from 'markdown-it-sup';
 import taskLists from 'markdown-it-task-lists';
+import {
+  GitChangelog,
+  GitChangelogMarkdownSection,
+} from '@nolebase/vitepress-plugin-git-changelog/vite';
 import {
   enSidebarApi,
   enSidebarArchitecture,
@@ -31,6 +31,10 @@ import {
 // VITEPRESS_BASE is injected by GitHub Actions for sub-path deployment
 // e.g. /apollo-map-studio/ when hosted at github.io/<repo>/
 const base = process.env.VITEPRESS_BASE ?? '/';
+const isDesktopDocs = process.env.VITEPRESS_DESKTOP === 'true';
+const cleanUrls = process.env.VITEPRESS_CLEAN_URLS
+  ? process.env.VITEPRESS_CLEAN_URLS !== 'false'
+  : !isDesktopDocs;
 
 const REPO_URL = 'https://github.com/SakuraPuare/apollo-map-studio';
 const REPO_EDIT_URL = `${REPO_URL}/edit/main/docs/:path`;
@@ -40,65 +44,22 @@ const SOCIAL = [
   { icon: 'npm', link: 'https://www.npmjs.com/package/vitepress', ariaLabel: 'VitePress' },
 ];
 
-const DEFAULT_EDITOR: PageEditor = {
-  name: 'SakuraPuare',
-  email: 'java20131114@gmail.com',
-  avatar: 'https://github.com/SakuraPuare.png?size=96',
-  link: 'https://github.com/SakuraPuare',
-};
+const configureMarkdownPlugins = (md: MarkdownIt) => {
+  const defaultFence = md.renderer.rules.fence?.bind(md.renderer.rules);
 
-const GITHUB_USERS_BY_EMAIL: Record<string, string> = {
-  'java20131114@gmail.com': 'SakuraPuare',
-};
+  md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+    const token = tokens[idx];
+    const language = token.info.trim();
 
-type PageEditor = {
-  name: string;
-  email: string;
-  avatar: string;
-  link?: string;
-};
-
-const normalizeGitName = (name: string) => (name === 'Steven Moder' ? 'SakuraPuare' : name);
-
-const editorAvatar = (email: string, githubUser?: string) => {
-  if (githubUser) return `https://github.com/${githubUser}.png?size=96`;
-
-  const hash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
-  return `https://github.com/identicons/${hash}.png`;
-};
-
-const pageEditorsFor = (filePath: string): PageEditor[] => {
-  const fullPath = resolve(process.cwd(), 'docs', filePath);
-  if (!filePath || !existsSync(fullPath)) return [DEFAULT_EDITOR];
-
-  try {
-    const output = execFileSync('git', ['log', '--follow', '--format=%an%x09%ae', '--', fullPath], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-
-    const editors = new Map<string, PageEditor>();
-    for (const line of output.trim().split('\n')) {
-      const [rawName, rawEmail] = line.split('\t');
-      const email = rawEmail?.trim().toLowerCase();
-      if (!rawName || !email || editors.has(email)) continue;
-
-      const githubUser = GITHUB_USERS_BY_EMAIL[email];
-      editors.set(email, {
-        name: normalizeGitName(rawName.trim()),
-        email,
-        avatar: editorAvatar(email, githubUser),
-        link: githubUser ? `https://github.com/${githubUser}` : undefined,
-      });
+    if (language === 'mermaid' || language === 'mmd') {
+      return `<ClientOnly><MermaidDiagram code="${encodeURIComponent(token.content)}" /></ClientOnly>`;
     }
 
-    return editors.size ? [...editors.values()] : [DEFAULT_EDITOR];
-  } catch {
-    return [DEFAULT_EDITOR];
-  }
-};
+    return (
+      defaultFence?.(tokens, idx, options, env, self) ?? self.renderToken(tokens, idx, options)
+    );
+  };
 
-const configureMarkdownPlugins = (md: MarkdownIt) => {
   md.use(abbr)
     .use(footnote)
     .use(mark)
@@ -111,7 +72,7 @@ export default defineConfig({
   title: 'Apollo Map Studio',
   description: 'Apollo HD 高精地图编辑器 · Desktop & Web · 中英双语完整文档',
   base,
-  cleanUrls: true,
+  cleanUrls,
   lastUpdated: true,
   ignoreDeadLinks: true,
   appearance: 'force-auto',
@@ -154,11 +115,25 @@ export default defineConfig({
     },
     config: configureMarkdownPlugins,
   },
-
-  transformPageData(pageData) {
-    return {
-      contributors: pageEditorsFor(pageData.filePath),
-    };
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 3000,
+    },
+    plugins: [
+      GitChangelog({
+        repoURL: REPO_URL,
+        include: ['docs/**/*.md'],
+        mapAuthors: [
+          {
+            name: 'SakuraPuare',
+            username: 'SakuraPuare',
+            mapByNameAliases: ['SakuraPuare', 'Steven Moder'],
+            mapByEmailAliases: ['java20131114@gmail.com'],
+          },
+        ],
+      }),
+      GitChangelogMarkdownSection(),
+    ],
   },
 
   locales: {
@@ -219,7 +194,7 @@ export default defineConfig({
           '/contributing/': zhSidebarContributing,
           '/superpowers/': zhSidebarSuperpowers,
         },
-        aside: 'left',
+        aside: true,
         outline: { label: '本页内容', level: [2, 3] },
         docFooter: { prev: '上一篇', next: '下一篇' },
         lastUpdated: {
@@ -316,6 +291,7 @@ export default defineConfig({
           '/en/contributing/': enSidebarContributing,
           '/en/superpowers/': enSidebarSuperpowers,
         },
+        aside: true,
         outline: { label: 'On this page', level: [2, 3] },
         docFooter: { prev: 'Previous', next: 'Next' },
         lastUpdated: {

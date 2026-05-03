@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite';
+import accessGuard from 'access-guard/vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
+
+const ACCESS_GUARD_BLOCKLIST = ['daohu527', 'wheelos-tools', 'wheelos'];
 
 const VENDOR_CHUNK_GROUPS: Record<string, string[]> = {
   'vendor-react': ['react', 'react-dom', 'scheduler', 'use-sync-external-store'],
@@ -68,7 +71,7 @@ function getVendorChunkName(id: string) {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [accessGuard({ blocklist: ACCESS_GUARD_BLOCKLIST }), react(), tailwindcss()],
   base: './',
   resolve: {
     alias: {

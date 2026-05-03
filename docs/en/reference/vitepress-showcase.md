@@ -1,6 +1,6 @@
 ---
 title: VitePress Showcase
-description: Default theme, navigation, sidebar, search, footer, editor avatars, and Markdown plugin examples used by the Apollo Map Studio docs site.
+description: Default theme, navigation, sidebar, search, page history, and Markdown plugin examples used by the Apollo Map Studio docs site.
 editLink: true
 ---
 
@@ -13,17 +13,17 @@ This page is a visible regression target for the docs site. It exercises the def
 
 ## Default Theme
 
-| Feature            | Current use                                                                     |
-| ------------------ | ------------------------------------------------------------------------------- |
-| Navbar             | Guide, Architecture, API, More, and version flyouts                             |
-| Locales            | Simplified Chinese at root and English under `/en/`                             |
-| Sidebar            | Grouped guide, architecture, API, reference, recipes, and contributing sections |
-| Outline            | Left-side level two and three headings                                          |
-| Search             | Local search with detailed results, prefix search, and fuzzy matching           |
-| Doc footer         | Previous, next, last updated, and GitHub edit link                              |
-| External link icon | Markdown external links show an icon                                            |
-| Page editors       | Each page renders Git authors as avatar chips                                   |
-| 404 copy           | Custom notFound text for both locales                                           |
+| Feature            | Current use                                                           |
+| ------------------ | --------------------------------------------------------------------- |
+| Navbar             | Guide, Architecture, API, More, and version flyouts                   |
+| Locales            | Simplified Chinese at root and English under `/en/`                   |
+| Sidebar            | Left-side groups for guide, architecture, API, reference, and recipes |
+| Outline            | Right-side level two and three headings                               |
+| Search             | Local search with detailed results, prefix search, and fuzzy matching |
+| Doc footer         | Previous, next, last updated, and GitHub edit link                    |
+| Page history       | Nolebase Git Changelog renders contributors and page history          |
+| External link icon | Markdown external links show an icon                                  |
+| 404 copy           | Custom notFound text for both locales                                 |
 
 <GitHubRepoLink />
 
@@ -66,9 +66,10 @@ pnpm docs:build
 ### Task Lists
 
 - [x] Navbar
-- [x] Sidebar
+- [x] Sidebar and right outline
 - [x] Local search
-- [x] Per-page editor avatars
+- [x] Page history and contributors
+- [x] Mermaid diagrams
 - [x] Markdown plugins
 
 ### Footnotes, Abbreviations, Subscript, Superscript, Mark

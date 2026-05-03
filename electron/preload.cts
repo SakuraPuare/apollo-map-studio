@@ -9,6 +9,10 @@ const LICENSE_IPC = {
   ACTIVATE: 'license:activate',
   DEACTIVATE: 'license:deactivate',
 } as const;
+const APP_IPC = {
+  GET_INFO: 'app:get-info',
+  OPEN_HELP: 'app:open-help',
+} as const;
 
 contextBridge.exposeInMainWorld('apolloMapStudio', {
   platform: process.platform,
@@ -16,6 +20,12 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     chrome: process.versions.chrome,
     electron: process.versions.electron,
     node: process.versions.node,
+  },
+  getAppInfo() {
+    return ipcRenderer.invoke(APP_IPC.GET_INFO);
+  },
+  openHelp() {
+    return ipcRenderer.invoke(APP_IPC.OPEN_HELP);
   },
 });
 

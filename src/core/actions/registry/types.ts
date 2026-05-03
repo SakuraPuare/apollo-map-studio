@@ -1,7 +1,7 @@
 import type { IconType } from 'react-icons';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 
-export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection';
+export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection' | 'help';
 
 export type ActionId =
   | 'importApollo'
@@ -15,6 +15,8 @@ export type ActionId =
   | 'toggleSnap'
   | 'resetLayout'
   | 'commandPalette'
+  | 'about'
+  | 'openHelp'
   | 'defaultMode'
   | 'connectLanes'
   | 'tool:drawPolyline'

@@ -27,7 +27,7 @@ describe('Action Registry', () => {
   });
 
   it('every action has a valid category', () => {
-    const validCategories = ['file', 'edit', 'view', 'tool', 'selection'];
+    const validCategories = ['file', 'edit', 'view', 'tool', 'selection', 'help'];
     for (const a of ACTION_DEFS) {
       expect(validCategories).toContain(a.category);
     }
@@ -96,8 +96,15 @@ describe('Action Registry', () => {
     expect(ids).toContain('toggleSnap');
   });
 
+  it('About menu has version information and help documentation', () => {
+    const aboutActions = getMenuActions('About');
+    const ids = aboutActions.map((a) => a.id);
+    expect(ids).toContain('about');
+    expect(ids).toContain('openHelp');
+  });
+
   it('menu actions are sorted by menuOrder', () => {
-    for (const menu of ['File', 'Edit', 'View']) {
+    for (const menu of ['File', 'Edit', 'View', 'About']) {
       const actions = getMenuActions(menu);
       for (let i = 1; i < actions.length; i++) {
         const prev = actions[i - 1]!;
