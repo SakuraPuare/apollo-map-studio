@@ -18,6 +18,9 @@ hero:
     - theme: alt
       text: Architecture Overview
       link: /en/architecture/overview
+    # - theme: alt
+    #   text: VitePress Showcase
+    #   link: /en/reference/vitepress-showcase
     - theme: alt
       text: GitHub
       link: https://github.com/SakuraPuare/apollo-map-studio
@@ -77,7 +80,7 @@ features:
 ## Where to start
 
 | If you want to…                          | Start here                                                                          |
-| ---------------------------------------- | ----------------------------------------------------------------------------------- |
+| ---------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------ | --- |
 | Try Apollo Map Studio for the first time | [Quick Start](/en/guide/getting-started)                                            |
 | Import an Apollo base_map                | [Import](/en/guide/import) → [Import Deep Dive](/en/guide/importing)                |
 | Draw lanes and connect them              | [Drawing Tools](/en/guide/drawing-tools) → [Drawing Lanes](/en/guide/drawing-lanes) |
@@ -88,6 +91,7 @@ features:
 | Hack on internals                        | [Architecture Overview](/en/architecture/overview)                                  |
 | Add a new action / tool / element        | [Recipes](/en/recipes/adding-a-new-action)                                          |
 | Contribute via PR                        | [Development Setup](/en/contributing/development-setup)                             |
+| <!--                                     | Check docs theme and Markdown features                                              | [VitePress Showcase](/en/reference/vitepress-showcase) | --> |
 
 ## Key concepts
 
