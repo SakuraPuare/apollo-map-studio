@@ -192,11 +192,11 @@ fallback；既能显示 `lane_xxx`，也能高亮当前 hover。
 
 ## 6. Overlap pinning
 
-Overlap 是"两个对象的关联"，schema 不适合渲染（每行需要一个对象类型选择
-
-- 一个 ID 输入），所以 `OverlapForm` 走 `simpleForms.tsx`/`overlap.tsx` 的手写路径。
-  Schema 模型仍然适用 —— 后续可以加一个 `kind: 'objectPair'` 的扩展，但目前
-  保持手写避免过度抽象。
+Overlap 是"两个对象的关联"，schema 不适合渲染（每行需要对象类型、对象 ID、
+lane 语义 pin 等组合控件），所以 `OverlapForm` 走
+`InspectorForms/overlap.tsx` 的手写路径，override 纯函数放在
+`InspectorForms/overlapOverrides.ts`。Schema 模型仍然适用 —— 后续可以加一个
+`kind: 'objectPair'` 的扩展，但目前保持手写避免过度抽象。
 
 ## 7. 公共算子（Schema-generic helpers）
 

@@ -63,18 +63,19 @@ if (!/^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(machine)) {
   fail('--machine is required and must look like ABCD-EFGH-JKLM-NPQR');
 }
 
-let expires = 0;
-if (args.expires) {
+const expires = (() => {
+  if (!args.expires) {
+    const days = Number(args.days ?? 365);
+    if (!Number.isFinite(days) || days <= 0 || days > 36525) {
+      fail('--days must be a positive number ≤ 36525');
+    }
+    return Date.now() + Math.round(days * 24 * 60 * 60 * 1000);
+  }
+
   const ts = Date.parse(args.expires);
   if (Number.isNaN(ts)) fail(`--expires not a valid ISO-8601 timestamp: ${args.expires}`);
-  expires = ts;
-} else {
-  const days = Number(args.days ?? 365);
-  if (!Number.isFinite(days) || days <= 0 || days > 36525) {
-    fail('--days must be a positive number ≤ 36525');
-  }
-  expires = Date.now() + Math.round(days * 24 * 60 * 60 * 1000);
-}
+  return ts;
+})();
 
 const lic =
   args.lic ??

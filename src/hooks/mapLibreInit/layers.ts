@@ -26,7 +26,12 @@ function addGridLayer(map: maplibregl.Map) {
 
 function addColdLayers(map: maplibregl.Map) {
   map.addSource('cold', { type: 'geojson', data: EMPTY_FC, promoteId: 'featureId' });
+  addColdFillLayers(map);
+  addColdLineLayers(map);
+  addColdSymbolLayers(map);
+}
 
+function addColdFillLayers(map: maplibregl.Map) {
   map.addLayer({
     id: 'cold-fill',
     type: 'fill',
@@ -53,7 +58,9 @@ function addColdLayers(map: maplibregl.Map) {
     filter: COLD_LAYER_FILTERS['cold-fill-cleararea'],
     paint: { 'fill-pattern': 'red-hatch', 'fill-opacity': 0.7 },
   });
+}
 
+function addColdLineLayers(map: maplibregl.Map) {
   map.addLayer({
     id: 'cold-line',
     type: 'line',
@@ -95,7 +102,9 @@ function addColdLayers(map: maplibregl.Map) {
       'line-dasharray': [3, 3],
     },
   });
+}
 
+function addColdSymbolLayers(map: maplibregl.Map) {
   map.addLayer({
     id: 'cold-labels',
     type: 'symbol',

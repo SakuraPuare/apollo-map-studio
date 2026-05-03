@@ -5,6 +5,22 @@ import { TOP_LEVEL_ORDER, TYPE_LABELS, entityDisplayId } from './constants';
 import type { DropKind, TreeNode } from './types';
 
 export function buildTree(entities: ReadonlyMap<string, MapEntity>): TreeNode[] {
+  const ctx = createBuildContext(entities);
+  for (const entity of entities.values()) {
+    addEntityNode(ctx, entity);
+  }
+  return orderedGroups(ctx.groupChildren);
+}
+
+interface BuildContext {
+  junctions: ReadonlyMap<string, MapEntity>;
+  laneSection: ReadonlyMap<string, { roadId: string; sectionId: string }>;
+  junctionChildren: Map<string, TreeNode[]>;
+  sectionChildren: Map<string, TreeNode[]>;
+  groupChildren: Map<string, TreeNode[]>;
+}
+
+function createBuildContext(entities: ReadonlyMap<string, MapEntity>): BuildContext {
   const roads: RoadEntity[] = [];
   const junctions = new Map<string, MapEntity>();
   for (const e of entities.values()) {
@@ -12,95 +28,117 @@ export function buildTree(entities: ReadonlyMap<string, MapEntity>): TreeNode[] 
     else if (e.entityType === 'junction') junctions.set(e.id, e);
   }
 
-  const laneSection = new Map<string, { roadId: string; sectionId: string }>();
+  return {
+    junctions,
+    laneSection: collectLaneSections(roads),
+    junctionChildren: new Map(),
+    sectionChildren: new Map(),
+    groupChildren: new Map(),
+  };
+}
+
+function collectLaneSections(roads: RoadEntity[]) {
+  const sections = new Map<string, { roadId: string; sectionId: string }>();
   for (const r of roads) {
     for (const s of r.sections) {
       for (const lid of s.laneIds) {
-        if (!laneSection.has(lid)) laneSection.set(lid, { roadId: r.id, sectionId: s.id });
+        if (!sections.has(lid)) sections.set(lid, { roadId: r.id, sectionId: s.id });
       }
     }
   }
+  return sections;
+}
 
-  const junctionChildren = new Map<string, TreeNode[]>();
-  const sectionChildren = new Map<string, TreeNode[]>();
-  const groupChildren = new Map<string, TreeNode[]>();
+function addEntityNode(ctx: BuildContext, entity: MapEntity): void {
+  switch (entity.entityType) {
+    case 'lane':
+      addLaneNode(ctx, entity);
+      return;
+    case 'road':
+      addRoadNode(ctx, entity);
+      return;
+    case 'junction':
+      addJunctionNode(ctx, entity);
+      return;
+    case 'rsu':
+      addRSUNode(ctx, entity);
+      return;
+    default:
+      ensureGroup(ctx, entity.entityType).push(baseEntityNode(entity, {}));
+  }
+}
 
-  const ensureGroup = (k: string): TreeNode[] => ensureChildren(groupChildren, k);
-  const ensureJunction = (k: string): TreeNode[] => ensureChildren(junctionChildren, k);
-  const ensureSection = (k: string): TreeNode[] => ensureChildren(sectionChildren, k);
-
-  for (const e of entities.values()) {
-    const baseNode = (extra: Partial<TreeNode>): TreeNode => ({
-      id: `entity:${e.id}`,
-      name: entityDisplayId(e.id),
-      kind: 'entity',
-      entityType: e.entityType,
-      entityId: e.id,
-      dropKind: 'none',
-      ...extra,
-    });
-
-    if (e.entityType === 'lane') {
-      const lane = e as LaneEntity;
-      if (lane.junctionId && junctions.has(lane.junctionId)) {
-        ensureJunction(lane.junctionId).push(baseNode({}));
-        continue;
-      }
-      const sec = laneSection.get(e.id);
-      if (sec) {
-        ensureSection(`${sec.roadId}:${sec.sectionId}`).push(baseNode({}));
-        continue;
-      }
-      ensureGroup('lane').push(baseNode({}));
-      continue;
-    }
-
-    if (e.entityType === 'road') {
-      const road = e as RoadEntity;
-      const sectionNodes: TreeNode[] = road.sections.map((s) => ({
-        id: `section:${road.id}:${s.id}`,
-        name: `Section ${s.id}`,
-        kind: 'section',
-        dropKind: 'roadSection',
-        parentTarget: { kind: 'roadSection', roadId: road.id, sectionId: s.id },
-        children: ensureSection(`${road.id}:${s.id}`),
-      }));
-      const roadNode = baseNode({
-        children: sectionNodes,
-        dropKind: 'road',
-        parentTarget: { kind: 'road', id: road.id },
-      });
-      if (road.junctionId && junctions.has(road.junctionId)) {
-        ensureJunction(road.junctionId).push(roadNode);
-      } else {
-        ensureGroup('road').push(roadNode);
-      }
-      continue;
-    }
-
-    if (e.entityType === 'junction') {
-      const jNode = baseNode({
-        children: ensureJunction(e.id),
-        dropKind: 'junction',
-        parentTarget: { kind: 'junction', id: e.id },
-      });
-      ensureGroup('junction').push(jNode);
-      continue;
-    }
-
-    if (e.entityType === 'rsu') {
-      const rsu = e as RSUEntity;
-      if (rsu.junctionId && junctions.has(rsu.junctionId)) {
-        ensureJunction(rsu.junctionId).push(baseNode({}));
-        continue;
-      }
-      ensureGroup('rsu').push(baseNode({}));
-      continue;
-    }
-
-    ensureGroup(e.entityType).push(baseNode({}));
+function addLaneNode(ctx: BuildContext, lane: LaneEntity): void {
+  if (lane.junctionId && ctx.junctions.has(lane.junctionId)) {
+    ensureJunction(ctx, lane.junctionId).push(baseEntityNode(lane, {}));
+    return;
   }
 
+  const section = ctx.laneSection.get(lane.id);
+  if (section) {
+    ensureSection(ctx, section.roadId, section.sectionId).push(baseEntityNode(lane, {}));
+    return;
+  }
+
+  ensureGroup(ctx, 'lane').push(baseEntityNode(lane, {}));
+}
+
+function addRoadNode(ctx: BuildContext, road: RoadEntity): void {
+  const node = baseEntityNode(road, {
+    children: road.sections.map((section) => sectionNode(ctx, road, section.id)),
+    dropKind: 'road',
+    parentTarget: { kind: 'road', id: road.id },
+  });
+
+  if (road.junctionId && ctx.junctions.has(road.junctionId)) {
+    ensureJunction(ctx, road.junctionId).push(node);
+  } else {
+    ensureGroup(ctx, 'road').push(node);
+  }
+}
+
+function addJunctionNode(ctx: BuildContext, entity: MapEntity): void {
+  ensureGroup(ctx, 'junction').push(
+    baseEntityNode(entity, {
+      children: ensureJunction(ctx, entity.id),
+      dropKind: 'junction',
+      parentTarget: { kind: 'junction', id: entity.id },
+    }),
+  );
+}
+
+function addRSUNode(ctx: BuildContext, rsu: RSUEntity): void {
+  if (rsu.junctionId && ctx.junctions.has(rsu.junctionId)) {
+    ensureJunction(ctx, rsu.junctionId).push(baseEntityNode(rsu, {}));
+    return;
+  }
+  ensureGroup(ctx, 'rsu').push(baseEntityNode(rsu, {}));
+}
+
+function baseEntityNode(entity: MapEntity, extra: Partial<TreeNode>): TreeNode {
+  return {
+    id: `entity:${entity.id}`,
+    name: entityDisplayId(entity.id),
+    kind: 'entity',
+    entityType: entity.entityType,
+    entityId: entity.id,
+    dropKind: 'none',
+    ...extra,
+  };
+}
+
+function sectionNode(ctx: BuildContext, road: RoadEntity, sectionId: string): TreeNode {
+  return {
+    id: `section:${road.id}:${sectionId}`,
+    name: `Section ${sectionId}`,
+    kind: 'section',
+    dropKind: 'roadSection',
+    parentTarget: { kind: 'roadSection', roadId: road.id, sectionId },
+    children: ensureSection(ctx, road.id, sectionId),
+  };
+}
+
+function orderedGroups(groupChildren: Map<string, TreeNode[]>): TreeNode[] {
   const seen = new Set<string>();
   const groups: TreeNode[] = [];
   const pushGroup = (key: string) => {
@@ -123,6 +161,18 @@ export function buildTree(entities: ReadonlyMap<string, MapEntity>): TreeNode[] 
   for (const k of groupChildren.keys()) pushGroup(k);
 
   return groups;
+}
+
+function ensureGroup(ctx: BuildContext, key: string): TreeNode[] {
+  return ensureChildren(ctx.groupChildren, key);
+}
+
+function ensureJunction(ctx: BuildContext, junctionId: string): TreeNode[] {
+  return ensureChildren(ctx.junctionChildren, junctionId);
+}
+
+function ensureSection(ctx: BuildContext, roadId: string, sectionId: string): TreeNode[] {
+  return ensureChildren(ctx.sectionChildren, `${roadId}:${sectionId}`);
 }
 
 function ensureChildren(childrenByKey: Map<string, TreeNode[]>, key: string): TreeNode[] {

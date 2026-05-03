@@ -12,7 +12,7 @@ import {
   withOverride,
   clearOverride,
   REGION_OVERLAPS_OVERRIDE_PATH,
-} from '../InspectorForms/overlap';
+} from '../InspectorForms/overlapOverrides';
 import type { OverlapEntity } from '@/types/apollo';
 
 function makeOverlap(overrides: Partial<OverlapEntity> = {}): OverlapEntity {

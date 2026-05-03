@@ -7,6 +7,18 @@ import type { GeoPoint } from '@/types/entities';
 import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
 import { offsetPolylineDeg } from './offsetPolyline';
 
+const POLYGON_EDIT_TYPES = new Set([
+  'junction',
+  'pncJunction',
+  'parkingSpace',
+  'crosswalk',
+  'clearArea',
+  'area',
+  'parkingLot',
+]);
+
+const AREA_HIT_TYPES = new Set([...POLYGON_EDIT_TYPES, 'lane']);
+
 function translatePoint(point: GeoPoint, dx: number, dy: number): GeoPoint {
   return {
     x: point.x + dx,
@@ -38,121 +50,121 @@ function emptyBoundaryCurve(boundary: LaneBoundary): LaneBoundary {
   };
 }
 
-export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
+function firstCurvePoints(curves: readonly Curve[] | undefined): GeoPoint[] | null {
+  return curves?.[0]?.segments[0]?.lineSegment.points ?? null;
+}
+
+function withFirstCurvePoints(curves: Curve[], points: GeoPoint[]): Curve[] {
+  const next = [...curves];
+  const first = next[0]!;
+  const segments = [...first.segments];
+  segments[0] = { ...segments[0]!, lineSegment: { points } };
+  next[0] = { ...first, segments };
+  return next;
+}
+
+function getPolygonEditPoints(entity: ApolloEntity): GeoPoint[] | null {
+  return POLYGON_EDIT_TYPES.has(entity.entityType) && 'polygon' in entity
+    ? entity.polygon.points
+    : null;
+}
+
+function setPolygonEditPoints(entity: ApolloEntity, points: GeoPoint[]): ApolloEntity | null {
+  return POLYGON_EDIT_TYPES.has(entity.entityType) && 'polygon' in entity
+    ? ({ ...entity, polygon: { points } } as ApolloEntity)
+    : null;
+}
+
+function getRoadEditPoints(entity: Extract<ApolloEntity, { entityType: 'road' }>): GeoPoint[] {
+  return (
+    entity.sections[0]?.boundary?.outerPolygon.edges[0]?.curve.segments[0]?.lineSegment.points ?? []
+  );
+}
+
+function getFallbackLinePoints(entity: ApolloEntity): GeoPoint[] | null {
+  if (entity.entityType === 'speedBump') return firstCurvePoints(entity.position) ?? [];
+  if (entity.entityType === 'road') return getRoadEditPoints(entity);
+
   switch (entity.entityType) {
-    case 'junction':
-    case 'pncJunction':
-    case 'parkingSpace':
-    case 'crosswalk':
-    case 'clearArea':
-    case 'area':
-    case 'parkingLot':
-      return entity.polygon.points;
     case 'barrierGate':
-      return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? entity.polygon.points;
+      return firstCurvePoints(entity.stopLines) ?? entity.polygon.points;
     case 'signal':
-      return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? entity.boundary.points;
-    case 'lane':
-      return curvePoints(entity.centralCurve);
+      return firstCurvePoints(entity.stopLines) ?? entity.boundary.points;
     case 'stopSign':
-      return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? [];
-    case 'speedBump':
-      return entity.position[0]?.segments[0]?.lineSegment.points ?? [];
     case 'yieldSign':
-      return entity.stopLines[0]?.segments[0]?.lineSegment.points ?? [];
-    case 'road':
-      // Road geometry lives in section[].boundary.outer_polygon.edge[].curve.
-      // For now we expose the first section's first outer edge as the
-      // editable polyline — enough to make road selectable + draggable. A
-      // multi-edge editor is future work.
-      return (
-        entity.sections[0]?.boundary?.outerPolygon.edges[0]?.curve.segments[0]?.lineSegment
-          .points ?? []
-      );
+      return firstCurvePoints(entity.stopLines) ?? [];
     default:
-      return [];
+      return null;
   }
 }
 
+export function getApolloEditPoints(entity: ApolloEntity): GeoPoint[] {
+  const polygon = getPolygonEditPoints(entity);
+  if (polygon) return polygon;
+  if (entity.entityType === 'lane') return curvePoints(entity.centralCurve);
+  return getFallbackLinePoints(entity) ?? [];
+}
+
+function setLaneEditPoints(
+  entity: Extract<ApolloEntity, { entityType: 'lane' }>,
+  points: GeoPoint[],
+) {
+  const segs = [...entity.centralCurve.segments];
+  segs[0] = { ...segs[0]!, lineSegment: { points } };
+  return {
+    ...entity,
+    centralCurve: { segments: segs },
+    leftBoundary: emptyBoundaryCurve(entity.leftBoundary),
+    rightBoundary: emptyBoundaryCurve(entity.rightBoundary),
+    length: polylineLengthMeters(points),
+  };
+}
+
+function setRoadEditPoints(
+  entity: Extract<ApolloEntity, { entityType: 'road' }>,
+  points: GeoPoint[],
+) {
+  const sections = [...entity.sections];
+  const sec0 = sections[0];
+  if (!sec0?.boundary) return entity;
+  const outer = sec0.boundary.outerPolygon;
+  const edges = [...outer.edges];
+  const edge0 = edges[0];
+  if (!edge0) return entity;
+  const segs = [...edge0.curve.segments];
+  segs[0] = { ...segs[0]!, lineSegment: { points } };
+  edges[0] = { ...edge0, curve: { segments: segs } };
+  sections[0] = {
+    ...sec0,
+    boundary: { ...sec0.boundary, outerPolygon: { ...outer, edges } },
+  };
+  return { ...entity, sections };
+}
+
 export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[]): ApolloEntity {
+  const polygon = setPolygonEditPoints(entity, points);
+  if (polygon) return polygon;
+
   switch (entity.entityType) {
-    case 'junction':
-    case 'pncJunction':
-    case 'parkingSpace':
-    case 'crosswalk':
-    case 'clearArea':
-    case 'area':
-    case 'parkingLot':
-      return { ...entity, polygon: { points } } as typeof entity;
     case 'barrierGate': {
-      if (entity.stopLines.length > 0) {
-        const l = [...entity.stopLines];
-        const s = [...l[0]!.segments];
-        s[0] = { ...s[0]!, lineSegment: { points } };
-        l[0] = { ...l[0]!, segments: s };
-        return { ...entity, stopLines: l };
-      }
+      if (entity.stopLines.length > 0)
+        return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
       return { ...entity, polygon: { points } } as typeof entity;
     }
     case 'signal': {
-      if (entity.stopLines.length > 0) {
-        const l = [...entity.stopLines];
-        const s = [...l[0]!.segments];
-        s[0] = { ...s[0]!, lineSegment: { points } };
-        l[0] = { ...l[0]!, segments: s };
-        return { ...entity, stopLines: l };
-      }
+      if (entity.stopLines.length > 0)
+        return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
       return { ...entity, boundary: { points } } as typeof entity;
     }
-    case 'lane': {
-      const segs = [...entity.centralCurve.segments];
-      segs[0] = { ...segs[0]!, lineSegment: { points } };
-      return {
-        ...entity,
-        centralCurve: { segments: segs },
-        leftBoundary: emptyBoundaryCurve(entity.leftBoundary),
-        rightBoundary: emptyBoundaryCurve(entity.rightBoundary),
-        length: polylineLengthMeters(points),
-      };
-    }
-    case 'stopSign': {
-      const l = [...entity.stopLines];
-      const s = [...l[0]!.segments];
-      s[0] = { ...s[0]!, lineSegment: { points } };
-      l[0] = { ...l[0]!, segments: s };
-      return { ...entity, stopLines: l };
-    }
-    case 'speedBump': {
-      const p = [...entity.position];
-      const s = [...p[0]!.segments];
-      s[0] = { ...s[0]!, lineSegment: { points } };
-      p[0] = { ...p[0]!, segments: s };
-      return { ...entity, position: p };
-    }
-    case 'yieldSign': {
-      const l = [...entity.stopLines];
-      const s = [...l[0]!.segments];
-      s[0] = { ...s[0]!, lineSegment: { points } };
-      l[0] = { ...l[0]!, segments: s };
-      return { ...entity, stopLines: l };
-    }
-    case 'road': {
-      const sections = [...entity.sections];
-      const sec0 = sections[0];
-      if (!sec0?.boundary) return entity;
-      const outer = sec0.boundary.outerPolygon;
-      const edges = [...outer.edges];
-      const edge0 = edges[0];
-      if (!edge0) return entity;
-      const segs = [...edge0.curve.segments];
-      segs[0] = { ...segs[0]!, lineSegment: { points } };
-      edges[0] = { ...edge0, curve: { segments: segs } };
-      sections[0] = {
-        ...sec0,
-        boundary: { ...sec0.boundary, outerPolygon: { ...outer, edges } },
-      };
-      return { ...entity, sections };
-    }
+    case 'lane':
+      return setLaneEditPoints(entity, points);
+    case 'stopSign':
+    case 'yieldSign':
+      return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
+    case 'speedBump':
+      return { ...entity, position: withFirstCurvePoints(entity.position, points) };
+    case 'road':
+      return setRoadEditPoints(entity, points);
     default:
       return entity;
   }
@@ -227,19 +239,7 @@ export function apolloEntityCoords(entity: ApolloEntity): LngLat[] {
 }
 
 export function isApolloAreaEntity(entity: { entityType: string }): boolean {
-  switch (entity.entityType) {
-    case 'junction':
-    case 'parkingSpace':
-    case 'crosswalk':
-    case 'clearArea':
-    case 'area':
-    case 'parkingLot':
-    case 'pncJunction':
-    case 'lane':
-      return true;
-    default:
-      return false;
-  }
+  return AREA_HIT_TYPES.has(entity.entityType);
 }
 
 /**
@@ -254,16 +254,5 @@ export function isApolloAreaEntity(entity: { entityType: string }): boolean {
  *     position curves — polyline.
  */
 export function isApolloPolygonEditPoints(entity: { entityType: string }): boolean {
-  switch (entity.entityType) {
-    case 'junction':
-    case 'parkingSpace':
-    case 'crosswalk':
-    case 'clearArea':
-    case 'area':
-    case 'parkingLot':
-    case 'pncJunction':
-      return true;
-    default:
-      return false;
-  }
+  return POLYGON_EDIT_TYPES.has(entity.entityType);
 }

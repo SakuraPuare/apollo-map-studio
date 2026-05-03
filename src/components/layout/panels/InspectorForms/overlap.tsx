@@ -16,10 +16,8 @@
 import { Section, Value } from '@/components/ui/form-fields';
 import { useMapStore } from '@/store/mapStore';
 import type { OverlapEntity, ObjectOverlapInfo } from '@/types/apollo';
-import {
-  REGION_OVERLAPS_OVERRIDE_PATH as OVERRIDE_REGION_OVERLAPS,
-  laneIsMergeOverridePath,
-} from '@/core/elements/overlap/overridePaths';
+import { laneIsMergeOverridePath } from '@/core/elements/overlap/overridePaths';
+import { clearOverride, REGION_OVERLAPS_OVERRIDE_PATH, withOverride } from './overlapOverrides';
 
 function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
@@ -36,31 +34,6 @@ function describeObject(o: ObjectOverlapInfo): string {
   }
   return `${o.objectType} ${shortId(o.objectId)}`;
 }
-
-/**
- * Pure transforms exported for testability. `path` matches the runtime
- * contract consumed by core/elements/overlap/reconcile.ts:
- *   - `objects.<i>.laneOverlapInfo.isMerge` → freeze isMerge on slot i
- *   - `regionOverlaps`                      → freeze the whole region polygon
- *                                             list + per-object regionOverlapId
- */
-export function withOverride(entity: OverlapEntity, path: string): OverlapEntity {
-  const arr = entity._userOverrides ?? [];
-  if (arr.includes(path)) return entity;
-  return { ...entity, _userOverrides: [...arr, path] };
-}
-
-export function clearOverride(entity: OverlapEntity, path: string): OverlapEntity {
-  const arr = entity._userOverrides;
-  if (!arr || !arr.includes(path)) return entity;
-  const next = arr.filter((p) => p !== path);
-  return { ...entity, _userOverrides: next.length > 0 ? next : undefined };
-}
-
-/** Stable path constant for region polygon pinning (referenced by inspector + tests).
- *  Re-exported from `core/elements/overlap/overridePaths` —— inspector tests的 import
- *  路径不动；底层来源是合同模块. */
-export const REGION_OVERLAPS_OVERRIDE_PATH = OVERRIDE_REGION_OVERLAPS;
 
 export function OverlapForm({ entity }: { entity: OverlapEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
@@ -90,8 +63,6 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
       (p): p is { o: Extract<ObjectOverlapInfo, { objectType: 'lane' }>; i: number } =>
         p.o.objectType === 'lane',
     );
-  const laneCount = laneObjects.length;
-
   return (
     <form>
       <Section title="Overlap">
@@ -100,49 +71,14 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
         <Value label="Regions" value={entity.regionOverlaps.length || '—'} />
       </Section>
 
-      <Section title="Participants">
-        {entity.objects.length === 0 && (
-          <div className="text-[10px] text-zinc-600 italic py-1">no objects</div>
-        )}
-        {entity.objects.map((o, i) => (
-          <Value
-            key={`${o.objectType}:${o.objectId}:${i}`}
-            label={`#${i}`}
-            value={describeObject(o)}
-          />
-        ))}
-      </Section>
+      <ParticipantsSection objects={entity.objects} />
 
-      {laneCount >= 2 && (
-        <Section title="Lane × Lane Semantics">
-          {laneObjects.map(({ o, i }) => (
-            <div key={`merge-${i}`} className="flex items-center gap-2 py-1">
-              <span className="text-[11px] text-zinc-500 w-24 shrink-0">Lane #{i} merge</span>
-              <label className="flex items-center gap-1 text-[11px] text-zinc-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!o.laneOverlapInfo.isMerge}
-                  onChange={(e) => onMergeChange(i, e.target.checked)}
-                  className="cursor-pointer"
-                />
-                <span>{o.laneOverlapInfo.isMerge ? 'merge' : 'no merge'}</span>
-              </label>
-              {isPinned(i) ? (
-                <button
-                  type="button"
-                  onClick={() => onUnpin(i)}
-                  className="text-[10px] text-cyan-300 hover:text-red-400 px-1.5 py-0.5 rounded border border-cyan-500/20 hover:border-red-400/40"
-                  title="Release pin → reconcile may override on next geometry change"
-                >
-                  pinned ×
-                </button>
-              ) : (
-                <span className="text-[10px] text-zinc-600 italic">auto</span>
-              )}
-            </div>
-          ))}
-        </Section>
-      )}
+      <LaneSemanticsSection
+        laneObjects={laneObjects}
+        isPinned={isPinned}
+        onMergeChange={onMergeChange}
+        onUnpin={onUnpin}
+      />
 
       {entity.regionOverlaps.length > 0 && (
         <RegionOverlapsSection
@@ -154,6 +90,70 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
         />
       )}
     </form>
+  );
+}
+
+function ParticipantsSection({ objects }: { objects: ObjectOverlapInfo[] }) {
+  return (
+    <Section title="Participants">
+      {objects.length === 0 && (
+        <div className="text-[10px] text-zinc-600 italic py-1">no objects</div>
+      )}
+      {objects.map((o, i) => (
+        <Value
+          key={`${o.objectType}:${o.objectId}:${i}`}
+          label={`#${i}`}
+          value={describeObject(o)}
+        />
+      ))}
+    </Section>
+  );
+}
+
+interface LaneSemanticsSectionProps {
+  laneObjects: { o: Extract<ObjectOverlapInfo, { objectType: 'lane' }>; i: number }[];
+  isPinned: (i: number) => boolean;
+  onMergeChange: (i: number, next: boolean) => void;
+  onUnpin: (i: number) => void;
+}
+
+function LaneSemanticsSection({
+  laneObjects,
+  isPinned,
+  onMergeChange,
+  onUnpin,
+}: LaneSemanticsSectionProps) {
+  if (laneObjects.length < 2) return null;
+
+  return (
+    <Section title="Lane × Lane Semantics">
+      {laneObjects.map(({ o, i }) => (
+        <div key={`merge-${i}`} className="flex items-center gap-2 py-1">
+          <span className="text-[11px] text-zinc-500 w-24 shrink-0">Lane #{i} merge</span>
+          <label className="flex items-center gap-1 text-[11px] text-zinc-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!o.laneOverlapInfo.isMerge}
+              onChange={(e) => onMergeChange(i, e.target.checked)}
+              className="cursor-pointer"
+            />
+            <span>{o.laneOverlapInfo.isMerge ? 'merge' : 'no merge'}</span>
+          </label>
+          {isPinned(i) ? (
+            <button
+              type="button"
+              onClick={() => onUnpin(i)}
+              className="text-[10px] text-cyan-300 hover:text-red-400 px-1.5 py-0.5 rounded border border-cyan-500/20 hover:border-red-400/40"
+              title="Release pin → reconcile may override on next geometry change"
+            >
+              pinned ×
+            </button>
+          ) : (
+            <span className="text-[10px] text-zinc-600 italic">auto</span>
+          )}
+        </div>
+      ))}
+    </Section>
   );
 }
 

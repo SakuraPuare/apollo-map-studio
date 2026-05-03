@@ -55,14 +55,23 @@ export function deleteApolloEntityVertex(entity: ApolloEntity, index: number): M
   return deleteApolloVertex(entity, index);
 }
 
-function applyBezierSourceDrag(
-  entity: ApolloEntity,
-  source: SourceDrawInfo,
-  index: number,
-  pointType: DragPointType,
-  newPoint: LngLat,
-  altKey: boolean,
-): MapEntity {
+interface BezierSourceDragContext {
+  entity: ApolloEntity;
+  source: SourceDrawInfo;
+  index: number;
+  pointType: DragPointType;
+  newPoint: LngLat;
+  altKey: boolean;
+}
+
+function applyBezierSourceDrag({
+  entity,
+  source,
+  index,
+  pointType,
+  newPoint,
+  altKey,
+}: BezierSourceDragContext): MapEntity {
   const anchors = source.anchors!.map((a) => ({ ...a }));
   const anchor = { ...anchors[index]! };
 
@@ -159,7 +168,7 @@ export function applyApolloDrag(
   const source = getSource(entity);
 
   if (source?.drawTool === 'drawBezier' && source.anchors) {
-    return applyBezierSourceDrag(entity, source, index, pointType, newPoint, altKey);
+    return applyBezierSourceDrag({ entity, source, index, pointType, newPoint, altKey });
   }
 
   if (source?.drawTool === 'drawArc' && source.arcPoints) {

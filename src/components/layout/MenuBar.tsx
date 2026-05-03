@@ -40,17 +40,7 @@ function Menu({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
-  // Insert dividers between different menuOrder groups
-  const itemsWithDividers: (ActionDef | 'divider')[] = [];
-  let lastOrder = -1;
-  for (const action of actions) {
-    const order = Math.floor((action.menuOrder ?? 99) / 10);
-    if (lastOrder >= 0 && order !== lastOrder) {
-      itemsWithDividers.push('divider');
-    }
-    itemsWithDividers.push(action);
-    lastOrder = order;
-  }
+  const itemsWithDividers = withMenuDividers(actions);
 
   return (
     <div ref={ref} className="relative">
@@ -94,6 +84,20 @@ function Menu({
       )}
     </div>
   );
+}
+
+function withMenuDividers(actions: ActionDef[]): (ActionDef | 'divider')[] {
+  const items: (ActionDef | 'divider')[] = [];
+  let lastOrder = -1;
+  for (const action of actions) {
+    const order = Math.floor((action.menuOrder ?? 99) / 10);
+    if (lastOrder >= 0 && order !== lastOrder) {
+      items.push('divider');
+    }
+    items.push(action);
+    lastOrder = order;
+  }
+  return items;
 }
 
 // ─── MenuBar ───────────────────────────────────────────────

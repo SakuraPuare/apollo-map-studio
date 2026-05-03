@@ -60,6 +60,207 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+function SettingsSection({
+  title,
+  children,
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="block mb-1 text-zinc-400 text-xs">{children}</label>;
+}
+
+function HistorySettings({
+  value,
+  onChange,
+  currentValue,
+  onCommit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  currentValue: number;
+  onCommit: (value: number) => void;
+}) {
+  return (
+    <SettingsSection title="Undo History">
+      <FieldLabel>History limit</FieldLabel>
+      <NumInput
+        value={value}
+        onChange={onChange}
+        min={MIN_HISTORY_LIMIT}
+        max={MAX_HISTORY_LIMIT}
+        onCommit={(n) => {
+          onCommit(n);
+          onChange(String(Math.round(n)));
+        }}
+        onReset={() => onChange(String(currentValue))}
+      />
+      <p className="mt-1 text-zinc-600 text-[10px]">
+        Range: {MIN_HISTORY_LIMIT}–{MAX_HISTORY_LIMIT}
+      </p>
+    </SettingsSection>
+  );
+}
+
+interface ViewportSettingsProps {
+  draftLng: string;
+  draftLat: string;
+  draftZoom: string;
+  mapCenterLng: number;
+  mapCenterLat: number;
+  mapZoom: number;
+  setDraftLng: (value: string) => void;
+  setDraftLat: (value: string) => void;
+  setDraftZoom: (value: string) => void;
+  setMapCenter: (lng: number, lat: number) => void;
+  setMapZoom: (zoom: number) => void;
+}
+
+function ViewportSettings({
+  draftLng,
+  draftLat,
+  draftZoom,
+  mapCenterLng,
+  mapCenterLat,
+  mapZoom,
+  setDraftLng,
+  setDraftLat,
+  setDraftZoom,
+  setMapCenter,
+  setMapZoom,
+}: ViewportSettingsProps) {
+  return (
+    <SettingsSection
+      title={
+        <>
+          Map Viewport <span className="text-zinc-600 normal-case">(restart to apply)</span>
+        </>
+      }
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <FieldLabel>Longitude</FieldLabel>
+          <NumInput
+            value={draftLng}
+            onChange={setDraftLng}
+            min={-180}
+            max={180}
+            onCommit={(n) => {
+              setMapCenter(n, mapCenterLat);
+              setDraftLng(String(n));
+            }}
+            onReset={() => setDraftLng(String(mapCenterLng))}
+          />
+        </div>
+        <div>
+          <FieldLabel>Latitude</FieldLabel>
+          <NumInput
+            value={draftLat}
+            onChange={setDraftLat}
+            min={-90}
+            max={90}
+            onCommit={(n) => {
+              setMapCenter(mapCenterLng, n);
+              setDraftLat(String(n));
+            }}
+            onReset={() => setDraftLat(String(mapCenterLat))}
+          />
+        </div>
+      </div>
+      <FieldLabel>Zoom</FieldLabel>
+      <NumInput
+        value={draftZoom}
+        onChange={setDraftZoom}
+        min={MIN_MAP_ZOOM}
+        max={MAX_MAP_ZOOM}
+        onCommit={(n) => {
+          setMapZoom(n);
+          setDraftZoom(String(n));
+        }}
+        onReset={() => setDraftZoom(String(mapZoom))}
+      />
+    </SettingsSection>
+  );
+}
+
+function LaneSettings({
+  draftLaneW,
+  draftArrow,
+  laneHalfWidth,
+  laneArrowSpacing,
+  setDraftLaneW,
+  setDraftArrow,
+  setLaneHalfWidth,
+  setLaneArrowSpacing,
+}: {
+  draftLaneW: string;
+  draftArrow: string;
+  laneHalfWidth: number;
+  laneArrowSpacing: number;
+  setDraftLaneW: (value: string) => void;
+  setDraftArrow: (value: string) => void;
+  setLaneHalfWidth: (value: number) => void;
+  setLaneArrowSpacing: (value: number) => void;
+}) {
+  return (
+    <SettingsSection title="Lane">
+      <FieldLabel>Default half-width (m)</FieldLabel>
+      <NumInput
+        value={draftLaneW}
+        onChange={setDraftLaneW}
+        min={MIN_LANE_HALF_WIDTH}
+        max={MAX_LANE_HALF_WIDTH}
+        step={0.25}
+        onCommit={(n) => {
+          setLaneHalfWidth(n);
+          setDraftLaneW(String(n));
+        }}
+        onReset={() => setDraftLaneW(String(laneHalfWidth))}
+      />
+      <FieldLabel>Arrow spacing (px)</FieldLabel>
+      <NumInput
+        value={draftArrow}
+        onChange={setDraftArrow}
+        min={MIN_LANE_ARROW_SPACING}
+        max={MAX_LANE_ARROW_SPACING}
+        step={10}
+        onCommit={(n) => {
+          setLaneArrowSpacing(n);
+          setDraftArrow(String(n));
+        }}
+        onReset={() => setDraftArrow(String(laneArrowSpacing))}
+      />
+    </SettingsSection>
+  );
+}
+
+function LayoutSettings() {
+  return (
+    <SettingsSection title="Layout">
+      <button
+        onClick={() => {
+          localStorage.removeItem('ams-layout-v2');
+          window.location.reload();
+        }}
+        className="px-3 py-1.5 text-xs text-zinc-400 bg-zinc-800/50 border border-white/10 rounded hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
+      >
+        Reset Layout to Default
+      </button>
+    </SettingsSection>
+  );
+}
+
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const historyLimit = useSettingsStore((s) => s.historyLimit);
   const setHistoryLimit = useSettingsStore((s) => s.setHistoryLimit);
@@ -114,125 +315,36 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
         {/* Content */}
         <div className="px-5 py-4 space-y-5 max-h-[60vh] overflow-y-auto">
-          {/* Undo History */}
-          <section>
-            <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
-              Undo History
-            </h3>
-            <label className="block mb-1 text-zinc-400 text-xs">History limit</label>
-            <NumInput
-              value={draftHistory}
-              onChange={setDraftHistory}
-              min={MIN_HISTORY_LIMIT}
-              max={MAX_HISTORY_LIMIT}
-              onCommit={(n) => {
-                setHistoryLimit(n);
-                setDraftHistory(String(Math.round(n)));
-              }}
-              onReset={() => setDraftHistory(String(historyLimit))}
-            />
-            <p className="mt-1 text-zinc-600 text-[10px]">
-              Range: {MIN_HISTORY_LIMIT}–{MAX_HISTORY_LIMIT}
-            </p>
-          </section>
-
-          {/* Map Viewport */}
-          <section>
-            <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
-              Map Viewport <span className="text-zinc-600 normal-case">(restart to apply)</span>
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block mb-1 text-zinc-400 text-xs">Longitude</label>
-                <NumInput
-                  value={draftLng}
-                  onChange={setDraftLng}
-                  min={-180}
-                  max={180}
-                  onCommit={(n) => {
-                    setMapCenter(n, mapCenterLat);
-                    setDraftLng(String(n));
-                  }}
-                  onReset={() => setDraftLng(String(mapCenterLng))}
-                />
-              </div>
-              <div>
-                <label className="block mb-1 text-zinc-400 text-xs">Latitude</label>
-                <NumInput
-                  value={draftLat}
-                  onChange={setDraftLat}
-                  min={-90}
-                  max={90}
-                  onCommit={(n) => {
-                    setMapCenter(mapCenterLng, n);
-                    setDraftLat(String(n));
-                  }}
-                  onReset={() => setDraftLat(String(mapCenterLat))}
-                />
-              </div>
-            </div>
-            <label className="block mt-2 mb-1 text-zinc-400 text-xs">Zoom</label>
-            <NumInput
-              value={draftZoom}
-              onChange={setDraftZoom}
-              min={MIN_MAP_ZOOM}
-              max={MAX_MAP_ZOOM}
-              onCommit={(n) => {
-                setMapZoom(n);
-                setDraftZoom(String(n));
-              }}
-              onReset={() => setDraftZoom(String(mapZoom))}
-            />
-          </section>
-
-          {/* Lane Settings */}
-          <section>
-            <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
-              Lane
-            </h3>
-            <label className="block mb-1 text-zinc-400 text-xs">Default half-width (m)</label>
-            <NumInput
-              value={draftLaneW}
-              onChange={setDraftLaneW}
-              min={MIN_LANE_HALF_WIDTH}
-              max={MAX_LANE_HALF_WIDTH}
-              step={0.25}
-              onCommit={(n) => {
-                setLaneHalfWidth(n);
-                setDraftLaneW(String(n));
-              }}
-              onReset={() => setDraftLaneW(String(laneHalfWidth))}
-            />
-            <label className="block mt-2 mb-1 text-zinc-400 text-xs">Arrow spacing (px)</label>
-            <NumInput
-              value={draftArrow}
-              onChange={setDraftArrow}
-              min={MIN_LANE_ARROW_SPACING}
-              max={MAX_LANE_ARROW_SPACING}
-              step={10}
-              onCommit={(n) => {
-                setLaneArrowSpacing(n);
-                setDraftArrow(String(n));
-              }}
-              onReset={() => setDraftArrow(String(laneArrowSpacing))}
-            />
-          </section>
-
-          {/* Layout */}
-          <section>
-            <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
-              Layout
-            </h3>
-            <button
-              onClick={() => {
-                localStorage.removeItem('ams-layout-v2');
-                window.location.reload();
-              }}
-              className="px-3 py-1.5 text-xs text-zinc-400 bg-zinc-800/50 border border-white/10 rounded hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
-            >
-              Reset Layout to Default
-            </button>
-          </section>
+          <HistorySettings
+            value={draftHistory}
+            onChange={setDraftHistory}
+            currentValue={historyLimit}
+            onCommit={setHistoryLimit}
+          />
+          <ViewportSettings
+            draftLng={draftLng}
+            draftLat={draftLat}
+            draftZoom={draftZoom}
+            mapCenterLng={mapCenterLng}
+            mapCenterLat={mapCenterLat}
+            mapZoom={mapZoom}
+            setDraftLng={setDraftLng}
+            setDraftLat={setDraftLat}
+            setDraftZoom={setDraftZoom}
+            setMapCenter={setMapCenter}
+            setMapZoom={setMapZoom}
+          />
+          <LaneSettings
+            draftLaneW={draftLaneW}
+            draftArrow={draftArrow}
+            laneHalfWidth={laneHalfWidth}
+            laneArrowSpacing={laneArrowSpacing}
+            setDraftLaneW={setDraftLaneW}
+            setDraftArrow={setDraftArrow}
+            setLaneHalfWidth={setLaneHalfWidth}
+            setLaneArrowSpacing={setLaneArrowSpacing}
+          />
+          <LayoutSettings />
         </div>
       </div>
     </div>

@@ -83,11 +83,11 @@ Design intent:
 
 ## 4. Three rendering strategies
 
-| Strategy      | Representative entities               | Entry                                    |
-| ------------- | ------------------------------------- | ---------------------------------------- |
-| Schema-driven | `LaneEntity`                          | `SchemaForm` + `LaneInspectorSchema`     |
-| Hand-written  | `Junction`/`Signal`/`StopSign`/`Road` | named components in `simpleForms.tsx`    |
-| Read-only     | `Crosswalk`/`SpeedBump`/`RSU`/...     | display-only blocks in `simpleForms.tsx` |
+| Strategy      | Representative entities               | Entry                                               |
+| ------------- | ------------------------------------- | --------------------------------------------------- |
+| Schema-driven | `LaneEntity`                          | `SchemaForm` + `LaneInspectorSchema`                |
+| Hand-written  | `Junction`/`Signal`/`StopSign`/`Road` | named components in `InspectorForms/<entity>.tsx`   |
+| Read-only     | `Crosswalk`/`SpeedBump`/`RSU`/...     | summary components in `InspectorForms/readOnly.tsx` |
 
 ### 4.1 Schema-driven — Lane
 
@@ -109,13 +109,30 @@ Detailed field / read / write / overridesPaths model lives in
 Why not schema-ify everything? Signal subsignals (an array of bulb
 records) and signInfo (multi-select flag set) need React-shape inputs
 that would inflate the `FieldDef` union to seven variants.
-`simpleForms.tsx:184` keeps the JSX explicit:
+`SignalForm` keeps the JSX explicit in `InspectorForms/signal.tsx` and
+splits its subareas into `SubsignalsSection` and `SignInfoSection`:
 
 - `useForm<SignalFormValues>` with `mode: 'onChange'`
+- `useEntityFormSync(...)` centralizes id-swap reset and same-id drift sync
 - a single `methods.watch(value => ...)` subscription
 - `entityRef` always points at the freshest entity
 - type changes trigger `regenerateSignalGeometry` to re-derive
   boundary + subsignals
+
+Other hand-written forms are split by entity:
+
+| File                                  | Responsibility                        |
+| ------------------------------------- | ------------------------------------- |
+| `junction.tsx`                        | junction type enum                    |
+| `parkingSpace.tsx`                    | heading degrees/radians conversion    |
+| `stopSign.tsx`                        | stop-sign type enum + stop-line count |
+| `road.tsx`                            | road type, section/lane counts, FK    |
+| `area.tsx`                            | area type + optional name             |
+| `barrierGate.tsx`                     | barrier-gate type + stop-line count   |
+| `signal.tsx`                          | signal type, subsignals, signInfo     |
+| `pncJunction.tsx`                     | passage group / passage editor        |
+| `overlap.tsx` + `overlapOverrides.ts` | object participants and override pins |
+| `simpleForms.tsx`                     | compatibility re-export only          |
 
 ### 4.3 Read-only summary
 
@@ -123,7 +140,22 @@ that would inflate the `FieldDef` union to seven variants.
 expose id + geometry + foreign keys at the proto level. Geometry is
 edited on the canvas; the FK fields are computed by the topology /
 overlap reconciler. The Inspector should not own these — it shows
-counts (vertices / overlapIds) instead (`simpleForms.tsx:544`+).
+counts (vertices / overlapIds) instead. Implementation is centralized
+in `InspectorForms/readOnly.tsx` through the shared `ReadOnlyAttributes`
+shell.
+
+## 4.4 Hand-written form sync hook
+
+Hand-written forms no longer duplicate `entityRef`, `reset([entity.id])`,
+and same-id `setValue` boilerplate. They use `InspectorForms/formSync.ts`:
+
+```ts
+const entityRef = useEntityFormSync(entity, methods, formValuesFromSignal);
+```
+
+The hook handles id-swap reset and silent same-id drift sync. Each entity
+file keeps only its `formValuesFrom<Entity>()` projection and the
+`methods.watch(...)` store-write rule.
 
 ## 5. The R1 closure for two-way sync
 
@@ -205,17 +237,17 @@ same value) must not promote a derived value into a manual override.
 
 ## 8. Public API summary
 
-| Symbol                        | File / line                              | Use                             |
-| ----------------------------- | ---------------------------------------- | ------------------------------- |
-| `EntityForm`                  | `InspectorForms.tsx:45`                  | Top-level switch                |
-| `LaneForm`                    | `InspectorForms/lane.tsx:32`             | Schema wrapper                  |
-| `SchemaForm`                  | `panels/SchemaForm.tsx:53`               | Generic schema renderer         |
-| `JunctionForm` / `SignalForm` | `InspectorForms/simpleForms.tsx:61, 184` | Hand-written variants           |
-| `OverlapForm`                 | `InspectorForms/overlap.tsx`             | Object pair editor              |
-| `PNCJunctionForm`             | `InspectorForms/pncJunction.tsx`         | Passage / control               |
-| `DrawingForm`                 | `InspectorForms/DrawingForm.tsx`         | Generic geometry summary        |
-| `LaneRef` / `LaneRefList`     | `panels/LaneRefList.tsx`                 | Topology ID jump chip           |
-| `zodResolverZ4`               | `InspectorForms/resolver.ts`             | zod v4 + react-hook-form bridge |
+| Symbol                        | File                               | Use                                |
+| ----------------------------- | ---------------------------------- | ---------------------------------- |
+| `EntityForm`                  | `InspectorForms.tsx`               | Top-level dispatcher               |
+| `LaneForm`                    | `InspectorForms/lane.tsx`          | Schema wrapper                     |
+| `SchemaForm`                  | `panels/SchemaForm.tsx`            | Generic schema renderer            |
+| `JunctionForm` / `SignalForm` | `InspectorForms/junction.tsx` etc. | Hand-written variants              |
+| `OverlapForm`                 | `InspectorForms/overlap.tsx`       | Object pair editor                 |
+| `PNCJunctionForm`             | `InspectorForms/pncJunction.tsx`   | Passage / control                  |
+| `DrawingForm`                 | `InspectorForms/DrawingForm.tsx`   | Generic geometry summary           |
+| `useEntityFormSync`           | `InspectorForms/formSync.ts`       | Hand-written form sync boilerplate |
+| `zodResolverZ4`               | `InspectorForms/resolver.ts`       | zod v4 + react-hook-form bridge    |
 
 ## 9. Type contract: discriminated union + zod
 
@@ -260,6 +292,9 @@ const methods = useForm<LaneFormValues>({
 5. **`applyFormValuesToEntity` is order-sensitive**: writes apply
    left-to-right and each step sees the result of the previous. Place
    "depended-on" fields before fields that derive from them.
+6. **Do not put new form implementations back into `simpleForms.tsx`**.
+   Add new hand-written forms under `InspectorForms/<entity>.tsx`, shared
+   sync code in `formSync.ts`, and read-only summaries in `readOnly.tsx`.
 
 ## 12. Test coverage
 
@@ -280,11 +315,21 @@ src/
 │   ├── LaneRefList.tsx                 ← topology chip
 │   └── InspectorForms/
 │       ├── DrawingForm.tsx
+│       ├── area.tsx
+│       ├── barrierGate.tsx
+│       ├── formSync.ts                 ← hand-written form sync hook
+│       ├── junction.tsx
 │       ├── lane.tsx                    ← schema-driven Lane
 │       ├── overlap.tsx
+│       ├── overlapOverrides.ts
+│       ├── parkingSpace.tsx
 │       ├── pncJunction.tsx
+│       ├── readOnly.tsx                ← Crosswalk / SpeedBump / RSU ...
 │       ├── resolver.ts
-│       └── simpleForms.tsx             ← hand-written + read-only forms
+│       ├── road.tsx
+│       ├── signal.tsx
+│       ├── simpleForms.tsx             ← compatibility re-export only
+│       └── stopSign.tsx
 ├── types/
 │   ├── inspectorSchema.ts              ← FieldDef / EntitySchema / helpers
 │   └── entities.ts                     ← MapEntity discriminated union

@@ -2,7 +2,7 @@
  * 纯函数版实体 → GeoJSON 编译器
  * 可在 Worker 和主线程中复用，不依赖 React
  */
-import type { MapEntity } from '@/types/entities';
+import type { DrawingEntity, MapEntity } from '@/types/entities';
 import type { ApolloEntity } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { catmullRom, cubicBezier, threePointArc, rectCorners } from '@/core/geometry/interpolate';
@@ -52,7 +52,7 @@ function featureId(props: Record<string, unknown>): string | undefined {
 }
 
 /** 判断 entityType 是否为基础绘制图形 */
-function isDrawingEntity(entity: MapEntity): entity is import('@/types/entities').DrawingEntity {
+function isDrawingEntity(entity: MapEntity): entity is DrawingEntity {
   return (
     entity.entityType === 'polyline' ||
     entity.entityType === 'catmullRom' ||

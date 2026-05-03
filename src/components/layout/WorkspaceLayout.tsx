@@ -5,13 +5,13 @@ import 'dockview-react/dist/styles/dockview.css';
 import { MenuBar } from './MenuBar';
 import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
-import { ActivityBar } from './ActivityBar';
+import { ActivityBar, type ActivityTab } from './ActivityBar';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
 import { LicenseBanner } from '@/components/license/LicenseBanner';
 import { ActivationDialog } from '@/components/license/ActivationDialog';
 import { useLicenseSync } from '@/hooks/useLicense';
 import { useMapStore } from '@/store/mapStore';
-import { useUIStore } from '@/store/uiStore';
+import { useUIStore, type AppMode } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
 import { SidebarProvider, useSidebar } from '@/context/SidebarContext';
 import { useActionDispatcher } from '@/hooks/useActionDispatcher';
@@ -52,29 +52,8 @@ function WorkspaceLayoutInner() {
   const apiRef = useRef<DockviewApi | null>(null);
 
   const openSettings = useCallback(() => setSettingsOpen(true), []);
-  // Dockview component map needs to be stable; rebuild only when openSettings changes.
-  const components = useRef({
-    map: MapPanelContent,
-    sidebar: makeSidebarPanel(openSettings),
-    inspector: InspectorPanelContent,
-    timeline: TimelinePanelContent,
-  }).current;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setCommandPaletteOpen((open) => !open);
-      }
-
-      if (event.key === 'Escape') {
-        setCommandPaletteOpen(false);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  const components = useDockviewComponents(openSettings);
+  useCommandPaletteKeys(setCommandPaletteOpen);
 
   // Reset layout handler (needs apiRef + current mode)
   const handleResetLayout = useCallback(() => {
@@ -101,83 +80,178 @@ function WorkspaceLayoutInner() {
     [actorRef],
   );
 
-  // Dockview ready — closure captures the current appMode, and since we key the
-  // Dockview on appMode a new instance re-runs this with the fresh mode.
-  const onReady = useCallback(
-    (event: DockviewReadyEvent) => {
-      apiRef.current = event.api;
-      if (!loadLayout(event.api, appMode)) {
-        createDefaultLayout(event.api, appMode);
-      }
-      event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
-    },
-    [appMode],
-  );
+  const onReady = useDockviewReady(apiRef, appMode);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
-      {/* Menu Bar — reads from Action Registry */}
-      <MenuBar onExecute={execute} getToggleState={getToggleState} />
-
-      {/* License banner — shows when trial is short, expired, or tampered */}
-      <LicenseBanner />
-
-      {/* Tool Strip */}
-      <ToolStrip
+      <WorkspaceToolbar
+        execute={execute}
+        getToggleState={getToggleState}
         currentTool={currentState}
         currentElement={activeElement as MapElementType | null}
         onSelectTool={handleSelectTool}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+      />
+      <WorkspaceMainContent
+        appMode={appMode}
+        activeTab={activeTab}
+        components={components}
+        onReady={onReady}
+        onTabChange={setActiveTab}
+      />
+      <StatusBar mode={currentState} entityCount={entityCount} />
+      <WorkspaceOverlays
+        commandPaletteOpen={commandPaletteOpen}
+        settingsOpen={settingsOpen}
+        execute={execute}
+        getToggleState={getToggleState}
+        onCommandPaletteOpenChange={setCommandPaletteOpen}
+        onSettingsClose={() => setSettingsOpen(false)}
+      />
+    </div>
+  );
+}
+
+interface WorkspaceToolbarProps {
+  execute: ReturnType<typeof useActionDispatcher>['execute'];
+  getToggleState: ReturnType<typeof useActionDispatcher>['getToggleState'];
+  currentTool: string;
+  currentElement: MapElementType | null;
+  onSelectTool: (tool: string, element?: MapElementType) => void;
+  onOpenCommandPalette: () => void;
+}
+
+function WorkspaceToolbar({
+  execute,
+  getToggleState,
+  currentTool,
+  currentElement,
+  onSelectTool,
+  onOpenCommandPalette,
+}: WorkspaceToolbarProps) {
+  return (
+    <>
+      <MenuBar onExecute={execute} getToggleState={getToggleState} />
+      <LicenseBanner />
+      <ToolStrip
+        currentTool={currentTool}
+        currentElement={currentElement}
+        onSelectTool={onSelectTool}
+        onOpenCommandPalette={onOpenCommandPalette}
         onExecuteAction={execute}
         getToggleState={getToggleState}
       />
+    </>
+  );
+}
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} />
-        <div className="flex-1">
-          <DockviewReact
-            key={appMode}
-            components={components}
-            onReady={onReady}
-            className="dockview-theme-dark"
-          />
-        </div>
+interface WorkspaceMainContentProps {
+  appMode: AppMode;
+  activeTab: ActivityTab;
+  components: ReturnType<typeof useDockviewComponents>;
+  onReady: (event: DockviewReadyEvent) => void;
+  onTabChange: (tab: ActivityTab) => void;
+}
+
+function WorkspaceMainContent({
+  appMode,
+  activeTab,
+  components,
+  onReady,
+  onTabChange,
+}: WorkspaceMainContentProps) {
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      <ActivityBar activeTab={activeTab} onTabChange={onTabChange} />
+      <div className="flex-1">
+        <DockviewReact
+          key={appMode}
+          components={components}
+          onReady={onReady}
+          className="dockview-theme-dark"
+        />
       </div>
+    </div>
+  );
+}
 
-      {/* Status Bar */}
-      <StatusBar mode={currentState} entityCount={entityCount} />
+function useDockviewComponents(openSettings: () => void) {
+  return useRef({
+    map: MapPanelContent,
+    sidebar: makeSidebarPanel(openSettings),
+    inspector: InspectorPanelContent,
+    timeline: TimelinePanelContent,
+  }).current;
+}
 
-      {/* Command Palette — reads from Action Registry */}
+function useCommandPaletteKeys(
+  setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>,
+) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+      }
+      if (event.key === 'Escape') setCommandPaletteOpen(false);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [setCommandPaletteOpen]);
+}
+
+function useDockviewReady(apiRef: React.RefObject<DockviewApi | null>, appMode: AppMode) {
+  return useCallback(
+    (event: DockviewReadyEvent) => {
+      apiRef.current = event.api;
+      if (!loadLayout(event.api, appMode)) createDefaultLayout(event.api, appMode);
+      event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
+    },
+    [apiRef, appMode],
+  );
+}
+
+interface WorkspaceOverlaysProps {
+  commandPaletteOpen: boolean;
+  settingsOpen: boolean;
+  execute: ReturnType<typeof useActionDispatcher>['execute'];
+  getToggleState: ReturnType<typeof useActionDispatcher>['getToggleState'];
+  onCommandPaletteOpenChange: React.Dispatch<React.SetStateAction<boolean>>;
+  onSettingsClose: () => void;
+}
+
+function WorkspaceOverlays({
+  commandPaletteOpen,
+  settingsOpen,
+  execute,
+  getToggleState,
+  onCommandPaletteOpenChange,
+  onSettingsClose,
+}: WorkspaceOverlaysProps) {
+  return (
+    <>
       {commandPaletteOpen && (
         <Suspense fallback={<OverlayFallback label="Loading command palette..." />}>
           <LazyCommandPalette
             open={commandPaletteOpen}
-            onOpenChange={setCommandPaletteOpen}
+            onOpenChange={onCommandPaletteOpenChange}
             onExecute={execute}
             getToggleState={getToggleState}
           />
         </Suspense>
       )}
-
-      {/* Settings */}
       {settingsOpen && (
         <Suspense fallback={<OverlayFallback label="Loading settings..." />}>
-          <LazySettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          <LazySettingsPanel open={settingsOpen} onClose={onSettingsClose} />
         </Suspense>
       )}
-
-      {/* PROJ picker — opens automatically when an Apollo map is imported
-          without a Header.projection.proj field. */}
       <Suspense fallback={null}>
         <LazyProjPickerDialog />
       </Suspense>
-
       <TaskProgressOverlay />
-
-      {/* Always-mounted activation dialog — opens via licenseStore.promptActivation */}
       <ActivationDialog />
-    </div>
+    </>
   );
 }
 

@@ -1,5 +1,6 @@
 import { FaTriangleExclamation, FaShield, FaClock, FaKey } from 'react-icons/fa6';
 import { useLicenseStore } from '@/store/licenseStore';
+import type { LicenseState } from '@/lib/license-bridge';
 
 const STATUS_TONE: Record<
   string,
@@ -60,48 +61,59 @@ const STATUS_TONE: Record<
  * is short; expired / tampered states render a hard-to-miss read-only
  * banner with an "Activate" button.
  */
+function isActivatedExpiring(state: LicenseState): boolean {
+  return state.status === 'activated' && state.daysRemaining !== null && state.daysRemaining <= 14;
+}
+
+function shouldHideBanner(state: LicenseState): boolean {
+  if (state.status === 'trial') {
+    return state.daysRemaining !== null && state.daysRemaining > 3;
+  }
+  if (state.status !== 'activated') return false;
+  if (state.license?.expires === 0) return true;
+  return state.daysRemaining === null || state.daysRemaining > 14;
+}
+
+function bannerMessage(state: LicenseState): string {
+  switch (state.status) {
+    case 'trial':
+      return state.hoursRemaining !== null && state.hoursRemaining <= 24
+        ? `Trial ends in ${state.hoursRemaining}h — activate to keep editing`
+        : `Trial: ${state.daysRemaining}d remaining`;
+    case 'activated':
+      return state.daysRemaining !== null
+        ? `Licensed · ${state.daysRemaining}d remaining`
+        : 'Licensed · perpetual';
+    case 'expired_trial':
+      return 'Trial expired — read-only mode. Activate to continue editing.';
+    case 'expired_license':
+      return 'License expired — read-only mode. Renew to continue editing.';
+    case 'machine_mismatch':
+      return 'License is bound to a different machine — read-only mode.';
+    case 'tampered':
+      return 'Tampering detected — read-only mode. Re-activation required.';
+    case 'invalid':
+      return 'License signature failed verification — read-only mode.';
+    case 'not_started':
+      return 'License pending — read-only mode.';
+    default:
+      return state.reason;
+  }
+}
+
+function shouldShowAction(state: LicenseState): boolean {
+  return !state.canEdit || state.status === 'trial' || isActivatedExpiring(state);
+}
+
 export function LicenseBanner() {
   const state = useLicenseStore((s) => s.state);
   const promptActivation = useLicenseStore((s) => s.promptActivation);
 
-  // Hide quiet banner when trial has plenty of time left.
-  if (state.status === 'activated' && state.license?.expires === 0) return null;
-  if (state.status === 'trial' && state.daysRemaining !== null && state.daysRemaining > 3) {
-    return null;
-  }
-  if (state.status === 'activated') {
-    if (state.daysRemaining === null || state.daysRemaining > 14) return null;
-  }
+  if (shouldHideBanner(state)) return null;
 
   const tone = STATUS_TONE[state.status] ?? STATUS_TONE.trial!;
   const Icon = tone.icon;
-
-  const message = (() => {
-    switch (state.status) {
-      case 'trial':
-        return state.hoursRemaining !== null && state.hoursRemaining <= 24
-          ? `Trial ends in ${state.hoursRemaining}h — activate to keep editing`
-          : `Trial: ${state.daysRemaining}d remaining`;
-      case 'activated':
-        return state.daysRemaining !== null
-          ? `Licensed · ${state.daysRemaining}d remaining`
-          : 'Licensed · perpetual';
-      case 'expired_trial':
-        return 'Trial expired — read-only mode. Activate to continue editing.';
-      case 'expired_license':
-        return 'License expired — read-only mode. Renew to continue editing.';
-      case 'machine_mismatch':
-        return 'License is bound to a different machine — read-only mode.';
-      case 'tampered':
-        return 'Tampering detected — read-only mode. Re-activation required.';
-      case 'invalid':
-        return 'License signature failed verification — read-only mode.';
-      case 'not_started':
-        return 'License pending — read-only mode.';
-      default:
-        return state.reason;
-    }
-  })();
+  const message = bannerMessage(state);
 
   return (
     <div
@@ -111,11 +123,7 @@ export function LicenseBanner() {
         <Icon className="w-3.5 h-3.5" />
         <span>{message}</span>
       </div>
-      {!state.canEdit ||
-      state.status === 'trial' ||
-      (state.status === 'activated' &&
-        state.daysRemaining !== null &&
-        state.daysRemaining <= 14) ? (
+      {shouldShowAction(state) ? (
         <button
           type="button"
           onClick={() => promptActivation()}

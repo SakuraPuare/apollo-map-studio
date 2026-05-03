@@ -158,6 +158,138 @@ function applyColdSelectionFilter(map: maplibregl.Map, selectedEntityId: string 
   }
 }
 
+interface ColdLayerRefs {
+  prevEntitiesRef: React.MutableRefObject<EntitySnapshot | null>;
+  syncFrameRef: React.MutableRefObject<number | null>;
+  syncVersionRef: React.MutableRefObject<number>;
+  selectedEntityIdRef: React.MutableRefObject<string | null>;
+  entityFeatureCacheRef: React.MutableRefObject<Map<string, GeoJSON.Feature[]>>;
+}
+
+interface ColdLayerSyncContext {
+  map: maplibregl.Map;
+  bridge: SpatialWorkerBridge;
+  mapLoadedRef: React.RefObject<boolean>;
+  refs: ColdLayerRefs;
+  isCancelled: () => boolean;
+}
+
+async function syncAllColdFeatures(
+  context: ColdLayerSyncContext,
+  src: maplibregl.GeoJSONSource,
+  entities: Map<string, SerializedEntity>,
+  requestVersion: number,
+) {
+  const renderTaskId = 'cold-layer-sync';
+  if (entities.size > 0) {
+    useTaskProgressStore.getState().beginTask({
+      id: renderTaskId,
+      label: 'Rendering map layers',
+      detail: `${entities.size.toLocaleString()} entities`,
+      progress: null,
+      visibleAfterMs: 1000,
+    });
+  }
+  try {
+    const result = await context.bridge.send({ type: 'SYNC', entities: [...entities.values()] });
+    if (context.isCancelled() || requestVersion !== context.refs.syncVersionRef.current) return;
+    if (result.type !== 'COLD_READY') return;
+    context.refs.entityFeatureCacheRef.current = groupsToFeatureMap(result.groups);
+    if (result.featureCollection) await setColdSourceData(src, result.featureCollection.features);
+    else await rebuildColdSourceFromCache(src, context.refs.entityFeatureCacheRef.current);
+  } catch {
+    /* Worker unavailable - cold layer stays stale */
+  } finally {
+    useTaskProgressStore.getState().endTask(renderTaskId);
+  }
+}
+
+async function applyIncrementalColdSync(
+  context: ColdLayerSyncContext,
+  src: maplibregl.GeoJSONSource,
+  diff: ReturnType<typeof diffEntities>,
+  requestVersion: number,
+) {
+  try {
+    const result = await context.bridge.send({
+      type: 'INCREMENTAL',
+      added: diff.added,
+      updated: diff.updated,
+      removed: diff.removed,
+    });
+    if (context.isCancelled() || requestVersion !== context.refs.syncVersionRef.current) return;
+    if (result.type === 'COLD_DELTA') await applyColdDeltaResult(context, src, result);
+    else if (result.type === 'COLD_READY') await applyColdReadyResult(context, src, result);
+  } catch {
+    /* Worker unavailable - cold layer stays stale */
+  }
+}
+
+async function applyColdDeltaResult(
+  context: ColdLayerSyncContext,
+  src: maplibregl.GeoJSONSource,
+  result: Extract<Awaited<ReturnType<SpatialWorkerBridge['send']>>, { type: 'COLD_DELTA' }>,
+) {
+  const cache = context.refs.entityFeatureCacheRef.current;
+  const previousFeatures: GeoJSON.Feature[] = [];
+  for (const id of result.removed) {
+    previousFeatures.push(...(cache.get(id) ?? []));
+    cache.delete(id);
+  }
+  for (const group of result.changed) {
+    previousFeatures.push(...(cache.get(group.id) ?? []));
+    cache.set(group.id, group.features);
+  }
+  await applyColdDeltaToSource(src, previousFeatures, result.changed);
+}
+
+async function applyColdReadyResult(
+  context: ColdLayerSyncContext,
+  src: maplibregl.GeoJSONSource,
+  result: Extract<Awaited<ReturnType<SpatialWorkerBridge['send']>>, { type: 'COLD_READY' }>,
+) {
+  context.refs.entityFeatureCacheRef.current = groupsToFeatureMap(result.groups);
+  if (result.featureCollection) await setColdSourceData(src, result.featureCollection.features);
+  else await rebuildColdSourceFromCache(src, context.refs.entityFeatureCacheRef.current);
+}
+
+function syncColdLayer(context: ColdLayerSyncContext) {
+  const { map, refs, mapLoadedRef } = context;
+  refs.syncFrameRef.current = null;
+  if (!mapLoadedRef.current) return;
+
+  const src = map.getSource('cold') as maplibregl.GeoJSONSource | undefined;
+  if (!src) return;
+
+  const entities = useMapStore.getState().entities;
+  const snapshot = cloneEntities(entities);
+  const previousSnapshot = refs.prevEntitiesRef.current;
+  const requestVersion = ++refs.syncVersionRef.current;
+
+  if (!previousSnapshot) {
+    refs.prevEntitiesRef.current = snapshot;
+    void syncAllColdFeatures(context, src, entities, requestVersion);
+    return;
+  }
+
+  const diff = diffEntities(previousSnapshot, entities);
+  refs.prevEntitiesRef.current = snapshot;
+  if (!hasEntityChanges(diff)) return;
+
+  if (diffSize(diff) > FULL_SYNC_ENTITY_CHANGE_THRESHOLD) {
+    void syncAllColdFeatures(context, src, entities, requestVersion);
+    return;
+  }
+
+  void applyIncrementalColdSync(context, src, diff, requestVersion);
+}
+
+function cancelScheduledSync(syncFrameRef: React.MutableRefObject<number | null>) {
+  if (syncFrameRef.current === null) return;
+  cancelAnimationFrame(syncFrameRef.current);
+  syncFrameRef.current = null;
+}
+
 export function useColdLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,
   mapLoadedRef: React.RefObject<boolean>,
@@ -181,103 +313,24 @@ export function useColdLayer(
     let cancelled = false;
     selectedEntityIdRef.current = actorRef.getSnapshot().context.selectedEntityId;
 
-    const syncColdLayer = () => {
-      syncFrameRef.current = null;
-      if (!mapLoadedRef.current) return;
-
-      const src = map.getSource('cold') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-
-      const entities = useMapStore.getState().entities;
-      const snapshot = cloneEntities(entities);
-      const previousSnapshot = prevEntitiesRef.current;
-      const requestVersion = ++syncVersionRef.current;
-
-      const syncAllColdFeatures = async (renderTaskId: string) => {
-        if (entities.size > 0) {
-          useTaskProgressStore.getState().beginTask({
-            id: renderTaskId,
-            label: 'Rendering map layers',
-            detail: `${entities.size.toLocaleString()} entities`,
-            progress: null,
-            visibleAfterMs: 1000,
-          });
-        }
-        try {
-          const result = await bridge.send({
-            type: 'SYNC',
-            entities: [...entities.values()],
-          });
-          if (cancelled || requestVersion !== syncVersionRef.current) return;
-          if (result.type === 'COLD_READY') {
-            entityFeatureCacheRef.current = groupsToFeatureMap(result.groups);
-            if (result.featureCollection) {
-              await setColdSourceData(src, result.featureCollection.features);
-            } else {
-              await rebuildColdSourceFromCache(src, entityFeatureCacheRef.current);
-            }
-          }
-        } catch {
-          /* Worker unavailable — cold layer stays stale */
-        } finally {
-          useTaskProgressStore.getState().endTask(renderTaskId);
-        }
-      };
-
-      if (!previousSnapshot) {
-        prevEntitiesRef.current = snapshot;
-        void syncAllColdFeatures('cold-layer-sync');
-        return;
-      }
-
-      const diff = diffEntities(previousSnapshot, entities);
-      prevEntitiesRef.current = snapshot;
-      if (!hasEntityChanges(diff)) return;
-
-      if (diffSize(diff) > FULL_SYNC_ENTITY_CHANGE_THRESHOLD) {
-        void syncAllColdFeatures('cold-layer-sync');
-        return;
-      }
-
-      bridge
-        .send({
-          type: 'INCREMENTAL',
-          added: diff.added,
-          updated: diff.updated,
-          removed: diff.removed,
-        })
-        .then(async (result) => {
-          if (cancelled || requestVersion !== syncVersionRef.current) return;
-          if (result.type === 'COLD_DELTA') {
-            const cache = entityFeatureCacheRef.current;
-            const previousFeatures: GeoJSON.Feature[] = [];
-            for (const id of result.removed) {
-              previousFeatures.push(...(cache.get(id) ?? []));
-              cache.delete(id);
-            }
-            for (const group of result.changed) {
-              previousFeatures.push(...(cache.get(group.id) ?? []));
-              cache.set(group.id, group.features);
-            }
-            await applyColdDeltaToSource(src, previousFeatures, result.changed);
-          } else if (result.type === 'COLD_READY') {
-            // Back-compat path (shouldn't fire on INCREMENTAL post-P1).
-            entityFeatureCacheRef.current = groupsToFeatureMap(result.groups);
-            if (result.featureCollection) {
-              await setColdSourceData(src, result.featureCollection.features);
-            } else {
-              await rebuildColdSourceFromCache(src, entityFeatureCacheRef.current);
-            }
-          }
-        })
-        .catch(() => {
-          /* Worker unavailable — cold layer stays stale */
-        });
+    const refs: ColdLayerRefs = {
+      prevEntitiesRef,
+      syncFrameRef,
+      syncVersionRef,
+      selectedEntityIdRef,
+      entityFeatureCacheRef,
+    };
+    const context: ColdLayerSyncContext = {
+      map,
+      bridge,
+      mapLoadedRef,
+      refs,
+      isCancelled: () => cancelled,
     };
 
     const scheduleSync = () => {
       if (syncFrameRef.current !== null) return;
-      syncFrameRef.current = requestAnimationFrame(syncColdLayer);
+      syncFrameRef.current = requestAnimationFrame(() => syncColdLayer(context));
     };
 
     const applySelection = () => {
@@ -310,10 +363,7 @@ export function useColdLayer(
         cancelled = true;
         actorSubscription.unsubscribe();
         unsubscribeStore();
-        if (syncFrameRef.current !== null) {
-          cancelAnimationFrame(syncFrameRef.current);
-          syncFrameRef.current = null;
-        }
+        cancelScheduledSync(syncFrameRef);
       };
     }
 
@@ -323,10 +373,7 @@ export function useColdLayer(
       actorSubscription.unsubscribe();
       unsubscribeStore();
       map.off('load', onLoad);
-      if (syncFrameRef.current !== null) {
-        cancelAnimationFrame(syncFrameRef.current);
-        syncFrameRef.current = null;
-      }
+      cancelScheduledSync(syncFrameRef);
     };
     // mapRef / mapLoadedRef / bridgeRef are refs — non-reactive by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps

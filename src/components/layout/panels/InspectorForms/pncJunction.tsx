@@ -8,6 +8,13 @@ import type { MapEntity } from '@/types/entities';
 
 const PASSAGE_TYPES: readonly PassageType[] = ['UNKNOWN_PASSAGE', 'ENTRANCE', 'EXIT'];
 
+interface AvailablePassageRefs {
+  lane: string[];
+  signal: string[];
+  stopSign: string[];
+  yieldSign: string[];
+}
+
 function shortId(id: string): string {
   return id.length > 14 ? `…${id.slice(-10)}` : id;
 }
@@ -18,6 +25,18 @@ function collectIdsByType(entities: ReadonlyMap<string, MapEntity>, entityType: 
     if (e.entityType === entityType) out.push(e.id);
   }
   return out.sort();
+}
+
+function useAvailablePassageRefs(entities: ReadonlyMap<string, MapEntity>): AvailablePassageRefs {
+  return useMemo(
+    () => ({
+      lane: collectIdsByType(entities, 'lane'),
+      signal: collectIdsByType(entities, 'signal'),
+      stopSign: collectIdsByType(entities, 'stopSign'),
+      yieldSign: collectIdsByType(entities, 'yieldSign'),
+    }),
+    [entities],
+  );
 }
 
 interface IdMultiSelectProps {
@@ -77,7 +96,7 @@ function IdMultiSelect({ label, currentIds, availableIds, onChange }: IdMultiSel
 
 interface PassageBlockProps {
   passage: Passage;
-  available: { lane: string[]; signal: string[]; stopSign: string[]; yieldSign: string[] };
+  available: AvailablePassageRefs;
   onChange: (next: Passage) => void;
   onRemove: () => void;
 }
@@ -148,58 +167,118 @@ function makeBlankPassage(existingIds: string[]): Passage {
   };
 }
 
+function addPassageGroup(groups: PassageGroup[]): PassageGroup[] {
+  return [
+    ...groups,
+    {
+      id: nextSubId(
+        SUB_PREFIX.passageGroup,
+        groups.map((g) => g.id),
+      ),
+      passages: [],
+    },
+  ];
+}
+
+function updatePassageInGroup(groups: PassageGroup[], gid: string, next: Passage): PassageGroup[] {
+  return groups.map((g) =>
+    g.id === gid ? { ...g, passages: g.passages.map((p) => (p.id === next.id ? next : p)) } : g,
+  );
+}
+
+function addPassageToGroup(groups: PassageGroup[], gid: string): PassageGroup[] {
+  return groups.map((g) =>
+    g.id === gid
+      ? { ...g, passages: [...g.passages, makeBlankPassage(g.passages.map((p) => p.id))] }
+      : g,
+  );
+}
+
+function removePassageFromGroup(groups: PassageGroup[], gid: string, pid: string): PassageGroup[] {
+  return groups.map((g) =>
+    g.id === gid ? { ...g, passages: g.passages.filter((p) => p.id !== pid) } : g,
+  );
+}
+
+interface PassageGroupsSectionProps {
+  groups: PassageGroup[];
+  available: AvailablePassageRefs;
+  onGroupsChange: (groups: PassageGroup[]) => void;
+}
+
+function PassageGroupsSection({ groups, available, onGroupsChange }: PassageGroupsSectionProps) {
+  const updatePassage = (gid: string, next: Passage) =>
+    onGroupsChange(updatePassageInGroup(groups, gid, next));
+  const addPassage = (gid: string) => onGroupsChange(addPassageToGroup(groups, gid));
+  const removePassage = (gid: string, pid: string) =>
+    onGroupsChange(removePassageFromGroup(groups, gid, pid));
+
+  return (
+    <Section title="Passage Groups">
+      {groups.length === 0 && (
+        <div className="text-[10px] text-zinc-600 italic py-1">no groups yet</div>
+      )}
+      {groups.map((group) => (
+        <div key={group.id} className="border border-white/10 rounded p-2 mb-2 bg-zinc-900/40">
+          <PassageGroupHeader
+            group={group}
+            onRemove={() => onGroupsChange(groups.filter((g) => g.id !== group.id))}
+          />
+          {group.passages.map((p) => (
+            <PassageBlock
+              key={p.id}
+              passage={p}
+              available={available}
+              onChange={(next) => updatePassage(group.id, next)}
+              onRemove={() => removePassage(group.id, p.id)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => addPassage(group.id)}
+            className="text-[10px] text-zinc-400 hover:text-cyan-300 px-2 py-0.5 rounded hover:bg-white/5 w-full text-left"
+          >
+            + Passage
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => onGroupsChange(addPassageGroup(groups))}
+        className="text-[11px] text-zinc-300 hover:text-cyan-300 px-2 py-1 rounded hover:bg-white/5 w-full text-left border border-dashed border-white/10"
+      >
+        + Passage Group
+      </button>
+    </Section>
+  );
+}
+
+function PassageGroupHeader({ group, onRemove }: { group: PassageGroup; onRemove: () => void }) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span className="text-[10px] font-mono text-zinc-400 flex-1 truncate" title={group.id}>
+        Group {shortId(group.id)}
+      </span>
+      <span className="text-[10px] text-zinc-600">{group.passages.length}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-[11px] text-zinc-600 hover:text-red-400 px-1"
+        title="Delete group"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export function PNCJunctionForm({ entity }: { entity: PNCJunctionEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
   const entities = useMapStore((s) => s.entities);
-
-  const available = useMemo(
-    () => ({
-      lane: collectIdsByType(entities, 'lane'),
-      signal: collectIdsByType(entities, 'signal'),
-      stopSign: collectIdsByType(entities, 'stopSign'),
-      yieldSign: collectIdsByType(entities, 'yieldSign'),
-    }),
-    [entities],
-  );
-
-  const update = (next: PNCJunctionEntity) => updateEntity(entity.id, next);
-  const setGroups = (passageGroups: PassageGroup[]) => update({ ...entity, passageGroups });
-
-  const addGroup = () =>
-    setGroups([
-      ...entity.passageGroups,
-      {
-        id: nextSubId(
-          SUB_PREFIX.passageGroup,
-          entity.passageGroups.map((g) => g.id),
-        ),
-        passages: [],
-      },
-    ]);
-  const removeGroup = (gid: string) => setGroups(entity.passageGroups.filter((g) => g.id !== gid));
-
-  const updatePassage = (gid: string, next: Passage) =>
-    setGroups(
-      entity.passageGroups.map((g) =>
-        g.id === gid ? { ...g, passages: g.passages.map((p) => (p.id === next.id ? next : p)) } : g,
-      ),
-    );
-
-  const addPassage = (gid: string) =>
-    setGroups(
-      entity.passageGroups.map((g) =>
-        g.id === gid
-          ? { ...g, passages: [...g.passages, makeBlankPassage(g.passages.map((p) => p.id))] }
-          : g,
-      ),
-    );
-
-  const removePassage = (gid: string, pid: string) =>
-    setGroups(
-      entity.passageGroups.map((g) =>
-        g.id === gid ? { ...g, passages: g.passages.filter((p) => p.id !== pid) } : g,
-      ),
-    );
+  const available = useAvailablePassageRefs(entities);
+  const setGroups = (passageGroups: PassageGroup[]) => {
+    updateEntity(entity.id, { ...entity, passageGroups });
+  };
 
   return (
     <form>
@@ -208,55 +287,11 @@ export function PNCJunctionForm({ entity }: { entity: PNCJunctionEntity }) {
         <Value label="Vertices" value={entity.polygon.points.length || '—'} />
         <Value label="Overlaps" value={entity.overlapIds.length || '—'} />
       </Section>
-      <Section title="Passage Groups">
-        {entity.passageGroups.length === 0 && (
-          <div className="text-[10px] text-zinc-600 italic py-1">no groups yet</div>
-        )}
-        {entity.passageGroups.map((group) => (
-          <div key={group.id} className="border border-white/10 rounded p-2 mb-2 bg-zinc-900/40">
-            <div className="flex items-center gap-2 mb-2">
-              <span
-                className="text-[10px] font-mono text-zinc-400 flex-1 truncate"
-                title={group.id}
-              >
-                Group {shortId(group.id)}
-              </span>
-              <span className="text-[10px] text-zinc-600">{group.passages.length}</span>
-              <button
-                type="button"
-                onClick={() => removeGroup(group.id)}
-                className="text-[11px] text-zinc-600 hover:text-red-400 px-1"
-                title="Delete group"
-              >
-                ×
-              </button>
-            </div>
-            {group.passages.map((p) => (
-              <PassageBlock
-                key={p.id}
-                passage={p}
-                available={available}
-                onChange={(next) => updatePassage(group.id, next)}
-                onRemove={() => removePassage(group.id, p.id)}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => addPassage(group.id)}
-              className="text-[10px] text-zinc-400 hover:text-cyan-300 px-2 py-0.5 rounded hover:bg-white/5 w-full text-left"
-            >
-              + Passage
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={addGroup}
-          className="text-[11px] text-zinc-300 hover:text-cyan-300 px-2 py-1 rounded hover:bg-white/5 w-full text-left border border-dashed border-white/10"
-        >
-          + Passage Group
-        </button>
-      </Section>
+      <PassageGroupsSection
+        groups={entity.passageGroups}
+        available={available}
+        onGroupsChange={setGroups}
+      />
     </form>
   );
 }

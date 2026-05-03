@@ -14,6 +14,24 @@ type DenseOffsetSegment = {
   normal: Vec2;
 };
 
+type BackProject = (mx: number, my: number, zi?: number) => GeoPoint;
+type OffsetOptions = { widthMeters: number; sign: number; maxMiter: number };
+type OffsetContext = {
+  sourcePoints: GeoPoint[];
+  projected: Vec2[];
+  normals: Vec2[];
+  opts: OffsetOptions;
+  back: BackProject;
+};
+type JoinContext = {
+  point: Vec2;
+  n1: Vec2;
+  n2: Vec2;
+  zi: number | undefined;
+  opts: OffsetOptions;
+  back: BackProject;
+};
+
 /**
  * Offset a polyline to the left or right by a width in meters.
  *
@@ -55,58 +73,16 @@ export function offsetPolylineDeg(
   });
 
   const result: GeoPoint[] = [];
+  const offsetContext: OffsetContext = {
+    sourcePoints: points,
+    projected: pts,
+    normals: segN,
+    opts: { widthMeters, sign, maxMiter: MAX_MITER },
+    back,
+  };
 
   for (let i = 0; i < n; i++) {
-    const [px, py] = pts[i]!;
-    const zi = points[i]!.z;
-
-    if (i === 0) {
-      const [nx, ny] = segN[0]!;
-      result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
-    } else if (i === n - 1) {
-      const [nx, ny] = segN[n - 2]!;
-      result.push(back(px + nx * widthMeters, py + ny * widthMeters, zi));
-    } else {
-      const [n1x, n1y] = segN[i - 1]!;
-      const [n2x, n2y] = segN[i]!;
-      const dot = n1x * n2x + n1y * n2y;
-      const denom = 1 + dot;
-      const crossN = n1x * n2y - n1y * n2x;
-      const isInner = crossN * sign < 0;
-      const capX = crossN > 0 ? n1y : -n1y;
-      const capY = crossN > 0 ? -n1x : n1x;
-
-      if (denom < 0.01) {
-        if (isInner) {
-          const avgX = n1x + n2x;
-          const avgY = n1y + n2y;
-          const avgLen = Math.hypot(avgX, avgY);
-          if (avgLen > 1e-10) {
-            result.push(
-              back(px + (avgX / avgLen) * widthMeters, py + (avgY / avgLen) * widthMeters, zi),
-            );
-          } else {
-            result.push(back(px, py, zi));
-          }
-        } else {
-          result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
-          result.push(back(px + capX * widthMeters, py + capY * widthMeters, zi));
-          result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
-        }
-      } else {
-        const mx = (n1x + n2x) / denom;
-        const my = (n1y + n2y) / denom;
-        const miterRatio = Math.hypot(mx, my);
-
-        if (miterRatio > MAX_MITER && !isInner) {
-          result.push(back(px + n1x * widthMeters, py + n1y * widthMeters, zi));
-          result.push(back(px + capX * widthMeters, py + capY * widthMeters, zi));
-          result.push(back(px + n2x * widthMeters, py + n2y * widthMeters, zi));
-        } else {
-          result.push(back(px + mx * widthMeters, py + my * widthMeters, zi));
-        }
-      }
-    }
+    result.push(...offsetVertex(i, offsetContext));
   }
 
   if (points.length < 6) {
@@ -123,6 +99,86 @@ export function offsetPolylineDeg(
   // handles the tight-radius cases where adjacent offset segments actually
   // fold backward and need pruning.
   return result;
+}
+
+function offsetVertex(index: number, context: OffsetContext): GeoPoint[] {
+  const { sourcePoints, projected, normals, opts, back } = context;
+  const [px, py] = projected[index]!;
+  const zi = sourcePoints[index]!.z;
+  if (index === 0) return endpointOffset(projected[0]!, normals[0]!, opts.widthMeters, zi, back);
+  if (index === projected.length - 1) {
+    return endpointOffset(projected[index]!, normals[index - 1]!, opts.widthMeters, zi, back);
+  }
+  return joinOffset({
+    point: [px, py],
+    n1: normals[index - 1]!,
+    n2: normals[index]!,
+    zi,
+    opts,
+    back,
+  });
+}
+
+function endpointOffset(
+  point: Vec2,
+  normal: Vec2,
+  widthMeters: number,
+  zi: number | undefined,
+  back: BackProject,
+): GeoPoint[] {
+  return [back(point[0] + normal[0] * widthMeters, point[1] + normal[1] * widthMeters, zi)];
+}
+
+function joinOffset(context: JoinContext): GeoPoint[] {
+  const { point, n1, n2, zi, opts, back } = context;
+  const [px, py] = point;
+  const [n1x, n1y] = n1;
+  const [n2x, n2y] = n2;
+  const dot = n1x * n2x + n1y * n2y;
+  const denom = 1 + dot;
+  const crossN = n1x * n2y - n1y * n2x;
+  const isInner = crossN * opts.sign < 0;
+  const cap: Vec2 = crossN > 0 ? [n1y, -n1x] : [-n1y, n1x];
+
+  if (denom < 0.01) {
+    return isInner ? innerDegenerateJoin(context) : bevelJoin({ ...context, cap });
+  }
+
+  const miter: Vec2 = [(n1x + n2x) / denom, (n1y + n2y) / denom];
+  if (Math.hypot(miter[0], miter[1]) > opts.maxMiter && !isInner) {
+    return bevelJoin({ ...context, cap });
+  }
+  return [back(px + miter[0] * opts.widthMeters, py + miter[1] * opts.widthMeters, zi)];
+}
+
+function innerDegenerateJoin({ point, n1, n2, zi, opts, back }: JoinContext): GeoPoint[] {
+  const avg: Vec2 = [n1[0] + n2[0], n1[1] + n2[1]];
+  const avgLen = Math.hypot(avg[0], avg[1]);
+  if (avgLen <= 1e-10) return [back(point[0], point[1], zi)];
+  return [
+    back(
+      point[0] + (avg[0] / avgLen) * opts.widthMeters,
+      point[1] + (avg[1] / avgLen) * opts.widthMeters,
+      zi,
+    ),
+  ];
+}
+
+function bevelJoin({
+  point,
+  n1,
+  n2,
+  cap,
+  zi,
+  opts,
+  back,
+}: JoinContext & { cap: Vec2 }): GeoPoint[] {
+  const [px, py] = point;
+  return [
+    back(px + n1[0] * opts.widthMeters, py + n1[1] * opts.widthMeters, zi),
+    back(px + cap[0] * opts.widthMeters, py + cap[1] * opts.widthMeters, zi),
+    back(px + n2[0] * opts.widthMeters, py + n2[1] * opts.widthMeters, zi),
+  ];
 }
 
 function dedupeProjected(points: ProjectedPoint[]): ProjectedPoint[] {

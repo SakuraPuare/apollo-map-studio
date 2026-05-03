@@ -68,18 +68,20 @@ if (args.key) {
 }
 const publicKey = createPublicKey({ key: publicPem, format: 'pem' });
 
-let ok = false;
-try {
-  ok = edVerify(null, Buffer.from(parts[1], 'utf8'), publicKey, fromB64url(parts[2]));
-} catch {
-  ok = false;
-}
+const ok = (() => {
+  try {
+    return edVerify(null, Buffer.from(parts[1], 'utf8'), publicKey, fromB64url(parts[2]));
+  } catch {
+    return false;
+  }
+})();
 
-let payload = null;
-try {
-  payload = JSON.parse(fromB64url(parts[1]).toString('utf8'));
-} catch {
-  payload = null;
-}
+const payload = (() => {
+  try {
+    return JSON.parse(fromB64url(parts[1]).toString('utf8'));
+  } catch {
+    return null;
+  }
+})();
 console.log(JSON.stringify({ valid: ok, payload }, null, 2));
 process.exit(ok ? 0 : 4);

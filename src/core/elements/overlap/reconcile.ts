@@ -53,6 +53,102 @@ function buildDerivedOverlap(
   return { id, participantIds, objects, regions };
 }
 
+interface DerivedScanResult {
+  derived: Map<string, DerivedOverlap>;
+  pairsTested: number;
+  pairsMatched: number;
+}
+
+function syncSpatialIndex(
+  entities: ReadonlyMap<string, MapEntity>,
+  mode: ReconcileMode,
+  index?: SpatialIndex,
+): SpatialIndex {
+  const idx = index ?? getSharedSpatialIndex();
+  if (index) return idx;
+  if (mode.mode === 'full') idx.syncFromEntities(entities);
+  else idx.syncDirty(entities, mode.dirtyIds);
+  return idx;
+}
+
+function addLanePairOverlap(
+  lane: LaneEntity,
+  other: LaneEntity,
+  derived: Map<string, DerivedOverlap>,
+): boolean {
+  const dedupId = makeOverlapId([lane.id, other.id]);
+  if (derived.has(dedupId)) return false;
+  const hitA = detectLaneLanePair(lane, other);
+  if (!hitA.intersects) return false;
+  const hitB = detectLaneLanePair(other, lane);
+  const objects = emitLaneLaneObjects(lane, other, hitA, hitB);
+  const ov = buildDerivedOverlap([lane.id, other.id], objects);
+  derived.set(ov.id, ov);
+  return true;
+}
+
+function regionInfoForHit(
+  lane: LaneEntity,
+  other: MapEntity,
+  hit: ReturnType<typeof detectPair>,
+): { regionId?: string; regions: RegionOverlapInfo[] } {
+  if (!hit.regionPolygon || hit.regionPolygon.length < 3) return { regions: [] };
+  const regionId = makeRegionId([lane.id, other.id], 0);
+  return {
+    regionId,
+    regions: [{ id: regionId, polygons: [{ points: hit.regionPolygon }] }],
+  };
+}
+
+function addRulePairOverlap(
+  lane: LaneEntity,
+  other: MapEntity,
+  derived: Map<string, DerivedOverlap>,
+): boolean {
+  const rule = findPairRule(other.entityType);
+  if (!rule) return false;
+  const dedupId = makeOverlapId([lane.id, other.id]);
+  if (derived.has(dedupId)) return false;
+  const hit = detectPair(lane, other, rule);
+  if (!hit.intersects) return false;
+  const { regionId, regions } = regionInfoForHit(lane, other, hit);
+  const objects = rule.emitObjects(lane, other, hit, regionId ? { regionId } : undefined);
+  const ov = buildDerivedOverlap([lane.id, other.id], objects, regions);
+  derived.set(ov.id, ov);
+  return true;
+}
+
+function scanDerivedOverlaps(
+  entities: ReadonlyMap<string, MapEntity>,
+  dirtyLanes: readonly LaneEntity[],
+  idx: SpatialIndex,
+): DerivedScanResult {
+  const derived = new Map<string, DerivedOverlap>();
+  let pairsTested = 0;
+  let pairsMatched = 0;
+
+  for (const lane of dirtyLanes) {
+    const centerline = getCenterline(lane);
+    if (centerline.length < 2) continue;
+    const bbox = bboxOfPoints(centerline);
+    if (!bbox) continue;
+
+    const neighbors = idx.queryBBox(bbox).filter((n) => n.id !== lane.id);
+    for (const n of neighbors) {
+      const other = entities.get(n.id);
+      if (!other) continue;
+      pairsTested++;
+      const matched =
+        other.entityType === 'lane'
+          ? addLanePairOverlap(lane, other, derived)
+          : addRulePairOverlap(lane, other, derived);
+      if (matched) pairsMatched++;
+    }
+  }
+
+  return { derived, pairsTested, pairsMatched };
+}
+
 /** 主入口 */
 export function reconcileOverlaps(
   entities: ReadonlyMap<string, MapEntity>,
@@ -65,78 +161,13 @@ export function reconcileOverlaps(
   //   - full mode：syncFromEntities 全量 ref 比对（cold start / undo / 大改）
   //   - incremental：syncDirty 仅刷 dirtyIds，O(dirty) 不是 O(N)。这是
   //     编辑期 < 16ms 帧预算的关键抓手。
-  const idx = index ?? getSharedSpatialIndex();
-  if (!index) {
-    if (mode.mode === 'full') idx.syncFromEntities(entities);
-    else idx.syncDirty(entities, mode.dirtyIds);
-  }
+  const idx = syncSpatialIndex(entities, mode, index);
 
   // GAP-8: cosLat 改为 detectLaneLanePair 内部按 laneA 起点纬度局部计算，
   // 不再走全图均值（跨纬度多度地图全局均值会产生米空间偏差）。
 
   const dirtyLanes = collectDirtyLanes(entities, mode, idx);
-  const derived = new Map<string, DerivedOverlap>();
-  // Set-based dedup keyed on the derived overlap id (sorted-participant
-  // semantic id) — symmetric in (A,B), so it does not depend on which side
-  // of an incremental edit happened to land in dirtyLanes. Replaces the old
-  // `lane.id < lo.id` ordering gate, which silently dropped pairs whose
-  // dirty side had the lexicographically larger id (GAP-3).
-  let pairsTested = 0;
-  let pairsMatched = 0;
-
-  for (const lane of dirtyLanes) {
-    const centerline = getCenterline(lane);
-    if (centerline.length < 2) continue;
-    const bbox = bboxOfPoints(centerline);
-    // centerline.length >= 2 guarantees bboxOfPoints is non-null.
-    if (!bbox) continue;
-
-    const neighbors = idx.queryBBox(bbox).filter((n) => n.id !== lane.id);
-
-    for (const n of neighbors) {
-      const other = entities.get(n.id);
-      if (!other) continue;
-      pairsTested++;
-
-      if (other.entityType === 'lane') {
-        const lo = other as LaneEntity;
-        const dedupId = makeOverlapId([lane.id, lo.id]);
-        if (derived.has(dedupId)) continue;
-        const hitA = detectLaneLanePair(lane, lo);
-        if (!hitA.intersects) continue;
-        const hitB = detectLaneLanePair(lo, lane);
-        const objects = emitLaneLaneObjects(lane, lo, hitA, hitB);
-        const ov = buildDerivedOverlap([lane.id, lo.id], objects);
-        derived.set(ov.id, ov);
-        pairsMatched++;
-        continue;
-      }
-
-      const rule = findPairRule(other.entityType);
-      if (!rule) continue;
-      const dedupId = makeOverlapId([lane.id, other.id]);
-      if (derived.has(dedupId)) continue;
-      const hit = detectPair(lane, other, rule);
-      if (!hit.intersects) continue;
-      // GAP-5 Sprint 2: hit.regionPolygon 存在 → 派生 RegionOverlapInfo +
-      // 把 region id 嵌进 lane 和 secondary 的 ObjectOverlapInfo 槽位.
-      let regions: RegionOverlapInfo[] | undefined;
-      let regionId: string | undefined;
-      if (hit.regionPolygon && hit.regionPolygon.length >= 3) {
-        regionId = makeRegionId([lane.id, other.id], 0);
-        regions = [
-          {
-            id: regionId,
-            polygons: [{ points: hit.regionPolygon }],
-          },
-        ];
-      }
-      const objects = rule.emitObjects(lane, other, hit, regionId ? { regionId } : undefined);
-      const ov = buildDerivedOverlap([lane.id, other.id], objects, regions ?? []);
-      derived.set(ov.id, ov);
-      pairsMatched++;
-    }
-  }
+  const { derived, pairsTested, pairsMatched } = scanDerivedOverlaps(entities, dirtyLanes, idx);
 
   const result = diffWithExisting(entities, derived, mode);
   const durationMs = performance.now() - startTime;

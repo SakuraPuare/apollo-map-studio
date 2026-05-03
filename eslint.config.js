@@ -16,6 +16,7 @@ export default tseslint.config(
     ignores: [
       'dist',
       'dist-electron',
+      'docs/.vitepress/dist',
       'release',
       'node_modules',
       '.github',
@@ -116,6 +117,12 @@ export default tseslint.config(
   // 拆开会割裂联合体反而让 AI 导航更糟。豁免行数上限。
   {
     files: ['src/types/**/*.ts', 'src/proto/**/*.ts'],
+    rules: { 'max-lines': 'off' },
+  },
+  // VitePress sidebars are static navigation data. Keep docs/.vitepress/config.ts
+  // thin and exempt the data table itself from the logic-oriented file cap.
+  {
+    files: ['docs/.vitepress/sidebars.ts'],
     rules: { 'max-lines': 'off' },
   },
   // Test files get laxer rules.

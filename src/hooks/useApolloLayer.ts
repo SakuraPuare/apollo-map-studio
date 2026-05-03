@@ -197,7 +197,9 @@ export function useApolloLayer(
       }
       // Layers (insert below the cold layer if present, so user edits sit on top)
       const existingLayers = map.getStyle().layers ?? [];
-      const coldLayer = existingLayers.find((l) => l.id.startsWith('cold-'));
+      const coldLayer = existingLayers.find((l: maplibregl.LayerSpecification) =>
+        l.id.startsWith('cold-'),
+      );
       const beforeId = coldLayer?.id;
       for (const spec of LAYERS) {
         if (!map.getLayer(spec.id)) {

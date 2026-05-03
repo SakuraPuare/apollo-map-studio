@@ -33,6 +33,31 @@ interface RawObjectOverlapInfo {
   area_overlap_info?: object;
   barrier_gate_overlap_info?: object;
 }
+
+type SimpleOverlapField = Exclude<
+  keyof RawObjectOverlapInfo,
+  'id' | 'lane_overlap_info' | 'crosswalk_overlap_info'
+>;
+type SimpleObjectType = Exclude<ObjectOverlapInfo['objectType'], 'lane' | 'crosswalk' | 'unknown'>;
+
+const SIMPLE_OVERLAP_FIELDS: Array<[SimpleOverlapField, SimpleObjectType]> = [
+  ['signal_overlap_info', 'signal'],
+  ['stop_sign_overlap_info', 'stopSign'],
+  ['junction_overlap_info', 'junction'],
+  ['yield_sign_overlap_info', 'yieldSign'],
+  ['clear_area_overlap_info', 'clearArea'],
+  ['speed_bump_overlap_info', 'speedBump'],
+  ['parking_space_overlap_info', 'parkingSpace'],
+  ['pnc_junction_overlap_info', 'pncJunction'],
+  ['rsu_overlap_info', 'rsu'],
+  ['area_overlap_info', 'area'],
+  ['barrier_gate_overlap_info', 'barrierGate'],
+];
+
+const SIMPLE_FIELD_BY_TYPE = new Map<SimpleObjectType, SimpleOverlapField>(
+  SIMPLE_OVERLAP_FIELDS.map(([field, type]) => [type, field]),
+);
+
 interface RawRegionOverlapInfo {
   id?: RawId;
   polygon?: RawPolygon[];
@@ -46,37 +71,13 @@ export interface RawOverlap {
 function objectOverlapInfoFromProto(raw: RawObjectOverlapInfo): ObjectOverlapInfo | null {
   const objectId = unwrapId(raw.id);
   if (!objectId) return null;
-  if (raw.lane_overlap_info) {
-    const info = raw.lane_overlap_info;
-    const out: ObjectOverlapInfo = {
-      objectType: 'lane',
-      objectId,
-      laneOverlapInfo: {},
-    };
-    if (info.start_s !== undefined) out.laneOverlapInfo.startS = info.start_s;
-    if (info.end_s !== undefined) out.laneOverlapInfo.endS = info.end_s;
-    if (info.is_merge !== undefined) out.laneOverlapInfo.isMerge = info.is_merge;
-    const regionId = unwrapId(info.region_overlap_id);
-    if (regionId) out.laneOverlapInfo.regionOverlapId = regionId;
-    return out;
-  }
-  if (raw.signal_overlap_info) return { objectType: 'signal', objectId };
-  if (raw.stop_sign_overlap_info) return { objectType: 'stopSign', objectId };
+  if (raw.lane_overlap_info) return laneOverlapInfoFromProto(objectId, raw.lane_overlap_info);
   if (raw.crosswalk_overlap_info) {
-    const out: ObjectOverlapInfo = { objectType: 'crosswalk', objectId };
-    const regionId = unwrapId(raw.crosswalk_overlap_info.region_overlap_id);
-    if (regionId) out.regionOverlapId = regionId;
-    return out;
+    return crosswalkOverlapInfoFromProto(objectId, raw.crosswalk_overlap_info);
   }
-  if (raw.junction_overlap_info) return { objectType: 'junction', objectId };
-  if (raw.yield_sign_overlap_info) return { objectType: 'yieldSign', objectId };
-  if (raw.clear_area_overlap_info) return { objectType: 'clearArea', objectId };
-  if (raw.speed_bump_overlap_info) return { objectType: 'speedBump', objectId };
-  if (raw.parking_space_overlap_info) return { objectType: 'parkingSpace', objectId };
-  if (raw.pnc_junction_overlap_info) return { objectType: 'pncJunction', objectId };
-  if (raw.rsu_overlap_info) return { objectType: 'rsu', objectId };
-  if (raw.area_overlap_info) return { objectType: 'area', objectId };
-  if (raw.barrier_gate_overlap_info) return { objectType: 'barrierGate', objectId };
+  for (const [field, objectType] of SIMPLE_OVERLAP_FIELDS) {
+    if (raw[field]) return { objectType, objectId } as ObjectOverlapInfo;
+  }
   // Apollo proto2 leaves `overlap_info` oneof unset on real-world maps
   // (e.g. sunnyvale_loop sim_map.txt: lane↔crosswalk overlaps emit one
   // `object { id }`-only entry). Returning null here would silently drop
@@ -86,64 +87,70 @@ function objectOverlapInfoFromProto(raw: RawObjectOverlapInfo): ObjectOverlapInf
   return { objectType: 'unknown', objectId };
 }
 
+function laneOverlapInfoFromProto(objectId: string, info: RawLaneOverlapInfo): ObjectOverlapInfo {
+  const out: ObjectOverlapInfo = {
+    objectType: 'lane',
+    objectId,
+    laneOverlapInfo: {},
+  };
+  if (info.start_s !== undefined) out.laneOverlapInfo.startS = info.start_s;
+  if (info.end_s !== undefined) out.laneOverlapInfo.endS = info.end_s;
+  if (info.is_merge !== undefined) out.laneOverlapInfo.isMerge = info.is_merge;
+  const regionId = unwrapId(info.region_overlap_id);
+  if (regionId) out.laneOverlapInfo.regionOverlapId = regionId;
+  return out;
+}
+
+function crosswalkOverlapInfoFromProto(
+  objectId: string,
+  info: RawCrosswalkOverlapInfo,
+): ObjectOverlapInfo {
+  const out: ObjectOverlapInfo = { objectType: 'crosswalk', objectId };
+  const regionId = unwrapId(info.region_overlap_id);
+  if (regionId) out.regionOverlapId = regionId;
+  return out;
+}
+
 function objectOverlapInfoToProto(info: ObjectOverlapInfo): RawObjectOverlapInfo {
   const out: RawObjectOverlapInfo = { id: wrapId(info.objectId) };
   switch (info.objectType) {
     case 'lane': {
-      const li: RawLaneOverlapInfo = {};
-      if (info.laneOverlapInfo.startS !== undefined) li.start_s = info.laneOverlapInfo.startS;
-      if (info.laneOverlapInfo.endS !== undefined) li.end_s = info.laneOverlapInfo.endS;
-      if (info.laneOverlapInfo.isMerge !== undefined) li.is_merge = info.laneOverlapInfo.isMerge;
-      if (info.laneOverlapInfo.regionOverlapId)
-        li.region_overlap_id = wrapId(info.laneOverlapInfo.regionOverlapId);
-      out.lane_overlap_info = li;
+      out.lane_overlap_info = laneOverlapInfoToProto(info);
       break;
     }
-    case 'signal':
-      out.signal_overlap_info = {};
-      break;
-    case 'stopSign':
-      out.stop_sign_overlap_info = {};
-      break;
     case 'crosswalk': {
-      const ci: RawCrosswalkOverlapInfo = {};
-      if (info.regionOverlapId) ci.region_overlap_id = wrapId(info.regionOverlapId);
-      out.crosswalk_overlap_info = ci;
+      out.crosswalk_overlap_info = crosswalkOverlapInfoToProto(info);
       break;
     }
-    case 'junction':
-      out.junction_overlap_info = {};
-      break;
-    case 'yieldSign':
-      out.yield_sign_overlap_info = {};
-      break;
-    case 'clearArea':
-      out.clear_area_overlap_info = {};
-      break;
-    case 'speedBump':
-      out.speed_bump_overlap_info = {};
-      break;
-    case 'parkingSpace':
-      out.parking_space_overlap_info = {};
-      break;
-    case 'pncJunction':
-      out.pnc_junction_overlap_info = {};
-      break;
-    case 'rsu':
-      out.rsu_overlap_info = {};
-      break;
-    case 'area':
-      out.area_overlap_info = {};
-      break;
-    case 'barrierGate':
-      out.barrier_gate_overlap_info = {};
-      break;
     case 'unknown':
       // Pass-through bucket for source overlaps whose `overlap_info` oneof
       // was unset upstream; emit just `{ id }` so the proto stays byte-equal
       // to the input (no `*_overlap_info` field).
       break;
+    default: {
+      const field = SIMPLE_FIELD_BY_TYPE.get(info.objectType as SimpleObjectType);
+      if (field) out[field] = {};
+    }
   }
+  return out;
+}
+
+function laneOverlapInfoToProto(info: Extract<ObjectOverlapInfo, { objectType: 'lane' }>) {
+  const out: RawLaneOverlapInfo = {};
+  if (info.laneOverlapInfo.startS !== undefined) out.start_s = info.laneOverlapInfo.startS;
+  if (info.laneOverlapInfo.endS !== undefined) out.end_s = info.laneOverlapInfo.endS;
+  if (info.laneOverlapInfo.isMerge !== undefined) out.is_merge = info.laneOverlapInfo.isMerge;
+  if (info.laneOverlapInfo.regionOverlapId) {
+    out.region_overlap_id = wrapId(info.laneOverlapInfo.regionOverlapId);
+  }
+  return out;
+}
+
+function crosswalkOverlapInfoToProto(
+  info: Extract<ObjectOverlapInfo, { objectType: 'crosswalk' }>,
+) {
+  const out: RawCrosswalkOverlapInfo = {};
+  if (info.regionOverlapId) out.region_overlap_id = wrapId(info.regionOverlapId);
   return out;
 }
 

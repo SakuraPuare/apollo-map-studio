@@ -69,18 +69,19 @@ const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : und
 
 ### Entity → Form routing table
 
-| `entityType`                                                                           | Component          | File                         | Family                 |
-| -------------------------------------------------------------------------------------- | ------------------ | ---------------------------- | ---------------------- |
-| `lane`                                                                                 | `LaneForm`         | `InspectorForms/lane.tsx:32` | Schema-driven          |
-| `junction`                                                                             | `JunctionForm`     | `simpleForms.tsx`            | Simple                 |
-| `parkingSpace`                                                                         | `ParkingSpaceForm` | `simpleForms.tsx`            | Simple                 |
-| `signal`                                                                               | `SignalForm`       | `simpleForms.tsx`            | Simple                 |
-| `stopSign`                                                                             | `StopSignForm`     | `simpleForms.tsx`            | Simple                 |
-| `road`                                                                                 | `RoadForm`         | `simpleForms.tsx`            | Simple                 |
-| `pncJunction`                                                                          | `PNCJunctionForm`  | `pncJunction.tsx:151`        | Custom (nested arrays) |
-| `overlap`                                                                              | `OverlapForm`      | `overlap.tsx:65`             | Custom (pin/unpin)     |
-| `area` / `barrierGate` / `crosswalk` / `speedBump` / `yieldSign` / `clearArea` / `rsu` | matching `*Form`   | `simpleForms.tsx`            | Simple                 |
-| Other (in-flight draw entity)                                                          | `DrawingForm`      | `DrawingForm.tsx`            | Drawing fallback       |
+| `entityType`                                                  | Component          | File                              | Family                 |
+| ------------------------------------------------------------- | ------------------ | --------------------------------- | ---------------------- |
+| `lane`                                                        | `LaneForm`         | `InspectorForms/lane.tsx`         | Schema-driven          |
+| `junction`                                                    | `JunctionForm`     | `InspectorForms/junction.tsx`     | Simple                 |
+| `parkingSpace`                                                | `ParkingSpaceForm` | `InspectorForms/parkingSpace.tsx` | Simple                 |
+| `signal`                                                      | `SignalForm`       | `InspectorForms/signal.tsx`       | Simple                 |
+| `stopSign`                                                    | `StopSignForm`     | `InspectorForms/stopSign.tsx`     | Simple                 |
+| `road`                                                        | `RoadForm`         | `InspectorForms/road.tsx`         | Simple                 |
+| `pncJunction`                                                 | `PNCJunctionForm`  | `InspectorForms/pncJunction.tsx`  | Custom (nested arrays) |
+| `overlap`                                                     | `OverlapForm`      | `InspectorForms/overlap.tsx`      | Custom (pin/unpin)     |
+| `area` / `barrierGate`                                        | matching `*Form`   | `InspectorForms/<entity>.tsx`     | Simple                 |
+| `crosswalk` / `speedBump` / `yieldSign` / `clearArea` / `rsu` | matching `*Form`   | `InspectorForms/readOnly.tsx`     | Read-only              |
+| Other (in-flight draw entity)                                 | `DrawingForm`      | `InspectorForms/DrawingForm.tsx`  | Drawing fallback       |
 
 ## Schema-driven forms (Lane example)
 
@@ -254,7 +255,9 @@ The Inspector itself **does not write `localStorage`**. All edits flow through `
 - `src/components/layout/panels/InspectorForms/lane.tsx:32` — Lane (thin wrapper)
 - `src/components/layout/panels/InspectorForms/overlap.tsx:65-157` — Overlap pin controls
 - `src/components/layout/panels/InspectorForms/pncJunction.tsx:151-262` — passage groups
-- `src/components/layout/panels/InspectorForms/simpleForms.tsx` — 11 simple entity forms
+- `src/components/layout/panels/InspectorForms/<entity>.tsx` — simple hand-written entity forms
+- `src/components/layout/panels/InspectorForms/readOnly.tsx` — read-only summary forms
+- `src/components/layout/panels/InspectorForms/formSync.ts` — hand-written form sync hook
 - `src/types/inspectorSchema.ts:263-435` — `LaneInspectorSchema`
 - `src/types/inspectorSchema.ts:444-540` — `formValuesFromEntity` / `diffFormAgainstEntity` / `shouldPersistForm` / `applyFormValuesToEntity`
 - `src/lib/schemas.ts` — zod schemas

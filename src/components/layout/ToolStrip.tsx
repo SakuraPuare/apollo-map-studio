@@ -106,114 +106,123 @@ export function ToolStrip({
   getToggleState,
 }: ToolStripProps) {
   const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
-  const availableTools = elementDef
-    ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool))
-    : [];
-
-  const handleElementSelect = (type: MapElementType) => {
-    const def = ELEMENT_MAP.get(type)!;
-    onSelectTool(def.defaultTool, type);
-  };
-
-  const handleToolSelect = (tool: DrawTool) => {
-    if (!currentElement) return;
-    onSelectTool(tool, currentElement);
-  };
-
-  // View slot is fully registry-driven: action.isToggle decides whether to read
-  // dispatcher.getToggleState; click always goes through dispatcher.execute.
-  // Selection slot is gone (ESC + maplibre's native drag handle exit/pan).
-  const viewActions = getToolStripSlotActions('view');
 
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
-      {/* Default (Hand/Pan) + Connect Lanes — both sit left of ElementBar
-          because they're modal switches, not drawing tools. Default first
-          so it lives to the LEFT of Connect, matching the "escape hatch"
-          mental model (click hand → back to neutral). */}
-      {(() => {
-        const defaultAction = ACTION_DEFS.find((a) => a.id === 'defaultMode');
-        const connectAction = ACTION_DEFS.find((a) => a.id === 'connectLanes');
-        if (!defaultAction && !connectAction) return null;
-        return (
-          <>
-            {defaultAction && (
-              <ToolButton
-                icon={defaultAction.icon ?? FaMagnifyingGlass}
-                label={defaultAction.label}
-                shortcut={defaultAction.shortcut}
-                active={getToggleState('defaultMode')}
-                onClick={() => onExecuteAction('defaultMode')}
-              />
-            )}
-            {connectAction && (
-              <ToolButton
-                icon={connectAction.icon ?? FaMagnifyingGlass}
-                label={connectAction.label}
-                shortcut={connectAction.shortcut}
-                active={getToggleState('connectLanes')}
-                onClick={() => onExecuteAction('connectLanes')}
-              />
-            )}
-            <Divider />
-          </>
-        );
-      })()}
+      <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
 
-      {/* 元素选择器（11 个图标平铺） */}
-      <ElementBar currentElement={currentElement} onSelect={handleElementSelect} />
+      <ElementBar
+        currentElement={currentElement}
+        onSelect={(type) => onSelectTool(ELEMENT_MAP.get(type)!.defaultTool, type)}
+      />
 
-      {/* 选中后显示 Divider + 该元素允许的绘制工具；未选中则隐藏整段 */}
-      {availableTools.length > 0 && (
-        <>
-          <Divider />
-          <div className="flex items-center gap-0.5">
-            {availableTools.map(({ tool }) => {
-              const action = getToolAction(tool);
-              const Icon = action?.icon ?? FaMagnifyingGlass;
-              return (
-                <ToolButton
-                  key={tool}
-                  icon={Icon}
-                  label={`${elementDef?.label ?? ''} · ${action?.label ?? tool}`}
-                  shortcut={action?.shortcut}
-                  active={currentTool === tool}
-                  onClick={() => handleToolSelect(tool)}
-                />
-              );
-            })}
-          </div>
-        </>
-      )}
+      <DrawToolButtons
+        currentTool={currentTool}
+        currentElement={currentElement}
+        elementLabel={elementDef?.label ?? ''}
+        tools={elementDef ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool)) : []}
+        onSelectTool={onSelectTool}
+      />
 
-      {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Command Palette */}
-      <button
-        onClick={onOpenCommandPalette}
-        className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
-      >
-        <FaTerminal className="w-3.5 h-3.5" />
-        <kbd className="text-[10px] font-mono text-ams-text-disabled">⌘K</kbd>
-      </button>
-
+      <CommandPaletteButton onOpen={onOpenCommandPalette} />
       <Divider />
-
-      {/* View slot — fully registry-driven via dispatcher */}
-      {viewActions.map((action) => {
-        const Icon = action.icon ?? FaMagnifyingGlass;
-        return (
-          <ToolButton
-            key={action.id}
-            icon={Icon}
-            label={action.label}
-            shortcut={action.shortcut}
-            active={action.isToggle ? getToggleState(action.id) : false}
-            onClick={() => onExecuteAction(action.id)}
-          />
-        );
-      })}
+      <ViewActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
     </div>
   );
+}
+
+interface ActionButtonGroupProps {
+  onExecuteAction: (actionId: ActionId) => void;
+  getToggleState: (actionId: ActionId) => boolean;
+}
+
+function ModeActionButtons({ getToggleState, onExecuteAction }: ActionButtonGroupProps) {
+  const actions = ACTION_DEFS.filter((a) => a.id === 'defaultMode' || a.id === 'connectLanes');
+  if (actions.length === 0) return null;
+
+  return (
+    <>
+      {actions.map((action) => (
+        <ToolButton
+          key={action.id}
+          icon={action.icon ?? FaMagnifyingGlass}
+          label={action.label}
+          shortcut={action.shortcut}
+          active={getToggleState(action.id)}
+          onClick={() => onExecuteAction(action.id)}
+        />
+      ))}
+      <Divider />
+    </>
+  );
+}
+
+interface DrawToolButtonsProps {
+  currentTool: string;
+  currentElement: MapElementType | null;
+  elementLabel: string;
+  tools: typeof ALL_DRAW_TOOLS;
+  onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
+}
+
+function DrawToolButtons({
+  currentTool,
+  currentElement,
+  elementLabel,
+  tools,
+  onSelectTool,
+}: DrawToolButtonsProps) {
+  if (tools.length === 0 || !currentElement) return null;
+
+  return (
+    <>
+      <Divider />
+      <div className="flex items-center gap-0.5">
+        {tools.map(({ tool }) => {
+          const action = getToolAction(tool);
+          const Icon = action?.icon ?? FaMagnifyingGlass;
+          return (
+            <ToolButton
+              key={tool}
+              icon={Icon}
+              label={`${elementLabel} · ${action?.label ?? tool}`}
+              shortcut={action?.shortcut}
+              active={currentTool === tool}
+              onClick={() => onSelectTool(tool, currentElement)}
+            />
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function CommandPaletteButton({ onOpen }: { onOpen?: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
+    >
+      <FaTerminal className="w-3.5 h-3.5" />
+      <kbd className="text-[10px] font-mono text-ams-text-disabled">⌘K</kbd>
+    </button>
+  );
+}
+
+function ViewActionButtons({ getToggleState, onExecuteAction }: ActionButtonGroupProps) {
+  return getToolStripSlotActions('view').map((action) => {
+    const Icon = action.icon ?? FaMagnifyingGlass;
+    return (
+      <ToolButton
+        key={action.id}
+        icon={Icon}
+        label={action.label}
+        shortcut={action.shortcut}
+        active={action.isToggle ? getToggleState(action.id) : false}
+        onClick={() => onExecuteAction(action.id)}
+      />
+    );
+  });
 }

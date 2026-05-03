@@ -40,12 +40,13 @@ beforeEach(() => {
 
 function makeLane(
   id: string,
-  startX: number,
-  startY: number,
-  endX: number,
-  endY: number,
+  start: [number, number],
+  end: [number, number],
   overrides: Partial<LaneEntity> = {},
 ): LaneEntity {
+  const [startX, startY] = start;
+  const [endX, endY] = end;
+
   return {
     id,
     entityType: 'lane',
@@ -207,8 +208,8 @@ describe('mapStore — addEntity', () => {
 
   it('triggers topology reconciliation when a lane is added', () => {
     // laneA ends at (1,0); laneB starts at (1,0) → successor link expected.
-    const laneA = makeLane('laneA', 0, 0, 1, 0);
-    const laneB = makeLane('laneB', 1, 0, 2, 0);
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
     addEntity(laneA);
     addEntity(laneB);
     const a = entities().get('laneA') as LaneEntity;
@@ -255,13 +256,13 @@ describe('mapStore — updateEntity', () => {
 
   it('re-runs topology reconciliation when a lane is updated', () => {
     // laneA and laneB not connected initially.
-    const laneA = makeLane('laneA', 0, 0, 1, 0);
-    const laneB = makeLane('laneB', 9, 9, 10, 10); // far away
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [9, 9], [10, 10]); // far away
     addEntity(laneA);
     addEntity(laneB);
 
     // Move laneB's start to match laneA's end.
-    const laneBMoved = makeLane('laneB', 1, 0, 2, 0);
+    const laneBMoved = makeLane('laneB', [1, 0], [2, 0]);
     updateEntity('laneB', laneBMoved);
 
     const a = entities().get('laneA') as LaneEntity;
@@ -269,15 +270,15 @@ describe('mapStore — updateEntity', () => {
   });
 
   it('dissolves topology link when lane geometry is moved apart', () => {
-    const laneA = makeLane('laneA', 0, 0, 1, 0);
-    const laneB = makeLane('laneB', 1, 0, 2, 0);
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
     addEntity(laneA);
     addEntity(laneB);
     // Confirm link exists
     expect((entities().get('laneA') as LaneEntity).successorIds).toContain('laneB');
 
     // Move laneB away from laneA's end
-    const laneBMoved = makeLane('laneB', 5, 5, 6, 6);
+    const laneBMoved = makeLane('laneB', [5, 5], [6, 6]);
     updateEntity('laneB', laneBMoved);
 
     const a = entities().get('laneA') as LaneEntity;
@@ -313,7 +314,7 @@ describe('mapStore — removeEntity', () => {
 
   it('cascades: clears junctionId on Lane referencing deleted junction', () => {
     const junction = makeJunction('j1');
-    const lane = makeLane('lane1', 0, 0, 1, 0, { junctionId: 'j1' });
+    const lane = makeLane('lane1', [0, 0], [1, 0], { junctionId: 'j1' });
     addEntity(junction);
     addEntity(lane);
     removeEntity('j1');
@@ -323,7 +324,7 @@ describe('mapStore — removeEntity', () => {
 
   it('cascades: strips lane from Road.sections when lane is deleted', () => {
     const road = makeRoad('road1', ['lane1']);
-    const lane = makeLane('lane1', 0, 0, 1, 0);
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
     addEntity(road);
     addEntity(lane);
     removeEntity('lane1');
@@ -353,8 +354,8 @@ describe('mapStore — removeEntity', () => {
 
   it('removes topology links when a lane is deleted', () => {
     // laneA → laneB connected; deleting laneB should clear laneA.successorIds
-    const laneA = makeLane('laneA', 0, 0, 1, 0);
-    const laneB = makeLane('laneB', 1, 0, 2, 0);
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
     addEntity(laneA);
     addEntity(laneB);
     expect((entities().get('laneA') as LaneEntity).successorIds).toContain('laneB');
@@ -383,7 +384,7 @@ describe('mapStore — reparentEntity', () => {
   });
 
   it('rejects Lane → Junction when target does not exist', () => {
-    const lane = makeLane('lane1', 0, 0, 1, 0);
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
     addEntity(lane);
     const result = reparentEntity('lane1', { kind: 'junction', id: 'ghost_j' });
     expect(result.rejected).toBeTruthy();
@@ -391,7 +392,7 @@ describe('mapStore — reparentEntity', () => {
 
   it('reparents Lane → Junction and sets junctionId', () => {
     const junction = makeJunction('j1');
-    const lane = makeLane('lane1', 0, 0, 1, 0);
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
     addEntity(junction);
     addEntity(lane);
     const result = reparentEntity('lane1', { kind: 'junction', id: 'j1' });
@@ -402,7 +403,7 @@ describe('mapStore — reparentEntity', () => {
 
   it('reparents Lane → Junction is idempotent (returns empty changes)', () => {
     const junction = makeJunction('j1');
-    const lane = makeLane('lane1', 0, 0, 1, 0, { junctionId: 'j1' });
+    const lane = makeLane('lane1', [0, 0], [1, 0], { junctionId: 'j1' });
     addEntity(junction);
     addEntity(lane);
     // Lane is already in j1; second reparent returns accepted but empty changes.
@@ -413,7 +414,7 @@ describe('mapStore — reparentEntity', () => {
 
   it('reparents Lane → Road and inserts lane into first section', () => {
     const road = makeRoad('road1', []);
-    const lane = makeLane('lane1', 0, 0, 1, 0);
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
     addEntity(road);
     addEntity(lane);
     const result = reparentEntity('lane1', { kind: 'road', id: 'road1' });
@@ -425,7 +426,7 @@ describe('mapStore — reparentEntity', () => {
   it('reparents Lane → Road clears junctionId from the lane', () => {
     const junction = makeJunction('j1');
     const road = makeRoad('road1', []);
-    const lane = makeLane('lane1', 0, 0, 1, 0, { junctionId: 'j1' });
+    const lane = makeLane('lane1', [0, 0], [1, 0], { junctionId: 'j1' });
     addEntity(junction);
     addEntity(road);
     addEntity(lane);
@@ -436,7 +437,7 @@ describe('mapStore — reparentEntity', () => {
 
   it('reparents Lane → none clears junctionId', () => {
     const junction = makeJunction('j1');
-    const lane = makeLane('lane1', 0, 0, 1, 0, { junctionId: 'j1' });
+    const lane = makeLane('lane1', [0, 0], [1, 0], { junctionId: 'j1' });
     addEntity(junction);
     addEntity(lane);
     const result = reparentEntity('lane1', { kind: 'none' });
@@ -599,9 +600,9 @@ describe('mapStore — undo/redo', () => {
 
 describe('mapStore — lane topology reconciliation', () => {
   it('connects three sequential lanes into a chain', () => {
-    const a = makeLane('a', 0, 0, 1, 0);
-    const b = makeLane('b', 1, 0, 2, 0);
-    const c = makeLane('c', 2, 0, 3, 0);
+    const a = makeLane('a', [0, 0], [1, 0]);
+    const b = makeLane('b', [1, 0], [2, 0]);
+    const c = makeLane('c', [2, 0], [3, 0]);
     addEntity(a);
     addEntity(b);
     addEntity(c);
@@ -617,7 +618,7 @@ describe('mapStore — lane topology reconciliation', () => {
   });
 
   it('does not create self-loop pred/succ on a single lane', () => {
-    const lane = makeLane('only', 0, 0, 1, 0);
+    const lane = makeLane('only', [0, 0], [1, 0]);
     addEntity(lane);
     const l = entities().get('only') as LaneEntity;
     expect(l.predecessorIds).toHaveLength(0);
@@ -625,8 +626,8 @@ describe('mapStore — lane topology reconciliation', () => {
   });
 
   it('does not link lanes whose endpoints do not match', () => {
-    const a = makeLane('a', 0, 0, 1, 0);
-    const b = makeLane('b', 5, 5, 6, 6); // completely separate
+    const a = makeLane('a', [0, 0], [1, 0]);
+    const b = makeLane('b', [5, 5], [6, 6]); // completely separate
     addEntity(a);
     addEntity(b);
     const la = entities().get('a') as LaneEntity;
@@ -637,8 +638,8 @@ describe('mapStore — lane topology reconciliation', () => {
 
   it('topology precision: coordinates differing beyond 1e-6 do not link', () => {
     // laneA ends at x=1.0000000, laneB starts at x=1.0000001 (should differ)
-    const a = makeLane('a', 0, 0, 1.0, 0);
-    const b = makeLane('b', 1.0000001, 0, 2, 0);
+    const a = makeLane('a', [0, 0], [1.0, 0]);
+    const b = makeLane('b', [1.0000001, 0], [2, 0]);
     addEntity(a);
     addEntity(b);
     const la = entities().get('a') as LaneEntity;
@@ -685,8 +686,8 @@ describe('mapStore — cascade delete edge cases', () => {
   it('multiple cascades in a single removal: lane pred/succ + junctionId', () => {
     // Setup: laneA (junctionId=j1) → laneB connected topology
     const junction = makeJunction('j1');
-    const laneA = makeLane('laneA', 0, 0, 1, 0, { junctionId: 'j1' });
-    const laneB = makeLane('laneB', 1, 0, 2, 0);
+    const laneA = makeLane('laneA', [0, 0], [1, 0], { junctionId: 'j1' });
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
     addEntity(junction);
     addEntity(laneA);
     addEntity(laneB);

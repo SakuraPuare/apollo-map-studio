@@ -240,44 +240,45 @@ class ApolloIOBridge {
     const entry = this.pending.get(msg.requestId);
     if (!entry) return;
 
+    if (this.handleStreamingMessage(msg, entry)) return;
+    await this.handleProjectionRequest(msg);
+    if (msg.type === 'NEEDS_PROJECTION') return;
+
+    this.resolveFinalMessage(msg, entry);
+  }
+
+  private handleStreamingMessage(msg: ApolloIOResponse, entry: PendingEntry): boolean {
     if (msg.type === 'PROGRESS') {
       entry.onProgress?.(msg.progress);
-      return;
+      return true;
     }
 
-    if (msg.type === 'NEEDS_PROJECTION') {
-      const picked = await useProjDialogStore.getState().request();
-      const projString = picked ?? FALLBACK_PROJ;
-      this.post({ type: 'RESOLVE_PROJECTION', requestId: msg.requestId, projString });
-      return;
+    if (msg.type !== 'IMPORT_ENTITIES_CHUNK') return false;
+    if (entry.kind === 'import') {
+      entry.entities.push(...msg.entities);
+      entry.onProgress?.({
+        label: 'Importing Apollo map',
+        detail: `Receiving entities ${entry.entities.length.toLocaleString()} / ${msg.total.toLocaleString()}`,
+        progress: 0.9 + 0.05 * (entry.entities.length / Math.max(1, msg.total)),
+      });
     }
+    return true;
+  }
 
-    if (msg.type === 'IMPORT_ENTITIES_CHUNK') {
-      if (entry.kind === 'import') {
-        entry.entities.push(...msg.entities);
-        entry.onProgress?.({
-          label: 'Importing Apollo map',
-          detail: `Receiving entities ${entry.entities.length.toLocaleString()} / ${msg.total.toLocaleString()}`,
-          progress: 0.9 + 0.05 * (entry.entities.length / Math.max(1, msg.total)),
-        });
-      }
-      return;
-    }
+  private async handleProjectionRequest(msg: ApolloIOResponse): Promise<void> {
+    if (msg.type !== 'NEEDS_PROJECTION') return;
+    const picked = await useProjDialogStore.getState().request();
+    const projString = picked ?? FALLBACK_PROJ;
+    this.post({ type: 'RESOLVE_PROJECTION', requestId: msg.requestId, projString });
+  }
 
+  private resolveFinalMessage(msg: ApolloIOResponse, entry: PendingEntry): void {
     clearTimeout(entry.timer);
     this.pending.delete(msg.requestId);
 
     switch (msg.type) {
       case 'IMPORT_RESULT':
-        if (entry.kind === 'import') {
-          entry.resolve({
-            info: msg.info,
-            header: msg.header,
-            bounds: msg.bounds,
-            entities: entry.entities,
-            stats: msg.stats,
-          });
-        }
+        this.resolveImport(msg, entry);
         break;
       case 'EXPORT_BIN_RESULT':
         if (entry.kind === 'exportBin') entry.resolve(msg.bytes);
@@ -294,6 +295,17 @@ class ApolloIOBridge {
       default:
         break;
     }
+  }
+
+  private resolveImport(msg: ApolloIOResponse, entry: PendingEntry): void {
+    if (msg.type !== 'IMPORT_RESULT' || entry.kind !== 'import') return;
+    entry.resolve({
+      info: msg.info,
+      header: msg.header,
+      bounds: msg.bounds,
+      entities: entry.entities,
+      stats: msg.stats,
+    });
   }
 
   private nextRequestId(prefix: string): string {

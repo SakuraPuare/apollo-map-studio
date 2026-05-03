@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, type RefObject } from 'react';
 import { Tree, type NodeApi, type TreeApi } from 'react-arborist';
 import { FaPlus } from 'react-icons/fa6';
 import { canReparent } from '@/lib/entityOps';
 import { nextEntityId, nextSubId, SUB_PREFIX } from '@/lib/idGenerator';
 import { useMapStore } from '@/store/mapStore';
 import type { RoadEntity, RSUEntity } from '@/types/apollo';
+import type { MapEntity } from '@/types/entities';
 import { Node } from './LayerTree/Node';
 import { buildTree } from './LayerTree/treeBuilder';
 import type { TreeNode } from './LayerTree/types';
@@ -23,28 +24,15 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   const treeData = useMemo(() => buildTree(entities), [entities]);
 
   const createRoad = useCallback(() => {
-    const id = nextEntityId('road', entities);
-    const road: RoadEntity = {
-      id,
-      entityType: 'road',
-      sections: [{ id: nextSubId(SUB_PREFIX.section, []), laneIds: [] }],
-      junctionId: null,
-      type: 'CITY_ROAD',
-    };
+    const road = makeRoad(entities);
     addEntity(road);
-    onSelect?.(id);
+    onSelect?.(road.id);
   }, [addEntity, entities, onSelect]);
 
   const createRSU = useCallback(() => {
-    const id = nextEntityId('rsu', entities);
-    const rsu: RSUEntity = {
-      id,
-      entityType: 'rsu',
-      junctionId: null,
-      overlapIds: [],
-    };
+    const rsu = makeRSU(entities);
     addEntity(rsu);
-    onSelect?.(id);
+    onSelect?.(rsu.id);
   }, [addEntity, entities, onSelect]);
 
   const handleSelect = useCallback(
@@ -98,45 +86,119 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
-        <button
-          onClick={createRoad}
-          className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
-          title="新建 Road（之后拖 lane 进 Section 完成 assign）"
-        >
-          <FaPlus className="w-2.5 h-2.5" /> Road
-        </button>
-        <button
-          onClick={createRSU}
-          className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
-          title="新建 RSU（之后拖到某个 Junction 下完成 assign）"
-        >
-          <FaPlus className="w-2.5 h-2.5" /> RSU
-        </button>
-      </div>
+      <LayerTreeActions onCreateRoad={createRoad} onCreateRSU={createRSU} />
       {treeData.length === 0 ? (
-        <div className="flex items-center justify-center h-32 text-zinc-600 text-xs">
-          No entities yet. Start drawing!
-        </div>
+        <LayerTreeEmpty />
       ) : (
-        <Tree<TreeNode>
-          ref={treeRef}
-          data={treeData}
-          openByDefault={false}
-          width="100%"
-          height={600}
-          indent={16}
-          rowHeight={26}
-          overscanCount={10}
-          selection={selectedId ? `entity:${selectedId}` : undefined}
+        <LayerTreeView
+          treeRef={treeRef}
+          treeData={treeData}
+          selectedId={selectedId}
           onSelect={handleSelect}
           onMove={handleMove}
-          disableDrag={(node) => node.kind !== 'entity'}
           disableDrop={checkDisableDrop}
-        >
-          {Node}
-        </Tree>
+        />
       )}
     </div>
+  );
+}
+
+function makeRoad(entities: ReadonlyMap<string, MapEntity>): RoadEntity {
+  return {
+    id: nextEntityId('road', entities),
+    entityType: 'road',
+    sections: [{ id: nextSubId(SUB_PREFIX.section, []), laneIds: [] }],
+    junctionId: null,
+    type: 'CITY_ROAD',
+  };
+}
+
+function makeRSU(entities: ReadonlyMap<string, MapEntity>): RSUEntity {
+  return {
+    id: nextEntityId('rsu', entities),
+    entityType: 'rsu',
+    junctionId: null,
+    overlapIds: [],
+  };
+}
+
+function LayerTreeActions({
+  onCreateRoad,
+  onCreateRSU,
+}: {
+  onCreateRoad: () => void;
+  onCreateRSU: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
+      <button
+        onClick={onCreateRoad}
+        className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
+        title="新建 Road（之后拖 lane 进 Section 完成 assign）"
+      >
+        <FaPlus className="w-2.5 h-2.5" /> Road
+      </button>
+      <button
+        onClick={onCreateRSU}
+        className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
+        title="新建 RSU（之后拖到某个 Junction 下完成 assign）"
+      >
+        <FaPlus className="w-2.5 h-2.5" /> RSU
+      </button>
+    </div>
+  );
+}
+
+function LayerTreeEmpty() {
+  return (
+    <div className="flex items-center justify-center h-32 text-zinc-600 text-xs">
+      No entities yet. Start drawing!
+    </div>
+  );
+}
+
+interface LayerTreeViewProps {
+  treeRef: RefObject<TreeApi<TreeNode> | null>;
+  treeData: TreeNode[];
+  selectedId?: string | null;
+  onSelect: (nodes: NodeApi<TreeNode>[]) => void;
+  onMove: (args: {
+    dragIds: string[];
+    dragNodes: NodeApi<TreeNode>[];
+    parentId: string | null;
+    parentNode: NodeApi<TreeNode> | null;
+  }) => void;
+  disableDrop: (args: {
+    parentNode: NodeApi<TreeNode> | null;
+    dragNodes: NodeApi<TreeNode>[];
+  }) => boolean;
+}
+
+function LayerTreeView({
+  treeRef,
+  treeData,
+  selectedId,
+  onSelect,
+  onMove,
+  disableDrop,
+}: LayerTreeViewProps) {
+  return (
+    <Tree<TreeNode>
+      ref={treeRef}
+      data={treeData}
+      openByDefault={false}
+      width="100%"
+      height={600}
+      indent={16}
+      rowHeight={26}
+      overscanCount={10}
+      selection={selectedId ? `entity:${selectedId}` : undefined}
+      onSelect={onSelect}
+      onMove={onMove}
+      disableDrag={(node) => node.kind !== 'entity'}
+      disableDrop={disableDrop}
+    >
+      {Node}
+    </Tree>
   );
 }

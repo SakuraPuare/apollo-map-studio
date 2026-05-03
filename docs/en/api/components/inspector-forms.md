@@ -11,7 +11,9 @@ description: Entity-detail form dispatcher — routes to 17 Apollo form variants
 > - `src/components/layout/panels/InspectorForms/lane.tsx` (Lane → SchemaForm wrapper)
 > - `src/components/layout/panels/InspectorForms/pncJunction.tsx` (bespoke)
 > - `src/components/layout/panels/InspectorForms/overlap.tsx` (bespoke + override pinning)
-> - `src/components/layout/panels/InspectorForms/simpleForms.tsx` (12 other variants)
+> - `src/components/layout/panels/InspectorForms/<entity>.tsx` (simple hand-written forms)
+> - `src/components/layout/panels/InspectorForms/readOnly.tsx` (read-only summary forms)
+> - `src/components/layout/panels/InspectorForms/formSync.ts` (hand-written form sync hook)
 > - `src/components/layout/panels/InspectorForms/DrawingForm.tsx` (fallback for drawing primitives)
 > - `src/components/layout/panels/InspectorForms/resolver.ts` (zod resolver helper)
 > - `src/components/layout/panels/SchemaForm.tsx` (schema-driven generic form)
@@ -33,10 +35,12 @@ The entire form subsystem is shaped by the **R2 anti-corruption layer**: schema 
 flowchart TB
   EF[EntityForm dispatcher]
   EF -->|lane| LF[LaneForm \(SchemaForm\)]
-  EF -->|junction / parkingSpace / signal / stopSign / road / area / barrierGate / crosswalk / speedBump / yieldSign / clearArea / rsu| Simple[simpleForms.tsx]
+  EF -->|junction / parkingSpace / signal / stopSign / road / area / barrierGate| HW[entity-specific forms]
+  EF -->|crosswalk / speedBump / yieldSign / clearArea / rsu| RO[readOnly.tsx]
   EF -->|pncJunction| PNC[PNCJunctionForm]
   EF -->|overlap| OV[OverlapForm]
   EF -->|polyline / bezier / arc / rect / polygon / catmullRom| DF[DrawingForm \(fallback\)]
+  HW --> Sync[formSync.ts]
   LF --> SF[SchemaForm]
   SF --> Hook[react-hook-form + zodResolver]
   SF --> Adapter["entity ↔ form via formValuesFromEntity / applyFormValuesToEntity"]
@@ -54,24 +58,24 @@ export function EntityForm({ entity }: { entity: MapEntity }): JSX.Element;
 
 `switch` table (`InspectorForms.tsx:46-80`):
 
-| `entityType`                                            | Form component                                     |
-| ------------------------------------------------------- | -------------------------------------------------- |
-| `lane`                                                  | `LaneForm` (→ `SchemaForm`)                        |
-| `junction`                                              | `JunctionForm` (`simpleForms.tsx:61-115`)          |
-| `parkingSpace`                                          | `ParkingSpaceForm` (`simpleForms.tsx:117-170`)     |
-| `signal`                                                | `SignalForm` (`simpleForms.tsx:184-348`)           |
-| `stopSign`                                              | `StopSignForm` (`simpleForms.tsx:350-407`)         |
-| `road`                                                  | `RoadForm` (`simpleForms.tsx:409-466`)             |
-| `pncJunction`                                           | `PNCJunctionForm` (`pncJunction.tsx`)              |
-| `overlap`                                               | `OverlapForm` (`overlap.tsx`)                      |
-| `area`                                                  | `AreaForm` (`simpleForms.tsx:468-533`)             |
-| `barrierGate`                                           | `BarrierGateForm` (`simpleForms.tsx:608-661`)      |
-| `crosswalk`                                             | `CrosswalkForm` (read-only, `simpleForms.tsx:544`) |
-| `speedBump`                                             | `SpeedBumpForm` (read-only)                        |
-| `yieldSign`                                             | `YieldSignForm` (read-only)                        |
-| `clearArea`                                             | `ClearAreaForm` (read-only)                        |
-| `rsu`                                                   | `RSUForm` (read-only)                              |
-| any other (polyline/bezier/arc/rect/polygon/catmullRom) | `DrawingForm` (fallback)                           |
+| `entityType`                                            | Form component                              |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `lane`                                                  | `LaneForm` (→ `SchemaForm`)                 |
+| `junction`                                              | `JunctionForm` (`junction.tsx`)             |
+| `parkingSpace`                                          | `ParkingSpaceForm` (`parkingSpace.tsx`)     |
+| `signal`                                                | `SignalForm` (`signal.tsx`)                 |
+| `stopSign`                                              | `StopSignForm` (`stopSign.tsx`)             |
+| `road`                                                  | `RoadForm` (`road.tsx`)                     |
+| `pncJunction`                                           | `PNCJunctionForm` (`pncJunction.tsx`)       |
+| `overlap`                                               | `OverlapForm` (`overlap.tsx`)               |
+| `area`                                                  | `AreaForm` (`area.tsx`)                     |
+| `barrierGate`                                           | `BarrierGateForm` (`barrierGate.tsx`)       |
+| `crosswalk`                                             | `CrosswalkForm` (read-only, `readOnly.tsx`) |
+| `speedBump`                                             | `SpeedBumpForm` (read-only, `readOnly.tsx`) |
+| `yieldSign`                                             | `YieldSignForm` (read-only, `readOnly.tsx`) |
+| `clearArea`                                             | `ClearAreaForm` (read-only, `readOnly.tsx`) |
+| `rsu`                                                   | `RSUForm` (read-only, `readOnly.tsx`)       |
+| any other (polyline/bezier/arc/rect/polygon/catmullRom) | `DrawingForm` (fallback)                    |
 
 ## SchemaForm (generic)
 
@@ -110,17 +114,17 @@ diffLaneFormAgainstEntity(form, entity);
 shouldPersistLaneForm(form, entity);
 ```
 
-## simpleForms (12 variants)
+## Simple hand-written forms and read-only summaries
 
-Every form follows the same template (e.g. `JunctionForm`, `simpleForms.tsx:61-115`):
+Simple hand-written forms live in `InspectorForms/<entity>.tsx`. Each follows the same template:
 
-1. `entityRef = useRef(entity)`; every render syncs `.current = entity` — guarantees the `methods.watch` callback reads the freshest entity.
-2. `useForm<…>({ resolver: zodResolverZ4(schema), mode: 'onChange', defaultValues: { … } })`.
-3. `useEffect([entity.id])` → `methods.reset(...)`: reset on id swap.
-4. `useEffect([entity])` → same-id drift sync.
-5. `useEffect([methods, updateEntity])` → single watch subscription; `shouldSkipOptionalEnumWrite` dedupes before writing back.
+1. `formValuesFrom<Entity>(entity)` projects the entity into form values.
+2. `useForm<…>({ resolver: zodResolverZ4(schema), mode: 'onChange', defaultValues })`.
+3. `useEntityFormSync(entity, methods, formValuesFrom<Entity>)` handles id-swap reset and same-id drift sync.
+4. `methods.watch(...)` keeps only the real store-write rule, dedupes, then calls `updateEntity`.
 
-The read-only forms (`CrosswalkForm` / `SpeedBumpForm` / `YieldSignForm` / `ClearAreaForm` / `RSUForm`) just render `<Section>` + `<Value>` rows — no react-hook-form involvement.
+The read-only forms (`CrosswalkForm` / `SpeedBumpForm` / `YieldSignForm` / `ClearAreaForm` / `RSUForm`) live in
+`readOnly.tsx` and just render `<Section>` + `<Value>` rows — no react-hook-form involvement.
 
 `SignalForm` is a special case: in addition to a `type` enum + a `signInfo` checkbox group, it edits `subsignals` inline and exposes a "Regenerate from stop line" button — the latter calls `regenerateSignalGeometry`, which rebuilds the signal silhouette.
 
@@ -185,7 +189,8 @@ sequenceDiagram
 
 ## Performance notes
 
-- **`entityRef` pattern**: every form uses `entityRef = useRef(entity); entityRef.current = entity;` so `methods.watch` callbacks read the latest entity without rewiring the subscription.
+- **latest entity ref**: `SchemaForm` owns the latest-entity ref internally; hand-written
+  forms get the same behavior through `useEntityFormSync`, so `methods.watch` callbacks can read the latest entity without rewiring the subscription.
 - **`shouldPersistForm` is the death-loop gate**: watch writes the store → store triggers re-render → useEffect drift-sync runs → which fires watch → loop. `shouldPersistForm` returns true only if the form value still differs from the entity, otherwise short-circuits.
 - **`mode: 'onChange'`**: this is the regression gate from commit 6a83d9d (R1) — must not revert to `onSubmit`.
 - **Lazy load**: `InspectorForms` is loaded via `WorkspaceLayout/lazyPanels.tsx:36-39` (`LazyEntityForm`).
@@ -200,7 +205,8 @@ sequenceDiagram
 | SchemaForm body              | `SchemaForm.tsx:53-136`                               |
 | SchemaForm same-id drift     | `SchemaForm.tsx:85-101`                               |
 | SchemaForm watch persistence | `SchemaForm.tsx:105-114`                              |
-| SignalForm special case      | `simpleForms.tsx:184-348`                             |
+| Hand-written form sync hook  | `formSync.ts`                                         |
+| SignalForm special case      | `signal.tsx`                                          |
 | PNCJunctionForm              | `pncJunction.tsx:151-262`                             |
 | OverlapForm + override       | `overlap.tsx:65-212`                                  |
 | DrawingForm fallback         | `DrawingForm.tsx:4-23`                                |

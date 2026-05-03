@@ -76,11 +76,11 @@ switch (entity.entityType) {
 
 ## 4. 三种渲染策略
 
-| 策略        | 代表实体                              | 入口                                 |
-| ----------- | ------------------------------------- | ------------------------------------ |
-| Schema 驱动 | `LaneEntity`                          | `SchemaForm` + `LaneInspectorSchema` |
-| 手写表单    | `Junction`/`Signal`/`StopSign`/`Road` | `simpleForms.tsx` 中的命名组件       |
-| 只读摘要    | `Crosswalk`/`SpeedBump`/`RSU`/...     | `simpleForms.tsx` 末尾的纯展示组件   |
+| 策略        | 代表实体                              | 入口                                       |
+| ----------- | ------------------------------------- | ------------------------------------------ |
+| Schema 驱动 | `LaneEntity`                          | `SchemaForm` + `LaneInspectorSchema`       |
+| 手写表单    | `Junction`/`Signal`/`StopSign`/`Road` | `InspectorForms/<entity>.tsx` 命名组件     |
+| 只读摘要    | `Crosswalk`/`SpeedBump`/`RSU`/...     | `InspectorForms/readOnly.tsx` 中的摘要组件 |
 
 ### 4.1 Schema 驱动 —— Lane
 
@@ -100,19 +100,54 @@ export function LaneForm({ entity }: { entity: LaneEntity }) {
 
 为什么不全部 schema 化？因为信号灯子灯泡（`subsignals`）、信号标志位
 （`signInfo` 多选）这类形态强依赖 React 组件，硬塞进 schema 会让
-`FieldDef` 联合类型膨胀到 7 种。`simpleForms.tsx:184` 的 `SignalForm`
-就保留了原生 JSX：
+`FieldDef` 联合类型膨胀到 7 种。`SignalForm` 保留了原生 JSX，但它拆在
+`InspectorForms/signal.tsx`，并把子区域继续拆成 `SubsignalsSection` 与
+`SignInfoSection`：
 
 - `useForm<SignalFormValues>` + `mode: 'onChange'`
+- `useEntityFormSync(...)` 统一处理 id swap reset 与 same-id drift sync
 - `methods.watch(value => ...)` 订阅一次，`entityRef` 永远引用最新实体
 - 类型变更触发 `regenerateSignalGeometry` 联动重生几何
+
+其他手写表单按实体拆分：
+
+| 文件                                  | 职责                                      |
+| ------------------------------------- | ----------------------------------------- |
+| `junction.tsx`                        | junction type enum                        |
+| `parkingSpace.tsx`                    | heading 度/弧度转换                       |
+| `stopSign.tsx`                        | stop sign type enum + stop line summary   |
+| `road.tsx`                            | road type、section/lane 统计、junction FK |
+| `area.tsx`                            | area type + optional name                 |
+| `barrierGate.tsx`                     | barrier gate type + stop line summary     |
+| `signal.tsx`                          | signal type、subsignals、signInfo flags   |
+| `pncJunction.tsx`                     | passage group / passage 编辑              |
+| `overlap.tsx` + `overlapOverrides.ts` | overlap 参与对象与用户 pin 覆盖标记       |
+| `simpleForms.tsx`                     | 兼容 re-export；不再放实现                |
 
 ### 4.3 只读摘要
 
 `Crosswalk` / `SpeedBump` / `YieldSign` / `ClearArea` / `RSU` 在 proto 层
 仅暴露 id + 几何 + 外键。几何由画布编辑、外键由拓扑 reconciler 计算 ——
 检查器面板不应该是这些字段的所有权点，所以只展示 vertices / overlapIds
-等只读摘要（`simpleForms.tsx:544`+）。
+等只读摘要。实现集中在 `InspectorForms/readOnly.tsx`，公共壳是
+`ReadOnlyAttributes`，每个实体只声明自己的 row 列表。
+
+## 4.4 手写表单同步 hook
+
+手写表单不再复制 `entityRef`、`reset([entity.id])`、same-id `setValue` 这三段样板。
+它们统一走 `InspectorForms/formSync.ts`：
+
+```ts
+const entityRef = useEntityFormSync(entity, methods, formValuesFromSignal);
+```
+
+这个 hook 做两件事：
+
+1. `entity.id` 变化时 `methods.reset(valuesFromEntity(entity))`。
+2. 同 id entity 引用变化时，按字段静默 `setValue(..., shouldDirty: false)`。
+
+表单自己的文件只保留两类逻辑：`formValuesFrom<Entity>()` 的投影，以及
+`methods.watch(...)` 中真正的写 store 规则。
 
 ## 5. 双向同步的 R1 闭合
 
@@ -190,17 +225,17 @@ if (prevValue !== newValue) {
 
 ## 8. Public API 摘要
 
-| 符号                          | 文件 / 行号                              | 用途                          |
-| ----------------------------- | ---------------------------------------- | ----------------------------- |
-| `EntityForm`                  | `InspectorForms.tsx:45`                  | 顶层 switch 分派组件          |
-| `LaneForm`                    | `InspectorForms/lane.tsx:32`             | Schema 驱动包装               |
-| `SchemaForm`                  | `panels/SchemaForm.tsx:53`               | 通用 schema 渲染器            |
-| `JunctionForm` / `SignalForm` | `InspectorForms/simpleForms.tsx:61, 184` | 手写实现                      |
-| `OverlapForm`                 | `InspectorForms/overlap.tsx`             | 关联对象列表 + 类型选择       |
-| `PNCJunctionForm`             | `InspectorForms/pncJunction.tsx`         | passage / 通行控制            |
-| `DrawingForm`                 | `InspectorForms/DrawingForm.tsx`         | drawing 元素的最小展示        |
-| `LaneRef` / `LaneRefList`     | `panels/LaneRefList.tsx`                 | 拓扑 ID 跳转 chip             |
-| `zodResolverZ4`               | `InspectorForms/resolver.ts`             | zod v4 + react-hook-form 适配 |
+| 符号                          | 文件                             | 用途                          |
+| ----------------------------- | -------------------------------- | ----------------------------- |
+| `EntityForm`                  | `InspectorForms.tsx`             | 顶层 switch 分派组件          |
+| `LaneForm`                    | `InspectorForms/lane.tsx`        | Schema 驱动包装               |
+| `SchemaForm`                  | `panels/SchemaForm.tsx`          | 通用 schema 渲染器            |
+| `JunctionForm` / `SignalForm` | `InspectorForms/junction.tsx` 等 | 手写实现                      |
+| `OverlapForm`                 | `InspectorForms/overlap.tsx`     | 关联对象列表 + 类型选择       |
+| `PNCJunctionForm`             | `InspectorForms/pncJunction.tsx` | passage / 通行控制            |
+| `DrawingForm`                 | `InspectorForms/DrawingForm.tsx` | drawing 元素的最小展示        |
+| `useEntityFormSync`           | `InspectorForms/formSync.ts`     | 手写表单同步样板              |
+| `zodResolverZ4`               | `InspectorForms/resolver.ts`     | zod v4 + react-hook-form 适配 |
 
 ## 9. 类型契约：discriminated union + zod
 
@@ -241,6 +276,9 @@ const methods = useForm<LaneFormValues>({
 5. **`applyFormValuesToEntity` 是顺序敏感的**：写入按 `schema.fields`
    顺序左→右执行，每一步都基于上一步的结果。如果两个字段互相影响
    （例如 leftWidth 影响 length 推断），把"被依赖"的字段排在前。
+6. **不要把多个实体表单重新塞回 `simpleForms.tsx`**。新手写表单按
+   `InspectorForms/<entity>.tsx` 落文件；共享同步逻辑放 `formSync.ts`；
+   只读摘要追加到 `readOnly.tsx`。
 
 ## 12. 测试覆盖
 
@@ -261,11 +299,21 @@ src/
 │   ├── LaneRefList.tsx                 ← 拓扑 chip
 │   └── InspectorForms/
 │       ├── DrawingForm.tsx
+│       ├── area.tsx
+│       ├── barrierGate.tsx
+│       ├── formSync.ts                 ← 手写表单同步 hook + 小工具
+│       ├── junction.tsx
 │       ├── lane.tsx                    ← Schema-driven Lane
 │       ├── overlap.tsx
+│       ├── overlapOverrides.ts
+│       ├── parkingSpace.tsx
 │       ├── pncJunction.tsx
+│       ├── readOnly.tsx                ← Crosswalk / SpeedBump / RSU ...
 │       ├── resolver.ts
-│       └── simpleForms.tsx             ← 手写 + 只读 forms
+│       ├── road.tsx
+│       ├── signal.tsx
+│       ├── simpleForms.tsx             ← 兼容 re-export only
+│       └── stopSign.tsx
 ├── types/
 │   ├── inspectorSchema.ts              ← FieldDef / EntitySchema / 公共算子
 │   └── entities.ts                     ← MapEntity discriminated union

@@ -50,7 +50,7 @@ export function catmullRom(points: LngLat[], segments = 32, alpha = 0.5): LngLat
 
     for (let j = 0; j < segments; j++) {
       const t = j / segments;
-      result.push(catmullRomPoint(p0, p1, p2, p3, t, alpha));
+      result.push(catmullRomPoint([p0, p1, p2, p3], t, alpha));
     }
   }
   // 最后一个点
@@ -60,10 +60,7 @@ export function catmullRom(points: LngLat[], segments = 32, alpha = 0.5): LngLat
 }
 
 function catmullRomPoint(
-  p0: LngLat,
-  p1: LngLat,
-  p2: LngLat,
-  p3: LngLat,
+  [p0, p1, p2, p3]: [LngLat, LngLat, LngLat, LngLat],
   t: number,
   alpha: number,
 ): LngLat {

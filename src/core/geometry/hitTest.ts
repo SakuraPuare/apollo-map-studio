@@ -25,22 +25,16 @@ import type { LngLat } from '@/core/geometry/interpolate';
 // ── 纯欧氏度空间（legacy） ─────────────────────────────────────────────────
 
 /** 点到线段的最近距离（纯欧氏度空间） */
-function pointToSegmentDist(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const dx = bx - ax;
-  const dy = by - ay;
+function pointToSegmentDist(point: LngLat, a: LngLat, b: LngLat): number {
+  const [px, py] = point;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
   const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - ax, py - ay);
+  if (lenSq === 0) return Math.hypot(px - a[0], py - a[1]);
 
-  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  let t = ((px - a[0]) * dx + (py - a[1]) * dy) / lenSq;
   t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  return Math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy));
 }
 
 /** 点到折线的最近距离（纯欧氏度空间） */
@@ -49,7 +43,7 @@ export function pointToPolylineDist(point: LngLat, coords: LngLat[]): number {
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i]!;
     const b = coords[i + 1]!;
-    const d = pointToSegmentDist(point[0], point[1], a[0], a[1], b[0], b[1]);
+    const d = pointToSegmentDist(point, a, b);
     if (d < min) min = d;
   }
   return min;
@@ -84,26 +78,19 @@ export function pointToPolygonDist(point: LngLat, polygon: LngLat[]): number {
 // ── 纬度补偿版（worker hitTest 使用） ─────────────────────────────────────
 
 /** 点到线段的最近距离（Δlat 按 1/cosLat 放大到 lng 度空间） */
-function pointToSegmentDistGeo(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  invCosLat: number,
-): number {
-  const dx = bx - ax;
-  const dy = (by - ay) * invCosLat;
+function pointToSegmentDistGeo(point: LngLat, a: LngLat, b: LngLat, invCosLat: number): number {
+  const [px, py] = point;
+  const dx = b[0] - a[0];
+  const dy = (b[1] - a[1]) * invCosLat;
   const lenSq = dx * dx + dy * dy;
   if (lenSq === 0) {
-    const dpx = px - ax;
-    const dpy = (py - ay) * invCosLat;
+    const dpx = px - a[0];
+    const dpy = (py - a[1]) * invCosLat;
     return Math.hypot(dpx, dpy);
   }
 
-  const pdx = px - ax;
-  const pdy = (py - ay) * invCosLat;
+  const pdx = px - a[0];
+  const pdy = (py - a[1]) * invCosLat;
   let t = (pdx * dx + pdy * dy) / lenSq;
   t = Math.max(0, Math.min(1, t));
   const cx = pdx - t * dx;
@@ -123,7 +110,7 @@ export function pointToPolylineDistGeo(point: LngLat, coords: LngLat[], cosLat: 
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i]!;
     const b = coords[i + 1]!;
-    const d = pointToSegmentDistGeo(point[0], point[1], a[0], a[1], b[0], b[1], invCosLat);
+    const d = pointToSegmentDistGeo(point, a, b, invCosLat);
     if (d < min) min = d;
   }
   return min;

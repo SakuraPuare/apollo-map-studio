@@ -37,18 +37,18 @@ function createArrowSDF(size: number = 20): { width: number; height: number; dat
   return { width: size, height: size, data: new Uint8Array(data) };
 }
 
-function addStripeImage(
-  map: maplibregl.Map,
-  id: string,
-  size: number,
-  stripeW: number,
-  gap: number,
-  r: number,
-  g: number,
-  b: number,
-  a: number,
-  diagonal: boolean,
-) {
+interface StripeImageSpec {
+  id: string;
+  size: number;
+  stripeW: number;
+  gap: number;
+  color: [number, number, number, number];
+  diagonal: boolean;
+}
+
+function addStripeImage(map: maplibregl.Map, spec: StripeImageSpec) {
+  const { id, size, stripeW, gap, color, diagonal } = spec;
+  const [r, g, b, a] = color;
   const data = new Uint8Array(size * size * 4);
   const period = stripeW + gap;
   for (let y = 0; y < size; y++) {
@@ -69,8 +69,22 @@ function addStripeImage(
 }
 
 export function registerRuntimeImages(map: maplibregl.Map) {
-  addStripeImage(map, 'zebra-stripe', 16, 4, 4, 255, 255, 255, 255, false);
-  addStripeImage(map, 'red-hatch', 12, 2, 4, 255, 68, 102, 200, true);
+  addStripeImage(map, {
+    id: 'zebra-stripe',
+    size: 16,
+    stripeW: 4,
+    gap: 4,
+    color: [255, 255, 255, 255],
+    diagonal: false,
+  });
+  addStripeImage(map, {
+    id: 'red-hatch',
+    size: 12,
+    stripeW: 2,
+    gap: 4,
+    color: [255, 68, 102, 200],
+    diagonal: true,
+  });
   map.addImage('lane-arrow', createArrowSDF(20), { sdf: true });
   void registerMapIcons(map);
 }

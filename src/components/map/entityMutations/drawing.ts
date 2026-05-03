@@ -1,5 +1,12 @@
 import type { DragPointType } from '@/types/editor';
-import type { BezierEntity, DrawingEntity } from '@/types/entities';
+import type {
+  ArcEntity,
+  BezierEntity,
+  DrawingEntity,
+  PolygonEntity,
+  PolylineEntity,
+  RectEntity,
+} from '@/types/entities';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { polygonSelfIntersects } from '@/core/geometry/validation';
 import { pointsToCoords, toGeoPoint } from '@/core/geometry/coords';
@@ -60,7 +67,6 @@ export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity 
 
     let dx = 0;
     let dy = 0;
-    let len = 0;
     if (prev && next) {
       dx = next.point.x - prev.point.x;
       dy = next.point.y - prev.point.y;
@@ -72,7 +78,7 @@ export function toggleSmooth(entity: BezierEntity, index: number): BezierEntity 
       dy = py - prev.point.y;
     }
 
-    len = Math.hypot(dx, dy);
+    const len = Math.hypot(dx, dy);
     if (len > 0) {
       const scale = prev && next ? len / 6 : len / 3;
       const nx = dx / len;
@@ -94,88 +100,122 @@ export function applyDrawingDrag(
   altKey = false,
 ): DrawingEntity {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    const points = [...entity.points];
-    points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
-    return { ...entity, points };
+    return dragPolylinePoint(entity, index, newPoint);
   }
 
   if (entity.entityType === 'bezier') {
-    const anchors = entity.anchors.map((a) => ({ ...a }));
-    const anchor = { ...anchors[index]! };
-
-    if (pointType === 'vertex') {
-      const dx = newPoint[0] - anchor.point.x;
-      const dy = newPoint[1] - anchor.point.y;
-      anchor.point = toGeoPoint(newPoint);
-      if (anchor.handleIn) {
-        anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
-      }
-      if (anchor.handleOut) {
-        anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
-      }
-    } else if (pointType === 'handleOut') {
-      anchor.handleOut = toGeoPoint(newPoint);
-      if (!altKey) {
-        anchor.handleIn = {
-          x: 2 * anchor.point.x - newPoint[0],
-          y: 2 * anchor.point.y - newPoint[1],
-        };
-      }
-    } else if (pointType === 'handleIn') {
-      anchor.handleIn = toGeoPoint(newPoint);
-      if (!altKey) {
-        anchor.handleOut = {
-          x: 2 * anchor.point.x - newPoint[0],
-          y: 2 * anchor.point.y - newPoint[1],
-        };
-      }
-    }
-
-    anchors[index] = anchor;
-    return { ...entity, anchors };
+    return dragBezierPoint(entity, index, pointType, newPoint, altKey);
   }
 
   if (entity.entityType === 'arc') {
-    const e = { ...entity };
-    if (index === 0) e.start = toGeoPoint(newPoint);
-    else if (index === 1) e.mid = toGeoPoint(newPoint);
-    else if (index === 2) e.end = toGeoPoint(newPoint);
-    return e;
+    return dragArcPoint(entity, index, newPoint);
   }
 
   if (entity.entityType === 'rect') {
-    if (pointType === 'center') {
-      const [cx, cy] = rectCenter(entity);
-      const dx = newPoint[0] - cx;
-      const dy = newPoint[1] - cy;
-      return {
-        ...entity,
-        p1: { x: entity.p1.x + dx, y: entity.p1.y + dy },
-        p2: { x: entity.p2.x + dx, y: entity.p2.y + dy },
-      };
-    }
-    if (pointType === 'rotate') {
-      return { ...entity, rotation: rectRotationFromHandle(entity, newPoint) };
-    }
-
-    const next = resizeRotatedRect(entity, index, newPoint);
-    return { ...entity, p1: next.p1, p2: next.p2 };
+    return dragRectPoint(entity, index, pointType, newPoint);
   }
 
   if (entity.entityType === 'polygon') {
-    if (pointType === 'center') {
-      const cx = entity.points.reduce((s, p) => s + p.x, 0) / entity.points.length;
-      const cy = entity.points.reduce((s, p) => s + p.y, 0) / entity.points.length;
-      const dx = newPoint[0] - cx;
-      const dy = newPoint[1] - cy;
-      const points = entity.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
-      return { ...entity, points };
-    }
-    const points = [...entity.points];
-    points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
-    if (polygonSelfIntersects(pointsToCoords(points))) return entity;
-    return { ...entity, points };
+    return dragPolygonPoint(entity, index, pointType, newPoint);
   }
 
   return entity;
+}
+
+function dragPolylinePoint(
+  entity: PolylineEntity | Extract<DrawingEntity, { entityType: 'catmullRom' }>,
+  index: number,
+  newPoint: LngLat,
+) {
+  const points = [...entity.points];
+  points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
+  return { ...entity, points };
+}
+
+function dragBezierPoint(
+  entity: BezierEntity,
+  index: number,
+  pointType: DragPointType,
+  newPoint: LngLat,
+  altKey: boolean,
+): BezierEntity {
+  const anchors = entity.anchors.map((a) => ({ ...a }));
+  const anchor = { ...anchors[index]! };
+
+  if (pointType === 'vertex') {
+    const dx = newPoint[0] - anchor.point.x;
+    const dy = newPoint[1] - anchor.point.y;
+    anchor.point = toGeoPoint(newPoint);
+    if (anchor.handleIn) anchor.handleIn = { x: anchor.handleIn.x + dx, y: anchor.handleIn.y + dy };
+    if (anchor.handleOut)
+      anchor.handleOut = { x: anchor.handleOut.x + dx, y: anchor.handleOut.y + dy };
+  } else if (pointType === 'handleOut') {
+    anchor.handleOut = toGeoPoint(newPoint);
+    if (!altKey) anchor.handleIn = mirrorHandle(anchor.point, newPoint);
+  } else if (pointType === 'handleIn') {
+    anchor.handleIn = toGeoPoint(newPoint);
+    if (!altKey) anchor.handleOut = mirrorHandle(anchor.point, newPoint);
+  }
+
+  anchors[index] = anchor;
+  return { ...entity, anchors };
+}
+
+function mirrorHandle(anchor: { x: number; y: number }, newPoint: LngLat) {
+  return {
+    x: 2 * anchor.x - newPoint[0],
+    y: 2 * anchor.y - newPoint[1],
+  };
+}
+
+function dragArcPoint(entity: ArcEntity, index: number, newPoint: LngLat): ArcEntity {
+  const e = { ...entity };
+  if (index === 0) e.start = toGeoPoint(newPoint);
+  else if (index === 1) e.mid = toGeoPoint(newPoint);
+  else if (index === 2) e.end = toGeoPoint(newPoint);
+  return e;
+}
+
+function dragRectPoint(
+  entity: RectEntity,
+  index: number,
+  pointType: DragPointType,
+  newPoint: LngLat,
+): RectEntity {
+  if (pointType === 'center') {
+    const [cx, cy] = rectCenter(entity);
+    const dx = newPoint[0] - cx;
+    const dy = newPoint[1] - cy;
+    return {
+      ...entity,
+      p1: { x: entity.p1.x + dx, y: entity.p1.y + dy },
+      p2: { x: entity.p2.x + dx, y: entity.p2.y + dy },
+    };
+  }
+  if (pointType === 'rotate')
+    return { ...entity, rotation: rectRotationFromHandle(entity, newPoint) };
+
+  const next = resizeRotatedRect(entity, index, newPoint);
+  return { ...entity, p1: next.p1, p2: next.p2 };
+}
+
+function dragPolygonPoint(
+  entity: PolygonEntity,
+  index: number,
+  pointType: DragPointType,
+  newPoint: LngLat,
+): PolygonEntity {
+  if (pointType === 'center') {
+    const cx = entity.points.reduce((s, p) => s + p.x, 0) / entity.points.length;
+    const cy = entity.points.reduce((s, p) => s + p.y, 0) / entity.points.length;
+    const dx = newPoint[0] - cx;
+    const dy = newPoint[1] - cy;
+    const points = entity.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    return { ...entity, points };
+  }
+
+  const points = [...entity.points];
+  points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
+  if (polygonSelfIntersects(pointsToCoords(points))) return entity;
+  return { ...entity, points };
 }

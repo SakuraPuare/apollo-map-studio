@@ -11,7 +11,9 @@ description: 实体详情表单分发器——根据 entityType 路由到 17 种
 > - `src/components/layout/panels/InspectorForms/lane.tsx`（Lane → SchemaForm 包装）
 > - `src/components/layout/panels/InspectorForms/pncJunction.tsx`（专门定制）
 > - `src/components/layout/panels/InspectorForms/overlap.tsx`（专门定制 + override 钉位）
-> - `src/components/layout/panels/InspectorForms/simpleForms.tsx`（其余 12 种）
+> - `src/components/layout/panels/InspectorForms/<entity>.tsx`（简单手写表单）
+> - `src/components/layout/panels/InspectorForms/readOnly.tsx`（只读摘要表单）
+> - `src/components/layout/panels/InspectorForms/formSync.ts`（手写表单同步 hook）
 > - `src/components/layout/panels/InspectorForms/DrawingForm.tsx`（兜底，绘图原语）
 > - `src/components/layout/panels/InspectorForms/resolver.ts`（zod resolver helper）
 > - `src/components/layout/panels/SchemaForm.tsx`（schema-driven 通用表单）
@@ -33,10 +35,12 @@ description: 实体详情表单分发器——根据 entityType 路由到 17 种
 flowchart TB
   EF[EntityForm dispatcher]
   EF -->|lane| LF[LaneForm \(SchemaForm\)]
-  EF -->|junction / parkingSpace / signal / stopSign / road / area / barrierGate / crosswalk / speedBump / yieldSign / clearArea / rsu| Simple[simpleForms.tsx]
+  EF -->|junction / parkingSpace / signal / stopSign / road / area / barrierGate| HW[entity-specific forms]
+  EF -->|crosswalk / speedBump / yieldSign / clearArea / rsu| RO[readOnly.tsx]
   EF -->|pncJunction| PNC[PNCJunctionForm]
   EF -->|overlap| OV[OverlapForm]
   EF -->|polyline / bezier / arc / rect / polygon / catmullRom| DF[DrawingForm \(fallback\)]
+  HW --> Sync[formSync.ts]
   LF --> SF[SchemaForm]
   SF --> Hook[react-hook-form + zodResolver]
   SF --> Adapter["entity ↔ form via formValuesFromEntity / applyFormValuesToEntity"]
@@ -54,24 +58,24 @@ export function EntityForm({ entity }: { entity: MapEntity }): JSX.Element;
 
 `switch` 表（`InspectorForms.tsx:46-80`）覆盖：
 
-| `entityType`                                        | 表单组件                                           |
-| --------------------------------------------------- | -------------------------------------------------- |
-| `lane`                                              | `LaneForm` (→ `SchemaForm`)                        |
-| `junction`                                          | `JunctionForm` (`simpleForms.tsx:61-115`)          |
-| `parkingSpace`                                      | `ParkingSpaceForm` (`simpleForms.tsx:117-170`)     |
-| `signal`                                            | `SignalForm` (`simpleForms.tsx:184-348`)           |
-| `stopSign`                                          | `StopSignForm` (`simpleForms.tsx:350-407`)         |
-| `road`                                              | `RoadForm` (`simpleForms.tsx:409-466`)             |
-| `pncJunction`                                       | `PNCJunctionForm` (`pncJunction.tsx`)              |
-| `overlap`                                           | `OverlapForm` (`overlap.tsx`)                      |
-| `area`                                              | `AreaForm` (`simpleForms.tsx:468-533`)             |
-| `barrierGate`                                       | `BarrierGateForm` (`simpleForms.tsx:608-661`)      |
-| `crosswalk`                                         | `CrosswalkForm` (read-only, `simpleForms.tsx:544`) |
-| `speedBump`                                         | `SpeedBumpForm` (read-only)                        |
-| `yieldSign`                                         | `YieldSignForm` (read-only)                        |
-| `clearArea`                                         | `ClearAreaForm` (read-only)                        |
-| `rsu`                                               | `RSUForm` (read-only)                              |
-| 其余（polyline/bezier/arc/rect/polygon/catmullRom） | `DrawingForm` (fallback)                           |
+| `entityType`                                        | 表单组件                                    |
+| --------------------------------------------------- | ------------------------------------------- |
+| `lane`                                              | `LaneForm` (→ `SchemaForm`)                 |
+| `junction`                                          | `JunctionForm` (`junction.tsx`)             |
+| `parkingSpace`                                      | `ParkingSpaceForm` (`parkingSpace.tsx`)     |
+| `signal`                                            | `SignalForm` (`signal.tsx`)                 |
+| `stopSign`                                          | `StopSignForm` (`stopSign.tsx`)             |
+| `road`                                              | `RoadForm` (`road.tsx`)                     |
+| `pncJunction`                                       | `PNCJunctionForm` (`pncJunction.tsx`)       |
+| `overlap`                                           | `OverlapForm` (`overlap.tsx`)               |
+| `area`                                              | `AreaForm` (`area.tsx`)                     |
+| `barrierGate`                                       | `BarrierGateForm` (`barrierGate.tsx`)       |
+| `crosswalk`                                         | `CrosswalkForm` (read-only, `readOnly.tsx`) |
+| `speedBump`                                         | `SpeedBumpForm` (read-only, `readOnly.tsx`) |
+| `yieldSign`                                         | `YieldSignForm` (read-only, `readOnly.tsx`) |
+| `clearArea`                                         | `ClearAreaForm` (read-only, `readOnly.tsx`) |
+| `rsu`                                               | `RSUForm` (read-only, `readOnly.tsx`)       |
+| 其余（polyline/bezier/arc/rect/polygon/catmullRom） | `DrawingForm` (fallback)                    |
 
 ## SchemaForm（通用）
 
@@ -110,17 +114,17 @@ diffLaneFormAgainstEntity(form, entity);
 shouldPersistLaneForm(form, entity);
 ```
 
-## simpleForms（12 种）
+## 手写简单表单与只读摘要
 
-每个表单都遵循同一模板（以 `JunctionForm` 为例，`simpleForms.tsx:61-115`）：
+简单手写表单按实体拆在 `InspectorForms/<entity>.tsx`。每个表单都遵循同一模板：
 
-1. `entityRef = useRef(entity)`，每次 render 同步 `.current = entity`——保证 `methods.watch` 闭包能读到最新实体。
-2. `useForm<…>({ resolver: zodResolverZ4(schema), mode: 'onChange', defaultValues: { … } })`。
-3. `useEffect([entity.id])` → `methods.reset(...)`：换实体时 reset。
-4. `useEffect([entity])` → 同 id drift sync。
-5. `useEffect([methods, updateEntity])` → 单 watch 订阅，`shouldSkipOptionalEnumWrite` dedupe 后写回 store。
+1. `formValuesFrom<Entity>(entity)` 把实体投影到表单值。
+2. `useForm<…>({ resolver: zodResolverZ4(schema), mode: 'onChange', defaultValues })`。
+3. `useEntityFormSync(entity, methods, formValuesFrom<Entity>)` 统一处理换实体 reset 与同 id drift sync。
+4. `methods.watch(...)` 只保留真正的写 store 规则，dedupe 后调用 `updateEntity`。
 
-只读表单（`CrosswalkForm` / `SpeedBumpForm` / `YieldSignForm` / `ClearAreaForm` / `RSUForm`）只渲染 `<Section>` + `<Value>`，无 react-hook-form。
+只读表单（`CrosswalkForm` / `SpeedBumpForm` / `YieldSignForm` / `ClearAreaForm` / `RSUForm`）集中在
+`readOnly.tsx`，只渲染 `<Section>` + `<Value>`，无 react-hook-form。
 
 `SignalForm` 是个特例：除了 `type` enum + `signInfo` 多选 checkbox，还有 `subsignals` 行内编辑 + "Regenerate from stop line" 按钮——后者调 `regenerateSignalGeometry` 重算信号灯外形。
 
@@ -185,7 +189,8 @@ sequenceDiagram
 
 ## 性能注释
 
-- **`entityRef` 模式**：所有 form 组件都用 `entityRef = useRef(entity); entityRef.current = entity;` 让 `methods.watch` 的回调在不重启订阅的情况下读到最新实体。
+- **latest entity ref**：`SchemaForm` 内部持有最新 entity ref；手写表单通过
+  `useEntityFormSync` 取得同样的 ref，让 `methods.watch` 回调不重启订阅也能读到最新实体。
 - **`shouldPersistForm` 是死循环 gate**：watch 写回 store → store 触发 re-render → useEffect 同 id drift sync → 触发 watch → 死循环。`shouldPersistForm` 只在表单值与实体差异**仍存在**时返回 true，否则 short-circuit。
 - **`mode: 'onChange'` 强制实时校验**：用于防止无效表单值写回实体，不能改回 `onSubmit`。
 - **lazy 加载**：`InspectorForms` 通过 `WorkspaceLayout/lazyPanels.tsx:36-39` 的 `LazyEntityForm` 懒加载。
@@ -200,7 +205,8 @@ sequenceDiagram
 | SchemaForm 主体         | `SchemaForm.tsx:53-136`                               |
 | SchemaForm 同 id drift  | `SchemaForm.tsx:85-101`                               |
 | SchemaForm watch 持久化 | `SchemaForm.tsx:105-114`                              |
-| SignalForm 特例         | `simpleForms.tsx:184-348`                             |
+| 手写表单同步 hook       | `formSync.ts`                                         |
+| SignalForm 特例         | `signal.tsx`                                          |
 | PNCJunctionForm         | `pncJunction.tsx:151-262`                             |
 | OverlapForm + override  | `overlap.tsx:65-212`                                  |
 | DrawingForm 兜底        | `DrawingForm.tsx:4-23`                                |

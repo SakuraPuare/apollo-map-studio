@@ -27,19 +27,8 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const [search, setSearch] = useState('');
 
-  // Read actions from registry
   const actions = useMemo(() => getCommandPaletteActions(), []);
-
-  // Group by category
-  const grouped = useMemo(() => {
-    const groups: Record<string, ActionDef[]> = {};
-    for (const a of actions) {
-      const cat = a.category.charAt(0).toUpperCase() + a.category.slice(1);
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(a);
-    }
-    return groups;
-  }, [actions]);
+  const grouped = useMemo(() => groupActions(actions), [actions]);
 
   const runCommand = useCallback(
     (action: ActionDef) => {
@@ -97,34 +86,13 @@ export function CommandPalette({
           </Command.Empty>
 
           {Object.entries(grouped).map(([group, items]) => (
-            <Command.Group
+            <CommandActionGroup
               key={group}
-              heading={group}
-              className="mb-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-zinc-600"
-            >
-              {items.map((action) => {
-                const Icon = action.icon ?? FaMagnifyingGlass;
-                const isChecked = action.isToggle && getToggleState?.(action.id);
-
-                return (
-                  <Command.Item
-                    key={action.id}
-                    value={`${action.label} ${group}`}
-                    onSelect={() => runCommand(action)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-cyan-400"
-                  >
-                    <Icon className="w-4 h-4 text-zinc-500" />
-                    <span className="flex-1">{action.label}</span>
-                    {isChecked && <span className="text-cyan-400 text-xs">✓</span>}
-                    {action.shortcut && (
-                      <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
-                        {formatShortcut(action.shortcut)}
-                      </kbd>
-                    )}
-                  </Command.Item>
-                );
-              })}
-            </Command.Group>
+              group={group}
+              items={items}
+              getToggleState={getToggleState}
+              onRun={runCommand}
+            />
           ))}
         </Command.List>
 
@@ -135,5 +103,71 @@ export function CommandPalette({
         </div>
       </Command>
     </div>
+  );
+}
+
+function groupActions(actions: ActionDef[]): Record<string, ActionDef[]> {
+  const groups: Record<string, ActionDef[]> = {};
+  for (const action of actions) {
+    const category = action.category.charAt(0).toUpperCase() + action.category.slice(1);
+    if (!groups[category]) groups[category] = [];
+    groups[category].push(action);
+  }
+  return groups;
+}
+
+interface CommandActionGroupProps {
+  group: string;
+  items: ActionDef[];
+  getToggleState?: (actionId: ActionId) => boolean;
+  onRun: (action: ActionDef) => void;
+}
+
+function CommandActionGroup({ group, items, getToggleState, onRun }: CommandActionGroupProps) {
+  return (
+    <Command.Group
+      heading={group}
+      className="mb-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-widest [&_[cmdk-group-heading]]:text-zinc-600"
+    >
+      {items.map((action) => (
+        <CommandActionItem
+          key={action.id}
+          action={action}
+          group={group}
+          isChecked={action.isToggle && getToggleState?.(action.id)}
+          onRun={onRun}
+        />
+      ))}
+    </Command.Group>
+  );
+}
+
+function CommandActionItem({
+  action,
+  group,
+  isChecked,
+  onRun,
+}: {
+  action: ActionDef;
+  group: string;
+  isChecked?: boolean;
+  onRun: (action: ActionDef) => void;
+}) {
+  const Icon = action.icon ?? FaMagnifyingGlass;
+  return (
+    <Command.Item
+      value={`${action.label} ${group}`}
+      onSelect={() => onRun(action)}
+      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-cyan-400"
+    >
+      <Icon className="w-4 h-4 text-zinc-500" />
+      <span className="flex-1">{action.label}</span>
+      {isChecked && <span className="text-cyan-400 text-xs">✓</span>}
+      {action.shortcut && (
+        <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
+          {formatShortcut(action.shortcut)}
+        </kbd>
+      )}
+    </Command.Item>
   );
 }

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import type { SnapTarget } from '@/core/geometry/snap';
 
 // ─── Entity type visibility / lock state ────────────────────
@@ -87,6 +87,8 @@ interface UIActions {
 }
 
 type UIStore = UIState & UIActions;
+type UISet = Parameters<StateCreator<UIStore>>[0];
+type UIGet = Parameters<StateCreator<UIStore>>[1];
 
 const DEFAULT_LAYER_STATE: LayerState = { visible: true, locked: false };
 
@@ -105,7 +107,7 @@ function patchLayer(
   return { ...layerStates, [type]: { ...cur, ...patch } };
 }
 
-export const useUIStore = create<UIStore>()((set, get) => ({
+const initialUIState: UIState = {
   appMode: 'drawing',
   gridEnabled: true,
   snapEnabled: false,
@@ -115,88 +117,99 @@ export const useUIStore = create<UIStore>()((set, get) => ({
   sidebarVisible: true,
   currentSnapTarget: null,
   connectMode: { active: false, firstLaneId: null },
+};
 
-  setAppMode(mode) {
-    set({ appMode: mode });
-  },
-  toggleAppMode() {
-    set((s) => ({ appMode: s.appMode === 'drawing' ? 'scene' : 'drawing' }));
-  },
-
-  toggleGrid() {
-    set((s) => ({ gridEnabled: !s.gridEnabled }));
-  },
-  toggleSnap() {
-    set((s) => ({ snapEnabled: !s.snapEnabled }));
-  },
-
-  setLayerVisible(type, visible) {
-    set((s) => ({ layerStates: patchLayer(s.layerStates, type, { visible }) }));
-  },
-  setLayerLocked(type, locked) {
-    set((s) => ({ layerStates: patchLayer(s.layerStates, type, { locked }) }));
-  },
-  toggleLayerVisible(type) {
-    set((s) => ({
-      layerStates: patchLayer(s.layerStates, type, {
-        visible: !(s.layerStates[type]?.visible ?? true),
-      }),
-    }));
-  },
-  toggleLayerLocked(type) {
-    set((s) => ({
-      layerStates: patchLayer(s.layerStates, type, {
-        locked: !(s.layerStates[type]?.locked ?? false),
-      }),
-    }));
-  },
-  isLayerVisible(type) {
-    return get().layerStates[type]?.visible ?? true;
-  },
-  isLayerLocked(type) {
-    return get().layerStates[type]?.locked ?? false;
-  },
-
-  setCursorLngLat(pos) {
-    set({ cursorLngLat: pos });
-  },
-  setCurrentZoom(zoom) {
-    set({ currentZoom: zoom });
-  },
-
-  toggleSidebar() {
-    set((s) => ({ sidebarVisible: !s.sidebarVisible }));
-  },
-
-  setSnapTarget(target) {
-    // Avoid identity churn when nothing is changing — overlay layer
-    // subscribes to this and we don't want a render every mousemove.
-    const prev = get().currentSnapTarget;
-    if (prev === target) return;
-    if (
+function sameSnapTarget(prev: SnapTarget | null, target: SnapTarget | null): boolean {
+  return (
+    prev === target ||
+    Boolean(
       prev &&
       target &&
       prev.kind === target.kind &&
       prev.entityId === target.entityId &&
       prev.point.x === target.point.x &&
-      prev.point.y === target.point.y
-    ) {
-      return;
-    }
-    set({ currentSnapTarget: target });
-  },
+      prev.point.y === target.point.y,
+    )
+  );
+}
 
-  toggleConnectMode() {
-    set((s) => ({
-      connectMode: s.connectMode.active
-        ? { active: false, firstLaneId: null }
-        : { active: true, firstLaneId: null },
-    }));
-  },
-  exitConnectMode() {
-    set({ connectMode: { active: false, firstLaneId: null } });
-  },
-  setConnectFirstLane(id) {
-    set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
-  },
+function createUIActions(set: UISet, get: UIGet): UIActions {
+  return {
+    setAppMode(mode) {
+      set({ appMode: mode });
+    },
+    toggleAppMode() {
+      set((s) => ({ appMode: s.appMode === 'drawing' ? 'scene' : 'drawing' }));
+    },
+
+    toggleGrid() {
+      set((s) => ({ gridEnabled: !s.gridEnabled }));
+    },
+    toggleSnap() {
+      set((s) => ({ snapEnabled: !s.snapEnabled }));
+    },
+
+    setLayerVisible(type, visible) {
+      set((s) => ({ layerStates: patchLayer(s.layerStates, type, { visible }) }));
+    },
+    setLayerLocked(type, locked) {
+      set((s) => ({ layerStates: patchLayer(s.layerStates, type, { locked }) }));
+    },
+    toggleLayerVisible(type) {
+      set((s) => ({
+        layerStates: patchLayer(s.layerStates, type, {
+          visible: !(s.layerStates[type]?.visible ?? true),
+        }),
+      }));
+    },
+    toggleLayerLocked(type) {
+      set((s) => ({
+        layerStates: patchLayer(s.layerStates, type, {
+          locked: !(s.layerStates[type]?.locked ?? false),
+        }),
+      }));
+    },
+    isLayerVisible(type) {
+      return get().layerStates[type]?.visible ?? true;
+    },
+    isLayerLocked(type) {
+      return get().layerStates[type]?.locked ?? false;
+    },
+
+    setCursorLngLat(pos) {
+      set({ cursorLngLat: pos });
+    },
+    setCurrentZoom(zoom) {
+      set({ currentZoom: zoom });
+    },
+
+    toggleSidebar() {
+      set((s) => ({ sidebarVisible: !s.sidebarVisible }));
+    },
+
+    setSnapTarget(target) {
+      const prev = get().currentSnapTarget;
+      if (sameSnapTarget(prev, target)) return;
+      set({ currentSnapTarget: target });
+    },
+
+    toggleConnectMode() {
+      set((s) => ({
+        connectMode: s.connectMode.active
+          ? { active: false, firstLaneId: null }
+          : { active: true, firstLaneId: null },
+      }));
+    },
+    exitConnectMode() {
+      set({ connectMode: { active: false, firstLaneId: null } });
+    },
+    setConnectFirstLane(id) {
+      set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
+    },
+  };
+}
+
+export const useUIStore = create<UIStore>()((set, get) => ({
+  ...initialUIState,
+  ...createUIActions(set, get),
 }));

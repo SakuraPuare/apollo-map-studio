@@ -203,6 +203,20 @@ LaneInspector/
   index.ts                 # re-export
 ```
 
+### 表单与树组件拆分
+
+UI 文件一旦同时承担"取 store / 数据投影 / mutation helper / JSX 渲染"四种职责，
+阅读成本会快速失控。拆分时优先按职责切：
+
+- 主组件只负责订阅 store、组装 props、提交最终 mutation。
+- 纯数组/树转换放普通函数，例如 `LayerTree/treeBuilder.ts` 的 `createBuildContext`
+  → `addEntityNode` → `orderedGroups` 三段。
+- React 子区域拆成本文件内小组件；当单文件超过 200 行，再拆兄弟文件。
+- 手写 inspector 表单按实体落在 `InspectorForms/<entity>.tsx`。
+  `simpleForms.tsx` 只允许 re-export，不能继续承载实现。
+- 重复的 form reset / same-id sync / latest entity ref 放共享 hook，当前入口是
+  `InspectorForms/formSync.ts`。
+
 ### 副作用
 
 - 一个 `useEffect` 一个职责。`useEffect` 里 5 个 if-else = 拆成 5 个 hook。

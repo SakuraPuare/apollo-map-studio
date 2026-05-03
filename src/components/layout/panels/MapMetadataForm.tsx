@@ -77,58 +77,83 @@ function fmtNum(n: number | null, digits = 6): string {
   return n.toFixed(digits);
 }
 
-export function MapMetadataForm() {
-  const rawMap = useApolloMapStore((s) => s.rawMap);
-  const storedHeader = useApolloMapStore((s) => s.header);
-  const info = useApolloMapStore((s) => s.info);
+interface MetadataRow {
+  label: string;
+  value: string;
+}
 
-  const header = useMemo<RawHeader | null>(() => {
-    if (storedHeader) return storedHeader as RawHeader;
-    if (!rawMap) return null;
-    const h = (rawMap as { header?: unknown }).header;
-    if (h == null || typeof h !== 'object') return null;
-    return h as RawHeader;
-  }, [rawMap, storedHeader]);
+function rawHeaderFromMap(rawMap: unknown): RawHeader | null {
+  if (!rawMap) return null;
+  const header = (rawMap as { header?: unknown }).header;
+  return header != null && typeof header === 'object' ? (header as RawHeader) : null;
+}
 
-  if (!info) {
-    return (
-      <div className="px-3 py-4 text-[11px] text-zinc-500 italic">
-        No Apollo map imported. Header metadata becomes available after import.
-      </div>
-    );
-  }
-
-  const proj = header?.projection ? asString(header.projection.proj) : null;
+function headerRows(header: RawHeader | null): MetadataRow[] {
   // Apollo proto uses snake_case on the wire; the bridge may also surface
   // camelCase. Tolerate both so this panel is useful pre-bridge-finalize.
   const revMajor = asString(header?.rev_major) ?? asString(header?.revMajor);
   const revMinor = asString(header?.rev_minor) ?? asString(header?.revMinor);
+  const proj = header?.projection ? asString(header.projection.proj) : null;
+
+  return [
+    { label: 'Version', value: fmt(asString(header?.version)) },
+    { label: 'Date', value: fmt(asString(header?.date)) },
+    { label: 'District', value: fmt(asString(header?.district)) },
+    { label: 'Generation', value: fmt(asString(header?.generation)) },
+    { label: 'Rev Major', value: fmt(revMajor) },
+    { label: 'Rev Minor', value: fmt(revMinor) },
+    { label: 'Vendor', value: fmt(asString(header?.vendor)) },
+    { label: 'Projection', value: fmt(proj) },
+  ];
+}
+
+function boundsRows(header: RawHeader | null): MetadataRow[] {
+  return [
+    { label: 'Left', value: fmtNum(asNumber(header?.left)) },
+    { label: 'Top', value: fmtNum(asNumber(header?.top)) },
+    { label: 'Right', value: fmtNum(asNumber(header?.right)) },
+    { label: 'Bottom', value: fmtNum(asNumber(header?.bottom)) },
+  ];
+}
+
+function MetadataSection({ title, rows }: { title: string; rows: MetadataRow[] }) {
+  return (
+    <Section title={title}>
+      {rows.map((row) => (
+        <Value key={row.label} label={row.label} value={row.value} />
+      ))}
+    </Section>
+  );
+}
+
+function NoMetadataNotice() {
+  return (
+    <div className="px-3 py-4 text-[11px] text-zinc-500 italic">
+      No Apollo map imported. Header metadata becomes available after import.
+    </div>
+  );
+}
+
+export function MapMetadataForm() {
+  const rawMap = useApolloMapStore((s) => s.rawMap);
+  const storedHeader = useApolloMapStore((s) => s.header);
+  const info = useApolloMapStore((s) => s.info);
+  const header = useMemo<RawHeader | null>(
+    () => (storedHeader ? (storedHeader as RawHeader) : rawHeaderFromMap(rawMap)),
+    [rawMap, storedHeader],
+  );
+
+  if (!info) return <NoMetadataNotice />;
 
   return (
     <div className="px-3 py-3">
       <Section title="Source">
-        <Value label="File" value={info?.filename ?? '—'} />
-        <Value label="Imported" value={info ? new Date(info.importedAt).toLocaleString() : '—'} />
-        <Value label="PROJ used" value={info?.projString ?? '—'} />
+        <Value label="File" value={info.filename} />
+        <Value label="Imported" value={new Date(info.importedAt).toLocaleString()} />
+        <Value label="PROJ used" value={info.projString} />
       </Section>
-
-      <Section title="Header">
-        <Value label="Version" value={fmt(asString(header?.version))} />
-        <Value label="Date" value={fmt(asString(header?.date))} />
-        <Value label="District" value={fmt(asString(header?.district))} />
-        <Value label="Generation" value={fmt(asString(header?.generation))} />
-        <Value label="Rev Major" value={fmt(revMajor)} />
-        <Value label="Rev Minor" value={fmt(revMinor)} />
-        <Value label="Vendor" value={fmt(asString(header?.vendor))} />
-        <Value label="Projection" value={fmt(proj)} />
-      </Section>
-
-      <Section title="Bounds">
-        <Value label="Left" value={fmtNum(asNumber(header?.left))} />
-        <Value label="Top" value={fmtNum(asNumber(header?.top))} />
-        <Value label="Right" value={fmtNum(asNumber(header?.right))} />
-        <Value label="Bottom" value={fmtNum(asNumber(header?.bottom))} />
-      </Section>
+      <MetadataSection title="Header" rows={headerRows(header)} />
+      <MetadataSection title="Bounds" rows={boundsRows(header)} />
 
       <div className="mt-3 px-1 text-[10px] text-zinc-600 italic leading-relaxed">
         Read-only — header editing is gated on an `apolloMapStore.updateHeader` action that does not

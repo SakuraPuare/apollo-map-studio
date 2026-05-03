@@ -100,6 +100,65 @@ interface RawApolloMap {
   parking_space?: RawParkingSpace[];
 }
 
+interface BoundsAccumulator {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function visitPointBounds(bounds: BoundsAccumulator, p: PointLL | undefined): void {
+  if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
+  if (p.x < bounds.minX) bounds.minX = p.x;
+  if (p.x > bounds.maxX) bounds.maxX = p.x;
+  if (p.y < bounds.minY) bounds.minY = p.y;
+  if (p.y > bounds.maxY) bounds.maxY = p.y;
+}
+
+function visitCurveBounds(bounds: BoundsAccumulator, c: Curve | undefined): void {
+  for (const seg of c?.segment ?? []) {
+    for (const pt of seg.line_segment?.point ?? []) visitPointBounds(bounds, pt);
+  }
+}
+
+function visitPolygonBounds(bounds: BoundsAccumulator, p: ApolloPolygon | undefined): void {
+  for (const pt of p?.point ?? []) visitPointBounds(bounds, pt);
+}
+
+function visitLaneBounds(bounds: BoundsAccumulator, lanes: RawLane[] = []): void {
+  for (const lane of lanes) {
+    visitCurveBounds(bounds, lane.central_curve);
+    visitCurveBounds(bounds, lane.left_boundary?.curve);
+    visitCurveBounds(bounds, lane.right_boundary?.curve);
+  }
+}
+
+function visitRoadBounds(bounds: BoundsAccumulator, roads: RawRoad[] = []): void {
+  for (const road of roads) {
+    for (const section of road.section ?? []) {
+      for (const edge of section.boundary?.outer_polygon?.edge ?? []) {
+        visitCurveBounds(bounds, edge.curve);
+      }
+    }
+  }
+}
+
+function visitSignalBounds(bounds: BoundsAccumulator, signals: RawSignal[] = []): void {
+  for (const signal of signals) {
+    visitPolygonBounds(bounds, signal.boundary);
+    for (const stopLine of signal.stop_line ?? []) visitCurveBounds(bounds, stopLine);
+  }
+}
+
+function visitStopLineEntityBounds(
+  bounds: BoundsAccumulator,
+  entities: Array<{ stop_line?: Curve[] }> = [],
+): void {
+  for (const entity of entities) {
+    for (const stopLine of entity.stop_line ?? []) visitCurveBounds(bounds, stopLine);
+  }
+}
+
 /**
  * Walk every point reachable from a raw Apollo Map (lane curves, polygons,
  * road boundaries, signal stop lines, etc.) and return the WGS84 bounding
@@ -109,50 +168,30 @@ interface RawApolloMap {
 export function computeApolloMapBounds(
   map: RawApolloMap,
 ): [[number, number], [number, number]] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const visit = (p: PointLL | undefined) => {
-    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  };
-  const visitCurve = (c: Curve | undefined) => {
-    for (const seg of c?.segment ?? []) {
-      for (const pt of seg.line_segment?.point ?? []) visit(pt);
-    }
-  };
-  const visitPolygon = (p: ApolloPolygon | undefined) => {
-    for (const pt of p?.point ?? []) visit(pt);
+  const bounds: BoundsAccumulator = {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
   };
 
-  for (const lane of map.lane ?? []) {
-    visitCurve(lane.central_curve);
-    visitCurve(lane.left_boundary?.curve);
-    visitCurve(lane.right_boundary?.curve);
+  visitLaneBounds(bounds, map.lane);
+  for (const crosswalk of map.crosswalk ?? []) visitPolygonBounds(bounds, crosswalk.polygon);
+  for (const junction of map.junction ?? []) visitPolygonBounds(bounds, junction.polygon);
+  for (const clearArea of map.clear_area ?? []) visitPolygonBounds(bounds, clearArea.polygon);
+  for (const parkingSpace of map.parking_space ?? []) {
+    visitPolygonBounds(bounds, parkingSpace.polygon);
   }
-  for (const cw of map.crosswalk ?? []) visitPolygon(cw.polygon);
-  for (const j of map.junction ?? []) visitPolygon(j.polygon);
-  for (const ca of map.clear_area ?? []) visitPolygon(ca.polygon);
-  for (const ps of map.parking_space ?? []) visitPolygon(ps.polygon);
-  for (const r of map.road ?? []) {
-    for (const sec of r.section ?? []) {
-      for (const e of sec.boundary?.outer_polygon?.edge ?? []) visitCurve(e.curve);
-    }
+  visitRoadBounds(bounds, map.road);
+  visitSignalBounds(bounds, map.signal);
+  visitStopLineEntityBounds(bounds, map.stop_sign);
+  for (const speedBump of map.speed_bump ?? []) {
+    for (const curve of speedBump.position ?? []) visitCurveBounds(bounds, curve);
   }
-  for (const sig of map.signal ?? []) {
-    visitPolygon(sig.boundary);
-    for (const sl of sig.stop_line ?? []) visitCurve(sl);
-  }
-  for (const ss of map.stop_sign ?? []) for (const sl of ss.stop_line ?? []) visitCurve(sl);
-  for (const sb of map.speed_bump ?? []) for (const c of sb.position ?? []) visitCurve(c);
 
-  if (!Number.isFinite(minX)) return null;
+  if (!Number.isFinite(bounds.minX)) return null;
   return [
-    [minX, minY],
-    [maxX, maxY],
+    [bounds.minX, bounds.minY],
+    [bounds.maxX, bounds.maxY],
   ];
 }

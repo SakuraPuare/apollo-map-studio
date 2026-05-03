@@ -67,11 +67,7 @@ export function buildFeatureCollection(
   excludeId?: string | null,
   affectedLaneIds?: Set<string> | null,
 ): GeoJSON.FeatureCollection {
-  const inputFeatures: GeoJSON.Feature[] = [];
-  for (const [id, cached] of state.featureCache) {
-    if (id === excludeId) continue;
-    inputFeatures.push(...cached);
-  }
+  const inputFeatures = collectInputFeatures(state, excludeId);
 
   if (state.laneCount < 1) {
     state.decorationCache.clear();
@@ -88,31 +84,60 @@ export function buildFeatureCollection(
     decorateOnly,
   );
 
-  if (isIncremental) {
-    for (const id of affectedLaneIds!) state.decorationCache.delete(id);
-  } else {
-    state.decorationCache.clear();
-  }
+  resetDecorationCache(state, isIncremental ? affectedLaneIds : null);
 
-  for (const f of stitched) {
-    if (f.properties?.role !== 'laneBoundaryDecor') continue;
-    const id = f.properties?.id;
-    if (typeof id !== 'string') continue;
-    if (isIncremental && !affectedLaneIds!.has(id)) continue;
-    let bucket = state.decorationCache.get(id);
-    if (!bucket) {
-      bucket = [];
-      state.decorationCache.set(id, bucket);
-    }
-    bucket.push(f);
-  }
+  cacheDecorations(state, stitched, isIncremental ? affectedLaneIds : null);
 
-  if (isIncremental) {
-    for (const [id, decoration] of state.decorationCache) {
-      if (affectedLaneIds!.has(id)) continue;
-      stitched.push(...decoration);
-    }
-  }
+  if (isIncremental) appendUnaffectedDecorations(state, stitched, affectedLaneIds!);
 
   return { type: 'FeatureCollection', features: stitched };
+}
+
+function collectInputFeatures(state: SpatialState, excludeId?: string | null): GeoJSON.Feature[] {
+  const inputFeatures: GeoJSON.Feature[] = [];
+  for (const [id, cached] of state.featureCache) {
+    if (id !== excludeId) inputFeatures.push(...cached);
+  }
+  return inputFeatures;
+}
+
+function resetDecorationCache(state: SpatialState, affectedLaneIds: Set<string> | null): void {
+  if (!affectedLaneIds) {
+    state.decorationCache.clear();
+    return;
+  }
+  for (const id of affectedLaneIds) state.decorationCache.delete(id);
+}
+
+function cacheDecorations(
+  state: SpatialState,
+  features: GeoJSON.Feature[],
+  affectedLaneIds: Set<string> | null,
+): void {
+  for (const feature of features) {
+    if (feature.properties?.role !== 'laneBoundaryDecor') continue;
+    const id = feature.properties?.id;
+    if (typeof id !== 'string') continue;
+    if (affectedLaneIds && !affectedLaneIds.has(id)) continue;
+    pushDecoration(state, id, feature);
+  }
+}
+
+function pushDecoration(state: SpatialState, id: string, feature: GeoJSON.Feature): void {
+  let bucket = state.decorationCache.get(id);
+  if (!bucket) {
+    bucket = [];
+    state.decorationCache.set(id, bucket);
+  }
+  bucket.push(feature);
+}
+
+function appendUnaffectedDecorations(
+  state: SpatialState,
+  stitched: GeoJSON.Feature[],
+  affectedLaneIds: Set<string>,
+): void {
+  for (const [id, decoration] of state.decorationCache) {
+    if (!affectedLaneIds.has(id)) stitched.push(...decoration);
+  }
 }

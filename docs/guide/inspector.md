@@ -69,18 +69,19 @@ const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : und
 
 ### 实体 → 表单调度表
 
-| `entityType`                                                                           | 渲染组件           | 文件位置                     | 表单类别            |
-| -------------------------------------------------------------------------------------- | ------------------ | ---------------------------- | ------------------- |
-| `lane`                                                                                 | `LaneForm`         | `InspectorForms/lane.tsx:32` | Schema-driven       |
-| `junction`                                                                             | `JunctionForm`     | `simpleForms.tsx`            | Simple              |
-| `parkingSpace`                                                                         | `ParkingSpaceForm` | `simpleForms.tsx`            | Simple              |
-| `signal`                                                                               | `SignalForm`       | `simpleForms.tsx`            | Simple              |
-| `stopSign`                                                                             | `StopSignForm`     | `simpleForms.tsx`            | Simple              |
-| `road`                                                                                 | `RoadForm`         | `simpleForms.tsx`            | Simple              |
-| `pncJunction`                                                                          | `PNCJunctionForm`  | `pncJunction.tsx:151`        | Custom（嵌套数组）  |
-| `overlap`                                                                              | `OverlapForm`      | `overlap.tsx:65`             | Custom（pin/unpin） |
-| `area` / `barrierGate` / `crosswalk` / `speedBump` / `yieldSign` / `clearArea` / `rsu` | 各自的 `*Form`     | `simpleForms.tsx`            | Simple              |
-| 其它（绘制中临时 entity）                                                              | `DrawingForm`      | `DrawingForm.tsx`            | 绘制态 fallback     |
+| `entityType`                                                  | 渲染组件           | 文件位置                          | 表单类别            |
+| ------------------------------------------------------------- | ------------------ | --------------------------------- | ------------------- |
+| `lane`                                                        | `LaneForm`         | `InspectorForms/lane.tsx`         | Schema-driven       |
+| `junction`                                                    | `JunctionForm`     | `InspectorForms/junction.tsx`     | Simple              |
+| `parkingSpace`                                                | `ParkingSpaceForm` | `InspectorForms/parkingSpace.tsx` | Simple              |
+| `signal`                                                      | `SignalForm`       | `InspectorForms/signal.tsx`       | Simple              |
+| `stopSign`                                                    | `StopSignForm`     | `InspectorForms/stopSign.tsx`     | Simple              |
+| `road`                                                        | `RoadForm`         | `InspectorForms/road.tsx`         | Simple              |
+| `pncJunction`                                                 | `PNCJunctionForm`  | `InspectorForms/pncJunction.tsx`  | Custom（嵌套数组）  |
+| `overlap`                                                     | `OverlapForm`      | `InspectorForms/overlap.tsx`      | Custom（pin/unpin） |
+| `area` / `barrierGate`                                        | 各自的 `*Form`     | `InspectorForms/<entity>.tsx`     | Simple              |
+| `crosswalk` / `speedBump` / `yieldSign` / `clearArea` / `rsu` | 各自的 `*Form`     | `InspectorForms/readOnly.tsx`     | Read-only           |
+| 其它（绘制中临时 entity）                                     | `DrawingForm`      | `InspectorForms/DrawingForm.tsx`  | 绘制态 fallback     |
 
 ## Schema-driven 表单 (Lane 为例)
 
@@ -254,7 +255,9 @@ Inspector **本身不写 localStorage**。所有变更通过 `mapStore.updateEnt
 - `src/components/layout/panels/InspectorForms/lane.tsx:32` — Lane 表单（薄壳）
 - `src/components/layout/panels/InspectorForms/overlap.tsx:65-157` — Overlap pin 控件
 - `src/components/layout/panels/InspectorForms/pncJunction.tsx:151-262` — passage groups
-- `src/components/layout/panels/InspectorForms/simpleForms.tsx` — 11 个简单实体的薄表单
+- `src/components/layout/panels/InspectorForms/<entity>.tsx` — 简单实体的手写表单
+- `src/components/layout/panels/InspectorForms/readOnly.tsx` — 只读摘要表单
+- `src/components/layout/panels/InspectorForms/formSync.ts` — 手写表单同步 hook
 - `src/types/inspectorSchema.ts:263-435` — `LaneInspectorSchema`
 - `src/types/inspectorSchema.ts:444-540` — `formValuesFromEntity` / `diffFormAgainstEntity` / `shouldPersistForm` / `applyFormValuesToEntity`
 - `src/lib/schemas.ts` — zod 校验集合

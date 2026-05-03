@@ -5,7 +5,6 @@ import {
   DEG_TO_M,
   buildLaneFeatureMap,
   cloneFeature,
-  decorateBoundary,
   endpointDirection,
   laneEndpointsFromEntity,
   sideJoinOffset,
@@ -15,6 +14,7 @@ import {
   type LaneFeatureRefs,
   type Vec2,
 } from './laneJunctions/internal';
+import { decorateBoundary } from './laneJunctions/boundaryDecor';
 
 type EndpointJunction = { pt: GeoPoint; a: LaneEndpoint; b: LaneEndpoint };
 
@@ -113,10 +113,38 @@ function stitchLaneJunctions(
     const refsA = featureMap.get(a.id);
     const refsB = featureMap.get(b.id);
 
-    updateLineEndpoint(refsA?.left, a.isStart, leftJoin, dirA, cosLat, a.trimBoundaryOnStitch);
-    updateLineEndpoint(refsB?.left, b.isStart, leftJoin, dirB, cosLat, b.trimBoundaryOnStitch);
-    updateLineEndpoint(refsA?.right, a.isStart, rightJoin, dirA, cosLat, a.trimBoundaryOnStitch);
-    updateLineEndpoint(refsB?.right, b.isStart, rightJoin, dirB, cosLat, b.trimBoundaryOnStitch);
+    updateLineEndpoint({
+      feature: refsA?.left,
+      isStart: a.isStart,
+      joinPt: leftJoin,
+      dir: dirA,
+      cosLat,
+      trimFolded: a.trimBoundaryOnStitch,
+    });
+    updateLineEndpoint({
+      feature: refsB?.left,
+      isStart: b.isStart,
+      joinPt: leftJoin,
+      dir: dirB,
+      cosLat,
+      trimFolded: b.trimBoundaryOnStitch,
+    });
+    updateLineEndpoint({
+      feature: refsA?.right,
+      isStart: a.isStart,
+      joinPt: rightJoin,
+      dir: dirA,
+      cosLat,
+      trimFolded: a.trimBoundaryOnStitch,
+    });
+    updateLineEndpoint({
+      feature: refsB?.right,
+      isStart: b.isStart,
+      joinPt: rightJoin,
+      dir: dirB,
+      cosLat,
+      trimFolded: b.trimBoundaryOnStitch,
+    });
 
     syncPolygonFromEdges(refsA);
     syncPolygonFromEdges(refsB);
