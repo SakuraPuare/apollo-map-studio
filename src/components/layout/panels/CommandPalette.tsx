@@ -4,10 +4,11 @@ import { FaMagnifyingGlass } from 'react-icons/fa6';
 import { scrollAreaClassName } from '@/components/ui/scroll-area-classes';
 import {
   formatShortcut,
-  getCommandPaletteActions,
+  getCommandPaletteActionsForMode,
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
+import { useUIStore } from '@/store/uiStore';
 
 // ─── Main Component ────────────────────────────────────────
 
@@ -27,8 +28,9 @@ export function CommandPalette({
   getToggleState,
 }: CommandPaletteProps) {
   const [search, setSearch] = useState('');
+  const appMode = useUIStore((s) => s.appMode);
 
-  const actions = useMemo(() => getCommandPaletteActions(), []);
+  const actions = useMemo(() => getCommandPaletteActionsForMode(appMode), [appMode]);
   const grouped = useMemo(() => groupActions(actions), [actions]);
 
   const runCommand = useCallback(

@@ -4,12 +4,13 @@ import {
   ACTION_MAP,
   formatShortcut,
   getMenuActions,
+  getMenuActionsForMode,
   getCommandPaletteActions,
   getKeyBindingActions,
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
-import { WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
+import { getSidebarViewsByPlacement, WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
 import type { KeyBindingEvent } from '../registry';
 
 describe('Action Registry', () => {
@@ -103,6 +104,20 @@ describe('Action Registry', () => {
     for (const view of WORKSPACE_VIEW_DEFS) {
       expect(ids).toContain(view.actionId);
     }
+  });
+
+  it('View menu filters mode-scoped workspace panels', () => {
+    const drawingIds = getMenuActionsForMode('View', 'drawing').map((a) => a.id);
+    const sceneIds = getMenuActionsForMode('View', 'scene').map((a) => a.id);
+    expect(drawingIds).not.toContain('view:timeline');
+    expect(sceneIds).toContain('view:timeline');
+  });
+
+  it('sidebar activity views are contributed by mode', () => {
+    const drawingIds = getSidebarViewsByPlacement('top', 'drawing').map((view) => view.id);
+    const sceneIds = getSidebarViewsByPlacement('top', 'scene').map((view) => view.id);
+    expect(drawingIds).toEqual(['outline', 'layers', 'search']);
+    expect(sceneIds).toEqual(['outline', 'layers', 'search', 'timeline']);
   });
 
   it('About menu has version information and help documentation', () => {

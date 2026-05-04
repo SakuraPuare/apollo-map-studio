@@ -4,12 +4,15 @@ export {
   formatShortcut,
   getActionsByCategory,
   getCommandPaletteActions,
+  getCommandPaletteActionsForMode,
   getKeyBindingActions,
   getMenuActions,
+  getMenuActionsForMode,
   getMenuNames,
   getToolAction,
   getToolStripSlotActions,
   isMacPlatform,
+  isActionAvailableForMode,
   matchesKeybinding,
 } from './registry/helpers';
 export type { KeyBindingEvent } from './registry/helpers';

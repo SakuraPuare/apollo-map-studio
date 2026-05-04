@@ -4,18 +4,20 @@ import {
   type SidebarViewDef,
   type SidebarViewId,
 } from '@/core/workspaceViews';
+import type { AppMode } from '@/store/uiStore';
 
 export type ActivityTab = SidebarViewId;
 
 interface ActivityBarProps {
   activeTab: ActivityTab;
+  appMode: AppMode;
   onTabChange: (tab: ActivityTab) => void;
 }
 
-const topTabs = getSidebarViewsByPlacement('top');
-const bottomTabs = getSidebarViewsByPlacement('bottom');
+export function ActivityBar({ activeTab, appMode, onTabChange }: ActivityBarProps) {
+  const topTabs = getSidebarViewsByPlacement('top', appMode);
+  const bottomTabs = getSidebarViewsByPlacement('bottom', appMode);
 
-export function ActivityBar({ activeTab, onTabChange }: ActivityBarProps) {
   return (
     <div className="w-12 bg-ams-bg-base border-r border-ams-border-subtle flex flex-col items-center py-2 shrink-0">
       <ActivityBarGroup tabs={topTabs} activeTab={activeTab} onTabChange={onTabChange} />

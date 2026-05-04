@@ -41,7 +41,12 @@ import {
   makeSidebarPanel,
 } from './WorkspaceLayout/lazyPanels';
 import type { WorkspaceViewActionId } from '@/core/actions/registry';
-import { getSidebarViewDef, getWorkspaceViewByActionId } from '@/core/workspaceViews';
+import {
+  getDefaultSidebarViewId,
+  getSidebarViewDef,
+  getWorkspaceViewByActionId,
+  isSidebarViewAvailable,
+} from '@/core/workspaceViews';
 
 // ─── Inner Layout ─────────────────────────────────────────
 
@@ -81,13 +86,14 @@ function WorkspaceLayoutInner() {
   const handleWorkspaceViewToggle = useWorkspaceViewToggle({
     apiRef,
     activeTab,
+    appMode,
     setActiveTab,
     refreshOpenPanels,
   });
 
   const getWorkspaceViewState = useCallback(
     (actionId: WorkspaceViewActionId) => {
-      const view = getWorkspaceViewByActionId(actionId);
+      const view = getWorkspaceViewByActionId(actionId, appMode);
       if (!view) return false;
       if (view.panelId === 'sidebar') {
         return view.sidebarViewId
@@ -96,7 +102,7 @@ function WorkspaceLayoutInner() {
       }
       return openPanelIds.has(view.panelId);
     },
-    [activeTab, openPanelIds],
+    [activeTab, appMode, openPanelIds],
   );
 
   // Action dispatcher — single source of all action handling + keyboard shortcuts
@@ -121,6 +127,11 @@ function WorkspaceLayoutInner() {
   useEffect(() => {
     apiRef.current?.getPanel('sidebar')?.api.setTitle(getSidebarTitle(activeTab));
   }, [activeTab]);
+
+  useEffect(() => {
+    if (isSidebarViewAvailable(activeTab, appMode)) return;
+    setActiveTab(getDefaultSidebarViewId(appMode));
+  }, [activeTab, appMode, setActiveTab]);
 
   const onReady = useDockviewReady(apiRef, appMode, activeTab, refreshOpenPanels);
 
@@ -157,6 +168,7 @@ function WorkspaceLayoutInner() {
 
   function handleActivityTabChange(tab: ActivityTab) {
     const sidebarView = getSidebarViewDef(tab);
+    if (!isSidebarViewAvailable(tab, appMode)) return;
     if (sidebarView?.kind === 'panel') {
       const api = apiRef.current;
       if (api) {
@@ -175,11 +187,13 @@ function getSidebarTitle(tab: ActivityTab): string {
 function useWorkspaceViewToggle({
   apiRef,
   activeTab,
+  appMode,
   setActiveTab,
   refreshOpenPanels,
 }: {
   apiRef: React.RefObject<DockviewApi | null>;
   activeTab: ActivityTab;
+  appMode: AppMode;
   setActiveTab: (tab: ActivityTab) => void;
   refreshOpenPanels: (api: DockviewApi) => void;
 }) {
@@ -188,7 +202,7 @@ function useWorkspaceViewToggle({
       const api = apiRef.current;
       if (!api) return;
 
-      const view = getWorkspaceViewByActionId(actionId);
+      const view = getWorkspaceViewByActionId(actionId, appMode);
       if (!view) return;
 
       if (view.panelId === 'sidebar' && view.sidebarViewId) {
@@ -208,7 +222,7 @@ function useWorkspaceViewToggle({
       else openWorkspacePanel(api, view.panelId);
       refreshOpenPanels(api);
     },
-    [activeTab, apiRef, refreshOpenPanels, setActiveTab],
+    [activeTab, apiRef, appMode, refreshOpenPanels, setActiveTab],
   );
 }
 
@@ -262,7 +276,7 @@ function WorkspaceMainContent({
 }: WorkspaceMainContentProps) {
   return (
     <div className="flex-1 flex overflow-hidden">
-      <ActivityBar activeTab={activeTab} onTabChange={onTabChange} />
+      <ActivityBar activeTab={activeTab} appMode={appMode} onTabChange={onTabChange} />
       <div className="flex-1">
         <DockviewReact
           key={appMode}

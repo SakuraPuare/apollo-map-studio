@@ -8,6 +8,7 @@ import {
 } from 'react-icons/fa6';
 import type { IconType } from 'react-icons';
 
+export type WorkspaceMode = 'drawing' | 'scene';
 export type WorkspacePanelId = 'map' | 'sidebar' | 'inspector' | 'timeline';
 export type WorkspacePanelComponent = WorkspacePanelId;
 export type WorkspaceViewId =
@@ -43,6 +44,7 @@ export interface WorkspaceViewDef {
   menuOrder: number;
   panelId: WorkspacePanelId;
   sidebarViewId?: SidebarWorkspaceViewId;
+  modes?: readonly WorkspaceMode[];
 }
 
 export interface SidebarViewDef {
@@ -53,6 +55,7 @@ export interface SidebarViewDef {
   order: number;
   kind: 'panel' | 'modal';
   renderer?: SidebarRendererId;
+  modes?: readonly WorkspaceMode[];
 }
 
 export const WORKSPACE_PANEL_DEFS = [
@@ -133,6 +136,7 @@ export const WORKSPACE_VIEW_DEFS = [
     menuOrder: 25,
     panelId: 'timeline',
     sidebarViewId: 'timeline',
+    modes: ['scene'],
   },
 ] as const satisfies readonly WorkspaceViewDef[];
 
@@ -172,6 +176,7 @@ export const SIDEBAR_VIEW_DEFS = [
     order: 40,
     kind: 'panel',
     renderer: 'timeline',
+    modes: ['scene'],
   },
   {
     id: 'settings',
@@ -199,22 +204,48 @@ export function getWorkspacePanelDef(panelId: WorkspacePanelId): WorkspacePanelD
 
 export function getWorkspaceViewByActionId(
   actionId: WorkspaceViewActionId,
+  mode?: WorkspaceMode,
 ): WorkspaceViewDef | undefined {
-  return WORKSPACE_VIEW_DEFS.find((view) => view.actionId === actionId);
+  return WORKSPACE_VIEW_DEFS.find(
+    (view) => view.actionId === actionId && isWorkspaceViewAvailable(view, mode),
+  );
 }
 
 export function getSidebarViewDef(viewId: SidebarViewId): SidebarViewDef | undefined {
   return SIDEBAR_VIEW_DEFS.find((view) => view.id === viewId);
 }
 
-export function getDefaultSidebarViewId(): SidebarWorkspaceViewId {
-  return SIDEBAR_VIEW_DEFS.find((view) => view.kind === 'panel')!.id as SidebarWorkspaceViewId;
+export function getDefaultSidebarViewId(mode?: WorkspaceMode): SidebarWorkspaceViewId {
+  return SIDEBAR_VIEW_DEFS.find(
+    (view) => view.kind === 'panel' && isSidebarViewAvailable(view, mode),
+  )!.id as SidebarWorkspaceViewId;
 }
 
 export function getSidebarViewsByPlacement(
   placement: SidebarViewDef['placement'],
+  mode?: WorkspaceMode,
 ): SidebarViewDef[] {
-  return SIDEBAR_VIEW_DEFS.filter((view) => view.placement === placement).sort(
-    (a, b) => a.order - b.order,
-  );
+  return SIDEBAR_VIEW_DEFS.filter(
+    (view) => view.placement === placement && isSidebarViewAvailable(view, mode),
+  ).sort((a, b) => a.order - b.order);
+}
+
+export function isSidebarViewAvailable(
+  view: SidebarViewDef | SidebarViewId,
+  mode?: WorkspaceMode,
+): boolean {
+  const def = typeof view === 'string' ? getSidebarViewDef(view) : view;
+  if (!def) return false;
+  return isModeEnabled(def.modes, mode);
+}
+
+export function isWorkspaceViewAvailable(view: WorkspaceViewDef, mode?: WorkspaceMode): boolean {
+  return isModeEnabled(view.modes, mode);
+}
+
+function isModeEnabled(
+  modes: readonly WorkspaceMode[] | undefined,
+  mode: WorkspaceMode | undefined,
+) {
+  return !mode || !modes || modes.includes(mode);
 }

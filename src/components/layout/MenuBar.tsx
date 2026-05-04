@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   formatShortcut,
-  getMenuActions,
+  getMenuActionsForMode,
   getMenuNames,
   isMacPlatform,
   type ActionDef,
@@ -183,6 +183,7 @@ function ModeToggle() {
 
 export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const appMode = useUIStore((s) => s.appMode);
 
   const menuNames = getMenuNames();
 
@@ -200,7 +201,7 @@ export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
           <Menu
             key={name}
             label={name}
-            actions={getMenuActions(name)}
+            actions={getMenuActionsForMode(name, appMode)}
             isOpen={openMenu === name}
             onOpen={() => setOpenMenu(openMenu === name ? null : name)}
             onClose={() => setOpenMenu(null)}

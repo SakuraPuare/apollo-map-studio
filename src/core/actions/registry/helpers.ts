@@ -1,4 +1,6 @@
 import type { DrawTool } from '@/core/fsm/editorMachine';
+import type { WorkspaceMode } from '@/core/workspaceViews';
+import { isWorkspaceViewActionId, getWorkspaceViewByActionId } from '@/core/workspaceViews';
 import { ACTION_DEFS } from './definitions';
 import type { ActionCategory, ActionDef, KeyBinding, ToolStripSlot } from './types';
 
@@ -19,6 +21,10 @@ export function getMenuActions(menu: string): ActionDef[] {
   );
 }
 
+export function getMenuActionsForMode(menu: string, mode: WorkspaceMode): ActionDef[] {
+  return getMenuActions(menu).filter((action) => isActionAvailableForMode(action, mode));
+}
+
 export function getMenuNames(): string[] {
   const menus = new Set<string>();
   ACTION_DEFS.forEach((a) => {
@@ -29,6 +35,10 @@ export function getMenuNames(): string[] {
 
 export function getCommandPaletteActions(): ActionDef[] {
   return ACTION_DEFS.filter((a) => a.inCommandPalette);
+}
+
+export function getCommandPaletteActionsForMode(mode: WorkspaceMode): ActionDef[] {
+  return getCommandPaletteActions().filter((action) => isActionAvailableForMode(action, mode));
 }
 
 export function getKeyBindingActions(): ActionDef[] {
@@ -43,6 +53,11 @@ export function getToolStripSlotActions(slot: ToolStripSlot): ActionDef[] {
   return ACTION_DEFS.filter((a) => a.uiSlot === slot).sort(
     (a, b) => (a.uiOrder ?? 99) - (b.uiOrder ?? 99),
   );
+}
+
+export function isActionAvailableForMode(action: ActionDef, mode: WorkspaceMode): boolean {
+  if (!isWorkspaceViewActionId(action.id)) return true;
+  return Boolean(getWorkspaceViewByActionId(action.id, mode));
 }
 
 export function matchesKeybinding(e: KeyBindingEvent, kb: KeyBinding): boolean {
