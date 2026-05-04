@@ -18,9 +18,6 @@ hero:
     - theme: alt
       text: 架构总览
       link: /architecture/overview
-    # - theme: alt
-    #   text: VitePress 展示
-    #   link: /reference/vitepress-showcase
     - theme: alt
       text: GitHub
       link: https://github.com/SakuraPuare/apollo-map-studio

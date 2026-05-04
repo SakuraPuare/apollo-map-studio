@@ -155,7 +155,6 @@ export default defineConfig({
             activeMatch: '^/(reference|recipes|contributing|superpowers|changelog)',
             items: [
               { text: '参考', link: '/reference/' },
-              { text: 'VitePress 功能展示', link: '/reference/vitepress-showcase' },
               { text: '操作手册', link: '/recipes/adding-a-new-action' },
               { text: '贡献', link: '/contributing/development-setup' },
               { text: '设计规格', link: '/superpowers/' },
@@ -252,7 +251,6 @@ export default defineConfig({
             activeMatch: '^/en/(reference|recipes|contributing|superpowers|changelog)',
             items: [
               { text: 'Reference', link: '/en/reference/' },
-              { text: 'VitePress Showcase', link: '/en/reference/vitepress-showcase' },
               { text: 'Recipes', link: '/en/recipes/adding-a-new-action' },
               { text: 'Contributing', link: '/en/contributing/development-setup' },
               { text: 'Design Specs', link: '/en/superpowers/' },
