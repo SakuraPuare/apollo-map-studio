@@ -36,6 +36,13 @@ describe('shouldDisable (useDragPan)', () => {
     });
   });
 
+  describe('boundary brush mode', () => {
+    it('disables pan while boundary brush is active', () => {
+      expect(shouldDisable('idle', false, true)).toBe(true);
+      expect(shouldDisable('selected', false, true)).toBe(true);
+    });
+  });
+
   describe('drawBezier state', () => {
     it('disables when state is drawBezier', () => {
       expect(shouldDisable('drawBezier', false)).toBe(true);

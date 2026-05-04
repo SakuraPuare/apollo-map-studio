@@ -21,6 +21,7 @@ export type ActionId =
   | 'openHelp'
   | 'defaultMode'
   | 'connectLanes'
+  | 'boundaryBrush'
   | 'tool:drawPolyline'
   | 'tool:drawBezier'
   | 'tool:drawArc'

@@ -109,11 +109,18 @@ function registerModeHandlers(map: Map<ActionId, () => void>, options: ActionDis
     options.actorRef.send({ type: 'CANCEL' });
     options.actorRef.send({ type: 'RESET' });
     if (useUIStore.getState().connectMode.active) useUIStore.getState().exitConnectMode();
+    if (useUIStore.getState().boundaryBrush.active) useUIStore.getState().exitBoundaryBrush();
   });
 
   map.set('connectLanes', () => {
     options.actorRef.send({ type: 'CANCEL' });
     useUIStore.getState().toggleConnectMode();
+  });
+
+  map.set('boundaryBrush', () => {
+    options.actorRef.send({ type: 'CANCEL' });
+    options.actorRef.send({ type: 'RESET' });
+    useUIStore.getState().toggleBoundaryBrush();
   });
 }
 
@@ -197,9 +204,14 @@ function useActionToggleState(
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const connectModeActive = useUIStore((s) => s.connectMode.active);
+  const boundaryBrushActive = useUIStore((s) => s.boundaryBrush.active);
   const fsmStateValue = useSelector(actorRef, (s) => s.value);
   const fsmActiveElement = useSelector(actorRef, (s) => s.context.activeElement);
-  const inDefaultMode = fsmStateValue === 'idle' && fsmActiveElement === null && !connectModeActive;
+  const inDefaultMode =
+    fsmStateValue === 'idle' &&
+    fsmActiveElement === null &&
+    !connectModeActive &&
+    !boundaryBrushActive;
 
   return useCallback(
     (actionId: ActionId): boolean => {
@@ -210,6 +222,8 @@ function useActionToggleState(
           return snapEnabled;
         case 'connectLanes':
           return connectModeActive;
+        case 'boundaryBrush':
+          return boundaryBrushActive;
         case 'defaultMode':
           return inDefaultMode;
         default:
@@ -219,7 +233,14 @@ function useActionToggleState(
           return false;
       }
     },
-    [gridEnabled, snapEnabled, connectModeActive, inDefaultMode, getWorkspaceViewState],
+    [
+      gridEnabled,
+      snapEnabled,
+      connectModeActive,
+      boundaryBrushActive,
+      inDefaultMode,
+      getWorkspaceViewState,
+    ],
   );
 }
 

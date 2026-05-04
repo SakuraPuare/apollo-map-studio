@@ -1,5 +1,6 @@
 import { create, type StateCreator } from 'zustand';
 import type { SnapTarget } from '@/core/geometry/snap';
+import type { BoundaryLineType } from '@/types/apollo';
 
 // ─── Entity type visibility / lock state ────────────────────
 
@@ -56,6 +57,12 @@ interface UIState {
     /** First lane id, or null when waiting for the first click. */
     firstLaneId: string | null;
   };
+
+  // Boundary brush — Word-like border pencil for lane boundary type segments.
+  boundaryBrush: {
+    active: boolean;
+    type: BoundaryLineType;
+  };
 }
 
 interface UIActions {
@@ -87,6 +94,10 @@ interface UIActions {
   exitConnectMode(): void;
   /** Record the first picked lane while in connect mode. */
   setConnectFirstLane(id: string | null): void;
+
+  toggleBoundaryBrush(): void;
+  setBoundaryBrushType(type: BoundaryLineType): void;
+  exitBoundaryBrush(): void;
 }
 
 type UIStore = UIState & UIActions;
@@ -121,6 +132,7 @@ const initialUIState: UIState = {
   sidebarVisible: true,
   currentSnapTarget: null,
   connectMode: { active: false, firstLaneId: null },
+  boundaryBrush: { active: false, type: 'SOLID_WHITE' },
 };
 
 function sameSnapTarget(prev: SnapTarget | null, target: SnapTarget | null): boolean {
@@ -137,7 +149,12 @@ function sameSnapTarget(prev: SnapTarget | null, target: SnapTarget | null): boo
   );
 }
 
-function createUIActions(set: UISet, get: UIGet): UIActions {
+type CoreUIActions = Omit<
+  UIActions,
+  'toggleBoundaryBrush' | 'setBoundaryBrushType' | 'exitBoundaryBrush'
+>;
+
+function createUIActions(set: UISet, get: UIGet): CoreUIActions {
   const viewportActions = createViewportActions(set);
 
   return {
@@ -204,6 +221,7 @@ function createUIActions(set: UISet, get: UIGet): UIActions {
         connectMode: s.connectMode.active
           ? { active: false, firstLaneId: null }
           : { active: true, firstLaneId: null },
+        boundaryBrush: { ...s.boundaryBrush, active: false },
       }));
     },
     exitConnectMode() {
@@ -212,7 +230,6 @@ function createUIActions(set: UISet, get: UIGet): UIActions {
     setConnectFirstLane(id) {
       set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
     },
-
     ...viewportActions,
   };
 }
@@ -237,7 +254,27 @@ function createViewportActions(
   };
 }
 
+function createBoundaryBrushActions(
+  set: UISet,
+): Pick<UIActions, 'toggleBoundaryBrush' | 'setBoundaryBrushType' | 'exitBoundaryBrush'> {
+  return {
+    toggleBoundaryBrush() {
+      set((s) => ({
+        boundaryBrush: { ...s.boundaryBrush, active: !s.boundaryBrush.active },
+        connectMode: { active: false, firstLaneId: null },
+      }));
+    },
+    setBoundaryBrushType(type) {
+      set({ boundaryBrush: { active: true, type } });
+    },
+    exitBoundaryBrush() {
+      set((s) => ({ boundaryBrush: { ...s.boundaryBrush, active: false } }));
+    },
+  };
+}
+
 export const useUIStore = create<UIStore>()((set, get) => ({
   ...initialUIState,
   ...createUIActions(set, get),
+  ...createBoundaryBrushActions(set),
 }));

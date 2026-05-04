@@ -65,6 +65,11 @@ describe('applyCursor (useCursorManager cursor mapping)', () => {
     expect(applyCursor('someUnknownState')).toBe('');
   });
 
+  it('boundary brush mode returns crosshair in passive states', () => {
+    expect(applyCursor('idle', false, true)).toBe('crosshair');
+    expect(applyCursor('selected', false, true)).toBe('crosshair');
+  });
+
   it('editingPoint takes priority over any isDrawingState check', () => {
     // editingPoint is NOT a drawing state — it's a separate branch.
     expect(isDrawingState('editingPoint')).toBe(false);

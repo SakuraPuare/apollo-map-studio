@@ -225,9 +225,13 @@ const readLeftWidth = (e: LaneEntity): number => e.leftSamples[0]?.width ?? DEFA
 const readRightWidth = (e: LaneEntity): number =>
   e.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
 const readLeftBoundary = (e: LaneEntity): BoundaryLineType =>
-  e.leftBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
+  e.leftBoundary.boundaryType.length > 1
+    ? 'UNKNOWN'
+    : (e.leftBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN');
 const readRightBoundary = (e: LaneEntity): BoundaryLineType =>
-  e.rightBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN';
+  e.rightBoundary.boundaryType.length > 1
+    ? 'UNKNOWN'
+    : (e.rightBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN');
 
 const writeLeftWidth = (e: LaneEntity, width: number | undefined): LaneEntity => {
   const next = width ?? DEFAULT_LANE_HALF_WIDTH;

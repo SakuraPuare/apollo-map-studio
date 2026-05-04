@@ -88,6 +88,21 @@ describe('uiStore — toggle actions', () => {
     expect(useUIStore.getState().appMode).toBe('drawing');
   });
 
+  it('boundary brush stores selected boundary type and excludes connect mode', () => {
+    const s = useUIStore.getState();
+    expect(s.boundaryBrush).toEqual({ active: false, type: 'SOLID_WHITE' });
+
+    s.toggleBoundaryBrush();
+    expect(useUIStore.getState().boundaryBrush.active).toBe(true);
+
+    useUIStore.getState().setBoundaryBrushType('CURB');
+    expect(useUIStore.getState().boundaryBrush).toEqual({ active: true, type: 'CURB' });
+
+    useUIStore.getState().toggleConnectMode();
+    expect(useUIStore.getState().connectMode.active).toBe(true);
+    expect(useUIStore.getState().boundaryBrush.active).toBe(false);
+  });
+
   it('setAppMode 直接设值', () => {
     useUIStore.getState().setAppMode('scene');
     expect(useUIStore.getState().appMode).toBe('scene');

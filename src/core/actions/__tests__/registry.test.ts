@@ -93,6 +93,7 @@ describe('Action Registry', () => {
     expect(ids).toContain('undo');
     expect(ids).toContain('redo');
     expect(ids).toContain('delete');
+    expect(ids).toContain('boundaryBrush');
   });
 
   it('View menu has grid and snap toggles', () => {

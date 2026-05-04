@@ -3,6 +3,9 @@ import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
+import type { BoundaryLineType } from '@/types/apollo';
+import { useUIStore } from '@/store/uiStore';
+import { boundaryTypeOptions } from '@/lib/schemas';
 import {
   formatShortcut,
   getActionDefs,
@@ -61,6 +64,50 @@ function Divider() {
   return <div className="w-px h-5 bg-ams-border-strong mx-1 shrink-0" />;
 }
 
+function boundarySwatchClass(type: BoundaryLineType): string {
+  if (type.includes('YELLOW')) return 'border-amber-300';
+  if (type === 'CURB') return 'border-zinc-400';
+  if (type === 'UNKNOWN') return 'border-zinc-500';
+  return 'border-white';
+}
+
+function boundarySwatchStyle(type: BoundaryLineType): React.CSSProperties {
+  if (type.startsWith('DOTTED')) return { borderTopStyle: 'dotted' };
+  if (type === 'DOUBLE_YELLOW') return { boxShadow: '0 4px 0 rgb(252 211 77)' };
+  return {};
+}
+
+function BoundaryBrushPalette() {
+  const active = useUIStore((s) => s.boundaryBrush.active);
+  const selectedType = useUIStore((s) => s.boundaryBrush.type);
+  const setType = useUIStore((s) => s.setBoundaryBrushType);
+  if (!active) return null;
+
+  return (
+    <div className="flex items-center gap-0.5 shrink-0">
+      {boundaryTypeOptions.map((type) => (
+        <button
+          key={type}
+          type="button"
+          title={type}
+          onClick={() => setType(type)}
+          className={clsx(
+            'h-7 w-7 rounded flex items-center justify-center transition-all',
+            selectedType === type
+              ? 'bg-ams-surface-active text-ams-text-primary'
+              : 'text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover',
+          )}
+        >
+          <span
+            className={clsx('block w-4 border-t-2', boundarySwatchClass(type))}
+            style={boundarySwatchStyle(type)}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Element Bar (flat, icon-only) ─────────────────────────
 
 interface ElementBarProps {
@@ -110,6 +157,7 @@ export function ToolStrip({
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
       <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
+      <BoundaryBrushPalette />
 
       <ElementBar
         currentElement={currentElement}

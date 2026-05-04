@@ -11,7 +11,7 @@ import {
   unwrapId,
   unwrapIdArray,
 } from '../entityBridge';
-import type { CrosswalkEntity } from '@/types/apollo';
+import type { CrosswalkEntity, LaneEntity } from '@/types/apollo';
 
 const APOLLO_BIN = path.resolve(
   import.meta.dirname,
@@ -145,6 +145,53 @@ describe('entityBridge — apolloMapToEntities / entitiesToApolloMap', () => {
     // Empty buckets are also written (so an old `lane` array would be cleared
     // if it was in baseMap and no Lane entities are present in editor).
     expect(merged.lane).toEqual([]);
+  });
+
+  it('round-trips multi-segment lane boundary_type entries', () => {
+    const rawLane = {
+      id: { id: 'L_BOUNDARY' },
+      central_curve: {
+        segment: [
+          {
+            line_segment: {
+              point: [
+                { x: 0, y: 0 },
+                { x: 100, y: 0 },
+              ],
+            },
+          },
+        ],
+      },
+      left_boundary: {
+        length: 100,
+        boundary_type: [
+          { s: 0, types: [4] },
+          { s: 30, types: [2] },
+          { s: 60, types: [6] },
+        ],
+      },
+      right_boundary: {
+        length: 100,
+        boundary_type: [{ s: 0, types: [3] }],
+      },
+    };
+    const map = { lane: [rawLane] };
+    const entities = apolloMapToEntities(map);
+    expect((entities[0] as LaneEntity).leftBoundary.boundaryType).toEqual([
+      { s: 0, types: ['SOLID_WHITE'] },
+      { s: 30, types: ['DOTTED_WHITE'] },
+      { s: 60, types: ['CURB'] },
+    ]);
+
+    const merged = entitiesToApolloMap(map, entities);
+    const outLane = (
+      merged.lane as Array<{
+        left_boundary: { boundary_type: unknown[] };
+        right_boundary: { boundary_type: unknown[] };
+      }>
+    )[0]!;
+    expect(outLane.left_boundary.boundary_type).toEqual(rawLane.left_boundary.boundary_type);
+    expect(outLane.right_boundary.boundary_type).toEqual(rawLane.right_boundary.boundary_type);
   });
 });
 
