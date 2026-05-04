@@ -22,7 +22,7 @@ import {
   moveApolloEntity,
   setAllApolloEditPoints,
 } from '../apolloCompile/editPoints';
-import type { Curve, LaneEntity, RoadEntity, SignalEntity } from '@/types/apollo';
+import type { CrosswalkEntity, Curve, LaneEntity, RoadEntity, SignalEntity } from '@/types/apollo';
 
 const pt = (x: number, y: number) => ({ x, y });
 
@@ -46,6 +46,25 @@ function laneLine(
   return features.find(
     (feature) => feature.properties?.id === id && feature.properties?.role === role,
   ) as GeoJSON.Feature<GeoJSON.LineString> | undefined;
+}
+
+function crosswalkStripeLines(features: GeoJSON.Feature[]): GeoJSON.Feature<GeoJSON.LineString>[] {
+  return features.filter(
+    (feature) =>
+      feature.geometry.type === 'LineString' && feature.properties?.role === 'crosswalkStripe',
+  ) as GeoJSON.Feature<GeoJSON.LineString>[];
+}
+
+function lineAngleDeg(line: GeoJSON.Feature<GeoJSON.LineString>): number {
+  const [a, b] = line.geometry.coordinates;
+  if (!a || !b) throw new Error('Expected a two-point stripe line');
+  const [ax, ay] = a;
+  const [bx, by] = b;
+  if (ax === undefined || ay === undefined || bx === undefined || by === undefined) {
+    throw new Error('Expected two-dimensional stripe coordinates');
+  }
+  const angle = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+  return ((angle % 180) + 180) % 180;
 }
 
 describe('GAP #1 — road outer boundary renders as polylines', () => {
@@ -406,5 +425,27 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
       [116.01, 39.879],
       [116.01100000000001, 39.879],
     ]);
+  });
+});
+
+describe('crosswalk zebra stripes', () => {
+  it('emits stripe lines parallel to the polygon longest edge', () => {
+    const crosswalk: CrosswalkEntity = {
+      id: 'cw_long_edge',
+      entityType: 'crosswalk',
+      polygon: {
+        points: [pt(0, 0), pt(0.0001, 0.0001), pt(-0.0001, 0.0003), pt(-0.0002, 0.0002)],
+      },
+      overlapIds: [],
+    };
+
+    const features = compileApolloFeatures(crosswalk);
+    const stripes = crosswalkStripeLines(features);
+
+    expect(stripes.length).toBeGreaterThan(0);
+    for (const stripe of stripes) {
+      // Longest edges are northwest/southeast, i.e. 135deg modulo 180.
+      expect(lineAngleDeg(stripe)).toBeCloseTo(135, 1);
+    }
   });
 });
