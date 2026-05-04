@@ -4,7 +4,6 @@ import {
   FaChevronRight,
   FaEye,
   FaEyeSlash,
-  FaLayerGroup,
   FaLink,
   FaLock,
   FaLockOpen,
@@ -13,7 +12,7 @@ import {
 import { clsx } from 'clsx';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
-import { entityIcon } from './constants';
+import { getEntityIcon } from './constants';
 import type { TreeNode } from './types';
 
 export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
@@ -115,11 +114,17 @@ function NodeChevron({ isInternal, isOpen }: { isInternal: boolean; isOpen: bool
 }
 
 function NodeIcon({ data }: { data: TreeNode }) {
+  const EntityIcon = data.entityType ? getEntityIcon(data.entityType) : null;
+
   return (
     <span className="text-xs shrink-0 w-4 text-center">
-      {data.kind === 'group' && <FaLayerGroup className="w-3.5 h-3.5 text-zinc-500 inline" />}
+      {data.kind === 'group' && EntityIcon && (
+        <EntityIcon className="w-3.5 h-3.5 text-zinc-500 inline" />
+      )}
       {data.kind === 'section' && <span className="text-zinc-500">§</span>}
-      {data.kind === 'entity' && entityIcon(data.entityType ?? '')}
+      {data.kind === 'entity' && EntityIcon && (
+        <EntityIcon className="w-3.5 h-3.5 text-zinc-500 inline" />
+      )}
     </span>
   );
 }

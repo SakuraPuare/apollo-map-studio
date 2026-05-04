@@ -3,18 +3,8 @@
  * 每个元素映射到一个或多个基础绘制工具
  */
 import type { IconType } from 'react-icons';
-import {
-  FaRoad,
-  FaSquareParking,
-  FaPersonWalking,
-  FaTrafficLight,
-  FaBan,
-  FaRoadBarrier,
-} from 'react-icons/fa6';
-import { BsFillSignIntersectionFill, BsSignStop, BsSignYieldFill } from 'react-icons/bs';
-import { BiShapePolygon } from 'react-icons/bi';
-import { PiWarningDiamondFill } from 'react-icons/pi';
 import type { DrawTool } from '@/core/fsm/editorMachine';
+import { getEntityColor, getEntityEntry } from './entityRegistry';
 
 /** 元素类型的 entityType 判别器 */
 export type MapElementType =
@@ -46,116 +36,91 @@ export interface MapElementDef {
   icon: IconType;
 }
 
-export const MAP_ELEMENTS: MapElementDef[] = [
+const MAP_ELEMENT_CONFIG = [
   {
     type: 'lane',
-    label: '车道',
     tools: ['drawBezier', 'drawArc'],
     defaultTool: 'drawBezier',
-    color: '#4a9eff',
     geometry: 'line',
-    icon: FaRoad,
   },
   {
     type: 'junction',
-    label: '路口',
     tools: ['drawPolygon'],
     defaultTool: 'drawPolygon',
-    color: '#ffcc00',
     geometry: 'polygon',
-    icon: BsFillSignIntersectionFill,
   },
   {
     type: 'pncJunction',
-    label: 'PNC 路口',
     tools: ['drawPolygon'],
     defaultTool: 'drawPolygon',
-    color: '#ff9933',
     geometry: 'polygon',
-    icon: BsFillSignIntersectionFill,
   },
   {
     type: 'parkingSpace',
-    label: '车位',
     tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawRotatedRect',
-    color: '#7c5cbf',
     geometry: 'polygon',
-    icon: FaSquareParking,
   },
   {
     type: 'crosswalk',
-    label: '人行横道',
     tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawRotatedRect',
-    color: '#ffffff',
     geometry: 'polygon',
-    icon: FaPersonWalking,
   },
   {
     type: 'signal',
-    label: '信号灯',
     tools: ['drawBezier'],
     defaultTool: 'drawBezier',
-    color: '#22cc44',
     geometry: 'line',
-    icon: FaTrafficLight,
   },
   {
     type: 'stopSign',
-    label: '停车标志',
     tools: ['drawBezier'],
     defaultTool: 'drawBezier',
-    color: '#ff0000',
     geometry: 'line',
-    icon: BsSignStop,
   },
   {
     type: 'speedBump',
-    label: '减速带',
     tools: ['drawBezier'],
     defaultTool: 'drawBezier',
-    color: '#ffaa00',
     geometry: 'line',
-    icon: PiWarningDiamondFill,
   },
   {
     type: 'yieldSign',
-    label: '让行标志',
     tools: ['drawBezier'],
     defaultTool: 'drawBezier',
-    color: '#ff6600',
     geometry: 'line',
-    icon: BsSignYieldFill,
   },
   {
     type: 'clearArea',
-    label: '禁停区',
     tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawRotatedRect',
-    color: '#ff4466',
     geometry: 'polygon',
-    icon: FaBan,
   },
   {
     type: 'barrierGate',
-    label: '道闸',
     tools: ['drawBezier'],
     defaultTool: 'drawBezier',
-    color: '#aa66ff',
     geometry: 'line',
-    icon: FaRoadBarrier,
   },
   {
     type: 'area',
-    label: '区域',
     tools: ['drawPolygon'],
     defaultTool: 'drawPolygon',
-    color: '#66aaff',
     geometry: 'polygon',
-    icon: BiShapePolygon,
   },
-];
+] satisfies Pick<MapElementDef, 'type' | 'tools' | 'defaultTool' | 'geometry'>[];
+
+export const MAP_ELEMENTS: MapElementDef[] = MAP_ELEMENT_CONFIG.map((config) => {
+  const entry = getEntityEntry(config.type);
+  if (!entry) throw new Error(`Missing entity registry entry for ${config.type}`);
+  return {
+    ...config,
+    label: entry.label,
+    color: entry.color,
+    icon: entry.icon,
+  };
+});
 
 /** 全部绘制工具定义（drawRect 已统一为 drawRotatedRect，旧项目原本就只有一种矩形） */
 export const ALL_DRAW_TOOLS: { tool: DrawTool; label: string; color: string }[] = [
@@ -169,7 +134,7 @@ export const ELEMENT_MAP = new Map(MAP_ELEMENTS.map((e) => [e.type, e]));
 
 /** 根据元素类型获取颜色 */
 export function elementColor(entityType: string): string | undefined {
-  return ELEMENT_MAP.get(entityType as MapElementType)?.color;
+  return getEntityColor(entityType);
 }
 
 /**

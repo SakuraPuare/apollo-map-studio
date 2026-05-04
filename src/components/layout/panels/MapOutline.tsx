@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { getEntityPluralLabel, TOP_LEVEL_ENTITY_TYPES } from '@/core/entityRegistry';
 import { useMapStore } from '@/store/mapStore';
 import type { MapEntity } from '@/types/entities';
 import { MapMetadataForm } from './MapMetadataForm';
@@ -7,54 +8,8 @@ import { MapMetadataForm } from './MapMetadataForm';
 // orphan checks (entities whose FK targets are missing). Useful for
 // quickly auditing what's in the document before exporting.
 
-const APOLLO_TOP_LEVEL_TYPES = [
-  'road',
-  'junction',
-  'lane',
-  'signal',
-  'crosswalk',
-  'stopSign',
-  'yieldSign',
-  'speedBump',
-  'clearArea',
-  'parkingSpace',
-  'parkingLot',
-  'pncJunction',
-  'rsu',
-  'area',
-  'barrierGate',
-  'overlap',
-  'speedControl',
-] as const;
-
-const TYPE_LABELS: Record<string, string> = {
-  road: 'Roads',
-  junction: 'Junctions',
-  lane: 'Lanes',
-  signal: 'Signals',
-  crosswalk: 'Crosswalks',
-  stopSign: 'Stop Signs',
-  yieldSign: 'Yield Signs',
-  speedBump: 'Speed Bumps',
-  clearArea: 'Clear Areas',
-  parkingSpace: 'Parking Spaces',
-  parkingLot: 'Parking Lots',
-  pncJunction: 'PNC Junctions',
-  rsu: 'RSUs',
-  area: 'Areas',
-  barrierGate: 'Barrier Gates',
-  overlap: 'Overlaps',
-  speedControl: 'Speed Controls',
-  // drawings
-  polyline: 'Polylines',
-  bezier: 'Beziers',
-  arc: 'Arcs',
-  rect: 'Rectangles',
-  polygon: 'Polygons',
-  catmullRom: 'CatmullRom',
-};
-
 const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
+const APOLLO_TOP_LEVEL_TYPES = TOP_LEVEL_ENTITY_TYPES.filter((type) => !DRAWING_TYPES.has(type));
 
 interface OutlineStats {
   apolloCounts: Map<string, number>;
@@ -147,7 +102,7 @@ export function MapOutline() {
             {APOLLO_TOP_LEVEL_TYPES.map((t) => {
               const n = stats.apolloCounts.get(t) ?? 0;
               if (n === 0) return null;
-              return <Row key={t} label={TYPE_LABELS[t] ?? t} value={n} />;
+              return <Row key={t} label={getEntityPluralLabel(t)} value={n} />;
             })}
           </Section>
 

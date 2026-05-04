@@ -74,7 +74,7 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
           {TAB_TITLES[activeTab] ?? activeTab}
         </h2>
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'layers' && (
           <Suspense fallback={<PanelFallback label="Loading layers..." />}>
             <LazyLayerTree onSelect={handleSelect} selectedId={selectedId} />

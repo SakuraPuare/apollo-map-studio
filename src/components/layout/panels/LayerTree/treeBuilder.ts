@@ -1,7 +1,7 @@
 import type { ParentTarget } from '@/lib/entityOps';
 import type { LaneEntity, RoadEntity, RSUEntity } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
-import { TOP_LEVEL_ORDER, TYPE_LABELS, entityDisplayId } from './constants';
+import { TOP_LEVEL_ENTITY_TYPES, entityDisplayId, getEntityPluralLabel } from './constants';
 import type { DropKind, TreeNode } from './types';
 
 export function buildTree(entities: ReadonlyMap<string, MapEntity>): TreeNode[] {
@@ -148,7 +148,7 @@ function orderedGroups(groupChildren: Map<string, TreeNode[]>): TreeNode[] {
     if (!children || children.length === 0) return;
     groups.push({
       id: `group:${key}`,
-      name: TYPE_LABELS[key] ?? key,
+      name: getEntityPluralLabel(key),
       kind: 'group',
       entityType: key,
       dropKind: dropKindForGroup(key),
@@ -157,7 +157,7 @@ function orderedGroups(groupChildren: Map<string, TreeNode[]>): TreeNode[] {
     });
   };
 
-  for (const k of TOP_LEVEL_ORDER) pushGroup(k);
+  for (const k of TOP_LEVEL_ENTITY_TYPES) pushGroup(k);
   for (const k of groupChildren.keys()) pushGroup(k);
 
   return groups;

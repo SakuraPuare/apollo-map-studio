@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Tree, type NodeApi, type TreeApi } from 'react-arborist';
 import { FaPlus } from 'react-icons/fa6';
 import { canReparent } from '@/lib/entityOps';
@@ -85,7 +85,7 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   );
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-h-0 flex flex-col">
       <LayerTreeActions onCreateRoad={createRoad} onCreateRSU={createRSU} />
       {treeData.length === 0 ? (
         <LayerTreeEmpty />
@@ -130,7 +130,7 @@ function LayerTreeActions({
   onCreateRSU: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
+    <div className="flex shrink-0 items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
       <button
         onClick={onCreateRoad}
         className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
@@ -182,23 +182,49 @@ function LayerTreeView({
   onMove,
   disableDrop,
 }: LayerTreeViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const treeHeight = useElementHeight(containerRef);
+
   return (
-    <Tree<TreeNode>
-      ref={treeRef}
-      data={treeData}
-      openByDefault={false}
-      width="100%"
-      height={600}
-      indent={16}
-      rowHeight={26}
-      overscanCount={10}
-      selection={selectedId ? `entity:${selectedId}` : undefined}
-      onSelect={onSelect}
-      onMove={onMove}
-      disableDrag={(node) => node.kind !== 'entity'}
-      disableDrop={disableDrop}
-    >
-      {Node}
-    </Tree>
+    <div ref={containerRef} className="min-h-0 flex-1">
+      {treeHeight > 0 && (
+        <Tree<TreeNode>
+          ref={treeRef}
+          data={treeData}
+          className="ams-layer-tree-scrollbar"
+          openByDefault={false}
+          width="100%"
+          height={treeHeight}
+          indent={16}
+          rowHeight={26}
+          overscanCount={10}
+          selection={selectedId ? `entity:${selectedId}` : undefined}
+          onSelect={onSelect}
+          onMove={onMove}
+          disableDrag={(node) => node.kind !== 'entity'}
+          disableDrop={disableDrop}
+        >
+          {Node}
+        </Tree>
+      )}
+    </div>
   );
+}
+
+function useElementHeight(ref: RefObject<HTMLElement | null>) {
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const updateHeight = () => setHeight(element.clientHeight);
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return height;
 }
