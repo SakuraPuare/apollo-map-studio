@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { Suspense, lazy } from 'react';
 import { FaFolderTree } from 'react-icons/fa6';
 import { registerSidebarView } from '@/core/workspaceViewRegistry';

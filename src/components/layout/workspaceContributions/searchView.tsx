@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { Suspense, lazy } from 'react';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
 import { registerSidebarView, type SidebarViewRenderProps } from '@/core/workspaceViewRegistry';
