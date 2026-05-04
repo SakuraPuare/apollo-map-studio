@@ -18,6 +18,21 @@ import {
   readMapZoom,
   readLaneHalfWidth,
   readLaneArrowSpacing,
+  readGridEnabled,
+  readSnapEnabled,
+  readLaneSpeedLimit,
+  readLaneBoundaryType,
+  readSnapRadius,
+  readClickThreshold,
+  readHitBboxPadding,
+  readHitTestRadius,
+  readLaneFillOpacity,
+  readLaneEdgeLineWidth,
+  readLaneEdgeLineOpacity,
+  readLaneCenterLineWidth,
+  readLaneCenterLineOpacity,
+  readLaneArrowSize,
+  readLaneArrowOpacity,
   DEFAULT_HISTORY_LIMIT,
   MIN_HISTORY_LIMIT,
   MAX_HISTORY_LIMIT,
@@ -27,6 +42,22 @@ import {
   MAX_LANE_HALF_WIDTH,
   MIN_LANE_ARROW_SPACING,
   MAX_LANE_ARROW_SPACING,
+  MIN_LANE_SPEED_LIMIT,
+  MAX_LANE_SPEED_LIMIT,
+  MIN_SNAP_RADIUS,
+  MAX_SNAP_RADIUS,
+  MIN_CLICK_THRESHOLD,
+  MAX_CLICK_THRESHOLD,
+  MIN_HIT_BBOX_PADDING,
+  MAX_HIT_BBOX_PADDING,
+  MIN_HIT_TEST_RADIUS,
+  MAX_HIT_TEST_RADIUS,
+  MIN_OPACITY,
+  MAX_OPACITY,
+  MIN_LANE_LINE_WIDTH,
+  MAX_LANE_LINE_WIDTH,
+  MIN_LANE_ARROW_SIZE,
+  MAX_LANE_ARROW_SIZE,
 } from '../settingsStore';
 
 // ─── localStorage mock ────────────────────────────────────────────────────────
@@ -89,6 +120,28 @@ describe('settingsStore — default state', () => {
   it('laneArrowSpacing defaults to LANE_ARROW_SYMBOL_SPACING (160)', () => {
     expect(useSettingsStore.getState().laneArrowSpacing).toBe(160);
   });
+
+  it('map tool defaults are grid on / snap off', () => {
+    expect(useSettingsStore.getState().gridEnabled).toBe(true);
+    expect(useSettingsStore.getState().snapEnabled).toBe(false);
+  });
+
+  it('editing and render defaults come from map constants', () => {
+    const s = useSettingsStore.getState();
+    expect(s.laneSpeedLimit).toBeCloseTo(60 / 3.6);
+    expect(s.laneBoundaryType).toBe('DOTTED_WHITE');
+    expect(s.snapRadius).toBe(12);
+    expect(s.clickThreshold).toBe(5);
+    expect(s.hitBboxPadding).toBe(8);
+    expect(s.hitTestRadius).toBe(10);
+    expect(s.laneFillOpacity).toBe(0.3);
+    expect(s.laneEdgeLineWidth).toBe(2);
+    expect(s.laneEdgeLineOpacity).toBe(0.9);
+    expect(s.laneCenterLineWidth).toBe(1);
+    expect(s.laneCenterLineOpacity).toBe(0.4);
+    expect(s.laneArrowSize).toBe(10);
+    expect(s.laneArrowOpacity).toBe(0.85);
+  });
 });
 
 // ── Exported range constants ──────────────────────────────────────────────────
@@ -112,6 +165,25 @@ describe('settingsStore — range constants', () => {
   it('lane arrow spacing range: 40–500', () => {
     expect(MIN_LANE_ARROW_SPACING).toBe(40);
     expect(MAX_LANE_ARROW_SPACING).toBe(500);
+  });
+
+  it('new user-facing setting ranges are exported', () => {
+    expect(MIN_LANE_SPEED_LIMIT).toBe(0);
+    expect(MAX_LANE_SPEED_LIMIT).toBe(50);
+    expect(MIN_SNAP_RADIUS).toBe(2);
+    expect(MAX_SNAP_RADIUS).toBe(64);
+    expect(MIN_CLICK_THRESHOLD).toBe(1);
+    expect(MAX_CLICK_THRESHOLD).toBe(32);
+    expect(MIN_HIT_BBOX_PADDING).toBe(1);
+    expect(MAX_HIT_BBOX_PADDING).toBe(48);
+    expect(MIN_HIT_TEST_RADIUS).toBe(1);
+    expect(MAX_HIT_TEST_RADIUS).toBe(64);
+    expect(MIN_OPACITY).toBe(0);
+    expect(MAX_OPACITY).toBe(1);
+    expect(MIN_LANE_LINE_WIDTH).toBe(0.25);
+    expect(MAX_LANE_LINE_WIDTH).toBe(8);
+    expect(MIN_LANE_ARROW_SIZE).toBe(4);
+    expect(MAX_LANE_ARROW_SIZE).toBe(32);
   });
 });
 
@@ -303,6 +375,68 @@ describe('settingsStore — setLaneArrowSpacing', () => {
   });
 });
 
+describe('settingsStore — additional user-facing settings', () => {
+  it('persists grid and snap defaults', () => {
+    useSettingsStore.getState().setGridEnabled(false);
+    useSettingsStore.getState().setSnapEnabled(true);
+
+    expect(useSettingsStore.getState().gridEnabled).toBe(false);
+    expect(useSettingsStore.getState().snapEnabled).toBe(true);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('apollo-map-studio:gridEnabled', 'false');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('apollo-map-studio:snapEnabled', 'true');
+  });
+
+  it('clamps and persists lane speed limit', () => {
+    useSettingsStore.getState().setLaneSpeedLimit(100);
+    expect(useSettingsStore.getState().laneSpeedLimit).toBe(MAX_LANE_SPEED_LIMIT);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'apollo-map-studio:laneSpeedLimit',
+      String(MAX_LANE_SPEED_LIMIT),
+    );
+  });
+
+  it('accepts only registered lane boundary type values', () => {
+    useSettingsStore.getState().setLaneBoundaryType('CURB');
+    expect(useSettingsStore.getState().laneBoundaryType).toBe('CURB');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'apollo-map-studio:laneBoundaryType',
+      'CURB',
+    );
+  });
+
+  it('clamps interaction thresholds', () => {
+    const s = useSettingsStore.getState();
+    s.setSnapRadius(0);
+    s.setClickThreshold(100);
+    s.setHitBboxPadding(100);
+    s.setHitTestRadius(0);
+
+    expect(useSettingsStore.getState().snapRadius).toBe(MIN_SNAP_RADIUS);
+    expect(useSettingsStore.getState().clickThreshold).toBe(MAX_CLICK_THRESHOLD);
+    expect(useSettingsStore.getState().hitBboxPadding).toBe(MAX_HIT_BBOX_PADDING);
+    expect(useSettingsStore.getState().hitTestRadius).toBe(MIN_HIT_TEST_RADIUS);
+  });
+
+  it('clamps rendering settings', () => {
+    const s = useSettingsStore.getState();
+    s.setLaneFillOpacity(2);
+    s.setLaneEdgeLineWidth(99);
+    s.setLaneEdgeLineOpacity(-1);
+    s.setLaneCenterLineWidth(0);
+    s.setLaneCenterLineOpacity(2);
+    s.setLaneArrowSize(99);
+    s.setLaneArrowOpacity(-1);
+
+    expect(useSettingsStore.getState().laneFillOpacity).toBe(MAX_OPACITY);
+    expect(useSettingsStore.getState().laneEdgeLineWidth).toBe(MAX_LANE_LINE_WIDTH);
+    expect(useSettingsStore.getState().laneEdgeLineOpacity).toBe(MIN_OPACITY);
+    expect(useSettingsStore.getState().laneCenterLineWidth).toBe(MIN_LANE_LINE_WIDTH);
+    expect(useSettingsStore.getState().laneCenterLineOpacity).toBe(MAX_OPACITY);
+    expect(useSettingsStore.getState().laneArrowSize).toBe(MAX_LANE_ARROW_SIZE);
+    expect(useSettingsStore.getState().laneArrowOpacity).toBe(MIN_OPACITY);
+  });
+});
+
 // ── readXxx helpers ───────────────────────────────────────────────────────────
 
 describe('readHistoryLimit', () => {
@@ -413,6 +547,52 @@ describe('readLaneArrowSpacing', () => {
   it('clamps stored value to [MIN, MAX]', () => {
     localStorageMock.getItem.mockReturnValueOnce('600');
     expect(readLaneArrowSpacing()).toBe(MAX_LANE_ARROW_SPACING);
+  });
+});
+
+describe('additional read helpers', () => {
+  it('reads boolean settings from localStorage', () => {
+    localStorageMock.getItem.mockReturnValueOnce('false');
+    expect(readGridEnabled()).toBe(false);
+    localStorageMock.getItem.mockReturnValueOnce('true');
+    expect(readSnapEnabled()).toBe(true);
+  });
+
+  it('reads lane creation defaults', () => {
+    localStorageMock.getItem.mockReturnValueOnce('12');
+    expect(readLaneSpeedLimit()).toBe(12);
+    localStorageMock.getItem.mockReturnValueOnce('CURB');
+    expect(readLaneBoundaryType()).toBe('CURB');
+  });
+
+  it('falls back on invalid lane boundary type', () => {
+    localStorageMock.getItem.mockReturnValueOnce('not-a-boundary');
+    expect(readLaneBoundaryType()).toBe('DOTTED_WHITE');
+  });
+
+  it('reads interaction and render numbers', () => {
+    localStorageMock.getItem.mockReturnValueOnce('24');
+    expect(readSnapRadius()).toBe(24);
+    localStorageMock.getItem.mockReturnValueOnce('7');
+    expect(readClickThreshold()).toBe(7);
+    localStorageMock.getItem.mockReturnValueOnce('9');
+    expect(readHitBboxPadding()).toBe(9);
+    localStorageMock.getItem.mockReturnValueOnce('11');
+    expect(readHitTestRadius()).toBe(11);
+    localStorageMock.getItem.mockReturnValueOnce('0.5');
+    expect(readLaneFillOpacity()).toBe(0.5);
+    localStorageMock.getItem.mockReturnValueOnce('3');
+    expect(readLaneEdgeLineWidth()).toBe(3);
+    localStorageMock.getItem.mockReturnValueOnce('0.7');
+    expect(readLaneEdgeLineOpacity()).toBe(0.7);
+    localStorageMock.getItem.mockReturnValueOnce('2');
+    expect(readLaneCenterLineWidth()).toBe(2);
+    localStorageMock.getItem.mockReturnValueOnce('0.2');
+    expect(readLaneCenterLineOpacity()).toBe(0.2);
+    localStorageMock.getItem.mockReturnValueOnce('14');
+    expect(readLaneArrowSize()).toBe(14);
+    localStorageMock.getItem.mockReturnValueOnce('0.6');
+    expect(readLaneArrowOpacity()).toBe(0.6);
   });
 });
 

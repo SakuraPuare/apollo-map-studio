@@ -1,6 +1,7 @@
 import { create, type StateCreator } from 'zustand';
 import type { SnapTarget } from '@/core/geometry/snap';
 import type { BoundaryLineType } from '@/types/apollo';
+import { readGridEnabled, readSnapEnabled, useSettingsStore } from './settingsStore';
 
 // ─── Entity type visibility / lock state ────────────────────
 
@@ -71,6 +72,8 @@ interface UIActions {
 
   toggleGrid(): void;
   toggleSnap(): void;
+  setGridEnabled(value: boolean): void;
+  setSnapEnabled(value: boolean): void;
 
   setLayerVisible(type: string, visible: boolean): void;
   setLayerLocked(type: string, locked: boolean): void;
@@ -123,8 +126,8 @@ function patchLayer(
 
 const initialUIState: UIState = {
   appMode: 'drawing',
-  gridEnabled: true,
-  snapEnabled: false,
+  gridEnabled: readGridEnabled(),
+  snapEnabled: readSnapEnabled(),
   layerStates: defaultLayerStates,
   cursorLngLat: null,
   currentZoom: 18,
@@ -153,9 +156,14 @@ type CoreUIActions = Omit<
   UIActions,
   'toggleBoundaryBrush' | 'setBoundaryBrushType' | 'exitBoundaryBrush'
 >;
+type PreferenceActions = Pick<
+  UIActions,
+  'toggleGrid' | 'toggleSnap' | 'setGridEnabled' | 'setSnapEnabled'
+>;
 
 function createUIActions(set: UISet, get: UIGet): CoreUIActions {
   const viewportActions = createViewportActions(set);
+  const preferenceActions = createPreferenceActions(set, get);
 
   return {
     setAppMode(mode) {
@@ -165,12 +173,7 @@ function createUIActions(set: UISet, get: UIGet): CoreUIActions {
       set((s) => ({ appMode: s.appMode === 'drawing' ? 'scene' : 'drawing' }));
     },
 
-    toggleGrid() {
-      set((s) => ({ gridEnabled: !s.gridEnabled }));
-    },
-    toggleSnap() {
-      set((s) => ({ snapEnabled: !s.snapEnabled }));
-    },
+    ...preferenceActions,
 
     setLayerVisible(type, visible) {
       set((s) => ({ layerStates: patchLayer(s.layerStates, type, { visible }) }));
@@ -231,6 +234,29 @@ function createUIActions(set: UISet, get: UIGet): CoreUIActions {
       set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
     },
     ...viewportActions,
+  };
+}
+
+function createPreferenceActions(set: UISet, get: UIGet): PreferenceActions {
+  return {
+    toggleGrid() {
+      const next = !get().gridEnabled;
+      set({ gridEnabled: next });
+      useSettingsStore.getState().setGridEnabled(next);
+    },
+    toggleSnap() {
+      const next = !get().snapEnabled;
+      set({ snapEnabled: next });
+      useSettingsStore.getState().setSnapEnabled(next);
+    },
+    setGridEnabled(value) {
+      set({ gridEnabled: value });
+      useSettingsStore.getState().setGridEnabled(value);
+    },
+    setSnapEnabled(value) {
+      set({ snapEnabled: value });
+      useSettingsStore.getState().setSnapEnabled(value);
+    },
   };
 }
 

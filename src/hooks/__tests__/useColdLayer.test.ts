@@ -19,7 +19,9 @@ import {
   flattenEntityFeatures,
   diffEntities,
   hasEntityChanges,
+  hasColdRenderSettingsChanged,
 } from '../useColdLayer';
+import { useSettingsStore } from '@/store/settingsStore';
 
 type _EntitySnapshot = Map<string, SerializedEntity>;
 
@@ -227,5 +229,27 @@ describe('hasEntityChanges', () => {
 
   it('true when removed is non-empty', () => {
     expect(hasEntityChanges({ added: [], updated: [], removed: ['x'] })).toBe(true);
+  });
+});
+
+describe('hasColdRenderSettingsChanged', () => {
+  it('detects lane render setting changes', () => {
+    const state = useSettingsStore.getState();
+
+    expect(hasColdRenderSettingsChanged({ ...state, laneFillOpacity: 0.12 }, state)).toBe(true);
+    expect(
+      hasColdRenderSettingsChanged(
+        { ...state, laneEdgeLineWidth: state.laneEdgeLineWidth + 1 },
+        state,
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores settings that do not require cold feature rebuild', () => {
+    const state = useSettingsStore.getState();
+
+    expect(
+      hasColdRenderSettingsChanged({ ...state, snapRadius: state.snapRadius + 1 }, state),
+    ).toBe(false);
   });
 });

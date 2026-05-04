@@ -1,5 +1,5 @@
 import type maplibregl from 'maplibre-gl';
-import { LANE_ARROW_COLOR, LANE_ARROW_OPACITY, LANE_ARROW_TEXT_SIZE } from '@/config/mapConstants';
+import { LANE_ARROW_COLOR } from '@/config/mapConstants';
 import { COLD_LAYER_FILTERS } from '@/components/map/coldLayerConfig';
 import { MAP_ICON_PX } from '@/lib/mapIcons';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -136,7 +136,7 @@ function addColdSymbolLayers(map: maplibregl.Map) {
     layout: {
       'symbol-placement': 'line',
       'icon-image': 'lane-arrow',
-      'icon-size': LANE_ARROW_TEXT_SIZE / 20,
+      'icon-size': useSettingsStore.getState().laneArrowSize / 20,
       'icon-rotation-alignment': 'map',
       'icon-pitch-alignment': 'viewport',
       'symbol-spacing': useSettingsStore.getState().laneArrowSpacing,
@@ -145,7 +145,7 @@ function addColdSymbolLayers(map: maplibregl.Map) {
     },
     paint: {
       'icon-color': LANE_ARROW_COLOR,
-      'icon-opacity': LANE_ARROW_OPACITY,
+      'icon-opacity': useSettingsStore.getState().laneArrowOpacity,
       'icon-halo-color': 'rgba(0,0,0,0.4)',
       'icon-halo-width': 1,
     },

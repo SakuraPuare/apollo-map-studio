@@ -20,6 +20,7 @@ import type {
   RectEntity,
 } from '@/types/entities';
 import type { MapElementType } from '@/core/elements';
+import type { BoundaryLineType } from '@/types/apollo';
 
 export interface MapEditingSession {
   readonly entities: ReadonlyMap<string, MapEntity>;
@@ -49,13 +50,20 @@ export function createDrawnEntity(
   points: LngLat[],
   anchors: BezierAnchor[],
   element: MapElementType | null,
-  options?: { laneHalfWidth?: number; entities?: ReadonlyMap<string, MapEntity> },
+  options?: {
+    laneHalfWidth?: number;
+    laneSpeedLimit?: number;
+    laneBoundaryType?: BoundaryLineType;
+    entities?: ReadonlyMap<string, MapEntity>;
+  },
 ): MapEntity | null {
   if (!hasDrawableGeometry(state, points, anchors)) return null;
 
   if (element) {
     return createApolloEntity(element, state, points, anchors, {
       laneHalfWidth: options?.laneHalfWidth,
+      laneSpeedLimit: options?.laneSpeedLimit,
+      laneBoundaryType: options?.laneBoundaryType,
       entities: options?.entities,
     });
   }

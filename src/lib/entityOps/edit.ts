@@ -12,7 +12,7 @@ import {
   setAllApolloEditPoints,
   setApolloEditPoint,
 } from '@/core/geometry/apolloCompile';
-import type { ApolloEntity } from '@/types/apollo';
+import type { ApolloEntity, BoundaryLineType } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
 import { isApolloEntityType } from './typeGuards';
 
@@ -78,7 +78,12 @@ export function createEntity(
   drawTool: string,
   points: LngLat[],
   anchors: BezierAnchor[],
-  options?: { laneHalfWidth?: number; entities?: ReadonlyMap<string, MapEntity> },
+  options?: {
+    laneHalfWidth?: number;
+    laneSpeedLimit?: number;
+    laneBoundaryType?: BoundaryLineType;
+    entities?: ReadonlyMap<string, MapEntity>;
+  },
 ): ApolloEntity {
   const raw = createApolloEntity(elementType, drawTool, points, anchors, options);
   return applyDerive(raw, { cause: 'create' });

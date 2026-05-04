@@ -1,11 +1,4 @@
-import {
-  DEFAULT_LANE_HALF_WIDTH,
-  LANE_CENTER_LINE_OPACITY,
-  LANE_CENTER_LINE_WIDTH,
-  LANE_EDGE_LINE_OPACITY,
-  LANE_EDGE_LINE_WIDTH,
-  LANE_FILL_OPACITY,
-} from '@/config/mapConstants';
+import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
 import { elementColor, laneTypeColor } from '@/core/elements';
@@ -13,6 +6,7 @@ import type { ApolloEntity, ApolloPolygon, Curve } from '@/types/apollo';
 import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
 import { offsetPolylineDeg } from './offsetPolyline';
 import { computeSignalHeading, headingToIconRotate } from './signalHeading';
+import { useSettingsStore } from '@/store/settingsStore';
 
 function curveToCoords(curve: Curve): LngLat[] {
   const coords: LngLat[] = [];
@@ -120,6 +114,7 @@ function renderLane(
   const centerPts = curvePoints(entity.centralCurve);
   if (centerPts.length < 2) return features;
   const laneColor = laneTypeColor(entity.type);
+  const settings = useSettingsStore.getState();
   const laneBase: Record<string, unknown> = { ...base, color: laneColor };
   const leftW = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
   const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
@@ -129,7 +124,7 @@ function renderLane(
   const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
   if (polyCoords.length >= 4) {
     features.push(
-      mkPolygon(polyCoords, { ...laneBase, fillOpacity: LANE_FILL_OPACITY, noStroke: true }),
+      mkPolygon(polyCoords, { ...laneBase, fillOpacity: settings.laneFillOpacity, noStroke: true }),
     );
   }
   features.push(
@@ -139,8 +134,8 @@ function renderLane(
       boundarySide: 'left',
       boundaryBase: true,
       noStroke: true,
-      lineWidth: LANE_EDGE_LINE_WIDTH,
-      lineOpacity: LANE_EDGE_LINE_OPACITY,
+      lineWidth: settings.laneEdgeLineWidth,
+      lineOpacity: settings.laneEdgeLineOpacity,
     }),
   );
   features.push(
@@ -150,8 +145,8 @@ function renderLane(
       boundarySide: 'right',
       boundaryBase: true,
       noStroke: true,
-      lineWidth: LANE_EDGE_LINE_WIDTH,
-      lineOpacity: LANE_EDGE_LINE_OPACITY,
+      lineWidth: settings.laneEdgeLineWidth,
+      lineOpacity: settings.laneEdgeLineOpacity,
     }),
   );
 
@@ -161,8 +156,8 @@ function renderLane(
     color: '#ffffff',
     id: entity.id,
     entityType: entity.entityType,
-    lineWidth: LANE_CENTER_LINE_WIDTH,
-    lineOpacity: LANE_CENTER_LINE_OPACITY,
+    lineWidth: settings.laneCenterLineWidth,
+    lineOpacity: settings.laneCenterLineOpacity,
     dashed: true,
     role: 'laneCenter',
   };

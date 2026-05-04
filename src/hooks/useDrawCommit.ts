@@ -23,9 +23,14 @@ function commitEntity(
   element: MapElementType | null,
 ) {
   const { addEntity, entities } = useMapStore.getState();
-  const { laneHalfWidth } = useSettingsStore.getState();
+  const { laneHalfWidth, laneSpeedLimit, laneBoundaryType } = useSettingsStore.getState();
 
-  const entity = createDrawnEntity(state, points, anchors, element, { laneHalfWidth, entities });
+  const entity = createDrawnEntity(state, points, anchors, element, {
+    laneHalfWidth,
+    laneSpeedLimit,
+    laneBoundaryType,
+    entities,
+  });
   if (entity) addEntity(entity);
 }
 

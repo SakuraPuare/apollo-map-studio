@@ -4,6 +4,7 @@ import type { GeoJSONFeatureId, GeoJSONSourceDiff } from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
+import { useSettingsStore, type SettingsState } from '@/store/settingsStore';
 import { useTaskProgressStore } from '@/store/taskProgressStore';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 import type { EntityFeatureGroup, SerializedEntity } from '@/core/workers/protocol';
@@ -12,6 +13,13 @@ import { COLD_LAYER_IDS, buildColdLayerFilter } from '@/components/map/coldLayer
 type EntitySnapshot = Map<string, SerializedEntity>;
 const SOURCE_UPDATE_CHUNK_SIZE = 4_000;
 const FULL_SYNC_ENTITY_CHANGE_THRESHOLD = 5_000;
+const COLD_RENDER_SETTING_KEYS: readonly (keyof SettingsState)[] = [
+  'laneFillOpacity',
+  'laneEdgeLineWidth',
+  'laneEdgeLineOpacity',
+  'laneCenterLineWidth',
+  'laneCenterLineOpacity',
+];
 
 /**
  * Group a flat feature collection into per-entity buckets keyed by
@@ -147,6 +155,10 @@ export function hasEntityChanges(diff: ReturnType<typeof diffEntities>) {
   return diff.added.length > 0 || diff.updated.length > 0 || diff.removed.length > 0;
 }
 
+export function hasColdRenderSettingsChanged(state: SettingsState, prevState: SettingsState) {
+  return COLD_RENDER_SETTING_KEYS.some((key) => state[key] !== prevState[key]);
+}
+
 function diffSize(diff: ReturnType<typeof diffEntities>) {
   return diff.added.length + diff.updated.length + diff.removed.length;
 }
@@ -172,6 +184,12 @@ interface ColdLayerSyncContext {
   mapLoadedRef: React.RefObject<boolean>;
   refs: ColdLayerRefs;
   isCancelled: () => boolean;
+}
+
+interface ColdLayerSubscriptions {
+  actorSubscription: { unsubscribe(): void };
+  unsubscribeStore: () => void;
+  unsubscribeSettings: () => void;
 }
 
 async function syncAllColdFeatures(
@@ -290,6 +308,96 @@ function cancelScheduledSync(syncFrameRef: React.MutableRefObject<number | null>
   syncFrameRef.current = null;
 }
 
+function unsubscribeColdLayer(subscriptions: ColdLayerSubscriptions) {
+  subscriptions.actorSubscription.unsubscribe();
+  subscriptions.unsubscribeStore();
+  subscriptions.unsubscribeSettings();
+}
+
+interface ColdLayerSetupInput {
+  map: maplibregl.Map;
+  mapLoadedRef: React.RefObject<boolean>;
+  actorRef: ActorRefFrom<typeof editorMachine>;
+  bridge: SpatialWorkerBridge;
+  refs: ColdLayerRefs;
+}
+
+function setupColdLayerSync({
+  map,
+  mapLoadedRef,
+  actorRef,
+  bridge,
+  refs,
+}: ColdLayerSetupInput): (() => void) | void {
+  let cancelled = false;
+  refs.selectedEntityIdRef.current = actorRef.getSnapshot().context.selectedEntityId;
+
+  const context: ColdLayerSyncContext = {
+    map,
+    bridge,
+    mapLoadedRef,
+    refs,
+    isCancelled: () => cancelled,
+  };
+
+  const scheduleSync = () => {
+    if (refs.syncFrameRef.current !== null) return;
+    refs.syncFrameRef.current = requestAnimationFrame(() => syncColdLayer(context));
+  };
+
+  const applySelection = () => {
+    if (!mapLoadedRef.current) return;
+    applyColdSelectionFilter(map, refs.selectedEntityIdRef.current);
+  };
+
+  const onActorChange = () => {
+    const selectedEntityId = actorRef.getSnapshot().context.selectedEntityId;
+    if (selectedEntityId === refs.selectedEntityIdRef.current) return;
+    refs.selectedEntityIdRef.current = selectedEntityId;
+    applySelection();
+  };
+
+  const actorSubscription = actorRef.subscribe(onActorChange);
+  const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
+    if (state.entities !== prevState.entities) {
+      scheduleSync();
+    }
+  });
+  const unsubscribeSettings = useSettingsStore.subscribe((state, prevState) => {
+    if (!hasColdRenderSettingsChanged(state, prevState)) return;
+    refs.prevEntitiesRef.current = null;
+    refs.entityFeatureCacheRef.current = new Map();
+    scheduleSync();
+  });
+  const subscriptions: ColdLayerSubscriptions = {
+    actorSubscription,
+    unsubscribeStore,
+    unsubscribeSettings,
+  };
+
+  const onLoad = () => {
+    scheduleSync();
+    applySelection();
+  };
+
+  const cleanup = () => {
+    cancelled = true;
+    unsubscribeColdLayer(subscriptions);
+    cancelScheduledSync(refs.syncFrameRef);
+  };
+
+  if (mapLoadedRef.current) {
+    onLoad();
+    return cleanup;
+  }
+
+  map.once('load', onLoad);
+  return () => {
+    cleanup();
+    map.off('load', onLoad);
+  };
+}
+
 export function useColdLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,
   mapLoadedRef: React.RefObject<boolean>,
@@ -300,18 +408,12 @@ export function useColdLayer(
   const syncFrameRef = useRef<number | null>(null);
   const syncVersionRef = useRef(0);
   const selectedEntityIdRef = useRef<string | null>(null);
-  // P1: per-entity feature cache mirrors the worker's output. INCREMENTAL
-  // responses ship only the changed entities (COLD_DELTA), and we merge
-  // them into this map before rebuilding the flat FC for maplibre.
   const entityFeatureCacheRef = useRef<Map<string, GeoJSON.Feature[]>>(new Map());
 
   useEffect(() => {
     const map = mapRef.current;
     const bridge = bridgeRef.current;
     if (!map || !bridge) return;
-
-    let cancelled = false;
-    selectedEntityIdRef.current = actorRef.getSnapshot().context.selectedEntityId;
 
     const refs: ColdLayerRefs = {
       prevEntitiesRef,
@@ -320,61 +422,7 @@ export function useColdLayer(
       selectedEntityIdRef,
       entityFeatureCacheRef,
     };
-    const context: ColdLayerSyncContext = {
-      map,
-      bridge,
-      mapLoadedRef,
-      refs,
-      isCancelled: () => cancelled,
-    };
-
-    const scheduleSync = () => {
-      if (syncFrameRef.current !== null) return;
-      syncFrameRef.current = requestAnimationFrame(() => syncColdLayer(context));
-    };
-
-    const applySelection = () => {
-      if (!mapLoadedRef.current) return;
-      applyColdSelectionFilter(map, selectedEntityIdRef.current);
-    };
-
-    const onActorChange = () => {
-      const selectedEntityId = actorRef.getSnapshot().context.selectedEntityId;
-      if (selectedEntityId === selectedEntityIdRef.current) return;
-      selectedEntityIdRef.current = selectedEntityId;
-      applySelection();
-    };
-
-    const actorSubscription = actorRef.subscribe(onActorChange);
-    const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
-      if (state.entities !== prevState.entities) {
-        scheduleSync();
-      }
-    });
-
-    const onLoad = () => {
-      scheduleSync();
-      applySelection();
-    };
-
-    if (mapLoadedRef.current) {
-      onLoad();
-      return () => {
-        cancelled = true;
-        actorSubscription.unsubscribe();
-        unsubscribeStore();
-        cancelScheduledSync(syncFrameRef);
-      };
-    }
-
-    map.once('load', onLoad);
-    return () => {
-      cancelled = true;
-      actorSubscription.unsubscribe();
-      unsubscribeStore();
-      map.off('load', onLoad);
-      cancelScheduledSync(syncFrameRef);
-    };
+    return setupColdLayerSync({ map, mapLoadedRef, actorRef, bridge, refs });
     // mapRef / mapLoadedRef / bridgeRef are refs — non-reactive by design.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actorRef]);

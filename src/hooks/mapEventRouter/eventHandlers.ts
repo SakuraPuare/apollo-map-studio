@@ -2,10 +2,10 @@ import type maplibregl from 'maplibre-gl';
 import type { RefObject } from 'react';
 import type { ActorRefFrom } from 'xstate';
 import { applyDrag } from '@/components/map/entityMutations';
-import { CLICK_THRESHOLD_PX } from '@/config/mapConstants';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { findLaneBoundaryPaintHit, setLaneBoundaryType } from '@/core/geometry/laneBoundaryPaint';
 import { useMapStore } from '@/store/mapStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useUIStore } from '@/store/uiStore';
 import type { LaneEntity } from '@/types/apollo';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
@@ -102,7 +102,10 @@ function handleIdleClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void 
 function isClickAfterDrag(ctx: RouterContext, e: maplibregl.MapMouseEvent): boolean {
   const start = ctx.mutable.mouseDownScreenPos;
   if (!start) return false;
-  return Math.hypot(e.point.x - start.x, e.point.y - start.y) > CLICK_THRESHOLD_PX;
+  return (
+    Math.hypot(e.point.x - start.x, e.point.y - start.y) >
+    useSettingsStore.getState().clickThreshold
+  );
 }
 
 function clearSnapTargetIfAny(): void {

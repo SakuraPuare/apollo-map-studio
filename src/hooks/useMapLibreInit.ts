@@ -35,11 +35,15 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
   }, []);
 
   const laneArrowSpacing = useSettingsStore((s) => s.laneArrowSpacing);
+  const laneArrowSize = useSettingsStore((s) => s.laneArrowSize);
+  const laneArrowOpacity = useSettingsStore((s) => s.laneArrowOpacity);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     map.setLayoutProperty('cold-lane-arrows', 'symbol-spacing', laneArrowSpacing);
-  }, [laneArrowSpacing]);
+    map.setLayoutProperty('cold-lane-arrows', 'icon-size', laneArrowSize / 20);
+    map.setPaintProperty('cold-lane-arrows', 'icon-opacity', laneArrowOpacity);
+  }, [laneArrowOpacity, laneArrowSize, laneArrowSpacing]);
 
   return { mapRef, mapLoadedRef };
 }

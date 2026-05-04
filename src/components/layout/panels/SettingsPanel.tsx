@@ -3,14 +3,19 @@ import { FaXmark } from 'react-icons/fa6';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/store/settingsStore';
+import { registerBuiltinSettingsTabs } from './builtinSettingsTabs';
 import {
   getSettingsTabs,
   type ActionSettingEntryDef,
+  type BooleanSettingEntryDef,
   type NumberSettingEntryDef,
+  type SelectSettingEntryDef,
   type SettingsEntryDef,
   type SettingsSectionDef,
   type SettingsTabDef,
 } from './settingsRegistry';
+
+registerBuiltinSettingsTabs();
 
 interface SettingsPanelProps {
   open: boolean;
@@ -147,6 +152,12 @@ function SettingsSection({
         />
       );
     }
+    if (entry.kind === 'boolean') {
+      return <BooleanSetting key={entry.id} entry={entry} settings={settings} />;
+    }
+    if (entry.kind === 'select') {
+      return <SelectSetting key={entry.id} entry={entry} settings={settings} />;
+    }
     return <ActionSetting key={entry.id} entry={entry} />;
   }
 }
@@ -185,6 +196,52 @@ function NumberSetting({
         />
         <p className="mt-1 text-[10px] text-zinc-600">{rangeLabel}</p>
       </div>
+    </div>
+  );
+}
+
+function BooleanSetting({
+  entry,
+  settings,
+}: {
+  entry: BooleanSettingEntryDef;
+  settings: ReturnType<typeof useSettingsStore.getState>;
+}) {
+  const checked = entry.value(settings);
+  return (
+    <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-center gap-3">
+      <label className="text-xs text-zinc-400">{entry.label}</label>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => entry.commit(settings, event.target.checked)}
+        className="h-4 w-4 accent-cyan-500"
+      />
+    </div>
+  );
+}
+
+function SelectSetting({
+  entry,
+  settings,
+}: {
+  entry: SelectSettingEntryDef;
+  settings: ReturnType<typeof useSettingsStore.getState>;
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-start gap-3">
+      <label className="pt-1.5 text-xs text-zinc-400">{entry.label}</label>
+      <select
+        value={entry.value(settings)}
+        onChange={(event) => entry.commit(settings, event.target.value)}
+        className="h-7 w-full rounded border border-white/10 bg-zinc-800/50 px-2 text-xs text-zinc-200 outline-none transition-colors focus:border-cyan-500/50"
+      >
+        {entry.options.map((option) => (
+          <option key={option.value} value={option.value} className="bg-zinc-900">
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

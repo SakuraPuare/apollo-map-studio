@@ -35,6 +35,7 @@ import type {
   SpeedBumpEntity,
   StopSignEntity,
   YieldSignEntity,
+  BoundaryLineType,
 } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
 import { anchorToData } from '@/core/geometry/anchorConvert';
@@ -47,6 +48,8 @@ interface DrawResult {
   points: LngLat[];
   anchors: BezierAnchor[];
   laneHalfWidth?: number;
+  laneSpeedLimit?: number;
+  laneBoundaryType?: BoundaryLineType;
 }
 
 function extractLinePoints(draw: DrawResult): GeoPoint[] {
@@ -116,7 +119,8 @@ function createLane(id: string, d: DrawResult): LaneEntity {
   const source = buildSourceInfo(d);
   const hw = d.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH;
   const centerPts = extractLinePoints(d);
-  const seedBoundaryType = [{ s: 0, types: [DEFAULT_LANE_BOUNDARY_TYPE] }];
+  const boundaryType = d.laneBoundaryType ?? DEFAULT_LANE_BOUNDARY_TYPE;
+  const seedBoundaryType = [{ s: 0, types: [boundaryType] }];
   return {
     id,
     entityType: 'lane',
@@ -127,7 +131,7 @@ function createLane(id: string, d: DrawResult): LaneEntity {
     type: 'CITY_DRIVING',
     turn: inferLaneTurn(centerPts),
     direction: 'FORWARD',
-    speedLimit: DEFAULT_LANE_SPEED_LIMIT_MPS,
+    speedLimit: d.laneSpeedLimit ?? DEFAULT_LANE_SPEED_LIMIT_MPS,
     predecessorIds: [],
     successorIds: [],
     leftNeighborForwardIds: [],
@@ -307,7 +311,12 @@ export function createApolloEntity(
   drawTool: string,
   points: LngLat[],
   anchors: BezierAnchor[],
-  options?: { laneHalfWidth?: number; entities?: ReadonlyMap<string, MapEntity> },
+  options?: {
+    laneHalfWidth?: number;
+    laneSpeedLimit?: number;
+    laneBoundaryType?: BoundaryLineType;
+    entities?: ReadonlyMap<string, MapEntity>;
+  },
 ): ApolloEntity {
   const id = nextEntityId(elementType, options?.entities);
   return FACTORY_MAP[elementType](id, {
@@ -315,5 +324,7 @@ export function createApolloEntity(
     points,
     anchors,
     laneHalfWidth: options?.laneHalfWidth,
+    laneSpeedLimit: options?.laneSpeedLimit,
+    laneBoundaryType: options?.laneBoundaryType,
   });
 }

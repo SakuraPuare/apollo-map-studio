@@ -11,12 +11,15 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useUIStore } from '../uiStore';
+import { useSettingsStore } from '../settingsStore';
 
 // 在每个 it 前把 store 还原到模块初始态
 const initialSnapshot = useUIStore.getState();
+const initialSettingsSnapshot = useSettingsStore.getState();
 
 beforeEach(() => {
   useUIStore.setState(initialSnapshot, true);
+  useSettingsStore.setState(initialSettingsSnapshot, true);
 });
 
 describe('uiStore — 默认 state', () => {
@@ -66,6 +69,24 @@ describe('uiStore — toggle actions', () => {
     expect(useUIStore.getState().gridEnabled).toBe(false);
     useUIStore.getState().toggleGrid();
     expect(useUIStore.getState().gridEnabled).toBe(true);
+  });
+
+  it('grid/snap toggles persist into settingsStore', () => {
+    useUIStore.getState().toggleGrid();
+    useUIStore.getState().toggleSnap();
+
+    expect(useSettingsStore.getState().gridEnabled).toBe(false);
+    expect(useSettingsStore.getState().snapEnabled).toBe(true);
+  });
+
+  it('setGridEnabled / setSnapEnabled update UI and settings together', () => {
+    useUIStore.getState().setGridEnabled(false);
+    useUIStore.getState().setSnapEnabled(true);
+
+    expect(useUIStore.getState().gridEnabled).toBe(false);
+    expect(useUIStore.getState().snapEnabled).toBe(true);
+    expect(useSettingsStore.getState().gridEnabled).toBe(false);
+    expect(useSettingsStore.getState().snapEnabled).toBe(true);
   });
 
   it('toggleSnap 翻转 snapEnabled，且不影响 gridEnabled', () => {

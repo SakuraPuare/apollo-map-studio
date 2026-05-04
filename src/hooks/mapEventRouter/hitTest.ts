@@ -1,7 +1,7 @@
 import type maplibregl from 'maplibre-gl';
-import { HIT_BBOX_PADDING_PX, HIT_TEST_RADIUS_PX } from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
+import { useSettingsStore } from '@/store/settingsStore';
 
 export type HitFilter = (entityType: string) => boolean;
 
@@ -11,7 +11,7 @@ export function toLngLat(e: maplibregl.MapMouseEvent): LngLat {
 
 export function hitBbox(point: maplibregl.PointLike): [maplibregl.PointLike, maplibregl.PointLike] {
   const p = point as maplibregl.Point;
-  const pad = HIT_BBOX_PADDING_PX;
+  const pad = useSettingsStore.getState().hitBboxPadding;
   return [
     [p.x - pad, p.y - pad],
     [p.x + pad, p.y + pad],
@@ -32,7 +32,11 @@ export function workerHitTest(
   if (!bridge) return Promise.resolve(null);
   const pt = toLngLat(e);
   return bridge
-    .send({ type: 'HIT_TEST', point: pt, radius: pixelToRadius(map, HIT_TEST_RADIUS_PX) })
+    .send({
+      type: 'HIT_TEST',
+      point: pt,
+      radius: pixelToRadius(map, useSettingsStore.getState().hitTestRadius),
+    })
     .then((result) => {
       if (result.type !== 'HIT_RESULT' || result.hits.length === 0) return null;
       const hit = filter ? result.hits.find((h) => filter(h.entityType)) : result.hits[0];
