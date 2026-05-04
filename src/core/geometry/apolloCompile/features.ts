@@ -102,8 +102,7 @@ function featureId(props: Record<string, unknown>): string | undefined {
   const noStroke = props.noStroke === true ? ':noStroke' : '';
   const side = typeof props.boundarySide === 'string' ? `:${props.boundarySide}` : '';
   const direction = typeof props.laneDirection === 'string' ? `:${props.laneDirection}` : '';
-  const stripeIndex = typeof props.stripeIndex === 'number' ? `:${props.stripeIndex}` : '';
-  return `${id}:${role}${noStroke}${side}${direction}${stripeIndex}`;
+  return `${id}:${role}${noStroke}${side}${direction}`;
 }
 
 type EntityRenderer<E extends ApolloEntity = ApolloEntity> = (
@@ -219,8 +218,12 @@ function renderCrosswalk(
   const coords = polygonToCoords(entity.polygon);
   if (coords.length < 3) return [];
   return [
-    mkPolygon(coords, { ...base, fillOpacity: 0.25, lineWidth: 2.5 }),
-    ...crosswalkStripeFeatures(coords, base),
+    mkPolygon(coords, {
+      ...base,
+      fillOpacity: 0.18,
+      fillPattern: crosswalkPatternForCoords(coords),
+      lineWidth: 2.5,
+    }),
   ];
 }
 
@@ -231,10 +234,12 @@ interface LocalPoint {
 
 const DEG_TO_RAD = Math.PI / 180;
 const EARTH_RADIUS_M = 6_371_008.8;
-const CROSSWALK_STRIPE_TARGET_SPACING_M = 0.8;
-const CROSSWALK_STRIPE_MIN_COUNT = 2;
-const CROSSWALK_STRIPE_MAX_COUNT = 80;
-const CROSSWALK_STRIPE_MIN_SEGMENT_M = 0.1;
+const CROSSWALK_PATTERN_NAMES = [
+  'zebra-stripe-0',
+  'zebra-stripe-45',
+  'zebra-stripe-90',
+  'zebra-stripe-135',
+] as const;
 
 function metersPerDegLat(): number {
   return (Math.PI / 180) * EARTH_RADIUS_M;
@@ -244,12 +249,9 @@ function metersPerDegLng(latDeg: number): number {
   return metersPerDegLat() * Math.max(Math.cos(latDeg * DEG_TO_RAD), 1e-9);
 }
 
-function crosswalkStripeFeatures(
-  coords: LngLat[],
-  base: Record<string, unknown>,
-): GeoJSON.Feature[] {
+function crosswalkPatternForCoords(coords: LngLat[]): string {
   const uniqueCoords = withoutClosingCoord(coords);
-  if (uniqueCoords.length < 3) return [];
+  if (uniqueCoords.length < 3) return CROSSWALK_PATTERN_NAMES[0];
 
   const origin = centroid(uniqueCoords);
   const lngScale = metersPerDegLng(origin[1]);
@@ -260,54 +262,11 @@ function crosswalkStripeFeatures(
   }));
 
   const longest = longestEdgeUnit(local);
-  if (!longest) return [];
+  if (!longest) return CROSSWALK_PATTERN_NAMES[0];
 
-  const along = longest;
-  const normal = { x: -along.y, y: along.x };
-  const projected = local.map((point) => ({
-    point,
-    s: point.x * along.x + point.y * along.y,
-    t: point.x * normal.x + point.y * normal.y,
-  }));
-  const minT = Math.min(...projected.map((point) => point.t));
-  const maxT = Math.max(...projected.map((point) => point.t));
-  const width = maxT - minT;
-  if (width <= CROSSWALK_STRIPE_MIN_SEGMENT_M) return [];
-
-  const stripeCount = Math.min(
-    CROSSWALK_STRIPE_MAX_COUNT,
-    Math.max(CROSSWALK_STRIPE_MIN_COUNT, Math.floor(width / CROSSWALK_STRIPE_TARGET_SPACING_M)),
-  );
-  const spacing = width / stripeCount;
-  const features: GeoJSON.Feature[] = [];
-
-  for (let i = 0; i < stripeCount; i++) {
-    const t = minT + spacing * (i + 0.5);
-    const intersections = linePolygonIntersections(projected, t);
-    for (let j = 0; j + 1 < intersections.length; j += 2) {
-      const s0 = intersections[j]!;
-      const s1 = intersections[j + 1]!;
-      if (s1 - s0 <= CROSSWALK_STRIPE_MIN_SEGMENT_M) continue;
-      features.push(
-        mkLine(
-          [
-            localToLngLat(s0, t, along, normal, origin, lngScale, latScale),
-            localToLngLat(s1, t, along, normal, origin, lngScale, latScale),
-          ],
-          {
-            ...base,
-            role: 'crosswalkStripe',
-            stripeIndex: features.length,
-            color: '#ffffff',
-            lineWidth: 3,
-            lineOpacity: 0.92,
-          },
-        ),
-      );
-    }
-  }
-
-  return features;
+  const angleDeg = ((Math.atan2(longest.y, longest.x) * 180) / Math.PI + 180) % 180;
+  const bucket = Math.round(angleDeg / 45) % CROSSWALK_PATTERN_NAMES.length;
+  return CROSSWALK_PATTERN_NAMES[bucket]!;
 }
 
 function withoutClosingCoord(coords: LngLat[]): LngLat[] {
@@ -333,33 +292,6 @@ function longestEdgeUnit(points: LocalPoint[]): LocalPoint | null {
     best = { x: dx / len, y: dy / len };
   }
   return best;
-}
-
-function linePolygonIntersections(projected: { s: number; t: number }[], t: number): number[] {
-  const intersections: number[] = [];
-  for (let i = 0; i < projected.length; i++) {
-    const a = projected[i]!;
-    const b = projected[(i + 1) % projected.length]!;
-    const crosses = (a.t <= t && b.t > t) || (b.t <= t && a.t > t);
-    if (!crosses) continue;
-    const ratio = (t - a.t) / (b.t - a.t);
-    intersections.push(a.s + ratio * (b.s - a.s));
-  }
-  return intersections.sort((a, b) => a - b);
-}
-
-function localToLngLat(
-  s: number,
-  t: number,
-  along: LocalPoint,
-  normal: LocalPoint,
-  origin: LngLat,
-  lngScale: number,
-  latScale: number,
-): LngLat {
-  const x = along.x * s + normal.x * t;
-  const y = along.y * s + normal.y * t;
-  return [origin[0] + x / lngScale, origin[1] + y / latScale];
 }
 
 function renderSignal(

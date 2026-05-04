@@ -43,19 +43,20 @@ interface StripeImageSpec {
   stripeW: number;
   gap: number;
   color: [number, number, number, number];
-  diagonal: boolean;
+  angleDeg: number;
 }
 
 function addStripeImage(map: maplibregl.Map, spec: StripeImageSpec) {
-  const { id, size, stripeW, gap, color, diagonal } = spec;
+  const { id, size, stripeW, gap, color, angleDeg } = spec;
   const [r, g, b, a] = color;
   const data = new Uint8Array(size * size * 4);
   const period = stripeW + gap;
+  const normalRad = ((angleDeg + 90) * Math.PI) / 180;
+  const nx = Math.cos(normalRad);
+  const ny = Math.sin(normalRad);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const pos = diagonal
-        ? (((x + y) % period) + period) % period
-        : ((y % period) + period) % period;
+      const pos = (((x * nx + y * ny) % period) + period) % period;
       if (pos < stripeW) {
         const idx = (y * size + x) * 4;
         data[idx] = r;
@@ -69,21 +70,23 @@ function addStripeImage(map: maplibregl.Map, spec: StripeImageSpec) {
 }
 
 export function registerRuntimeImages(map: maplibregl.Map) {
-  addStripeImage(map, {
-    id: 'zebra-stripe',
-    size: 16,
-    stripeW: 4,
-    gap: 4,
-    color: [255, 255, 255, 255],
-    diagonal: false,
-  });
+  for (const angleDeg of [0, 45, 90, 135]) {
+    addStripeImage(map, {
+      id: `zebra-stripe-${angleDeg}`,
+      size: 16,
+      stripeW: 6,
+      gap: 2,
+      color: [255, 255, 255, 255],
+      angleDeg,
+    });
+  }
   addStripeImage(map, {
     id: 'red-hatch',
     size: 12,
     stripeW: 2,
     gap: 4,
     color: [255, 68, 102, 200],
-    diagonal: true,
+    angleDeg: 45,
   });
   map.addImage('lane-arrow', createArrowSDF(20), { sdf: true });
   void registerMapIcons(map);

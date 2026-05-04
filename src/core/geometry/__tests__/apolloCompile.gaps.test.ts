@@ -48,25 +48,6 @@ function laneLine(
   ) as GeoJSON.Feature<GeoJSON.LineString> | undefined;
 }
 
-function crosswalkStripeLines(features: GeoJSON.Feature[]): GeoJSON.Feature<GeoJSON.LineString>[] {
-  return features.filter(
-    (feature) =>
-      feature.geometry.type === 'LineString' && feature.properties?.role === 'crosswalkStripe',
-  ) as GeoJSON.Feature<GeoJSON.LineString>[];
-}
-
-function lineAngleDeg(line: GeoJSON.Feature<GeoJSON.LineString>): number {
-  const [a, b] = line.geometry.coordinates;
-  if (!a || !b) throw new Error('Expected a two-point stripe line');
-  const [ax, ay] = a;
-  const [bx, by] = b;
-  if (ax === undefined || ay === undefined || bx === undefined || by === undefined) {
-    throw new Error('Expected two-dimensional stripe coordinates');
-  }
-  const angle = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
-  return ((angle % 180) + 180) % 180;
-}
-
 describe('GAP #1 — road outer boundary renders as polylines', () => {
   it('emits one LineString per outer edge with role=roadBoundary', () => {
     const road: RoadEntity = {
@@ -429,7 +410,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 });
 
 describe('crosswalk zebra stripes', () => {
-  it('emits stripe lines parallel to the polygon longest edge', () => {
+  it('selects the stripe pattern bucket from the polygon longest edge', () => {
     const crosswalk: CrosswalkEntity = {
       id: 'cw_long_edge',
       entityType: 'crosswalk',
@@ -440,12 +421,9 @@ describe('crosswalk zebra stripes', () => {
     };
 
     const features = compileApolloFeatures(crosswalk);
-    const stripes = crosswalkStripeLines(features);
+    const polygon = features.find((feature) => feature.geometry.type === 'Polygon');
 
-    expect(stripes.length).toBeGreaterThan(0);
-    for (const stripe of stripes) {
-      // Longest edges are northwest/southeast, i.e. 135deg modulo 180.
-      expect(lineAngleDeg(stripe)).toBeCloseTo(135, 1);
-    }
+    expect(features).toHaveLength(1);
+    expect(polygon?.properties?.fillPattern).toBe('zebra-stripe-135');
   });
 });
