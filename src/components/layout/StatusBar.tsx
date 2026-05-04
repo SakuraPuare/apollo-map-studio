@@ -1,7 +1,20 @@
-import { FaMapPin, FaMagnifyingGlassPlus, FaTableCells, FaMagnet, FaMap } from 'react-icons/fa6';
+import {
+  FaMapPin,
+  FaMagnifyingGlassPlus,
+  FaTableCells,
+  FaMagnet,
+  FaMap,
+  FaShield,
+  FaTriangleExclamation,
+  FaDesktop,
+} from 'react-icons/fa6';
+import { useDesktopWindowState } from '@/hooks/useDesktopWindowState';
+import { isDesktopRuntime } from '@/lib/app-bridge';
 import { useUIStore } from '@/store/uiStore';
 import { useApolloMapStore } from '@/store/apolloMapStore';
+import { useLicenseStore } from '@/store/licenseStore';
 import type { ApolloMapImportInfo } from '@/store/apolloMapStore';
+import type { LicenseState } from '@/lib/license-bridge';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 interface StatusBarProps {
@@ -28,6 +41,8 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const appMode = useUIStore((s) => s.appMode);
   const apolloInfo = useApolloMapStore((s) => s.info);
+  const licenseState = useLicenseStore((s) => s.state);
+  const windowState = useDesktopWindowState();
 
   const modeLabel = MODE_LABELS[mode] || mode;
   const isDrawing = mode.startsWith('draw');
@@ -40,6 +55,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
         isDrawing={isDrawing}
         entityCount={entityCount}
         apolloInfo={apolloInfo}
+        licenseState={licenseState}
       />
 
       <div className="flex-1" />
@@ -49,6 +65,7 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
         snapEnabled={snapEnabled}
         cursorLngLat={cursorLngLat}
         currentZoom={currentZoom}
+        windowState={windowState}
       />
     </div>
   );
@@ -60,11 +77,19 @@ interface StatusLeftProps {
   isDrawing: boolean;
   entityCount: number;
   apolloInfo: ApolloMapImportInfo | null;
+  licenseState: LicenseState;
 }
 
-function StatusLeft({ appMode, modeLabel, isDrawing, entityCount, apolloInfo }: StatusLeftProps) {
+function StatusLeft({
+  appMode,
+  modeLabel,
+  isDrawing,
+  entityCount,
+  apolloInfo,
+  licenseState,
+}: StatusLeftProps) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 min-w-0">
       <div className="flex items-center gap-1">
         <span className="text-ams-text-disabled">Mode:</span>
         <span className="text-ams-accent font-medium">
@@ -90,6 +115,8 @@ function StatusLeft({ appMode, modeLabel, isDrawing, entityCount, apolloInfo }: 
       </div>
 
       {apolloInfo && <ApolloMapStatus info={apolloInfo} />}
+
+      <LicenseStatusPill state={licenseState} />
     </div>
   );
 }
@@ -114,11 +141,26 @@ interface StatusRightProps {
   snapEnabled: boolean;
   cursorLngLat: LngLat | null;
   currentZoom: number;
+  windowState: ReturnType<typeof useDesktopWindowState>;
 }
 
-function StatusRight({ gridEnabled, snapEnabled, cursorLngLat, currentZoom }: StatusRightProps) {
+function StatusRight({
+  gridEnabled,
+  snapEnabled,
+  cursorLngLat,
+  currentZoom,
+  windowState,
+}: StatusRightProps) {
   return (
     <div className="flex items-center gap-4">
+      {isDesktopRuntime() && windowState ? (
+        <div className="flex items-center gap-1 text-ams-text-secondary">
+          <FaDesktop className="w-3 h-3" />
+          <span className="font-mono">{windowState.platform}</span>
+          {windowState.isMaximized ? <span className="text-ams-text-disabled">max</span> : null}
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-2">
         <StatusToggle enabled={gridEnabled} icon={FaTableCells} label="Grid" />
         <StatusToggle enabled={snapEnabled} icon={FaMagnet} label="Snap" />
@@ -137,6 +179,22 @@ function StatusRight({ gridEnabled, snapEnabled, cursorLngLat, currentZoom }: St
         <FaMagnifyingGlassPlus className="w-3 h-3 text-ams-text-disabled" />
         <span className="font-mono text-ams-text-secondary">{currentZoom.toFixed(1)}x</span>
       </div>
+    </div>
+  );
+}
+
+function LicenseStatusPill({ state }: { state: LicenseState }) {
+  const ok = state.canEdit;
+  const Icon = ok ? FaShield : FaTriangleExclamation;
+  return (
+    <div
+      className={`flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] ${
+        ok ? 'border-emerald-500/20 text-emerald-300' : 'border-amber-500/30 text-amber-200'
+      }`}
+      title={state.reason}
+    >
+      <Icon className="w-3 h-3" />
+      <span>{state.status}</span>
     </div>
   );
 }

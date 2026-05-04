@@ -3,6 +3,7 @@ import { DockviewReact, type DockviewReadyEvent, type DockviewApi } from 'dockvi
 import 'dockview-react/dist/styles/dockview.css';
 
 import { MenuBar } from './MenuBar';
+import { DesktopTitleBar } from './DesktopTitleBar';
 import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar, type ActivityTab } from './ActivityBar';
@@ -12,6 +13,8 @@ import { AboutDialog } from '@/components/dialogs/AboutDialog';
 import { LicenseBanner } from '@/components/license/LicenseBanner';
 import { ActivationDialog } from '@/components/license/ActivationDialog';
 import { useLicenseSync } from '@/hooks/useLicense';
+import { useDesktopWindowState } from '@/hooks/useDesktopWindowState';
+import { isDesktopRuntime } from '@/lib/app-bridge';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore, type AppMode } from '@/store/uiStore';
 import { EditorProvider, useEditorActor } from '@/context/EditorContext';
@@ -55,6 +58,8 @@ registerBuiltinWorkspaceContributions();
 
 function WorkspaceLayoutInner() {
   useLicenseSync();
+  const windowState = useDesktopWindowState();
+  const desktopRuntime = isDesktopRuntime();
   const actorRef = useEditorActor();
   const currentState = useSelector(actorRef, (s) => s.value as string);
   const activeElement = useSelector(actorRef, (s) => s.context.activeElement);
@@ -140,7 +145,9 @@ function WorkspaceLayoutInner() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
+      <DesktopTitleBar windowState={windowState} />
       <WorkspaceToolbar
+        desktopRuntime={desktopRuntime}
         execute={execute}
         getToggleState={getToggleState}
         currentTool={currentState}
@@ -230,6 +237,7 @@ function useWorkspaceViewToggle({
 }
 
 interface WorkspaceToolbarProps {
+  desktopRuntime: boolean;
   execute: ReturnType<typeof useActionDispatcher>['execute'];
   getToggleState: ReturnType<typeof useActionDispatcher>['getToggleState'];
   currentTool: string;
@@ -239,6 +247,7 @@ interface WorkspaceToolbarProps {
 }
 
 function WorkspaceToolbar({
+  desktopRuntime,
   execute,
   getToggleState,
   currentTool,
@@ -248,7 +257,7 @@ function WorkspaceToolbar({
 }: WorkspaceToolbarProps) {
   return (
     <>
-      <MenuBar onExecute={execute} getToggleState={getToggleState} />
+      <MenuBar onExecute={execute} getToggleState={getToggleState} showBrand={!desktopRuntime} />
       <LicenseBanner />
       <ToolStrip
         currentTool={currentTool}

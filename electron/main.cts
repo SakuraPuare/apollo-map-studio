@@ -12,6 +12,10 @@ const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
   GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
+  GET_WINDOW_STATE: 'app:get-window-state',
+  WINDOW_MINIMIZE: 'app:window-minimize',
+  WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
+  WINDOW_CLOSE: 'app:window-close',
 } as const;
 
 protocol.registerSchemesAsPrivileged([
@@ -28,6 +32,34 @@ protocol.registerSchemesAsPrivileged([
 
 let licenseManager: LicenseManager | null = null;
 let helpWindow: BrowserWindow | null = null;
+
+function getWindowState(window: BrowserWindow) {
+  return {
+    platform: process.platform,
+    isMaximized: window.isMaximized(),
+    isFullscreen: window.isFullScreen(),
+    isFocused: window.isFocused(),
+  };
+}
+
+function broadcastWindowState(window: BrowserWindow) {
+  if (window.isDestroyed()) return;
+  window.webContents.send('app:window-state', getWindowState(window));
+}
+
+function senderWindow(event: Electron.IpcMainInvokeEvent) {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+function wireWindowStateEvents(window: BrowserWindow) {
+  const publish = () => broadcastWindowState(window);
+  window.on('maximize', publish);
+  window.on('unmaximize', publish);
+  window.on('enter-full-screen', publish);
+  window.on('leave-full-screen', publish);
+  window.on('focus', publish);
+  window.on('blur', publish);
+}
 
 function getPreloadPath() {
   return path.join(__dirname, 'preload.cjs');
@@ -224,9 +256,36 @@ function registerAppIpc() {
   }));
 
   ipcMain.handle(APP_IPC.OPEN_HELP, () => openHelpWindow());
+  ipcMain.handle(APP_IPC.GET_WINDOW_STATE, (event) => {
+    const window = senderWindow(event);
+    return window ? getWindowState(window) : null;
+  });
+  ipcMain.handle(APP_IPC.WINDOW_MINIMIZE, (event) => {
+    senderWindow(event)?.minimize();
+  });
+  ipcMain.handle(APP_IPC.WINDOW_TOGGLE_MAXIMIZE, (event) => {
+    const window = senderWindow(event);
+    if (!window) return;
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+  });
+  ipcMain.handle(APP_IPC.WINDOW_CLOSE, (event) => {
+    senderWindow(event)?.close();
+  });
 }
 
 async function createMainWindow() {
+  const customChromeOptions =
+    process.platform === 'darwin'
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          trafficLightPosition: { x: 12, y: 12 },
+        }
+      : {
+          frame: false,
+          autoHideMenuBar: true,
+        };
+
   const mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -235,6 +294,7 @@ async function createMainWindow() {
     title: 'Apollo Map Studio',
     backgroundColor: '#101318',
     show: false,
+    ...customChromeOptions,
     webPreferences: {
       preload: getPreloadPath(),
       contextIsolation: true,
@@ -245,8 +305,10 @@ async function createMainWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    broadcastWindowState(mainWindow);
   });
 
+  wireWindowStateEvents(mainWindow);
   configureExternalNavigation(mainWindow);
 
   if (rendererUrl) {

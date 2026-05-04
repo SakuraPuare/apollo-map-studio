@@ -14,11 +14,23 @@ export interface AppRuntimeInfo {
   };
 }
 
+export interface DesktopWindowState {
+  platform: string;
+  isMaximized: boolean;
+  isFullscreen: boolean;
+  isFocused: boolean;
+}
+
 interface ApolloMapStudioApi {
   platform: string;
   versions: AppRuntimeInfo['versions'];
   getAppInfo?: () => Promise<AppRuntimeInfo>;
   openHelp?: () => Promise<boolean>;
+  getWindowState?: () => Promise<DesktopWindowState | null>;
+  minimizeWindow?: () => Promise<void>;
+  toggleMaximizeWindow?: () => Promise<void>;
+  closeWindow?: () => Promise<void>;
+  onWindowStateChange?: (handler: (state: DesktopWindowState) => void) => () => void;
 }
 
 declare global {
@@ -81,6 +93,26 @@ export const appBridge = {
 
     window.open(getStaticDocsUrl(), '_blank', 'noopener,noreferrer');
     return true;
+  },
+
+  async getWindowState(): Promise<DesktopWindowState | null> {
+    return window.apolloMapStudio?.getWindowState?.() ?? null;
+  },
+
+  async minimizeWindow(): Promise<void> {
+    await window.apolloMapStudio?.minimizeWindow?.();
+  },
+
+  async toggleMaximizeWindow(): Promise<void> {
+    await window.apolloMapStudio?.toggleMaximizeWindow?.();
+  },
+
+  async closeWindow(): Promise<void> {
+    await window.apolloMapStudio?.closeWindow?.();
+  },
+
+  onWindowStateChange(handler: (state: DesktopWindowState) => void): () => void {
+    return window.apolloMapStudio?.onWindowStateChange?.(handler) ?? (() => undefined);
   },
 };
 

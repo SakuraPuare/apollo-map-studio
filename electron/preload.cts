@@ -13,7 +13,18 @@ const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
   GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
+  GET_WINDOW_STATE: 'app:get-window-state',
+  WINDOW_MINIMIZE: 'app:window-minimize',
+  WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
+  WINDOW_CLOSE: 'app:window-close',
 } as const;
+
+interface DesktopWindowState {
+  platform: NodeJS.Platform;
+  isMaximized: boolean;
+  isFullscreen: boolean;
+  isFocused: boolean;
+}
 
 contextBridge.exposeInMainWorld('apolloMapStudio', {
   platform: process.platform,
@@ -27,6 +38,23 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
   },
   openHelp() {
     return ipcRenderer.invoke(APP_IPC.OPEN_HELP);
+  },
+  getWindowState() {
+    return ipcRenderer.invoke(APP_IPC.GET_WINDOW_STATE) as Promise<DesktopWindowState | null>;
+  },
+  minimizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_MINIMIZE);
+  },
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_TOGGLE_MAXIMIZE);
+  },
+  closeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_CLOSE);
+  },
+  onWindowStateChange(handler: (state: DesktopWindowState) => void): () => void {
+    const listener = (_evt: Electron.IpcRendererEvent, state: DesktopWindowState) => handler(state);
+    ipcRenderer.on('app:window-state', listener);
+    return () => ipcRenderer.off('app:window-state', listener);
   },
 });
 contextBridge.exposeInMainWorld('accessGuardIdentity', ipcRenderer.sendSync(APP_IPC.GET_ACCESS_GUARD_IDENTITY));

@@ -143,6 +143,7 @@ function withMenuDividers(actions: ActionDef[]): (ActionDef | 'divider')[] {
 export interface MenuBarProps {
   onExecute: (actionId: ActionId) => void;
   getToggleState: (actionId: ActionId) => boolean;
+  showBrand?: boolean;
 }
 
 // ─── Mode Toggle ───────────────────────────────────────────
@@ -181,7 +182,7 @@ function ModeToggle() {
   );
 }
 
-export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
+export function MenuBar({ onExecute, getToggleState, showBrand = true }: MenuBarProps) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const appMode = useUIStore((s) => s.appMode);
 
@@ -189,11 +190,12 @@ export function MenuBar({ onExecute, getToggleState }: MenuBarProps) {
 
   return (
     <div className="h-8 bg-zinc-950 border-b border-white/[0.07] flex items-center px-2 shrink-0">
-      {/* Logo */}
-      <div className="flex items-center gap-2 mr-4">
-        <img src={logoUrl} alt="" className="w-4 h-4 rounded-[3px] shrink-0" aria-hidden="true" />
-        <span className="text-xs font-medium text-zinc-300 tracking-wide">Apollo Map Studio</span>
-      </div>
+      {showBrand ? (
+        <div className="flex items-center gap-2 mr-4">
+          <img src={logoUrl} alt="" className="w-4 h-4 rounded-[3px] shrink-0" aria-hidden="true" />
+          <span className="text-xs font-medium text-zinc-300 tracking-wide">Apollo Map Studio</span>
+        </div>
+      ) : null}
 
       {/* Menus — generated from registry */}
       <div className="flex items-center">

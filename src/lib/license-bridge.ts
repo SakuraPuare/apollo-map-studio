@@ -3,10 +3,11 @@
  * (exposed via contextBridge in `electron/preload.cts`) so the rest of
  * the renderer never has to deal with the global / undefined cases.
  *
- * In a pure web build (no Electron), all calls fall back to a perpetual
- * "trial" state with `canEdit=true` so dev / Storybook / browser preview
- * keeps working.
+ * In a pure web build (no Electron), calls are handled by a browser-local
+ * trial / activation provider so Web and Electron share the same renderer UI.
  */
+
+import { webLicenseProvider } from './web-license-provider';
 
 export type LicenseStatus =
   | 'trial'
@@ -59,44 +60,21 @@ declare global {
   }
 }
 
-function fallbackState(): LicenseState {
-  return {
-    status: 'trial',
-    canEdit: true,
-    machineCode: 'WEB-NO-LICENSE',
-    trialStart: Date.now(),
-    trialEnd: Date.now() + 7 * 24 * 60 * 60 * 1000,
-    daysRemaining: 7,
-    hoursRemaining: 7 * 24,
-    license: null,
-    checkedAt: Date.now(),
-    reason: 'Browser preview — licensing disabled.',
-  };
-}
-
 export const licenseBridge: LicenseApi = {
   async getState() {
-    return window.apolloMapStudioLicense?.getState() ?? Promise.resolve(fallbackState());
+    return window.apolloMapStudioLicense?.getState() ?? webLicenseProvider.getState();
   },
   async getMachineCode() {
-    return window.apolloMapStudioLicense?.getMachineCode() ?? Promise.resolve('WEB-NO-LICENSE');
+    return window.apolloMapStudioLicense?.getMachineCode() ?? webLicenseProvider.getMachineCode();
   },
   async activate(code: string) {
-    if (!window.apolloMapStudioLicense) {
-      return {
-        ok: false,
-        state: fallbackState(),
-        errorCode: 'unknown',
-        errorMessage: 'Activation is only available in the desktop build.',
-      };
-    }
-    return window.apolloMapStudioLicense.activate(code);
+    return window.apolloMapStudioLicense?.activate(code) ?? webLicenseProvider.activate(code);
   },
   async deactivate() {
-    return window.apolloMapStudioLicense?.deactivate() ?? Promise.resolve(fallbackState());
+    return window.apolloMapStudioLicense?.deactivate() ?? webLicenseProvider.deactivate();
   },
   onChange(handler) {
-    return window.apolloMapStudioLicense?.onChange(handler) ?? (() => undefined);
+    return window.apolloMapStudioLicense?.onChange(handler) ?? webLicenseProvider.onChange(handler);
   },
 };
 

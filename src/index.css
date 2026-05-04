@@ -58,6 +58,19 @@ body,
   margin: 0;
 }
 
+.drag {
+  -webkit-app-region: drag;
+}
+
+.nodrag,
+button,
+input,
+select,
+textarea,
+a {
+  -webkit-app-region: no-drag;
+}
+
 /* ─── Dockview Theme Customization ─────────────────────────────────── */
 
 .dockview-theme-dark {
