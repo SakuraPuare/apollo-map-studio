@@ -15,15 +15,15 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
-  ACTION_DEFS,
-  ACTION_MAP,
+  getActionDefs,
+  getActionMap,
   getKeyBindingActions,
   matchesKeybinding,
   type ActionDef,
   type ActionId,
   type WorkspaceViewActionId,
 } from '@/core/actions/registry';
-import { isWorkspaceViewActionId, WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
+import { getWorkspaceViewDefs, isWorkspaceViewActionId } from '@/core/workspaceViews';
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
 import { appBridge } from '@/lib/app-bridge';
 import { assertEditable } from '@/lib/editable-guard';
@@ -35,7 +35,7 @@ import { assertEditable } from '@/lib/editable-guard';
  */
 function actionRequiresEdit(id: ActionId): boolean {
   if (id === 'connectLanes') return true;
-  const def = ACTION_MAP.get(id);
+  const def = getActionMap().get(id);
   if (!def) return false;
   return def.category === 'edit' || def.category === 'tool' || def.category === 'selection';
 }
@@ -93,7 +93,7 @@ function registerViewHandlers(map: Map<ActionId, () => void>, options: ActionDis
   map.set('toggleGrid', () => useUIStore.getState().toggleGrid());
   map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
   map.set('resetLayout', options.onResetLayout);
-  for (const view of WORKSPACE_VIEW_DEFS) {
+  for (const view of getWorkspaceViewDefs()) {
     map.set(view.actionId, () => options.onToggleWorkspaceView?.(view.actionId));
   }
   map.set('commandPalette', options.onOpenCommandPalette);
@@ -118,7 +118,7 @@ function registerModeHandlers(map: Map<ActionId, () => void>, options: ActionDis
 }
 
 function registerToolHandlers(map: Map<ActionId, () => void>, options: ActionDispatcherOptions) {
-  for (const action of ACTION_DEFS) {
+  for (const action of getActionDefs()) {
     if (!action.drawTool) continue;
     const tool = action.drawTool;
     map.set(action.id, () => options.actorRef.send({ type: 'SELECT_TOOL', tool }));
@@ -244,6 +244,6 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
   return {
     execute,
     getToggleState,
-    actions: ACTION_DEFS,
+    actions: getActionDefs(),
   };
 }

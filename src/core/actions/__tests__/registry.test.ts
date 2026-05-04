@@ -1,55 +1,59 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { registerBuiltinWorkspaceContributions } from '@/components/layout/workspaceContributions';
 import {
-  ACTION_DEFS,
-  ACTION_MAP,
   formatShortcut,
+  getActionDefs,
+  getActionMap,
   getMenuActions,
   getMenuActionsForMode,
   getCommandPaletteActions,
+  getCommandPaletteActionsForMode,
   getKeyBindingActions,
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
-import { getSidebarViewsByPlacement, WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
+import { getSidebarViewsByPlacement, getWorkspaceViewDefs } from '@/core/workspaceViews';
 import type { KeyBindingEvent } from '../registry';
+
+registerBuiltinWorkspaceContributions();
 
 describe('Action Registry', () => {
   // ── Structural integrity ────────────────────────────────
 
   it('every action has a unique ID', () => {
-    const ids = ACTION_DEFS.map((a) => a.id);
+    const ids = getActionDefs().map((a) => a.id);
     const unique = new Set(ids);
     expect(unique.size).toBe(ids.length);
   });
 
   it('every action has a non-empty label', () => {
-    for (const a of ACTION_DEFS) {
+    for (const a of getActionDefs()) {
       expect(a.label.length).toBeGreaterThan(0);
     }
   });
 
   it('every action has a valid category', () => {
     const validCategories = ['file', 'edit', 'view', 'tool', 'selection', 'help'];
-    for (const a of ACTION_DEFS) {
+    for (const a of getActionDefs()) {
       expect(validCategories).toContain(a.category);
     }
   });
 
-  it('ACTION_MAP covers all definitions', () => {
-    expect(ACTION_MAP.size).toBe(ACTION_DEFS.length);
+  it('action map covers all definitions', () => {
+    expect(getActionMap().size).toBe(getActionDefs().length);
   });
 
   // ── Coverage checks ─────────────────────────────────────
 
   it('all tool actions define a drawTool', () => {
-    const toolActions = ACTION_DEFS.filter((a) => a.category === 'tool');
+    const toolActions = getActionDefs().filter((a) => a.category === 'tool');
     for (const a of toolActions) {
       expect(a.drawTool, `${a.id} missing drawTool`).toBeDefined();
     }
   });
 
   it('all actions with shortcuts have keybindings defined', () => {
-    const withShortcuts = ACTION_DEFS.filter(
+    const withShortcuts = getActionDefs().filter(
       (a) => a.shortcut && a.shortcut.length <= 3, // single-key shortcuts
     );
     for (const a of withShortcuts) {
@@ -101,7 +105,7 @@ describe('Action Registry', () => {
   it('View menu exposes workspace panels', () => {
     const viewActions = getMenuActions('View');
     const ids = viewActions.map((a) => a.id);
-    for (const view of WORKSPACE_VIEW_DEFS) {
+    for (const view of getWorkspaceViewDefs()) {
       expect(ids).toContain(view.actionId);
     }
   });
@@ -111,6 +115,20 @@ describe('Action Registry', () => {
     const sceneIds = getMenuActionsForMode('View', 'scene').map((a) => a.id);
     expect(drawingIds).not.toContain('view:timeline');
     expect(sceneIds).toContain('view:timeline');
+  });
+
+  it('command palette filters mode-scoped workspace panels', () => {
+    const drawingIds = getCommandPaletteActionsForMode('drawing').map((a) => a.id);
+    const sceneIds = getCommandPaletteActionsForMode('scene').map((a) => a.id);
+    expect(drawingIds).not.toContain('view:timeline');
+    expect(sceneIds).toContain('view:timeline');
+  });
+
+  it('resolves workspace actions after contributions are bootstrapped', () => {
+    const actionIds = getActionDefs().map((a) => a.id);
+    for (const view of getWorkspaceViewDefs()) {
+      expect(actionIds).toContain(view.actionId);
+    }
   });
 
   it('sidebar activity views are contributed by mode', () => {
@@ -146,7 +164,7 @@ describe('Action Registry', () => {
   it('command palette includes all tool actions', () => {
     const cpActions = getCommandPaletteActions();
     const cpIds = new Set(cpActions.map((a) => a.id));
-    const toolActions = ACTION_DEFS.filter((a) => a.category === 'tool');
+    const toolActions = getActionDefs().filter((a) => a.category === 'tool');
 
     for (const t of toolActions) {
       expect(cpIds.has(t.id), `Tool "${t.id}" not in command palette`).toBe(true);
@@ -227,7 +245,7 @@ describe('Action Registry', () => {
     ];
 
     for (const tool of drawTools) {
-      const action = ACTION_DEFS.find((a) => a.drawTool === tool);
+      const action = getActionDefs().find((a) => a.drawTool === tool);
       expect(action, `No action registered for DrawTool "${tool}"`).toBeDefined();
     }
   });
@@ -282,7 +300,7 @@ describe('Action Registry', () => {
   it('toggle actions are marked with isToggle', () => {
     const toggleIds = ['toggleGrid', 'toggleSnap'] as const;
     for (const id of toggleIds) {
-      const action = ACTION_MAP.get(id);
+      const action = getActionMap().get(id);
       expect(action?.isToggle, `${id} should have isToggle=true`).toBe(true);
     }
   });

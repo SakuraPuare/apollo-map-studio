@@ -7,6 +7,7 @@ import { StatusBar } from './StatusBar';
 import { ToolStrip } from './ToolStrip';
 import { ActivityBar, type ActivityTab } from './ActivityBar';
 import { TaskProgressOverlay } from './TaskProgressOverlay';
+import { registerBuiltinWorkspaceContributions } from './workspaceContributions';
 import { AboutDialog } from '@/components/dialogs/AboutDialog';
 import { LicenseBanner } from '@/components/license/LicenseBanner';
 import { ActivationDialog } from '@/components/license/ActivationDialog';
@@ -47,6 +48,8 @@ import {
   getWorkspaceViewByActionId,
   isSidebarViewAvailable,
 } from '@/core/workspaceViews';
+
+registerBuiltinWorkspaceContributions();
 
 // ─── Inner Layout ─────────────────────────────────────────
 

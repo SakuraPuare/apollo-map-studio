@@ -1,8 +1,12 @@
-export { ACTION_DEFS } from './registry/definitions';
 export {
-  ACTION_MAP,
+  BASE_ACTION_DEFS,
+  getActionDefs,
+  getWorkspaceViewActionDefs,
+} from './registry/definitions';
+export {
   formatShortcut,
   getActionsByCategory,
+  getActionMap,
   getCommandPaletteActions,
   getCommandPaletteActionsForMode,
   getKeyBindingActions,

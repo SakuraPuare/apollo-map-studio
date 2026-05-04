@@ -20,20 +20,9 @@ import {
   FaUpload,
 } from 'react-icons/fa6';
 import type { ActionDef } from './types';
-import { WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
+import { getWorkspaceViewDefs } from '@/core/workspaceViews';
 
-const WORKSPACE_VIEW_ACTION_DEFS: ActionDef[] = WORKSPACE_VIEW_DEFS.map((view) => ({
-  id: view.actionId,
-  label: view.label,
-  category: 'view',
-  icon: view.icon,
-  inCommandPalette: true,
-  menu: 'View',
-  menuOrder: view.menuOrder,
-  isToggle: true,
-}));
-
-export const ACTION_DEFS: ActionDef[] = [
+export const BASE_ACTION_DEFS: ActionDef[] = [
   {
     id: 'importApollo',
     label: 'Import Apollo Map...',
@@ -144,7 +133,6 @@ export const ACTION_DEFS: ActionDef[] = [
     menu: 'View',
     menuOrder: 10,
   },
-  ...WORKSPACE_VIEW_ACTION_DEFS,
   {
     id: 'commandPalette',
     label: 'Command Palette',
@@ -253,3 +241,27 @@ export const ACTION_DEFS: ActionDef[] = [
     drawTool: 'drawCatmullRom',
   },
 ];
+
+export function getWorkspaceViewActionDefs(): ActionDef[] {
+  return getWorkspaceViewDefs().map((view) => ({
+    id: view.actionId,
+    label: view.label,
+    category: 'view',
+    icon: view.icon,
+    inCommandPalette: true,
+    menu: 'View',
+    menuOrder: view.menuOrder,
+    isToggle: true,
+  }));
+}
+
+export function getActionDefs(): ActionDef[] {
+  const workspaceViewActions = getWorkspaceViewActionDefs();
+  const insertAt = BASE_ACTION_DEFS.findIndex((action) => action.id === 'commandPalette');
+  if (insertAt < 0) return [...BASE_ACTION_DEFS, ...workspaceViewActions];
+  return [
+    ...BASE_ACTION_DEFS.slice(0, insertAt),
+    ...workspaceViewActions,
+    ...BASE_ACTION_DEFS.slice(insertAt),
+  ];
+}

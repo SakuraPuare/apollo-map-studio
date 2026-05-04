@@ -4,8 +4,8 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import {
-  ACTION_DEFS,
   formatShortcut,
+  getActionDefs,
   getToolAction,
   getToolStripSlotActions,
   type ActionId,
@@ -139,7 +139,7 @@ interface ActionButtonGroupProps {
 }
 
 function ModeActionButtons({ getToggleState, onExecuteAction }: ActionButtonGroupProps) {
-  const actions = ACTION_DEFS.filter((a) => a.id === 'defaultMode' || a.id === 'connectLanes');
+  const actions = getActionDefs().filter((a) => a.id === 'defaultMode' || a.id === 'connectLanes');
   if (actions.length === 0) return null;
 
   return (

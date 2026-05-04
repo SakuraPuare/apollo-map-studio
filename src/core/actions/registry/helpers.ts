@@ -1,7 +1,7 @@
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { WorkspaceMode } from '@/core/workspaceViews';
 import { isWorkspaceViewActionId, getWorkspaceViewByActionId } from '@/core/workspaceViews';
-import { ACTION_DEFS } from './definitions';
+import { getActionDefs } from './definitions';
 import type { ActionCategory, ActionDef, KeyBinding, ToolStripSlot } from './types';
 
 export type KeyBindingEvent = Pick<
@@ -9,16 +9,18 @@ export type KeyBindingEvent = Pick<
   'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'
 >;
 
-export const ACTION_MAP = new Map(ACTION_DEFS.map((a) => [a.id, a]));
+export function getActionMap(): Map<ActionDef['id'], ActionDef> {
+  return new Map(getActionDefs().map((a) => [a.id, a]));
+}
 
 export function getActionsByCategory(category: ActionCategory): ActionDef[] {
-  return ACTION_DEFS.filter((a) => a.category === category);
+  return getActionDefs().filter((a) => a.category === category);
 }
 
 export function getMenuActions(menu: string): ActionDef[] {
-  return ACTION_DEFS.filter((a) => a.menu === menu).sort(
-    (a, b) => (a.menuOrder ?? 99) - (b.menuOrder ?? 99),
-  );
+  return getActionDefs()
+    .filter((a) => a.menu === menu)
+    .sort((a, b) => (a.menuOrder ?? 99) - (b.menuOrder ?? 99));
 }
 
 export function getMenuActionsForMode(menu: string, mode: WorkspaceMode): ActionDef[] {
@@ -27,14 +29,14 @@ export function getMenuActionsForMode(menu: string, mode: WorkspaceMode): Action
 
 export function getMenuNames(): string[] {
   const menus = new Set<string>();
-  ACTION_DEFS.forEach((a) => {
+  getActionDefs().forEach((a) => {
     if (a.menu) menus.add(a.menu);
   });
   return Array.from(menus);
 }
 
 export function getCommandPaletteActions(): ActionDef[] {
-  return ACTION_DEFS.filter((a) => a.inCommandPalette);
+  return getActionDefs().filter((a) => a.inCommandPalette);
 }
 
 export function getCommandPaletteActionsForMode(mode: WorkspaceMode): ActionDef[] {
@@ -42,17 +44,17 @@ export function getCommandPaletteActionsForMode(mode: WorkspaceMode): ActionDef[
 }
 
 export function getKeyBindingActions(): ActionDef[] {
-  return ACTION_DEFS.filter((a) => a.keybinding);
+  return getActionDefs().filter((a) => a.keybinding);
 }
 
 export function getToolAction(drawTool: DrawTool): ActionDef | undefined {
-  return ACTION_DEFS.find((a) => a.drawTool === drawTool);
+  return getActionDefs().find((a) => a.drawTool === drawTool);
 }
 
 export function getToolStripSlotActions(slot: ToolStripSlot): ActionDef[] {
-  return ACTION_DEFS.filter((a) => a.uiSlot === slot).sort(
-    (a, b) => (a.uiOrder ?? 99) - (b.uiOrder ?? 99),
-  );
+  return getActionDefs()
+    .filter((a) => a.uiSlot === slot)
+    .sort((a, b) => (a.uiOrder ?? 99) - (b.uiOrder ?? 99));
 }
 
 export function isActionAvailableForMode(action: ActionDef, mode: WorkspaceMode): boolean {
