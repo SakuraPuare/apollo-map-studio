@@ -3,6 +3,14 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 
 export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection' | 'help';
 
+export type WorkspaceViewActionId =
+  | 'view:mapEditor'
+  | 'view:outline'
+  | 'view:layers'
+  | 'view:search'
+  | 'view:inspector'
+  | 'view:timeline';
+
 export type ActionId =
   | 'importApollo'
   | 'exportApolloBin'
@@ -14,6 +22,7 @@ export type ActionId =
   | 'toggleGrid'
   | 'toggleSnap'
   | 'resetLayout'
+  | WorkspaceViewActionId
   | 'commandPalette'
   | 'about'
   | 'openHelp'

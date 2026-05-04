@@ -23,8 +23,12 @@ import type { MapElementType } from '@/core/elements';
 import {
   createDefaultLayout,
   clearSavedLayout,
+  closeWorkspacePanel,
+  isWorkspacePanelId,
   loadLayout,
+  openWorkspacePanel,
   saveLayout,
+  type WorkspacePanelId,
 } from './WorkspaceLayout/dockviewLayout';
 import {
   InspectorPanelContent,
@@ -36,6 +40,7 @@ import {
   TimelinePanelContent,
   makeSidebarPanel,
 } from './WorkspaceLayout/lazyPanels';
+import type { WorkspaceViewActionId } from '@/core/actions/registry';
 
 // ─── Inner Layout ─────────────────────────────────────────
 
@@ -51,12 +56,16 @@ function WorkspaceLayoutInner() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [openPanelIds, setOpenPanelIds] = useState<ReadonlySet<WorkspacePanelId>>(new Set());
   const apiRef = useRef<DockviewApi | null>(null);
 
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
   const components = useDockviewComponents(openSettings);
   useCommandPaletteKeys(setCommandPaletteOpen);
+  const refreshOpenPanels = useCallback((api: DockviewApi) => {
+    setOpenPanelIds(new Set(api.panels.map((panel) => panel.id).filter(isWorkspacePanelId)));
+  }, []);
 
   // Reset layout handler (needs apiRef + current mode)
   const handleResetLayout = useCallback(() => {
@@ -64,8 +73,28 @@ function WorkspaceLayoutInner() {
       clearSavedLayout(appMode);
       apiRef.current.clear();
       createDefaultLayout(apiRef.current, appMode);
+      refreshOpenPanels(apiRef.current);
     }
-  }, [appMode]);
+  }, [appMode, refreshOpenPanels]);
+
+  const handleWorkspaceViewToggle = useWorkspaceViewToggle({
+    apiRef,
+    activeTab,
+    setActiveTab,
+    refreshOpenPanels,
+  });
+
+  const getWorkspaceViewState = useCallback(
+    (actionId: WorkspaceViewActionId) => {
+      const panelId = VIEW_ACTION_TO_PANEL[actionId];
+      const tab = VIEW_ACTION_TO_TAB[actionId];
+      if (panelId === 'sidebar') {
+        return tab ? openPanelIds.has('sidebar') && activeTab === tab : openPanelIds.has('sidebar');
+      }
+      return openPanelIds.has(panelId);
+    },
+    [activeTab, openPanelIds],
+  );
 
   // Action dispatcher — single source of all action handling + keyboard shortcuts
   const { execute, getToggleState } = useActionDispatcher({
@@ -74,6 +103,8 @@ function WorkspaceLayoutInner() {
     onOpenSettings: () => setSettingsOpen(true),
     onOpenAbout: openAbout,
     onResetLayout: handleResetLayout,
+    onToggleWorkspaceView: handleWorkspaceViewToggle,
+    getWorkspaceViewState,
   });
 
   // Tool selection (for ToolStrip which needs element param)
@@ -84,7 +115,11 @@ function WorkspaceLayoutInner() {
     [actorRef],
   );
 
-  const onReady = useDockviewReady(apiRef, appMode);
+  useEffect(() => {
+    apiRef.current?.getPanel('sidebar')?.api.setTitle(getSidebarTitle(activeTab));
+  }, [activeTab]);
+
+  const onReady = useDockviewReady(apiRef, appMode, activeTab, refreshOpenPanels);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
@@ -101,7 +136,7 @@ function WorkspaceLayoutInner() {
         activeTab={activeTab}
         components={components}
         onReady={onReady}
-        onTabChange={setActiveTab}
+        onTabChange={handleActivityTabChange}
       />
       <StatusBar mode={currentState} entityCount={entityCount} />
       <WorkspaceOverlays
@@ -115,6 +150,82 @@ function WorkspaceLayoutInner() {
         onAboutClose={() => setAboutOpen(false)}
       />
     </div>
+  );
+
+  function handleActivityTabChange(tab: ActivityTab) {
+    if (tab !== 'settings') {
+      const api = apiRef.current;
+      if (api) {
+        openWorkspacePanel(api, 'sidebar', { title: getSidebarTitle(tab) });
+        refreshOpenPanels(api);
+      }
+    }
+    setActiveTab(tab);
+  }
+}
+
+const SIDEBAR_TITLES: Record<ActivityTab, string> = {
+  explorer: 'Outline',
+  layers: 'Layers',
+  search: 'Search',
+  timeline: 'Timeline',
+  settings: 'Settings',
+};
+
+const VIEW_ACTION_TO_PANEL: Record<WorkspaceViewActionId, WorkspacePanelId> = {
+  'view:mapEditor': 'map',
+  'view:outline': 'sidebar',
+  'view:layers': 'sidebar',
+  'view:search': 'sidebar',
+  'view:inspector': 'inspector',
+  'view:timeline': 'timeline',
+};
+
+const VIEW_ACTION_TO_TAB: Partial<Record<WorkspaceViewActionId, ActivityTab>> = {
+  'view:outline': 'explorer',
+  'view:layers': 'layers',
+  'view:search': 'search',
+};
+
+function getSidebarTitle(tab: ActivityTab): string {
+  return SIDEBAR_TITLES[tab] ?? tab;
+}
+
+function useWorkspaceViewToggle({
+  apiRef,
+  activeTab,
+  setActiveTab,
+  refreshOpenPanels,
+}: {
+  apiRef: React.RefObject<DockviewApi | null>;
+  activeTab: ActivityTab;
+  setActiveTab: (tab: ActivityTab) => void;
+  refreshOpenPanels: (api: DockviewApi) => void;
+}) {
+  return useCallback(
+    (actionId: WorkspaceViewActionId) => {
+      const api = apiRef.current;
+      if (!api) return;
+
+      const panelId = VIEW_ACTION_TO_PANEL[actionId];
+      const tab = VIEW_ACTION_TO_TAB[actionId];
+      if (panelId === 'sidebar' && tab) {
+        const shouldClose = api.getPanel('sidebar') && activeTab === tab;
+        if (shouldClose) {
+          closeWorkspacePanel(api, 'sidebar');
+        } else {
+          setActiveTab(tab);
+          openWorkspacePanel(api, 'sidebar', { title: getSidebarTitle(tab) });
+        }
+        refreshOpenPanels(api);
+        return;
+      }
+
+      if (api.getPanel(panelId)) closeWorkspacePanel(api, panelId);
+      else openWorkspacePanel(api, panelId);
+      refreshOpenPanels(api);
+    },
+    [activeTab, apiRef, refreshOpenPanels, setActiveTab],
   );
 }
 
@@ -207,14 +318,24 @@ function useCommandPaletteKeys(
   }, [setCommandPaletteOpen]);
 }
 
-function useDockviewReady(apiRef: React.RefObject<DockviewApi | null>, appMode: AppMode) {
+function useDockviewReady(
+  apiRef: React.RefObject<DockviewApi | null>,
+  appMode: AppMode,
+  activeTab: ActivityTab,
+  refreshOpenPanels: (api: DockviewApi) => void,
+) {
   return useCallback(
     (event: DockviewReadyEvent) => {
       apiRef.current = event.api;
       if (!loadLayout(event.api, appMode)) createDefaultLayout(event.api, appMode);
-      event.api.onDidLayoutChange(() => saveLayout(event.api, appMode));
+      event.api.getPanel('sidebar')?.api.setTitle(getSidebarTitle(activeTab));
+      refreshOpenPanels(event.api);
+      event.api.onDidLayoutChange(() => {
+        saveLayout(event.api, appMode);
+        refreshOpenPanels(event.api);
+      });
     },
-    [apiRef, appMode],
+    [apiRef, appMode, activeTab, refreshOpenPanels],
   );
 }
 

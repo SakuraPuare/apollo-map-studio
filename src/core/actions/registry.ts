@@ -19,4 +19,5 @@ export type {
   ActionId,
   KeyBinding,
   ToolStripSlot,
+  WorkspaceViewActionId,
 } from './registry/types';

@@ -21,6 +21,7 @@ import {
   matchesKeybinding,
   type ActionDef,
   type ActionId,
+  type WorkspaceViewActionId,
 } from '@/core/actions/registry';
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
 import { appBridge } from '@/lib/app-bridge';
@@ -57,6 +58,8 @@ interface ActionDispatcherOptions {
   onOpenSettings: () => void;
   onOpenAbout: () => void;
   onResetLayout: () => void;
+  onToggleWorkspaceView?: (actionId: WorkspaceViewActionId) => void;
+  getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean;
 }
 
 function importApolloWithLog() {
@@ -89,6 +92,12 @@ function registerViewHandlers(map: Map<ActionId, () => void>, options: ActionDis
   map.set('toggleGrid', () => useUIStore.getState().toggleGrid());
   map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
   map.set('resetLayout', options.onResetLayout);
+  map.set('view:mapEditor', () => options.onToggleWorkspaceView?.('view:mapEditor'));
+  map.set('view:outline', () => options.onToggleWorkspaceView?.('view:outline'));
+  map.set('view:layers', () => options.onToggleWorkspaceView?.('view:layers'));
+  map.set('view:search', () => options.onToggleWorkspaceView?.('view:search'));
+  map.set('view:inspector', () => options.onToggleWorkspaceView?.('view:inspector'));
+  map.set('view:timeline', () => options.onToggleWorkspaceView?.('view:timeline'));
   map.set('commandPalette', options.onOpenCommandPalette);
 }
 
@@ -130,7 +139,14 @@ function buildActionHandlers(options: ActionDispatcherOptions): Map<ActionId, ()
 }
 
 function useActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () => void> {
-  const { actorRef, onOpenAbout, onOpenCommandPalette, onOpenSettings, onResetLayout } = options;
+  const {
+    actorRef,
+    onOpenAbout,
+    onOpenCommandPalette,
+    onOpenSettings,
+    onResetLayout,
+    onToggleWorkspaceView,
+  } = options;
   return useMemo(
     () =>
       buildActionHandlers({
@@ -139,8 +155,16 @@ function useActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () =
         onOpenCommandPalette,
         onOpenSettings,
         onResetLayout,
+        onToggleWorkspaceView,
       }),
-    [actorRef, onOpenAbout, onOpenCommandPalette, onOpenSettings, onResetLayout],
+    [
+      actorRef,
+      onOpenAbout,
+      onOpenCommandPalette,
+      onOpenSettings,
+      onResetLayout,
+      onToggleWorkspaceView,
+    ],
   );
 }
 
@@ -168,7 +192,14 @@ function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
   }, [execute]);
 }
 
-function useActionToggleState(actorRef: ActorRefFrom<typeof editorMachine>) {
+function isWorkspaceViewActionId(actionId: ActionId): actionId is WorkspaceViewActionId {
+  return actionId.startsWith('view:');
+}
+
+function useActionToggleState(
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean,
+) {
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const connectModeActive = useUIStore((s) => s.connectMode.active);
@@ -188,10 +219,13 @@ function useActionToggleState(actorRef: ActorRefFrom<typeof editorMachine>) {
         case 'defaultMode':
           return inDefaultMode;
         default:
+          if (isWorkspaceViewActionId(actionId)) {
+            return getWorkspaceViewState?.(actionId) ?? false;
+          }
           return false;
       }
     },
-    [gridEnabled, snapEnabled, connectModeActive, inDefaultMode],
+    [gridEnabled, snapEnabled, connectModeActive, inDefaultMode, getWorkspaceViewState],
   );
 }
 
@@ -210,7 +244,7 @@ function useActionExecute(handlers: Map<ActionId, () => void>) {
 export function useActionDispatcher(options: ActionDispatcherOptions): ActionDispatcher {
   const handlers = useActionHandlers(options);
   const execute = useActionExecute(handlers);
-  const getToggleState = useActionToggleState(options.actorRef);
+  const getToggleState = useActionToggleState(options.actorRef, options.getWorkspaceViewState);
   useKeyboardShortcuts(execute);
 
   return {

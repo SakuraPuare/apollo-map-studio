@@ -96,6 +96,17 @@ describe('Action Registry', () => {
     expect(ids).toContain('toggleSnap');
   });
 
+  it('View menu exposes workspace panels', () => {
+    const viewActions = getMenuActions('View');
+    const ids = viewActions.map((a) => a.id);
+    expect(ids).toContain('view:mapEditor');
+    expect(ids).toContain('view:outline');
+    expect(ids).toContain('view:layers');
+    expect(ids).toContain('view:search');
+    expect(ids).toContain('view:inspector');
+    expect(ids).toContain('view:timeline');
+  });
+
   it('About menu has version information and help documentation', () => {
     const aboutActions = getMenuActions('About');
     const ids = aboutActions.map((a) => a.id);
