@@ -22,11 +22,14 @@ uncrackable against an attacker who can patch the shipped binary or runtime.
 - Keep `tools/license-gen/keys/private.pem` out of shipped builds and source
   control. The app must only contain `electron/license/public-key.cts`.
 - Use `pnpm build:desktop` or the `pnpm package*` scripts for release
-  artifacts. They compile readable source first, then seal selected
-  `dist-electron/license/*.cjs` files and add a packaged-file integrity
-  manifest.
+  artifacts. They compile readable source first, then seal the access guard and
+  selected `dist-electron/license/*.cjs` files before adding a packaged-file
+  integrity manifest.
 - Keep `electron:dev` on the plain TypeScript build. Artifact hardening is
   intentionally a release-build step, not a source-obfuscation step.
+- Keep `build:electron` destructive for `dist-electron`. It clears stale
+  Electron output before `tsc`, then `build:electron:hardened` seals the fresh
+  output.
 - Issue renewal tokens with the same `lic` id and a later `expires` value.
   Older tokens for the same id are intentionally rejected.
 - Treat any `tampered`, `machine_mismatch`, `invalid`, `expired_trial`, or
@@ -52,6 +55,8 @@ pnpm build:desktop
 pnpm verify:electron-hardening
 ```
 
-The artifact check rejects sourcemaps, requires the protected Electron license
-modules to be AES-GCM sealed, and verifies `dist-electron/ams-integrity.cjs`
-against the generated `dist/` and `dist-electron/` files.
+The artifact check rejects sourcemaps, requires the protected Electron access
+guard and license modules to be AES-GCM sealed, and verifies
+`dist-electron/ams-integrity.cjs` against the generated `dist/` and
+`dist-electron/` files. Electron test files are excluded from the TypeScript
+build and rejected by the verifier if stale artifacts ever reappear.

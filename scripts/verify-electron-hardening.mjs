@@ -14,6 +14,7 @@ const integrityPath = path.join(distElectronDir, 'ams-integrity.cjs');
 const encryptedPrefix = '/* APMS_ENC_V1 */\n';
 
 const protectedModuleRelPaths = [
+  'access-guard-runtime.cjs',
   'license/crypto.cjs',
   'license/machine-id.cjs',
   'license/manager.cjs',
@@ -24,9 +25,11 @@ const protectedModuleRelPaths = [
 ];
 
 const plaintextMarkers = [
+  'ACCESS_GUARD_BLOCKLIST',
   'LICENSE_PUBLIC_KEY_PEM',
   'function parseToken',
   'function verifyToken',
+  'checkAccessGuardAccess',
   'class LicenseManager',
   'class LicenseStorage',
   'class TimeGuard',
@@ -56,6 +59,23 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function assertNoTestArtifacts(files) {
+  const testArtifacts = files.filter((file) => {
+    const relPath = path.relative(repoRoot, file).split(path.sep).join('/');
+    return (
+      relPath.startsWith('dist-electron/') &&
+      (relPath.includes('/__tests__/') ||
+        relPath.endsWith('.test.cjs') ||
+        relPath.endsWith('.spec.cjs'))
+    );
+  });
+
+  assert(
+    testArtifacts.length === 0,
+    `hardened build contains Electron test artifacts:\n${testArtifacts.join('\n')}`,
+  );
+}
+
 function assertNoSourceMaps(files) {
   const mapFiles = files.filter((file) => file.endsWith('.map'));
   assert(mapFiles.length === 0, `hardened build contains sourcemaps:\n${mapFiles.join('\n')}`);
@@ -78,7 +98,7 @@ function assertEncryptedModules() {
     const source = readFileSync(absPath, 'utf8');
     assert(
       source.startsWith(encryptedPrefix),
-      `protected Electron module is not sealed: ${relPath}`,
+      `protected Electron module is not sealed: ${relPath}. Run pnpm build:desktop to regenerate hardened artifacts.`,
     );
 
     const leakedMarkers = plaintextMarkers.filter((marker) => source.includes(marker));
@@ -132,6 +152,7 @@ function main() {
   );
 
   assertNoSourceMaps(files);
+  assertNoTestArtifacts(files);
   assertEncryptedModules();
   assertMainBootstrap();
   assertIntegrity();

@@ -6,6 +6,11 @@ files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
+  - '!dist-electron/**/__tests__/**'
+  - '!dist-electron/**/*.test.cjs'
+  - '!dist-electron/**/*.spec.cjs'
+  - '!dist-electron/**/*.map'
+  - '!dist/**/*.map'
   - '!node_modules/**/*'
 asar: true
 npmRebuild: false

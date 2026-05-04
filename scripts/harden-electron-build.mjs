@@ -14,6 +14,7 @@ const integrityPath = path.join(distElectronDir, integrityModuleName);
 const encryptedPrefix = '/* APMS_ENC_V1 */\n';
 
 const protectedModuleRelPaths = [
+  'access-guard-runtime.cjs',
   'license/crypto.cjs',
   'license/machine-id.cjs',
   'license/manager.cjs',

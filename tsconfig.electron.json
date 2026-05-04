@@ -15,5 +15,6 @@
     "rootDir": "electron",
     "types": ["node", "electron"]
   },
-  "include": ["electron/**/*.ts", "electron/**/*.cts"]
+  "include": ["electron/**/*.ts", "electron/**/*.cts"],
+  "exclude": ["electron/**/__tests__/**", "electron/**/*.test.cts", "electron/**/*.spec.cts"]
 }
