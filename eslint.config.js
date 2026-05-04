@@ -21,6 +21,7 @@ export default tseslint.config(
       'docs/.vitepress/*.timestamp-*',
       'release',
       'node_modules',
+      '.tmp',
       '.github',
       'src/proto/**',
       '.husky',
