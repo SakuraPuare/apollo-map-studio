@@ -117,6 +117,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
+  test: {
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/dist-electron/**',
+      '**/.tmp/**',
+      '**/electron/**/*.test.cts',
+      '**/electron/**/*.spec.cts',
+    ],
+  },
   build: {
     // `maplibre-gl` is shipped as a prebuilt monolithic bundle, so once it's
     // isolated into its own vendor chunk there is no finer-grained split left
