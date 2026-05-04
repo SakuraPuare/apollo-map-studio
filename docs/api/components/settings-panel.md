@@ -17,7 +17,7 @@ description: Modal 设置弹窗——撤销历史上限、地图视口（lng/lat
 1. **Undo History** — `historyLimit`（zundo 内部上限），范围由 `MIN_HISTORY_LIMIT` / `MAX_HISTORY_LIMIT` 限定。
 2. **Map Viewport** — `mapCenterLng` / `mapCenterLat` / `mapZoom`（写入后**重启应用方生效**，因为 MapLibre `Map` 实例已挂载）。
 3. **Lane** — `laneHalfWidth`（默认半宽，米）+ `laneArrowSpacing`（车道箭头间距，像素）。
-4. **Layout** — "Reset Layout to Default" 按钮：清掉 `localStorage['ams-layout-v2']` 并 reload。
+4. **Layout** — "Reset Layout to Default" 按钮：清掉两个 layout key 并 reload。
 
 弹窗以 modal 形式覆盖（`bg-black/60 backdrop-blur-sm`），ESC 关闭，点 backdrop 关闭。
 
@@ -72,12 +72,12 @@ function NumInput(props: {
 
 ## 副作用
 
-| 时机                | 行为                                                                 |
-| ------------------- | -------------------------------------------------------------------- |
-| `Esc` keydown       | `onClose()`                                                          |
-| Backdrop click      | `onClose()`                                                          |
-| 字段 blur / Enter   | clamp + 写 settingsStore                                             |
-| `Reset Layout` 按钮 | `localStorage.removeItem('ams-layout-v2'); window.location.reload()` |
+| 时机                | 行为                                               |
+| ------------------- | -------------------------------------------------- |
+| `Esc` keydown       | `onClose()`                                        |
+| Backdrop click      | `onClose()`                                        |
+| 字段 blur / Enter   | clamp + 写 settingsStore                           |
+| `Reset Layout` 按钮 | `clearAllSavedLayouts(); window.location.reload()` |
 
 ## 渲染骨架
 
@@ -105,7 +105,7 @@ function NumInput(props: {
 ## 已知缺口
 
 - "Restart to apply" 提示仅在 Map Viewport section 显示——其他字段的实时性未做明确提示，用户不一定知道哪些立即生效。
-- "Reset Layout" 用 `'ams-layout-v2'` 旧 key——`WorkspaceLayout/dockviewLayout.ts` 实际用的是 `'ams-layout-v3-{drawing|scene}'`。重置实际只清不存在的 v2 旧键，不会清当前布局。**已知 bug**，需更新为按 mode 调用 `clearSavedLayout`。
+- "Reset Layout" 现在会清当前两个 layout key 后 reload。若 dockview 仍异常，通常需要直接使用 `View → Reset Layout`。
 
 ## 源码索引
 

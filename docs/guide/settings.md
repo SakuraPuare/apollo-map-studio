@@ -54,13 +54,9 @@ description: SettingsPanel 模态的全部字段、范围、默认值、写入 s
 
 ### Layout
 
-| 按钮                      | 行为                                                                    |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `Reset Layout to Default` | `localStorage.removeItem('ams-layout-v2')` + `window.location.reload()` |
-
-::: warning ams-layout-v2 vs v3
-该按钮**只清** legacy v2 键 + 全量 reload；新版本布局键是 `ams-layout-v3-drawing` / `ams-layout-v3-scene`。要软重置当前模式布局请用 `View → Reset Layout`。详见 [Activity Bar & Panels](./activity-bar-and-panels.md#reset-layout)。
-:::
+| 按钮                      | 行为                                                  |
+| ------------------------- | ----------------------------------------------------- |
+| `Reset Layout to Default` | `clearAllSavedLayouts()` + `window.location.reload()` |
 
 ## 输入控件 / NumInput
 
@@ -138,7 +134,7 @@ sequenceDiagram
 | 改了 history limit 撤销栈没变长 | 该字段重启生效              | 用 Reset Layout to Default 或重启         |
 | 数值始终被 clamp 回边界         | 输入超界                    | 看上表合法范围                            |
 | 输入 abc 后变回原值             | NumInput 的 `onReset` 触发  | 是预期行为                                |
-| Reset Layout 后 dockview 仍乱   | 你触发的是 v2 清理 + reload | 改用 `View → Reset Layout` 软重置当前模式 |
+| Reset Layout 后 dockview 仍乱   | 你触发的是全量清理 + reload | 改用 `View → Reset Layout` 软重置当前模式 |
 | 隐私窗口下设置不持久            | localStorage 被禁           | 切换到普通窗口                            |
 | 切换中心后 map 没飞过去         | 这是初始视点，不是动态飞行  | 重启或手动平移                            |
 

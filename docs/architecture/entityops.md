@@ -27,7 +27,7 @@ geometry / 编辑 / 校验 / 级联删除 / reparent / 类型守卫操作统一�
 - 仅 `lib/entityOps/*` 内部模块允许 import `core/geometry/apolloCompile` 与 `types/apollo`。
 - `lib/entityOps.ts` 的导出不暴露 Apollo 类型字段，只暴露 `MapEntity`、`ApolloEntity`
   (作为不透明类型)、`GeoPoint`、`BezierAnchorData`、`DrawingEntity`。
-- `cascadeDeleteRefs` (无 `Full`) 已 deprecated；新代码统一用 `cascadeDeleteRefsFull`。
+- 级联删除只暴露 `cascadeDeleteRefsFull`，调用方必须处理 `cascadeRemoved`。
   :::
 
 ## 2. 模块地图
@@ -47,25 +47,24 @@ graph TB
 
 ## 3. 公共表面
 
-| 符号                                                                         | 出处                           | 说明                                                                |
-| ---------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------- |
-| `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData` | `entityOps.ts:7-10`            | re-export of `@/types/entities` / `@/types/apollo` (作为不透明类型) |
-| `compileEntity(entity)`                                                      | `edit.ts:69-74`                | `MapEntity` → GeoJSON Features                                      |
-| `createEntity(elementType, drawTool, points, anchors, options)`              | `edit.ts:76-85`                | 构造 ApolloEntity (附带 derive)                                     |
-| `getEditPoints(entity)`                                                      | `edit.ts:19-35`                | 返回 entity 的可编辑控制点列表                                      |
-| `setEditPoint(entity, index, point)`                                         | `edit.ts:37-43`                | 修改单个控制点 (含 derive)                                          |
-| `setAllEditPoints(entity, points)`                                           | `edit.ts:45-51`                | 批量替换控制点                                                      |
-| `moveEntity(entity, dx, dy)`                                                 | `edit.ts:53-59`                | 平移 entity                                                         |
-| `deleteVertex(entity, index)`                                                | `edit.ts:61-67`                | 删除单个 vertex (返回 null 表示退化)                                |
-| `entityCoords(entity)`                                                       | `edit.ts:87-92`                | 获取所有坐标 (LngLat[])                                             |
-| `cascadeDeleteRefs` (deprecated)                                             | `cascadeDeleteRefs.ts:128-133` | 仅返回 changes                                                      |
-| `cascadeDeleteRefsFull`                                                      | `cascadeDeleteRefs.ts:135-154` | changes + cascadeRemoved                                            |
-| `reparent`                                                                   | `reparent.ts:195-204`          | 把 child 移到新 parent                                              |
-| `canReparent`                                                                | `reparent.ts:206-212`          | 是否允许 reparent                                                   |
-| `isDrawingEntity`                                                            | `typeGuards.ts:7-9`            | 是否是 polyline/bezier/arc/rect/polygon                             |
-| `isApolloEntityType`                                                         | `typeGuards.ts:11-13`          | 是否是 Apollo 业务实体                                              |
-| `isAreaEntity`                                                               | `typeGuards.ts:15-18`          | 是否是面积型实体                                                    |
-| `isPolygonEditEntity`                                                        | `typeGuards.ts:25-28`          | 编辑点是否构成闭合 polygon ring                                     |
+| 符号                                                                         | 出处                   | 说明                                                                |
+| ---------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------- |
+| `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData` | `entityOps.ts:7-10`    | re-export of `@/types/entities` / `@/types/apollo` (作为不透明类型) |
+| `compileEntity(entity)`                                                      | `edit.ts:69-74`        | `MapEntity` → GeoJSON Features                                      |
+| `createEntity(elementType, drawTool, points, anchors, options)`              | `edit.ts:76-85`        | 构造 ApolloEntity (附带 derive)                                     |
+| `getEditPoints(entity)`                                                      | `edit.ts:19-35`        | 返回 entity 的可编辑控制点列表                                      |
+| `setEditPoint(entity, index, point)`                                         | `edit.ts:37-43`        | 修改单个控制点 (含 derive)                                          |
+| `setAllEditPoints(entity, points)`                                           | `edit.ts:45-51`        | 批量替换控制点                                                      |
+| `moveEntity(entity, dx, dy)`                                                 | `edit.ts:53-59`        | 平移 entity                                                         |
+| `deleteVertex(entity, index)`                                                | `edit.ts:61-67`        | 删除单个 vertex (返回 null 表示退化)                                |
+| `entityCoords(entity)`                                                       | `edit.ts:87-92`        | 获取所有坐标 (LngLat[])                                             |
+| `cascadeDeleteRefsFull`                                                      | `cascadeDeleteRefs.ts` | changes + cascadeRemoved                                            |
+| `reparent`                                                                   | `reparent.ts:195-204`  | 把 child 移到新 parent                                              |
+| `canReparent`                                                                | `reparent.ts:206-212`  | 是否允许 reparent                                                   |
+| `isDrawingEntity`                                                            | `typeGuards.ts:7-9`    | 是否是 polyline/bezier/arc/rect/polygon                             |
+| `isApolloEntityType`                                                         | `typeGuards.ts:11-13`  | 是否是 Apollo 业务实体                                              |
+| `isAreaEntity`                                                               | `typeGuards.ts:15-18`  | 是否是面积型实体                                                    |
+| `isPolygonEditEntity`                                                        | `typeGuards.ts:25-28`  | 编辑点是否构成闭合 polygon ring                                     |
 
 ## 4. createEntity 的责任链
 
@@ -187,8 +186,8 @@ export function getEditPoints(entity: MapEntity): GeoPoint[] {
 是 PR 阻塞项。
 :::
 
-::: danger 用 cascadeDeleteRefs 而非 cascadeDeleteRefsFull
-旧版本只返回 changes，cascadeRemoved (孤儿 overlap) 会留在 store。新增功能必须用 Full。
+::: danger 忽略 cascadeRemoved
+`cascadeDeleteRefsFull` 返回的 `cascadeRemoved` 是孤儿 overlap 的额外删除集合，新增功能必须一并处理。
 :::
 
 ::: danger 直接修改 entity 字段而不走 setEditPoint
@@ -250,13 +249,12 @@ type DeriveCause =
 
 ## 15. 公共契约稳定性
 
-| 符号                                               | 稳定性     | 备注                           |
-| -------------------------------------------------- | ---------- | ------------------------------ |
-| `compileEntity` / `createEntity` / `getEditPoints` | stable     | 主要 API，禁止 breaking change |
-| `cascadeDeleteRefs`                                | deprecated | 新代码用 Full 版本             |
-| `cascadeDeleteRefsFull`                            | stable     | 主路径                         |
-| `reparent` / `canReparent`                         | stable     | HANDLERS 可加                  |
-| `isXxx` guards                                     | stable     | 新增 entity 类型时无需改       |
+| 符号                                               | 稳定性 | 备注                           |
+| -------------------------------------------------- | ------ | ------------------------------ |
+| `compileEntity` / `createEntity` / `getEditPoints` | stable | 主要 API，禁止 breaking change |
+| `cascadeDeleteRefsFull`                            | stable | 主路径                         |
+| `reparent` / `canReparent`                         | stable | HANDLERS 可加                  |
+| `isXxx` guards                                     | stable | 新增 entity 类型时无需改       |
 
 ## 16. 用法范例
 
@@ -336,7 +334,7 @@ worker (spatial / overlap / IO) 接收的实体一律是 `MapEntity` (proto-awar
 
 - [反腐败层](./anti-corruption-layer.md) —— 更广义的论述
 - [架构总览](./overview.md)
-- [状态管理](./state-management.md) —— `mapStore` 如何调用 cascadeDeleteRefs / reparent
+- [状态管理](./state-management.md) —— `mapStore` 如何调用 cascadeDeleteRefsFull / reparent
 - [FSM 设计](./fsm-design.md) —— `useDrawCommit` 调用 `createEntity`
 - [几何引擎](./geometry-engine.md)
 - [派生引擎](./derive-engine.md)

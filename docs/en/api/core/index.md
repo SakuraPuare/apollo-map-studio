@@ -95,7 +95,7 @@ src/core/
 | Curve interpolation     | [geometry/interpolate](./geometry-interpolate)      | `cubicBezier`, `catmullRom`, `threePointArc`, `rectCorners`                           |
 | Snap                    | [geometry/snap](./geometry-snap)                    | `findSnapTarget`, `pixelsToMeters`, `SnapTarget`                                      |
 | Validation              | [geometry/validation](./geometry-validation)        | `segmentsIntersect`, `wouldSelfIntersect`, `polygonSelfIntersects`                    |
-| Hit test                | [geometry/hitTest](./geometry-hit-test)             | `pointToPolylineDist(Geo)`, `pointToPolygonDist(Geo)`, `pointInPolygon`               |
+| Hit test                | [geometry/hitTest](./geometry-hit-test)             | `pointToPolylineDistGeo`, `pointToPolygonDistGeo`, `pointInPolygon`                   |
 | Lane junctions          | [geometry/laneJunctions](./geometry-lane-junctions) | `applyLaneJunctions`, `decorateBoundary`, `sideJoinOffset`                            |
 | Spatial worker          | [workers/spatial](./workers-spatial)                | dispatch only; state lives in `SpatialState`                                          |
 | Overlap worker          | [workers/overlap](./workers-overlap)                | `OverlapWorkerBridge.reconcileFull`                                                   |

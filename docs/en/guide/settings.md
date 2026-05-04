@@ -54,13 +54,9 @@ The default center is `MAP_DEFAULT_CENTER` in `src/config/mapConstants.ts` (a co
 
 ### Layout
 
-| Button                    | Action                                                                  |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `Reset Layout to Default` | `localStorage.removeItem('ams-layout-v2')` + `window.location.reload()` |
-
-::: warning ams-layout-v2 vs v3
-This button only clears the legacy v2 key + does a full reload. Newer keys are `ams-layout-v3-drawing` / `ams-layout-v3-scene`. For a soft reset of the current mode use `View → Reset Layout` — see [Activity Bar & Panels](./activity-bar-and-panels.md#reset-layout).
-:::
+| Button                    | Action                                                |
+| ------------------------- | ----------------------------------------------------- |
+| `Reset Layout to Default` | `clearAllSavedLayouts()` + `window.location.reload()` |
 
 ## NumInput control
 
@@ -133,14 +129,14 @@ Code: `src/store/settingsStore.ts:20-31`.
 
 ## Troubleshooting
 
-| Symptom                                      | Cause                               | Fix                                                    |
-| -------------------------------------------- | ----------------------------------- | ------------------------------------------------------ |
-| Changing history limit didn't grow the stack | Restart-required                    | Use `Reset Layout to Default` for a reload, or restart |
-| Values get clamped back to bounds            | Input out of range                  | See the constants above                                |
-| Typing `abc` reverts to old value            | `NumInput.onReset` triggered        | Expected                                               |
-| Reset Layout still leaves dockview wrong     | You triggered the v2 clear + reload | Use `View → Reset Layout` instead                      |
-| Settings don't persist in private window     | `localStorage` blocked              | Use a normal window                                    |
-| Center change doesn't fly the map            | Initial viewpoint, not an animation | Restart or pan manually                                |
+| Symptom                                      | Cause                                 | Fix                                                    |
+| -------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| Changing history limit didn't grow the stack | Restart-required                      | Use `Reset Layout to Default` for a reload, or restart |
+| Values get clamped back to bounds            | Input out of range                    | See the constants above                                |
+| Typing `abc` reverts to old value            | `NumInput.onReset` triggered          | Expected                                               |
+| Reset Layout still leaves dockview wrong     | You triggered the full clear + reload | Use `View → Reset Layout` instead                      |
+| Settings don't persist in private window     | `localStorage` blocked                | Use a normal window                                    |
+| Center change doesn't fly the map            | Initial viewpoint, not an animation   | Restart or pan manually                                |
 
 ## Source
 

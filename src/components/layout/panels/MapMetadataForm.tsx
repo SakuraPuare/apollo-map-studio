@@ -82,12 +82,6 @@ interface MetadataRow {
   value: string;
 }
 
-function rawHeaderFromMap(rawMap: unknown): RawHeader | null {
-  if (!rawMap) return null;
-  const header = (rawMap as { header?: unknown }).header;
-  return header != null && typeof header === 'object' ? (header as RawHeader) : null;
-}
-
 function headerRows(header: RawHeader | null): MetadataRow[] {
   // Apollo proto uses snake_case on the wire; the bridge may also surface
   // camelCase. Tolerate both so this panel is useful pre-bridge-finalize.
@@ -135,12 +129,11 @@ function NoMetadataNotice() {
 }
 
 export function MapMetadataForm() {
-  const rawMap = useApolloMapStore((s) => s.rawMap);
   const storedHeader = useApolloMapStore((s) => s.header);
   const info = useApolloMapStore((s) => s.info);
   const header = useMemo<RawHeader | null>(
-    () => (storedHeader ? (storedHeader as RawHeader) : rawHeaderFromMap(rawMap)),
-    [rawMap, storedHeader],
+    () => (storedHeader ? (storedHeader as RawHeader) : null),
+    [storedHeader],
   );
 
   if (!info) return <NoMetadataNotice />;

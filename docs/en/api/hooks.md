@@ -11,20 +11,20 @@ maplibre or FSM / expose the smallest controlled API" pattern.
 
 ## Top-level
 
-| Hook                  | File                     | Role                                                  |
-| --------------------- | ------------------------ | ----------------------------------------------------- |
-| `useMapLibreInit`     | `useMapLibreInit.ts`     | Boot the maplibre instance + dark style + base layers |
-| `useApolloLayer`      | `useApolloLayer.ts`      | Project `apolloMapStore.rawMap` into a preview source |
-| `useColdLayer`        | `useColdLayer.ts`        | Compile `mapStore.entities` into the cold GeoJSON     |
-| `useHotLayer`         | `useHotLayer.ts`         | Render FSM in-flight draw / drag preview              |
-| `useOverlayLayer`     | `useOverlayLayer.ts`     | Selection, snap indicator, editPoints overlay         |
-| `useGridLayer`        | `useGridLayer.ts`        | Adaptive metric reference grid                        |
-| `useCursorManager`    | `useCursorManager.ts`    | FSM-driven CSS cursor on the maplibre canvas          |
-| `useDragPan`          | `useDragPan.ts`          | Disable maplibre dragPan during entity drag           |
-| `useActionDispatcher` | `useActionDispatcher.ts` | Unified entry for undo/redo/delete/tool switch (R1)   |
-| `useDrawCommit`       | `useDrawCommit.ts`       | Commit FSM draw state into `mapStore.addEntity`       |
-| `useMapEventRouter`   | `useMapEventRouter.ts`   | maplibre events → FSM events, with dblclick dedup     |
-| `useLicenseSync`      | `useLicense.ts`          | Sync license bridge state into `licenseStore`         |
+| Hook                  | File                     | Role                                                                  |
+| --------------------- | ------------------------ | --------------------------------------------------------------------- |
+| `useMapLibreInit`     | `useMapLibreInit.ts`     | Boot the maplibre instance + dark style + base layers                 |
+| `useApolloLayer`      | `useApolloLayer.ts`      | Register apollo-\* placeholder layers and fit `apolloMapStore.bounds` |
+| `useColdLayer`        | `useColdLayer.ts`        | Compile `mapStore.entities` into the cold GeoJSON                     |
+| `useHotLayer`         | `useHotLayer.ts`         | Render FSM in-flight draw / drag preview                              |
+| `useOverlayLayer`     | `useOverlayLayer.ts`     | Selection, snap indicator, editPoints overlay                         |
+| `useGridLayer`        | `useGridLayer.ts`        | Adaptive metric reference grid                                        |
+| `useCursorManager`    | `useCursorManager.ts`    | FSM-driven CSS cursor on the maplibre canvas                          |
+| `useDragPan`          | `useDragPan.ts`          | Disable maplibre dragPan during entity drag                           |
+| `useActionDispatcher` | `useActionDispatcher.ts` | Unified entry for undo/redo/delete/tool switch (R1)                   |
+| `useDrawCommit`       | `useDrawCommit.ts`       | Commit FSM draw state into `mapStore.addEntity`                       |
+| `useMapEventRouter`   | `useMapEventRouter.ts`   | maplibre events → FSM events, with dblclick dedup                     |
+| `useLicenseSync`      | `useLicense.ts`          | Sync license bridge state into `licenseStore`                         |
 
 ## Sub-directories
 
@@ -166,9 +166,8 @@ sample window.
 export function useApolloLayer(map: maplibregl.Map | null): void;
 ```
 
-Subscribes to `apolloMapStore.rawMap` (imported-but-unedited Apollo
-map) and emits a `apollo-base` GeoJSON source for the import
-preview layer.
+Subscribes to `apolloMapStore.bounds`, registers `apollo-*` placeholder
+sources/layers, and calls `fitBounds` after import.
 
 ## `useLicenseSync`
 

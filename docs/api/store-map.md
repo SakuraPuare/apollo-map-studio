@@ -13,12 +13,12 @@ Apollo HD-map 的 18 种实体类型与编辑器内部的 6 种基础绘制图�
 
 ## 模块边界
 
-| Store            | 范围                                                  | 是否进 zundo                        |
-| ---------------- | ----------------------------------------------------- | ----------------------------------- |
-| `mapStore`       | 实体表 (Map<id, MapEntity>)                           | 是（`partialize: { entities }`）    |
-| `apolloMapStore` | `rawMap` / `header` / `bounds` / `info` / `lastError` | 否（导入上下文，与编辑历史解耦）    |
-| `uiStore`        | grid / snap / cursor / layerStates / currentZoom      | 否（UX 偏好）                       |
-| `settingsStore`  | historyLimit / mapZoom / laneHalfWidth                | 否（用户偏好持久化到 localStorage） |
+| Store            | 范围                                             | 是否进 zundo                        |
+| ---------------- | ------------------------------------------------ | ----------------------------------- |
+| `mapStore`       | 实体表 (Map<id, MapEntity>)                      | 是（`partialize: { entities }`）    |
+| `apolloMapStore` | `header` / `bounds` / `info` / `lastError`       | 否（导入上下文，与编辑历史解耦）    |
+| `uiStore`        | grid / snap / cursor / layerStates / currentZoom | 否（UX 偏好）                       |
+| `settingsStore`  | historyLimit / mapZoom / laneHalfWidth           | 否（用户偏好持久化到 localStorage） |
 
 ## 类型签名
 

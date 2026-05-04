@@ -19,15 +19,14 @@ description: GeoPoint / six drawing primitives / Apollo entity re-exports / the 
 
 ## Public API
 
-| Symbol                                                                                                | Kind                        | Summary                                           |
-| ----------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------- |
-| `GeoPoint`                                                                                            | interface                   | `{ x: lng, y: lat, z? }`                          |
-| `BezierAnchorData`                                                                                    | interface                   | Persisted bezier anchor                           |
-| `PolylineEntity` / `CatmullRomEntity` / `BezierEntity` / `ArcEntity` / `RectEntity` / `PolygonEntity` | interface                   | Six drawing primitives                            |
-| `DrawingEntity`                                                                                       | union                       | Union of the six                                  |
-| `MapEntity`                                                                                           | union                       | `DrawingEntity \| ApolloEntity`                   |
-| `PointENU`                                                                                            | type alias **(deprecated)** | `GeoPoint` synonym                                |
-| Apollo re-exports                                                                                     | type                        | All Apollo types from `./apollo` (see list below) |
+| Symbol                                                                                                | Kind      | Summary                                           |
+| ----------------------------------------------------------------------------------------------------- | --------- | ------------------------------------------------- |
+| `GeoPoint`                                                                                            | interface | `{ x: lng, y: lat, z? }`                          |
+| `BezierAnchorData`                                                                                    | interface | Persisted bezier anchor                           |
+| `PolylineEntity` / `CatmullRomEntity` / `BezierEntity` / `ArcEntity` / `RectEntity` / `PolygonEntity` | interface | Six drawing primitives                            |
+| `DrawingEntity`                                                                                       | union     | Union of the six                                  |
+| `MapEntity`                                                                                           | union     | `DrawingEntity \| ApolloEntity`                   |
+| Apollo re-exports                                                                                     | type      | All Apollo types from `./apollo` (see list below) |
 
 ## Detailed entries
 
@@ -43,22 +42,13 @@ export interface GeoPoint {
 
 **The editor uses WGS84 lng/lat throughout.** `x` is longitude (-180…180), `y` is latitude (-90…90). `z` is preserved when present but ignored by most UI code.
 
-### `type PointENU` _(deprecated)_
-
-```ts
-/** @deprecated use GeoPoint */
-export type PointENU = GeoPoint;
-```
-
-Historical alias — Apollo proto names it ENU even though the editor's runtime is lng/lat. New code uses `GeoPoint`.
-
 ### `interface BezierAnchorData`
 
 ```ts
 export interface BezierAnchorData {
-  point: PointENU;
-  handleIn: PointENU | null;
-  handleOut: PointENU | null;
+  point: GeoPoint;
+  handleIn: GeoPoint | null;
+  handleOut: GeoPoint | null;
 }
 ```
 
@@ -70,13 +60,13 @@ Persisted bezier anchor — `null` denotes an anchor with no incoming / outgoing
 export interface PolylineEntity {
   id: string;
   entityType: 'polyline';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 
 export interface CatmullRomEntity {
   id: string;
   entityType: 'catmullRom';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 
 export interface BezierEntity {
@@ -88,23 +78,23 @@ export interface BezierEntity {
 export interface ArcEntity {
   id: string;
   entityType: 'arc';
-  start: PointENU;
-  mid: PointENU;
-  end: PointENU;
+  start: GeoPoint;
+  mid: GeoPoint;
+  end: GeoPoint;
 }
 
 export interface RectEntity {
   id: string;
   entityType: 'rect';
-  p1: PointENU;
-  p2: PointENU;
+  p1: GeoPoint;
+  p2: GeoPoint;
   rotation: number; // around the rect's centre, radians
 }
 
 export interface PolygonEntity {
   id: string;
   entityType: 'polygon';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 ```
 
@@ -237,20 +227,20 @@ Almost every non-proto-direct module:
 
 ## Source map
 
-| Lines   | Content                 |
-| ------- | ----------------------- |
-| 1–6     | `GeoPoint` / `PointENU` |
-| 11–16   | `BezierAnchorData`      |
-| 18–22   | `PolylineEntity`        |
-| 24–30   | `CatmullRomEntity`      |
-| 32–37   | `BezierEntity`          |
-| 39–46   | `ArcEntity`             |
-| 48–55   | `RectEntity`            |
-| 57–62   | `PolygonEntity`         |
-| 65–111  | Apollo re-exports       |
-| 113     | `import ApolloEntity`   |
-| 116–122 | `DrawingEntity`         |
-| 125     | `MapEntity`             |
+| Lines   | Content               |
+| ------- | --------------------- |
+| 1–6     | `GeoPoint`            |
+| 11–16   | `BezierAnchorData`    |
+| 18–22   | `PolylineEntity`      |
+| 24–30   | `CatmullRomEntity`    |
+| 32–37   | `BezierEntity`        |
+| 39–46   | `ArcEntity`           |
+| 48–55   | `RectEntity`          |
+| 57–62   | `PolygonEntity`       |
+| 65–111  | Apollo re-exports     |
+| 113     | `import ApolloEntity` |
+| 116–122 | `DrawingEntity`       |
+| 125     | `MapEntity`           |
 
 ## See also
 

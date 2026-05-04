@@ -5,7 +5,7 @@ import { useApolloMapStore } from '@/store/apolloMapStore';
 /**
  * Render the imported (read-only) Apollo HD-map onto the canvas as a set
  * of categorized layers below the editor's cold layer. Activated whenever
- * `apolloMapStore.rawMap` is non-null, regenerates GeoJSON when it changes.
+ * `apolloMapStore.bounds` changes after import.
  *
  * Distinct color palette (cyan family) signals "imported, not editable yet"
  * so the user can tell their own drawings apart from Apollo source data.

@@ -15,7 +15,7 @@ description: src/hooks/* — 一句话概述每个 React hook 与其在事件路
 | Hook                  | 文件                     | 职责                                                      |
 | --------------------- | ------------------------ | --------------------------------------------------------- |
 | `useMapLibreInit`     | `useMapLibreInit.ts`     | 创建 maplibre 实例 + 注入 dark style + 注册 layer/sources |
-| `useApolloLayer`      | `useApolloLayer.ts`      | 把 `apolloMapStore.rawMap` 投到 GeoJSON 源                |
+| `useApolloLayer`      | `useApolloLayer.ts`      | 注册 apollo-\* 占位层并按 `apolloMapStore.bounds` 取景    |
 | `useColdLayer`        | `useColdLayer.ts`        | 把 `mapStore.entities` 编译到冷层 GeoJSON                 |
 | `useHotLayer`         | `useHotLayer.ts`         | FSM 在飞绘点 / drag preview 实时渲染                      |
 | `useOverlayLayer`     | `useOverlayLayer.ts`     | 选中状态、snap indicator、editPoints 等 overlay           |
@@ -160,8 +160,8 @@ export function useMapEventRouter(/* ... */): void;
 export function useApolloLayer(map: maplibregl.Map | null): void;
 ```
 
-订阅 `apolloMapStore.rawMap`（导入但尚未编辑的原始 Apollo map），
-直出 GeoJSON 源 `apollo-base`，给"导入预览"层用。
+订阅 `apolloMapStore.bounds`，注册 `apollo-*` 占位 source/layer 并在导入后
+调用 `fitBounds`。
 
 ## `useLicenseSync`
 

@@ -233,15 +233,14 @@ Promise gate：`request()` 创建 pending Promise，UI 弹 dialog 后调用 `res
 
 ```ts
 // apolloMapStore.ts:33-43
-rawMap: Record<string, unknown> | null;
 header: ApolloMapHeader | null;
 bounds: ApolloMapBounds | null;
 info: ApolloMapImportInfo | null;
 lastError: string | null;
 ```
 
-`rawMap` 仅在测试 / legacy 路径使用；浏览器导入路径让 `apolloIO.worker` 持有完整树，
-主线程只保存 lightweight metadata。
+导入路径让 `apolloIO.worker` 持有完整 proto 树，主线程只保存 lightweight metadata、
+header 副本和 bounds。
 
 ## 10. 与 FSM / Worker 的交互
 

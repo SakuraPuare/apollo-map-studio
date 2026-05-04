@@ -31,8 +31,8 @@ reach into `@/core/geometry/apolloCompile.ts` or specific
 - `lib/entityOps.ts` exports do not expose Apollo type fields directly —
   only `MapEntity`, `ApolloEntity` (as opaque), `GeoPoint`,
   `BezierAnchorData`, and `DrawingEntity`.
-- `cascadeDeleteRefs` (the no-`Full` variant) is **deprecated**. New code
-  must use `cascadeDeleteRefsFull`.
+- Cascade deletion exposes only `cascadeDeleteRefsFull`; callers must handle
+  `cascadeRemoved`.
   :::
 
 ## 2. Module map
@@ -52,25 +52,24 @@ graph TB
 
 ## 3. Public surface
 
-| Symbol                                                                       | Origin                         | Role                                              |
-| ---------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------- |
-| `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData` | `entityOps.ts:7-10`            | Type re-exports (Apollo types remain opaque)      |
-| `compileEntity(entity)`                                                      | `edit.ts:69-74`                | `MapEntity` → GeoJSON Features                    |
-| `createEntity(elementType, drawTool, points, anchors, options)`              | `edit.ts:76-85`                | Build an ApolloEntity (with derive)               |
-| `getEditPoints(entity)`                                                      | `edit.ts:19-35`                | List of editable control points                   |
-| `setEditPoint(entity, index, point)`                                         | `edit.ts:37-43`                | Update a single control point + re-derive         |
-| `setAllEditPoints(entity, points)`                                           | `edit.ts:45-51`                | Replace all control points                        |
-| `moveEntity(entity, dx, dy)`                                                 | `edit.ts:53-59`                | Translate the entity                              |
-| `deleteVertex(entity, index)`                                                | `edit.ts:61-67`                | Drop a vertex; null = degenerate                  |
-| `entityCoords(entity)`                                                       | `edit.ts:87-92`                | All coords as `LngLat[]`                          |
-| `cascadeDeleteRefs` (deprecated)                                             | `cascadeDeleteRefs.ts:128-133` | Returns only `changes`                            |
-| `cascadeDeleteRefsFull`                                                      | `cascadeDeleteRefs.ts:135-154` | Returns `{ changes, cascadeRemoved }`             |
-| `reparent`                                                                   | `reparent.ts:195-204`          | Move a child under a new parent                   |
-| `canReparent`                                                                | `reparent.ts:206-212`          | Permission check                                  |
-| `isDrawingEntity`                                                            | `typeGuards.ts:7-9`            | polyline/bezier/arc/rect/polygon                  |
-| `isApolloEntityType`                                                         | `typeGuards.ts:11-13`          | Apollo business entity                            |
-| `isAreaEntity`                                                               | `typeGuards.ts:15-18`          | Area-shaped (rect / polygon / area Apollo entity) |
-| `isPolygonEditEntity`                                                        | `typeGuards.ts:25-28`          | Edit points form a closed polygon ring            |
+| Symbol                                                                       | Origin                 | Role                                              |
+| ---------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------- |
+| `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData` | `entityOps.ts:7-10`    | Type re-exports (Apollo types remain opaque)      |
+| `compileEntity(entity)`                                                      | `edit.ts:69-74`        | `MapEntity` → GeoJSON Features                    |
+| `createEntity(elementType, drawTool, points, anchors, options)`              | `edit.ts:76-85`        | Build an ApolloEntity (with derive)               |
+| `getEditPoints(entity)`                                                      | `edit.ts:19-35`        | List of editable control points                   |
+| `setEditPoint(entity, index, point)`                                         | `edit.ts:37-43`        | Update a single control point + re-derive         |
+| `setAllEditPoints(entity, points)`                                           | `edit.ts:45-51`        | Replace all control points                        |
+| `moveEntity(entity, dx, dy)`                                                 | `edit.ts:53-59`        | Translate the entity                              |
+| `deleteVertex(entity, index)`                                                | `edit.ts:61-67`        | Drop a vertex; null = degenerate                  |
+| `entityCoords(entity)`                                                       | `edit.ts:87-92`        | All coords as `LngLat[]`                          |
+| `cascadeDeleteRefsFull`                                                      | `cascadeDeleteRefs.ts` | Returns `{ changes, cascadeRemoved }`             |
+| `reparent`                                                                   | `reparent.ts:195-204`  | Move a child under a new parent                   |
+| `canReparent`                                                                | `reparent.ts:206-212`  | Permission check                                  |
+| `isDrawingEntity`                                                            | `typeGuards.ts:7-9`    | polyline/bezier/arc/rect/polygon                  |
+| `isApolloEntityType`                                                         | `typeGuards.ts:11-13`  | Apollo business entity                            |
+| `isAreaEntity`                                                               | `typeGuards.ts:15-18`  | Area-shaped (rect / polygon / area Apollo entity) |
+| `isPolygonEditEntity`                                                        | `typeGuards.ts:25-28`  | Edit points form a closed polygon ring            |
 
 ## 4. createEntity responsibility chain
 
@@ -202,9 +201,9 @@ The fundamental ACL line. `from '@/core/geometry/apolloCompile'` in
 components or hooks is a PR blocker.
 :::
 
-::: danger Using cascadeDeleteRefs instead of cascadeDeleteRefsFull
-The legacy variant returns only `changes` — orphaned overlap entities are
-never removed. Every new feature must use `cascadeDeleteRefsFull`.
+::: danger Ignoring cascadeRemoved
+`cascadeDeleteRefsFull` returns `cascadeRemoved` for orphan-overlap removals.
+Every new feature must apply it.
 :::
 
 ::: danger Mutating entity fields without setEditPoint
@@ -270,13 +269,12 @@ recomputing `length`).
 
 ## 15. Public-contract stability
 
-| Symbol                                             | Stability  | Notes                                          |
-| -------------------------------------------------- | ---------- | ---------------------------------------------- |
-| `compileEntity` / `createEntity` / `getEditPoints` | stable     | Primary API; no breaking changes               |
-| `cascadeDeleteRefs`                                | deprecated | New code must use the `Full` variant           |
-| `cascadeDeleteRefsFull`                            | stable     | Main path                                      |
-| `reparent` / `canReparent`                         | stable     | HANDLERS can be extended                       |
-| `isXxx` guards                                     | stable     | Adding an entity type does not require changes |
+| Symbol                                             | Stability | Notes                                          |
+| -------------------------------------------------- | --------- | ---------------------------------------------- |
+| `compileEntity` / `createEntity` / `getEditPoints` | stable    | Primary API; no breaking changes               |
+| `cascadeDeleteRefsFull`                            | stable    | Main path                                      |
+| `reparent` / `canReparent`                         | stable    | HANDLERS can be extended                       |
+| `isXxx` guards                                     | stable    | Adding an entity type does not require changes |
 
 ## 16. Usage examples
 
@@ -328,7 +326,7 @@ useMapStore.getState().updateEntity('lane_xxx', next);
 - [Anti-Corruption Layer](./anti-corruption-layer.md) — broader treatise
 - [Architecture Overview](./overview.md)
 - [State Management](./state-management.md) — how `mapStore` calls
-  cascadeDeleteRefs / reparent
+  cascadeDeleteRefsFull / reparent
 - [FSM Design](./fsm-design.md) — `useDrawCommit` calls `createEntity`
 - [Geometry Engine](../../architecture/geometry-engine.md)
 - [Derive Engine](../../architecture/derive-engine.md)

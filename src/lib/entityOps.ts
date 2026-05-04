@@ -9,11 +9,7 @@ import type { BezierAnchorData, DrawingEntity, GeoPoint, MapEntity } from '@/typ
 
 export type { ApolloEntity, BezierAnchorData, DrawingEntity, GeoPoint, MapEntity };
 
-export {
-  cascadeDeleteRefs,
-  cascadeDeleteRefsFull,
-  type CascadeDeleteResult,
-} from './entityOps/cascadeDeleteRefs';
+export { cascadeDeleteRefsFull, type CascadeDeleteResult } from './entityOps/cascadeDeleteRefs';
 export {
   compileEntity,
   createEntity,

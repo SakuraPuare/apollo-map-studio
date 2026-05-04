@@ -31,14 +31,13 @@ describe('dockviewLayout storage cleanup', () => {
   it('clears the saved layout for one app mode', () => {
     clearSavedLayout('drawing');
 
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('ams-layout-v3-drawing');
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith('apollo-map-studio:layout:drawing');
   });
 
-  it('clears every current and legacy layout key', () => {
+  it('clears every layout key', () => {
     clearAllSavedLayouts();
 
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('ams-layout-v3-drawing');
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('ams-layout-v3-scene');
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('ams-layout-v2');
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith('apollo-map-studio:layout:drawing');
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith('apollo-map-studio:layout:scene');
   });
 });

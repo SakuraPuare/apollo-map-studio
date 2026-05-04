@@ -250,16 +250,14 @@ the previous one with `null`, preventing stacked dialogs.
 
 ```ts
 // apolloMapStore.ts:33-43
-rawMap: Record<string, unknown> | null;
 header: ApolloMapHeader | null;
 bounds: ApolloMapBounds | null;
 info: ApolloMapImportInfo | null;
 lastError: string | null;
 ```
 
-`rawMap` is kept only for tests / legacy callers. The browser import path
-keeps the entire decoded tree inside the `apolloIO.worker` so React state
-does not clone a 50–200 MB map onto the main thread.
+The import path keeps the entire decoded tree inside `apolloIO.worker`; the
+main thread stores only lightweight metadata, a header copy, and bounds.
 
 ## 10. Interaction with FSM and workers
 

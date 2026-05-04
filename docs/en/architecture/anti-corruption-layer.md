@@ -109,7 +109,7 @@ change and must be flagged in review.
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Types    | `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData`                                                       |
 | Editing  | `compileEntity`, `createEntity`, `getEditPoints`, `setEditPoint`, `setAllEditPoints`, `moveEntity`, `deleteVertex`, `entityCoords` |
-| Cascade  | `cascadeDeleteRefs` (deprecated), `cascadeDeleteRefsFull`                                                                          |
+| Cascade  | `cascadeDeleteRefsFull`                                                                                                            |
 | Reparent | `reparent`, `canReparent`                                                                                                          |
 | Guards   | `isApolloEntityType`, `isAreaEntity`, `isDrawingEntity`, `isPolygonEditEntity`                                                     |
 

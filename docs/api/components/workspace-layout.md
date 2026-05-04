@@ -126,8 +126,8 @@ export function WorkspaceLayout(): JSX.Element;
 
 ```ts
 const LAYOUT_KEY_BY_MODE = {
-  drawing: 'ams-layout-v3-drawing',
-  scene: 'ams-layout-v3-scene',
+  drawing: 'apollo-map-studio:layout:drawing',
+  scene: 'apollo-map-studio:layout:scene',
 };
 ```
 
@@ -199,7 +199,7 @@ sequenceDiagram
   License->>License: bridge.getInitialState()
   WL->>Dock: <DockviewReact key={appMode} onReady />
   Dock->>WL: onReady(event)
-  WL->>LS: loadLayout('ams-layout-v3-drawing')
+  WL->>LS: loadLayout('apollo-map-studio:layout:drawing')
   LS-->>WL: saved layout JSON
   WL->>Dock: api.fromJSON(saved) 或 createDefaultLayout
   Dock->>Dock: onDidLayoutChange → saveLayout
@@ -214,7 +214,7 @@ sequenceDiagram
 3. `WorkspaceLayoutInner` re-render，`<DockviewReact key="scene">` —— React 视为新组件，旧实例 unmount。
 4. 旧实例 unmount 时 `apiRef.current` 的 `onDidLayoutChange` 监听一并解绑。
 5. 新实例 mount，`onReady(event)` 重新执行：
-   - 尝试 `loadLayout('ams-layout-v3-scene')`
+   - 尝试 `loadLayout('apollo-map-studio:layout:scene')`
    - 没有则 `createDefaultLayout(api, 'scene')`，比 drawing 多一个 `timeline` 面板。
 
 ::: warning 跨模式拖布局不互通
@@ -237,13 +237,13 @@ sequenceDiagram
 
 ## 故障排查
 
-| 症状                           | 可能原因                                                                 | 修复路径                                                       |
-| ------------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Dockview 永远显示空白          | localStorage 中的 layout JSON 与组件 ID 不匹配（升级后旧 layout 不兼容） | `clearSavedLayout(appMode)` 或更新 `LAYOUT_KEY_BY_MODE` 版本号 |
-| ⌘K 无反应                      | CommandPalette 未懒加载完成 / `onOpenCommandPalette` 未传入              | 检查 `WorkspaceLayout.tsx:91` callback                         |
-| 切换模式后旧 timeline 面板残留 | `key={appMode}` 缺失或被绕过                                             | 确保 `<DockviewReact key={appMode}>` 存在                      |
-| 撤销时绘制状态错位             | `useActionDispatcher` 的取消绘制顺序被破坏                               | 检查 `useActionDispatcher.ts:76-82`                            |
-| 多个 actor 实例                | 误在子组件 `useActorRef`                                                 | 仅在 `WorkspaceLayout` 顶层创建一次                            |
+| 症状                           | 可能原因                                                    | 修复路径                                                  |
+| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------- |
+| Dockview 永远显示空白          | localStorage 中的 layout JSON 与组件 ID 不匹配              | `clearSavedLayout(appMode)` 或清掉当前 mode 的 layout key |
+| ⌘K 无反应                      | CommandPalette 未懒加载完成 / `onOpenCommandPalette` 未传入 | 检查 `WorkspaceLayout.tsx:91` callback                    |
+| 切换模式后旧 timeline 面板残留 | `key={appMode}` 缺失或被绕过                                | 确保 `<DockviewReact key={appMode}>` 存在                 |
+| 撤销时绘制状态错位             | `useActionDispatcher` 的取消绘制顺序被破坏                  | 检查 `useActionDispatcher.ts:76-82`                       |
+| 多个 actor 实例                | 误在子组件 `useActorRef`                                    | 仅在 `WorkspaceLayout` 顶层创建一次                       |
 
 ## 测试要点
 

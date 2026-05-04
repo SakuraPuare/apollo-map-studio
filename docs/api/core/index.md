@@ -61,7 +61,7 @@ src/core/
 │   ├── interpolate.ts            Catmull-Rom / Bezier / 三点圆弧 / rotatedRect
 │   ├── snap.ts                   findSnapTarget（顶点 / 边段两类候选）
 │   ├── validation.ts             segmentsIntersect / wouldSelfIntersect / polygonSelfIntersects
-│   ├── hitTest.ts                pointToPolylineDist(Geo) / pointToPolygonDist(Geo)
+│   ├── hitTest.ts                pointToPolylineDistGeo / pointToPolygonDistGeo
 │   ├── laneJunctions.ts          applyLaneJunctions（端点拼接 + 边界装饰）
 │   ├── laneJunctions/internal.ts decorateBoundary / endpointDirection / sideJoinOffset
 │   ├── coords.ts / anchorConvert.ts / compile.ts
@@ -94,7 +94,7 @@ src/core/
 | 曲线插值        | [geometry/interpolate](./geometry-interpolate)      | `cubicBezier`、`catmullRom`、`threePointArc`、`rectCorners`                           |
 | 吸附            | [geometry/snap](./geometry-snap)                    | `findSnapTarget`、`pixelsToMeters`、`SnapTarget`                                      |
 | 几何校验        | [geometry/validation](./geometry-validation)        | `segmentsIntersect`、`wouldSelfIntersect`、`polygonSelfIntersects`                    |
-| 命中检测        | [geometry/hitTest](./geometry-hit-test)             | `pointToPolylineDist(Geo)`、`pointToPolygonDist(Geo)`、`pointInPolygon`               |
+| 命中检测        | [geometry/hitTest](./geometry-hit-test)             | `pointToPolylineDistGeo`、`pointToPolygonDistGeo`、`pointInPolygon`                   |
 | Lane 端点拼接   | [geometry/laneJunctions](./geometry-lane-junctions) | `applyLaneJunctions`、`decorateBoundary`、`sideJoinOffset`                            |
 | Spatial Worker  | [workers/spatial](./workers-spatial)                | dispatch 入口；状态由 `SpatialState` 持有                                             |
 | Overlap Worker  | [workers/overlap](./workers-overlap)                | `OverlapWorkerBridge.reconcileFull`                                                   |

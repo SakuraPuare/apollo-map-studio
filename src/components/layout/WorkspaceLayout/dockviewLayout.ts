@@ -9,10 +9,9 @@ import {
 } from '@/core/workspaceViews';
 
 const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
-  drawing: 'ams-layout-v3-drawing',
-  scene: 'ams-layout-v3-scene',
+  drawing: 'apollo-map-studio:layout:drawing',
+  scene: 'apollo-map-studio:layout:scene',
 };
-const LEGACY_LAYOUT_KEYS = ['ams-layout-v2'] as const;
 
 export { isWorkspacePanelId };
 export type { WorkspacePanelId };
@@ -24,9 +23,6 @@ export function clearSavedLayout(mode: AppMode) {
 export function clearAllSavedLayouts() {
   clearSavedLayout('drawing');
   clearSavedLayout('scene');
-  for (const key of LEGACY_LAYOUT_KEYS) {
-    localStorage.removeItem(key);
-  }
 }
 
 export function saveLayout(api: DockviewApi, mode: AppMode) {

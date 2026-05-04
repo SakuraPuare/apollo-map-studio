@@ -93,13 +93,13 @@ const components = useRef({
 ```ts
 // dockviewLayout.ts:4-7
 const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
-  drawing: 'ams-layout-v3-drawing',
-  scene: 'ams-layout-v3-scene',
+  drawing: 'apollo-map-studio:layout:drawing',
+  scene: 'apollo-map-studio:layout:scene',
 };
 ```
 
 - 每个 AppMode 用独立 key —— 切换模式时不会污染对方布局。
-- `v3` 后缀是 schema 版本：未来 dockview 升级或我们调整面板结构时 bump 一次，让旧用户的 storage 自动失效。
+- 布局 key 使用 `apollo-map-studio:` namespace，与其它 localStorage 设置保持一致。
 - `loadLayout` 在异常时静默 `clearSavedLayout` —— 不阻塞用户进入 App。
 
 ## 6. Reset Layout
@@ -305,7 +305,7 @@ sequenceDiagram
 ## 22. 调试技巧
 
 ::: tip 检查布局 JSON
-按 F12 → console → `localStorage.getItem('ams-layout-v3-drawing')` 可看当前布局序列化结果。
+按 F12 → console → `localStorage.getItem('apollo-map-studio:layout:drawing')` 可看当前布局序列化结果。
 怀疑 panel 错位时直接清掉再 reload。
 :::
 

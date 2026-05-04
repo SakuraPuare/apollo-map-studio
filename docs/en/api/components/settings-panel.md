@@ -17,7 +17,7 @@ description: Modal preferences dialog — undo history limit, map viewport (lng/
 1. **Undo History** — `historyLimit` (zundo cap), bounded by `MIN_HISTORY_LIMIT` / `MAX_HISTORY_LIMIT`.
 2. **Map Viewport** — `mapCenterLng` / `mapCenterLat` / `mapZoom` (changes apply **after restart** because the MapLibre `Map` instance is already mounted).
 3. **Lane** — `laneHalfWidth` (default half-width in metres) + `laneArrowSpacing` (lane-arrow spacing in pixels).
-4. **Layout** — "Reset Layout to Default" button: clears `localStorage['ams-layout-v2']` and reloads.
+4. **Layout** — "Reset Layout to Default" button: clears both layout keys and reloads.
 
 The dialog overlays as a modal (`bg-black/60 backdrop-blur-sm`); `Esc` closes, backdrop click closes.
 
@@ -72,12 +72,12 @@ Behavior:
 
 ## Side effects
 
-| When                  | Behavior                                                             |
-| --------------------- | -------------------------------------------------------------------- |
-| `Esc` keydown         | `onClose()`                                                          |
-| Backdrop click        | `onClose()`                                                          |
-| Field blur / Enter    | Clamp + write `settingsStore`                                        |
-| `Reset Layout` button | `localStorage.removeItem('ams-layout-v2'); window.location.reload()` |
+| When                  | Behavior                                           |
+| --------------------- | -------------------------------------------------- |
+| `Esc` keydown         | `onClose()`                                        |
+| Backdrop click        | `onClose()`                                        |
+| Field blur / Enter    | Clamp + write `settingsStore`                      |
+| `Reset Layout` button | `clearAllSavedLayouts(); window.location.reload()` |
 
 ## Render anatomy
 
@@ -105,7 +105,7 @@ Behavior:
 ## Known gaps
 
 - The "restart to apply" hint shows only on Map Viewport — the relative real-time-ness of other fields is not annotated explicitly.
-- The "Reset Layout" button still uses the legacy `'ams-layout-v2'` key — `WorkspaceLayout/dockviewLayout.ts` actually writes `'ams-layout-v3-{drawing|scene}'`. The current button effectively resets a key that no longer exists. **Known bug**; the fix is to call `clearSavedLayout(mode)` per mode.
+- The "Reset Layout" button now clears the current layout keys before reloading. If dockview is still broken, use `View → Reset Layout`.
 
 ## Source map
 

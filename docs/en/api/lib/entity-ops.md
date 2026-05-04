@@ -61,7 +61,6 @@ The barrel is 12 re-export lines; logic lives in the four sub-modules.
 
 | Symbol                  | Kind | Signature                                          | Summary                                |
 | ----------------------- | ---- | -------------------------------------------------- | -------------------------------------- |
-| `cascadeDeleteRefs`     | fn   | `(removedIds, allEntities) => Map<id, MapEntity>`  | **Deprecated**, returns only changes   |
 | `cascadeDeleteRefsFull` | fn   | `(removedIds, allEntities) => CascadeDeleteResult` | Full result (changes + cascadeRemoved) |
 | `CascadeDeleteResult`   | type | `{changes, cascadeRemoved}`                        | Patch + extra removals                 |
 
@@ -150,14 +149,6 @@ Algorithm:
 4. A second pass cleans `overlapIds` on remaining entities to remove now-orphan-overlap references.
 
 Source: `entityOps/cascadeDeleteRefs.ts:135-154`.
-
-### `cascadeDeleteRefs` (deprecated)
-
-```ts
-/** @deprecated Returns only `changes`. Prefer `cascadeDeleteRefsFull`. */
-```
-
-Older callers see only `changes` and miss the orphan-overlap removals. Migrate.
 
 ### `reparent(child, target, allEntities)` / `ParentTarget`
 
@@ -257,7 +248,7 @@ UI must import from `@/lib/entityOps`, never `core/geometry/apolloCompile`.
 
 `src/lib/__tests__/entityOps.test.ts` exercises:
 
-- `cascadeDeleteRefs` — delete lane → other lanes' `predecessorIds` are stripped; delete junction → `lane.junctionId = null`; delete one of two overlap participants → cascadeRemoved
+- `cascadeDeleteRefsFull` — delete lane → other lanes' `predecessorIds` are stripped; delete junction → `lane.junctionId = null`; delete one of two overlap participants → cascadeRemoved
 - `reparent` — lane→junction, lane→roadSection, cross-road moves
 - `canReparent` dry runs
 - `getEditPoints` / `setEditPoint` / `setAllEditPoints` per entity type
@@ -271,13 +262,13 @@ UI must import from `@/lib/entityOps`, never `core/geometry/apolloCompile`.
 
 ## Source map (barrel)
 
-| Lines | Content                       |
-| ----- | ----------------------------- |
-| 7–10  | Type re-exports               |
-| 12–16 | `cascadeDeleteRefs` re-export |
-| 17–26 | Edit function re-exports      |
-| 27–32 | Reparent re-exports           |
-| 33–38 | typeGuards re-exports         |
+| Lines | Content                           |
+| ----- | --------------------------------- |
+| 7–10  | Type re-exports                   |
+| 12–15 | `cascadeDeleteRefsFull` re-export |
+| 17–26 | Edit function re-exports          |
+| 27–32 | Reparent re-exports               |
+| 33–38 | typeGuards re-exports             |
 
 ## See also
 

@@ -136,7 +136,7 @@ Only visible when `currentElement !== null`. Each element declares `tools: DrawT
 | `drawing` | Default layout; only Map / Sidebar / Inspector |
 | `scene`   | Adds a Timeline panel (height 180 px)          |
 
-Stored in `uiStore.appMode`. `WorkspaceLayout` rebuilds the DockviewReact instance via `key={appMode}` (`WorkspaceLayout.tsx:140`); layout snapshot keys also split: `ams-layout-v3-drawing` and `ams-layout-v3-scene`.
+Stored in `uiStore.appMode`. `WorkspaceLayout` rebuilds the DockviewReact instance via `key={appMode}` (`WorkspaceLayout.tsx:140`); layout snapshot keys also split: `apollo-map-studio:layout:drawing` and `apollo-map-studio:layout:scene`.
 
 ## StatusBar
 

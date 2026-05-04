@@ -82,16 +82,15 @@ flowchart LR
 
 下表汇总每篇文档涉及的持久化键，便于在 `localStorage` 损坏或迁移机器时一次性清理。所有键都带 `apollo-map-studio:` 前缀，由 `src/store/settingsStore.ts` 与 `WorkspaceLayout/dockviewLayout.ts` 写入。
 
-| 键 / Key                                          | 写入位置                            | 类型     | 说明                         |
-| ------------------------------------------------- | ----------------------------------- | -------- | ---------------------------- |
-| `apollo-map-studio:historyLimit`                  | `settingsStore.setHistoryLimit`     | number   | zundo 撤销栈深度             |
-| `apollo-map-studio:mapCenterLng` / `mapCenterLat` | `settingsStore.setMapCenter`        | number   | 初始 MapLibre 经纬度中心     |
-| `apollo-map-studio:mapZoom`                       | `settingsStore.setMapZoom`          | number   | 初始缩放级别                 |
-| `apollo-map-studio:laneHalfWidth`                 | `settingsStore.setLaneHalfWidth`    | number   | 默认 lane 半宽 (m)           |
-| `apollo-map-studio:laneArrowSpacing`              | `settingsStore.setLaneArrowSpacing` | number   | 箭头符号间距 (px)            |
-| `ams-layout-v3-drawing`                           | `WorkspaceLayout/dockviewLayout.ts` | JSON     | 绘图模式 dockview 布局快照   |
-| `ams-layout-v3-scene`                             | 同上                                | JSON     | 场景模式布局快照             |
-| `ams-layout-v2`                                   | `SettingsPanel.tsx#Reset Layout`    | (legacy) | 旧版本布局键，重置时一并清除 |
+| 键 / Key                                          | 写入位置                            | 类型   | 说明                       |
+| ------------------------------------------------- | ----------------------------------- | ------ | -------------------------- |
+| `apollo-map-studio:historyLimit`                  | `settingsStore.setHistoryLimit`     | number | zundo 撤销栈深度           |
+| `apollo-map-studio:mapCenterLng` / `mapCenterLat` | `settingsStore.setMapCenter`        | number | 初始 MapLibre 经纬度中心   |
+| `apollo-map-studio:mapZoom`                       | `settingsStore.setMapZoom`          | number | 初始缩放级别               |
+| `apollo-map-studio:laneHalfWidth`                 | `settingsStore.setLaneHalfWidth`    | number | 默认 lane 半宽 (m)         |
+| `apollo-map-studio:laneArrowSpacing`              | `settingsStore.setLaneArrowSpacing` | number | 箭头符号间距 (px)          |
+| `apollo-map-studio:layout:drawing`                | `WorkspaceLayout/dockviewLayout.ts` | JSON   | 绘图模式 dockview 布局快照 |
+| `apollo-map-studio:layout:scene`                  | 同上                                | JSON   | 场景模式布局快照           |
 
 ::: warning 桌面端许可证 (Desktop license)
 桌面端 (Electron) 还会在用户数据目录下写入两个文件：`license.json` 与 `machine.bind`。激活信息**不会**进入 `localStorage`。详情见 [License Activation](./license-activation.md)。

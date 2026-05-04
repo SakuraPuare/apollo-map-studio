@@ -59,11 +59,10 @@ barrel 仅 12 个 re-export 语句；实际逻辑全在 4 个子模块。
 
 ### Cascade delete (`entityOps/cascadeDeleteRefs.ts`)
 
-| 符号                    | 类型 | 签名                                               | 摘要                            |
-| ----------------------- | ---- | -------------------------------------------------- | ------------------------------- |
-| `cascadeDeleteRefs`     | fn   | `(removedIds, allEntities) => Map<id, MapEntity>`  | **deprecated** — 仅返回 changes |
-| `cascadeDeleteRefsFull` | fn   | `(removedIds, allEntities) => CascadeDeleteResult` | 完整结果（含 cascadeRemoved）   |
-| `CascadeDeleteResult`   | type | `{changes, cascadeRemoved}`                        | 删除后 patch + 级联移除集合     |
+| 符号                    | 类型 | 签名                                               | 摘要                          |
+| ----------------------- | ---- | -------------------------------------------------- | ----------------------------- |
+| `cascadeDeleteRefsFull` | fn   | `(removedIds, allEntities) => CascadeDeleteResult` | 完整结果（含 cascadeRemoved） |
+| `CascadeDeleteResult`   | type | `{changes, cascadeRemoved}`                        | 删除后 patch + 级联移除集合   |
 
 ### Reparent (`entityOps/reparent.ts`)
 
@@ -154,14 +153,6 @@ interface CascadeDeleteResult {
 4. 第二轮把 `cascadeRemoved` 也当作"被删除集合"再扫一遍 `overlapIds`，清理被新发现的孤儿。
 
 文件位置：`entityOps/cascadeDeleteRefs.ts:135-154`。
-
-### `cascadeDeleteRefs` (deprecated)
-
-```ts
-/** @deprecated Returns only `changes`. Prefer `cascadeDeleteRefsFull`. */
-```
-
-仅返回 changes，不暴露 cascadeRemoved。**新代码不要用**——孤儿 Overlap 会留下来。
 
 ### `reparent(child, target, allEntities)` / `ParentTarget`
 
@@ -261,7 +252,7 @@ UI 层 `import { ... } from '@/lib/entityOps'`，不直接 import `core/geometry
 
 `src/lib/__tests__/entityOps.test.ts`——覆盖：
 
-- `cascadeDeleteRefs`：删 lane → 其他 lane 的 predecessorIds 被清；删 junction → lane.junctionId = null；删两个对象的 overlap 还剩一个 → cascadeRemoved
+- `cascadeDeleteRefsFull`：删 lane → 其他 lane 的 predecessorIds 被清；删 junction → lane.junctionId = null；删两个对象的 overlap 还剩一个 → cascadeRemoved
 - `reparent`：lane→junction、lane→roadSection、跨 road 移动
 - `canReparent` 干跑
 - `getEditPoints` / `setEditPoint` / `setAllEditPoints` 在每种 entityType 上
@@ -277,13 +268,13 @@ UI 层 `import { ... } from '@/lib/entityOps'`，不直接 import `core/geometry
 
 `entityOps.ts` 总览：
 
-| 行    | 内容                          |
-| ----- | ----------------------------- |
-| 7–10  | type re-export                |
-| 12–16 | `cascadeDeleteRefs` re-export |
-| 17–26 | edit 函数 re-export           |
-| 27–32 | reparent re-export            |
-| 33–38 | typeGuards re-export          |
+| 行    | 内容                              |
+| ----- | --------------------------------- |
+| 7–10  | type re-export                    |
+| 12–15 | `cascadeDeleteRefsFull` re-export |
+| 17–26 | edit 函数 re-export               |
+| 27–32 | reparent re-export                |
+| 33–38 | typeGuards re-export              |
 
 ## 参见
 

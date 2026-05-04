@@ -136,7 +136,7 @@ sequenceDiagram
 | `drawing` | 绘图 | 默认布局；只显示 Map / Sidebar / Inspector |
 | `scene`   | 场景 | 多挂一条 Timeline 面板（高度 180px）       |
 
-切换写入 `uiStore.appMode`；`WorkspaceLayout` 通过 `key={appMode}` 强制重建 DockviewReact 实例（`WorkspaceLayout.tsx:140`）；布局键也按模式分两份：`ams-layout-v3-drawing` 与 `ams-layout-v3-scene`。
+切换写入 `uiStore.appMode`；`WorkspaceLayout` 通过 `key={appMode}` 强制重建 DockviewReact 实例（`WorkspaceLayout.tsx:140`）；布局键也按模式分两份：`apollo-map-studio:layout:drawing` 与 `apollo-map-studio:layout:scene`。
 
 ## StatusBar 状态栏
 

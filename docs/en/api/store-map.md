@@ -15,12 +15,12 @@ the editor relies on.
 
 ## Module boundary
 
-| Store            | Scope                                             | In zundo?                      |
-| ---------------- | ------------------------------------------------- | ------------------------------ |
-| `mapStore`       | entity table (`Map<id, MapEntity>`)               | yes (`partialize: entities`)   |
-| `apolloMapStore` | `rawMap`, `header`, `bounds`, `info`, `lastError` | no — import context            |
-| `uiStore`        | grid / snap / cursor / layer / current zoom       | no — UX preferences            |
-| `settingsStore`  | history limit / map zoom / lane half-width        | no — persisted to localStorage |
+| Store            | Scope                                       | In zundo?                      |
+| ---------------- | ------------------------------------------- | ------------------------------ |
+| `mapStore`       | entity table (`Map<id, MapEntity>`)         | yes (`partialize: entities`)   |
+| `apolloMapStore` | `header`, `bounds`, `info`, `lastError`     | no — import context            |
+| `uiStore`        | grid / snap / cursor / layer / current zoom | no — UX preferences            |
+| `settingsStore`  | history limit / map zoom / lane half-width  | no — persisted to localStorage |
 
 ## Exported symbols
 

@@ -148,7 +148,7 @@ case 'undo': {
 
 ### 真因
 
-`localStorage` 里的 `ams-layout-v3-drawing` 或 `ams-layout-v3-scene` JSON 损坏（手动改、跨版本不兼容）。
+`localStorage` 里的 `apollo-map-studio:layout:drawing` 或 `apollo-map-studio:layout:scene` JSON 损坏（手动改、跨版本不兼容）。
 
 ### 立即缓解
 
@@ -156,9 +156,8 @@ case 'undo': {
 
 ```js
 // DevTools console
-localStorage.removeItem('ams-layout-v3-drawing');
-localStorage.removeItem('ams-layout-v3-scene');
-localStorage.removeItem('ams-layout-v2');
+localStorage.removeItem('apollo-map-studio:layout:drawing');
+localStorage.removeItem('apollo-map-studio:layout:scene');
 location.reload();
 ```
 
@@ -335,12 +334,11 @@ flowchart TD
 
 排错时常需要清的键：
 
-| 键                      | 排错场景      |
-| ----------------------- | ------------- |
-| `ams-layout-v3-drawing` | dockview 损坏 |
-| `ams-layout-v3-scene`   | 同            |
-| `ams-layout-v2`         | 旧版本残留    |
-| `apollo-map-studio:*`   | 设置错乱      |
+| 键                                 | 排错场景      |
+| ---------------------------------- | ------------- |
+| `apollo-map-studio:layout:drawing` | dockview 损坏 |
+| `apollo-map-studio:layout:scene`   | 同            |
+| `apollo-map-studio:*`              | 设置错乱      |
 
 ## 相关源码 / Source
 

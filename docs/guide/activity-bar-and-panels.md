@@ -115,21 +115,17 @@ Dockview 支持的操作：
 
 `saveLayout` 在每次 `onDidLayoutChange` 触发时把 `api.toJSON()` 写入 localStorage：
 
-| 模式    | localStorage key        | 写入函数                  |
-| ------- | ----------------------- | ------------------------- |
-| drawing | `ams-layout-v3-drawing` | `dockviewLayout.ts:13-19` |
-| scene   | `ams-layout-v3-scene`   | 同上                      |
-
-::: warning v3 之前的键
-旧版本曾用 `ams-layout-v2`（统一键，不分模式）。SettingsPanel 的 `Reset Layout to Default` 按钮会一并清除该键，保证旧数据不残留。
-:::
+| 模式    | localStorage key                   | 写入函数                  |
+| ------- | ---------------------------------- | ------------------------- |
+| drawing | `apollo-map-studio:layout:drawing` | `dockviewLayout.ts:13-19` |
+| scene   | `apollo-map-studio:layout:scene`   | 同上                      |
 
 ### Reset Layout {#reset-layout}
 
 两条入口：
 
 1. `View → Reset Layout` 菜单（`registry/definitions.ts:124-132`）→ `handleResetLayout()` → `clearSavedLayout(mode)` + `apiRef.current.clear()` + `createDefaultLayout(api, appMode)`。
-2. `Settings → Layout → Reset Layout to Default` 按钮（`SettingsPanel.tsx:226-234`）→ 移除 `ams-layout-v2` + `window.location.reload()`。
+2. `Settings → Layout → Reset Layout to Default` 按钮（`SettingsPanel.tsx:226-234`）→ `clearAllSavedLayouts()` + `window.location.reload()`。
 
 ::: tip 选哪个？
 99% 的情况选 `View → Reset Layout`：它是热重置，无需重启。**只有**在 dockview 实例本身崩溃（按钮无效）时才用 SettingsPanel 的硬重置。
@@ -175,11 +171,10 @@ const LazyEntityForm = lazy(() => import('../panels/InspectorForms'));
 
 ## 配置存储位置 / Persistence
 
-| 键                       | 写入              | 用途                            |
-| ------------------------ | ----------------- | ------------------------------- |
-| `ams-layout-v3-drawing`  | dockviewLayout.ts | 绘图模式布局快照                |
-| `ams-layout-v3-scene`    | 同                | 场景模式布局快照                |
-| `ams-layout-v2` (legacy) | 旧版本残留        | 仅 SettingsPanel.Reset 时一并清 |
+| 键                                 | 写入              | 用途             |
+| ---------------------------------- | ----------------- | ---------------- |
+| `apollo-map-studio:layout:drawing` | dockviewLayout.ts | 绘图模式布局快照 |
+| `apollo-map-studio:layout:scene`   | 同                | 场景模式布局快照 |
 
 ## 相关源码 / Source
 
@@ -288,11 +283,3 @@ flowchart LR
 2. 在 `WorkspaceLayout.tsx` 把 `AuditLogPanelContent` 加到 `components`。
 3. 在 `dockviewLayout.ts` 的 `createDefaultLayout` 决定默认位置。
 4. 可选：在 `ActionRegistry` 加 `view → Show Audit Log` 切换可见性。
-
-## 命名 v3 历史 / Naming History
-
-| 版本         | localStorage 键                                 | 模式分离 |
-| ------------ | ----------------------------------------------- | -------- |
-| v1           | `ams-layout`                                    | 否       |
-| v2           | `ams-layout-v2`                                 | 否       |
-| v3 (current) | `ams-layout-v3-drawing` / `ams-layout-v3-scene` | 是       |

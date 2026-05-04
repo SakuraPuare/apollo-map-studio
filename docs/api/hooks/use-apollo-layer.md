@@ -7,9 +7,8 @@ description: 把导入的只读 Apollo HD 地图作为青色色调的分类图�
 
 > 源码：`src/hooks/useApolloLayer.ts`
 
-`useApolloLayer` 负责把通过 Apollo IO 导入的 HD 地图（栈式存放在
-`apolloMapStore.rawMap` 中）以**只读**的形式贴到 MapLibre 画布上。
-它通过一组以 `apollo-` 前缀命名的 GeoJSON sources 与 layers，专门
+`useApolloLayer` 负责在 Apollo IO 导入完成后注册 `apollo-*` sources/layers
+并根据 `apolloMapStore.bounds` 自动取景。它通过一组以 `apollo-` 前缀命名的 GeoJSON sources 与 layers，专门
 区分"导入数据"和"用户正在编辑的数据"，色调统一选用青色 / 信号黄色家族。
 
 > **当前状态**：所有 Apollo 实体在导入阶段已被桥接到 `mapStore.entities`
@@ -49,17 +48,15 @@ description: 把导入的只读 Apollo HD 地图作为青色色调的分类图�
 ## 与撤销系统的关系
 
 Apollo 导入会清空旧的 `mapStore.entities`；该清空走 zundo `temporal`
-的撤销栈 —— 用户 Ctrl+Z 可回到导入前的工作面。但 `apolloMapStore.bounds` /
-`rawMap` 不在 zundo 范围内，撤销后视口取景仍指向已导入的范围。
+的撤销栈 —— 用户 Ctrl+Z 可回到导入前的工作面。但 `apolloMapStore.bounds`
+不在 zundo 范围内，撤销后视口取景仍指向已导入的范围。
 若用户希望"完全回到导入前"，需要同时调 `apolloMapStore.clear()` —— 当前
 没有 UI 路径触发；这是已知的次要 UX 问题。
 
 ## 重新导入的同源去重
 
-import 时 `apolloMapStore.replace(rawMap)` 会先清空旧的 `mapStore.entities`
-再批量 `addEntity`。导入两次同一个文件不会产生重复 id —— `nextEntityId`
-在 `entityOps` 中根据 entityType 前缀和现有 id 集生成单调递增编号，
-clear → re-add 后编号重置为 1。
+import 时 `mapIO` 会通过 `replaceImportedEntities` 替换旧的 `mapStore.entities`。
+导入两次同一个文件不会累积重复 id，因为实体集合会整体替换。
 
 ## 实体类型完整对照
 
@@ -82,8 +79,6 @@ clear → re-add 后编号重置为 1。
 
 - `apolloMapStore.bounds` —— Apollo IO worker 在 `parseAndCompile` 后写入。
   bounds 类型 `[[lng, lat], [lng, lat]]`（西南角 + 东北角）。
-- `apolloMapStore.rawMap` —— 原始 proto 解析结果，本 hook 不直接读取，
-  但 source 列表与 proto 实体类型一一对应。
 - `mapStore.entities` —— 通过 entityOps 适配器桥接的可编辑实体；本 hook
   完全不读，只通过 z-order 让 cold layer 高于 apollo-\* layer。
 
@@ -215,8 +210,8 @@ useApolloLayer(mapRef, mapLoadedRef);
 
 ```mermaid
 graph TD
-    A[Apollo IO worker] -->|apolloMapStore.rawMap| B[apolloMapStore]
-    B -->|MapEntity bridge| C[mapStore.entities]
+    A[Apollo IO worker] -->|entities| C[mapStore.entities]
+    A -->|bounds/header/info| B[apolloMapStore]
     C --> D[useColdLayer SYNC]
     D --> E[cold-* layers]
     B -->|bounds| F[useApolloLayer.fitBounds]
@@ -238,8 +233,7 @@ A: cold layer 用 ams-\* 主色（用户绘制色），而 Apollo 导入数据�
 **Q: 删除 Apollo 数据时怎么清理？**
 A: 当前清理路径是 `apolloMapStore.clear()` + `mapStore.clear()`。`useApolloLayer`
 不主动 removeSource —— 它假设 layer 注册是终身的。若要支持完全卸载，
-需要在 `apolloMapStore.rawMap === null` 时显式 `map.removeLayer` /
-`map.removeSource`。
+需要在清空 import context 时显式 `map.removeLayer` / `map.removeSource`。
 
 ## 源码索引
 

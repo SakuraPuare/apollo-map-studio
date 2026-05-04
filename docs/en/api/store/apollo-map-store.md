@@ -1,11 +1,11 @@
 ---
-title: apolloMapStore — raw Apollo map cache
-description: Holds the decoded apollo.hdmap.Map tree plus per-import metadata so round-trip export reuses the same PROJ string.
+title: apolloMapStore — Apollo import metadata cache
+description: Holds import metadata, a header copy, and bounds so the UI and round-trip export reuse the same context.
 ---
 
-# `apolloMapStore` — raw Apollo map cache
+# `apolloMapStore` — Apollo import metadata cache
 
-> Source: `src/store/apolloMapStore.ts` · ~86 lines · not undoable
+> Source: `src/store/apolloMapStore.ts` · not undoable
 
 ## Purpose
 
@@ -14,20 +14,19 @@ description: Holds the decoded apollo.hdmap.Map tree plus per-import metadata so
 1. The most recent import's metadata — `filename`, `projString`, per-entity counts — surfaced to the status bar, toasts, and the re-export name suggestion.
 2. The WGS84 bounds and a shallow copy of `Map.header` so `WorkspaceLayout` can call `map.fitBounds` on first paint after a load.
 
-It deliberately does **not** store editor `entities`. Those live in `mapStore` and are tracked by zundo with a `partialize: { entities }` selector. Pushing the full proto tree (50–200 MB on real Apollo dumps) into the undo stack would clone the world on every transaction; the cost dwarfs the benefit. Browser imports keep `rawMap` at `null` and stash the proto tree inside the IO worker so React state never structurally clones it.
+It deliberately does **not** store editor `entities` or the raw proto tree. Entities live in `mapStore` and are tracked by zundo with a `partialize: { entities }` selector; the full proto tree stays inside the IO worker so React state never structurally clones a 50–200 MB object.
 
 ## Public API
 
-| Symbol                | Kind      | Signature                                 | Summary                                                          |
-| --------------------- | --------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| `useApolloMapStore`   | hook      | `() => ApolloMapState & ApolloMapActions` | Zustand store; component subscription entry point                |
-| `ApolloMapImportInfo` | interface | see below                                 | Per-import diagnostic record                                     |
-| `ApolloMapBounds`     | type      | `[[number, number], [number, number]]`    | WGS84 `[[minLng, minLat], [maxLng, maxLat]]`                     |
-| `ApolloMapHeader`     | type      | `Record<string, unknown>`                 | Shallow copy of `Map.header`                                     |
-| `setMap`              | action    | `(rawMap, info) => void`                  | Writes `rawMap` + derived `header` + `info`; clears bounds/error |
-| `setImported`         | action    | `(info, bounds, header?) => void`         | Browser path; never sets `rawMap`                                |
-| `clear`               | action    | `() => void`                              | Resets every field to its initial value                          |
-| `setError`            | action    | `(message: string \| null) => void`       | Surfaces last IO failure to the status bar                       |
+| Symbol                | Kind      | Signature                                 | Summary                                           |
+| --------------------- | --------- | ----------------------------------------- | ------------------------------------------------- |
+| `useApolloMapStore`   | hook      | `() => ApolloMapState & ApolloMapActions` | Zustand store; component subscription entry point |
+| `ApolloMapImportInfo` | interface | see below                                 | Per-import diagnostic record                      |
+| `ApolloMapBounds`     | type      | `[[number, number], [number, number]]`    | WGS84 `[[minLng, minLat], [maxLng, maxLat]]`      |
+| `ApolloMapHeader`     | type      | `Record<string, unknown>`                 | Shallow copy of `Map.header`                      |
+| `setImported`         | action    | `(info, bounds, header?) => void`         | Writes import metadata, bounds, and a header copy |
+| `clear`               | action    | `() => void`                              | Resets every field to its initial value           |
+| `setError`            | action    | `(message: string \| null) => void`       | Surfaces last IO failure to the status bar        |
 
 ## Detailed entries
 
@@ -68,38 +67,22 @@ Intentionally open-typed — proto schema growth must not force store changes; t
 
 ### `interface ApolloMapState`
 
-| Field       | Type                              | Purpose                                                                                             |
-| ----------- | --------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `rawMap`    | `Record<string, unknown> \| null` | Decoded proto tree; **only** populated by legacy / Node test paths. Browser imports leave it `null` |
-| `header`    | `ApolloMapHeader \| null`         | Shallow copy of `Map.header` for the Header panel                                                   |
-| `bounds`    | `ApolloMapBounds \| null`         | Pre-computed WGS84 bounding box                                                                     |
-| `info`      | `ApolloMapImportInfo \| null`     | Last-import metadata                                                                                |
-| `lastError` | `string \| null`                  | Human-readable last IO failure                                                                      |
+| Field       | Type                          | Purpose                                           |
+| ----------- | ----------------------------- | ------------------------------------------------- |
+| `header`    | `ApolloMapHeader \| null`     | Shallow copy of `Map.header` for the Header panel |
+| `bounds`    | `ApolloMapBounds \| null`     | Pre-computed WGS84 bounding box                   |
+| `info`      | `ApolloMapImportInfo \| null` | Last-import metadata                              |
+| `lastError` | `string \| null`              | Human-readable last IO failure                    |
 
-Source: `apolloMapStore.ts:28-43`.
-
-### `setMap(rawMap, info)`
-
-Writes the raw proto tree wholesale and shallow-derives `header` from `rawMap.header`. Used **only** by Vitest unit tests and any legacy Node path that decodes on the main thread; the actual browser import path uses `setImported` and leaves `rawMap` at `null`.
-
-```ts
-useApolloMapStore.getState().setMap(decoded, {
-  filename: 'base_map.bin',
-  counts: { lane: 312, junction: 24 },
-  projString: '+proj=utm +zone=10 +datum=WGS84',
-  importedAt: Date.now(),
-});
-```
-
-Source: `apolloMapStore.ts:63-72`.
+Source: `apolloMapStore.ts`.
 
 ### `setImported(info, bounds, header?)`
 
-Browser-import path entry. The proto tree stays inside the IO worker; only the metadata + bounds round-trip the `postMessage` boundary, so the main thread never structurally clones the megabyte tree.
+Import path entry. The proto tree stays inside the IO worker; only metadata, bounds, and a header copy round-trip the `postMessage` boundary, so the main thread never structurally clones the megabyte tree.
 
 Signature: `(info: ApolloMapImportInfo, bounds: ApolloMapBounds | null, header?: ApolloMapHeader | null) => void`
 
-Side effects: clears `lastError`, resets `rawMap` to `null`.
+Side effects: clears `lastError`.
 
 ```ts
 useApolloMapStore.getState().setImported(
@@ -133,7 +116,7 @@ Source: `apolloMapStore.ts:82-84`.
 ## Internal state
 
 - No `subscribe` / `selector` optimisation — write rate is low (only at import/export boundaries), so `useShallow` is unnecessary.
-- Because the store sits outside zundo, `rawMap` may grow to hundreds of megabytes without inflating the undo stack.
+- Because the store sits outside zundo, import context does not enter undo history; the full proto tree stays in the worker.
 - Defensive `header && typeof header === 'object'` narrow protects against malformed proto decode results.
 
 ## Side effects
@@ -148,7 +131,7 @@ No dedicated test file. The contract is exercised end-to-end by `src/io/__tests_
 
 ## Consumers
 
-- `src/io/mapIO.ts` — sole writer (`setMap` / `setImported` / `setError`)
+- `src/io/mapIO.ts` — sole writer (`setImported` / `setError`)
 - `src/components/layout/StatusBar.tsx` — reads `info.filename`, `lastError`, `info.counts`
 - `src/components/layout/WorkspaceLayout.tsx` — reads `bounds` to trigger `map.fitBounds`
 - `src/components/menu/FileMenu.tsx` — reuses `info.filename` / `projString` as defaults for export

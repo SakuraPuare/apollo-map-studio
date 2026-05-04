@@ -115,21 +115,17 @@ Dockview affordances:
 
 `saveLayout` writes `api.toJSON()` to `localStorage` on every `onDidLayoutChange`:
 
-| Mode    | Key                     | Writer                    |
-| ------- | ----------------------- | ------------------------- |
-| drawing | `ams-layout-v3-drawing` | `dockviewLayout.ts:13-19` |
-| scene   | `ams-layout-v3-scene`   | same                      |
-
-::: warning Pre-v3 key
-Older builds used `ams-layout-v2` (single, mode-agnostic). The SettingsPanel `Reset Layout to Default` button removes that key as well so legacy data doesn't linger.
-:::
+| Mode    | Key                                | Writer                    |
+| ------- | ---------------------------------- | ------------------------- |
+| drawing | `apollo-map-studio:layout:drawing` | `dockviewLayout.ts:13-19` |
+| scene   | `apollo-map-studio:layout:scene`   | same                      |
 
 ### Reset Layout {#reset-layout}
 
 Two paths:
 
 1. `View → Reset Layout` (`registry/definitions.ts:124-132`) → `handleResetLayout()` → `clearSavedLayout(mode)` + `apiRef.current.clear()` + `createDefaultLayout(api, appMode)`.
-2. `Settings → Layout → Reset Layout to Default` (`SettingsPanel.tsx:226-234`) → removes `ams-layout-v2` + `window.location.reload()`.
+2. `Settings → Layout → Reset Layout to Default` (`SettingsPanel.tsx:226-234`) → `clearAllSavedLayouts()` + `window.location.reload()`.
 
 ::: tip Which to use?
 99% of the time use `View → Reset Layout` — hot reset, no restart. Only fall back to the SettingsPanel hard reset if the dockview instance itself is broken (the menu button is dead).
@@ -175,11 +171,10 @@ The first-paint JS only carries MenuBar + ToolStrip + ActivityBar + the dockview
 
 ## Persistence
 
-| Key                      | Writer            | Purpose                           |
-| ------------------------ | ----------------- | --------------------------------- |
-| `ams-layout-v3-drawing`  | dockviewLayout.ts | drawing-mode snapshot             |
-| `ams-layout-v3-scene`    | same              | scene-mode snapshot               |
-| `ams-layout-v2` (legacy) | older builds      | wiped only by SettingsPanel.Reset |
+| Key                                | Writer            | Purpose               |
+| ---------------------------------- | ----------------- | --------------------- |
+| `apollo-map-studio:layout:drawing` | dockviewLayout.ts | drawing-mode snapshot |
+| `apollo-map-studio:layout:scene`   | same              | scene-mode snapshot   |
 
 ## Source
 
@@ -288,11 +283,3 @@ To add a new Dockview panel (e.g. "Audit Log"):
 2. Add `AuditLogPanelContent` to `components` in `WorkspaceLayout.tsx`.
 3. Decide default placement in `createDefaultLayout` (`dockviewLayout.ts`).
 4. Optionally: register an ActionDef `view → Show Audit Log` for visibility toggling.
-
-## Naming history
-
-| Version      | localStorage key                                | Mode-split? |
-| ------------ | ----------------------------------------------- | ----------- |
-| v1           | `ams-layout`                                    | No          |
-| v2           | `ams-layout-v2`                                 | No          |
-| v3 (current) | `ams-layout-v3-drawing` / `ams-layout-v3-scene` | Yes         |

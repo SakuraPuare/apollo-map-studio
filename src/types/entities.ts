@@ -5,28 +5,25 @@ export interface GeoPoint {
   z?: number;
 }
 
-/** @deprecated 使用 GeoPoint */
-export type PointENU = GeoPoint;
-
 /** 贝塞尔锚点（存储用） */
 export interface BezierAnchorData {
-  point: PointENU;
-  handleIn: PointENU | null;
-  handleOut: PointENU | null;
+  point: GeoPoint;
+  handleIn: GeoPoint | null;
+  handleOut: GeoPoint | null;
 }
 
 /** 多段线实体 */
 export interface PolylineEntity {
   id: string;
   entityType: 'polyline';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 
 /** Catmull-Rom 样条实体 */
 export interface CatmullRomEntity {
   id: string;
   entityType: 'catmullRom';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 
 /** 贝塞尔曲线实体 */
@@ -40,17 +37,17 @@ export interface BezierEntity {
 export interface ArcEntity {
   id: string;
   entityType: 'arc';
-  start: PointENU;
-  mid: PointENU;
-  end: PointENU;
+  start: GeoPoint;
+  mid: GeoPoint;
+  end: GeoPoint;
 }
 
 /** 可旋转矩形实体（两对角点 + 旋转角度） */
 export interface RectEntity {
   id: string;
   entityType: 'rect';
-  p1: PointENU; // 对角点1
-  p2: PointENU; // 对角点2
+  p1: GeoPoint; // 对角点1
+  p2: GeoPoint; // 对角点2
   rotation: number; // 绕中心旋转角度（弧度）
 }
 
@@ -58,7 +55,7 @@ export interface RectEntity {
 export interface PolygonEntity {
   id: string;
   entityType: 'polygon';
-  points: PointENU[];
+  points: GeoPoint[];
 }
 
 // ─── Apollo HD Map entity re-exports ─────────────────────────────────

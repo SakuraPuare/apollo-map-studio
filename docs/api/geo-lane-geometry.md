@@ -212,14 +212,12 @@ export function findSnapTarget(
 ## hitTest.ts
 
 ```ts
-export function pointToPolylineDist(point: LngLat, coords: LngLat[]): number;
 export function pointInPolygon(point: LngLat, polygon: LngLat[]): boolean;
-export function pointToPolygonDist(point: LngLat, polygon: LngLat[]): number;
 export function pointToPolylineDistGeo(point: LngLat, coords: LngLat[], cosLat: number): number;
 export function pointToPolygonDistGeo(point: LngLat, polygon: LngLat[], cosLat: number): number;
 ```
 
-两套 API：纯欧氏度空间（legacy）与纬度补偿版（worker hitTest 用）。
+纬度补偿版距离用于 worker hitTest。
 `pointInPolygon` 是拓扑判断，不需要量纲修正。
 
 ## validation.ts

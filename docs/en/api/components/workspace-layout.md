@@ -131,8 +131,8 @@ Layout serialization keys:
 
 ```ts
 const LAYOUT_KEY_BY_MODE = {
-  drawing: 'ams-layout-v3-drawing',
-  scene: 'ams-layout-v3-scene',
+  drawing: 'apollo-map-studio:layout:drawing',
+  scene: 'apollo-map-studio:layout:scene',
 };
 ```
 
@@ -200,7 +200,7 @@ sequenceDiagram
   License->>License: bridge.getInitialState()
   WL->>Dock: <DockviewReact key={appMode} onReady />
   Dock->>WL: onReady(event)
-  WL->>LS: loadLayout('ams-layout-v3-drawing')
+  WL->>LS: loadLayout('apollo-map-studio:layout:drawing')
   LS-->>WL: saved layout JSON
   WL->>Dock: api.fromJSON(saved) or createDefaultLayout
   Dock->>Dock: onDidLayoutChange → saveLayout
@@ -215,7 +215,7 @@ When `appMode` flips:
 3. `WorkspaceLayoutInner` re-renders. `<DockviewReact key="scene">` is treated as a new component — the old instance unmounts.
 4. The unmount also removes the `onDidLayoutChange` subscription bound to `apiRef.current`.
 5. The new instance mounts and its `onReady(event)` runs:
-   - Tries `loadLayout('ams-layout-v3-scene')`.
+   - Tries `loadLayout('apollo-map-studio:layout:scene')`.
    - Falls back to `createDefaultLayout(api, 'scene')`, which adds the extra `timeline` panel.
 
 ::: warning Layouts don't sync across modes
@@ -241,13 +241,13 @@ extension developers know where to plug new components in:
 
 ## Troubleshooting
 
-| Symptom                                     | Likely cause                                                        | Fix                                                              |
-| ------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Dockview shows nothing                      | localStorage layout JSON is incompatible with current component ids | `clearSavedLayout(appMode)` or bump `LAYOUT_KEY_BY_MODE` version |
-| ⌘K is silent                                | CommandPalette lazy load failed / `onOpenCommandPalette` not wired  | Check `WorkspaceLayout.tsx:91`                                   |
-| Old timeline panel sticks after mode switch | `key={appMode}` missing or bypassed                                 | Ensure `<DockviewReact key={appMode}>`                           |
-| Undo desyncs while drawing                  | R1 fix in `useActionDispatcher` regressed                           | See `useActionDispatcher.ts:76-82`                               |
-| Multiple actor instances                    | `useActorRef` accidentally called inside a child                    | Create the actor only once at the top of `WorkspaceLayout`       |
+| Symptom                                     | Likely cause                                                        | Fix                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Dockview shows nothing                      | localStorage layout JSON is incompatible with current component ids | `clearSavedLayout(appMode)` or clear the current mode key  |
+| ⌘K is silent                                | CommandPalette lazy load failed / `onOpenCommandPalette` not wired  | Check `WorkspaceLayout.tsx:91`                             |
+| Old timeline panel sticks after mode switch | `key={appMode}` missing or bypassed                                 | Ensure `<DockviewReact key={appMode}>`                     |
+| Undo desyncs while drawing                  | R1 fix in `useActionDispatcher` regressed                           | See `useActionDispatcher.ts:76-82`                         |
+| Multiple actor instances                    | `useActorRef` accidentally called inside a child                    | Create the actor only once at the top of `WorkspaceLayout` |
 
 ## Testing notes
 

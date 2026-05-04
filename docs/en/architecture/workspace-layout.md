@@ -99,15 +99,15 @@ const components = useRef({
 ```ts
 // dockviewLayout.ts:4-7
 const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
-  drawing: 'ams-layout-v3-drawing',
-  scene: 'ams-layout-v3-scene',
+  drawing: 'apollo-map-studio:layout:drawing',
+  scene: 'apollo-map-studio:layout:scene',
 };
 ```
 
 - Each AppMode has its own key — switching modes can never pollute the other
   layout.
-- The `v3` suffix is a schema version: bump it when Dockview upgrades change
-  the JSON shape, so old user storage falls through.
+- Layout keys use the `apollo-map-studio:` namespace, matching the rest of the
+  localStorage settings.
 - `loadLayout` silently `clearSavedLayout` on parse error so users never get
   stuck on a broken layout.
 
@@ -332,7 +332,7 @@ layer's "wiring responsibilities".
 ## 22. Debugging tips
 
 ::: tip Inspect the persisted layout
-F12 → console → `localStorage.getItem('ams-layout-v3-drawing')` returns
+F12 → console → `localStorage.getItem('apollo-map-studio:layout:drawing')` returns
 the serialized layout. When panels look wrong, clear the key and reload.
 :::
 

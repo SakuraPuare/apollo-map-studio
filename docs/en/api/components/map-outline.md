@@ -79,7 +79,7 @@ None. This is a pure derived view.
 
 ## MapMetadataForm embed
 
-The embedded `<MapMetadataForm />` reads `useApolloMapStore(s.rawMap, s.header, s.info)`. If no Apollo map has been imported, it shows a placeholder:
+The embedded `<MapMetadataForm />` reads `useApolloMapStore(s.header, s.info)`. If no Apollo map has been imported, it shows a placeholder:
 
 > No Apollo map imported. Header metadata becomes available after import.
 
@@ -112,5 +112,5 @@ After import, three sections render (Source / Header / Bounds). The form is **re
 
 - [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → MapOutline (`activeTab='explorer'`)
 - [LayerTree](./layer-tree.md) — complementary, editable view
-- [`apolloMapStore`](/en/api/store) — source of header / rawMap / info
+- [`apolloMapStore`](/en/api/store) — source of header / bounds / info
 - [`mapStore`](/en/api/store/store-map) — source of entities

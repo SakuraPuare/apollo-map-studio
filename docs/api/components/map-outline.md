@@ -77,7 +77,7 @@ export function MapOutline(): JSX.Element;
 
 ## MapMetadataForm 嵌入
 
-底部 `<MapMetadataForm />` 通过 `useApolloMapStore(s.rawMap, s.header, s.info)` 读 Apollo 导入数据。如果用户尚未导入 Apollo `.bin/.txt`，显示占位文本：
+底部 `<MapMetadataForm />` 通过 `useApolloMapStore(s.header, s.info)` 读 Apollo 导入数据。如果用户尚未导入 Apollo `.bin/.txt`，显示占位文本：
 
 > No Apollo map imported. Header metadata becomes available after import.
 
@@ -110,7 +110,7 @@ export function MapOutline(): JSX.Element;
 
 - [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → MapOutline（`activeTab='explorer'`）
 - [LayerTree](./layer-tree.md) — 互补的可编辑视图
-- [`apolloMapStore`](/api/store) — header / rawMap / info 来源
+- [`apolloMapStore`](/api/store) — header / bounds / info 来源
 - [`mapStore`](/api/store/store-map) — `entities` 来源
 
 ## 英文镜像

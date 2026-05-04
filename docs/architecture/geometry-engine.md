@@ -87,12 +87,11 @@ haversine）、命中（在 `hitTest.ts`）。
 
 ### 2.4 命中（Hit Test）
 
-`hitTest.ts` 提供两套 API：
+`hitTest.ts` 提供纬度补偿版 API：
 
-- 纯欧氏度空间（legacy）：`pointToPolylineDist` / `pointToPolygonDist`
-- **纬度补偿版（推荐）**：`pointToPolylineDistGeo` / `pointToPolygonDistGeo`
+- `pointToPolylineDistGeo` / `pointToPolygonDistGeo`
 
-后者把 Δlat 乘 1/cosLat 转到等效 lng 度空间，与 `pixelToRadius`（lng
+它把 Δlat 乘 1/cosLat 转到等效 lng 度空间，与 `pixelToRadius`（lng
 度数）的量纲一致。worker `hitTest` 用这一套（见
 [Spatial Index](./spatial-index.md)）。
 
@@ -253,8 +252,9 @@ Apollo 地图（`map_data/garage` 子集）保证回归 coverage。
   `interpolate` 不再做自交检测（FSM guard 的事）。
 - **2026-04 Phase E**：`laneJunctions.ts` 增加 `decorateOnly` 参数
   支持增量装饰。
-- **2026-04**：`hitTest.ts` 加纬度补偿版（pointToPolylineDistGeo），
-  legacy 欧氏版本仅留单测兼容。
+- **2026-04**：`hitTest.ts` 改为公开纬度补偿版
+  `pointToPolylineDistGeo` / `pointToPolygonDistGeo`；欧氏计算仅作为测试
+  本地基线辅助。
 
 ## 九、FAQ
 

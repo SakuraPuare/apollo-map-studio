@@ -82,16 +82,15 @@ You only need to skim [MenuBar & ToolStrip](./menubar-and-toolstrip.md), [Activi
 
 The table below lists every `localStorage` key written by AMS — handy when migrating machines or when the storage gets corrupted. All keys live under the `apollo-map-studio:` prefix and are written by `src/store/settingsStore.ts` and `WorkspaceLayout/dockviewLayout.ts`.
 
-| Key                                               | Writer                              | Type     | Meaning                           |
-| ------------------------------------------------- | ----------------------------------- | -------- | --------------------------------- |
-| `apollo-map-studio:historyLimit`                  | `settingsStore.setHistoryLimit`     | number   | zundo undo stack depth            |
-| `apollo-map-studio:mapCenterLng` / `mapCenterLat` | `settingsStore.setMapCenter`        | number   | initial MapLibre center           |
-| `apollo-map-studio:mapZoom`                       | `settingsStore.setMapZoom`          | number   | initial zoom level                |
-| `apollo-map-studio:laneHalfWidth`                 | `settingsStore.setLaneHalfWidth`    | number   | default lane half-width (m)       |
-| `apollo-map-studio:laneArrowSpacing`              | `settingsStore.setLaneArrowSpacing` | number   | arrow symbol spacing (px)         |
-| `ams-layout-v3-drawing`                           | `WorkspaceLayout/dockviewLayout.ts` | JSON     | drawing-mode dockview snapshot    |
-| `ams-layout-v3-scene`                             | same                                | JSON     | scene-mode dockview snapshot      |
-| `ams-layout-v2`                                   | `SettingsPanel.tsx#Reset Layout`    | (legacy) | older layout key — wiped on reset |
+| Key                                               | Writer                              | Type   | Meaning                        |
+| ------------------------------------------------- | ----------------------------------- | ------ | ------------------------------ |
+| `apollo-map-studio:historyLimit`                  | `settingsStore.setHistoryLimit`     | number | zundo undo stack depth         |
+| `apollo-map-studio:mapCenterLng` / `mapCenterLat` | `settingsStore.setMapCenter`        | number | initial MapLibre center        |
+| `apollo-map-studio:mapZoom`                       | `settingsStore.setMapZoom`          | number | initial zoom level             |
+| `apollo-map-studio:laneHalfWidth`                 | `settingsStore.setLaneHalfWidth`    | number | default lane half-width (m)    |
+| `apollo-map-studio:laneArrowSpacing`              | `settingsStore.setLaneArrowSpacing` | number | arrow symbol spacing (px)      |
+| `apollo-map-studio:layout:drawing`                | `WorkspaceLayout/dockviewLayout.ts` | JSON   | drawing-mode dockview snapshot |
+| `apollo-map-studio:layout:scene`                  | same                                | JSON   | scene-mode dockview snapshot   |
 
 ::: warning Desktop license storage
 The desktop (Electron) build also writes `license.json` and `machine.bind` under the OS user-data folder. Activation state is **not** stored in `localStorage`. See [License Activation](./license-activation.md).

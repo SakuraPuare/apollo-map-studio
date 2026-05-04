@@ -1,6 +1,6 @@
 ---
 title: geometry/hitTest — Hit Testing
-description: Point-to-polyline / polygon distance in two flavours — pure Euclidean degree space (legacy) and latitude-compensated (worker hitTest); ensures correct ranking at high latitudes.
+description: Latitude-compensated point-to-polyline / polygon distance for correct high-latitude hit-test ranking.
 ---
 
 # `geometry/hitTest` — Hit Testing
@@ -10,52 +10,23 @@ description: Point-to-polyline / polygon distance in two flavours — pure Eucli
 
 ## Purpose & Invariants
 
-`hitTest` exposes two flavours of point-to-polyline / polygon nearest-distance
-pure functions:
+`hitTest` exposes latitude-compensated point-to-polyline / polygon
+nearest-distance pure functions. The caller passes `cosLat`; the function scales
+Δlat by `1/cosLat` to "equivalent lng-degree space", matching the caller's
+lng-degree radius. Worker `hitTest` uses this flavour.
 
-1. **Pure Euclidean degree space** (`pointToPolylineDist` /
-   `pointToPolygonDist`): treats `(lng, lat)` as a 2D Euclidean point. Error
-   is small near the equator but at lat 40° east-west distances are off by
-   cos40° ≈ 0.766. **Legacy** — kept for tests and backward compatibility.
-2. **Latitude-compensated** (`pointToPolylineDistGeo` /
-   `pointToPolygonDistGeo`): the caller passes `cosLat`; the function scales
-   Δlat by `1/cosLat` to "equivalent lng-degree space", matching the caller's
-   lng-degree radius. Worker `hitTest` uses this flavour.
-
-`pointInPolygon` is topology-only (ray casting) and shared by both flavours.
+`pointInPolygon` is topology-only (ray casting).
 
 ### Invariants (after the R4 fix)
 
 1. **Caller-side distance and radius must live in the same space.**
-   - Euclidean: degree space; radius in degrees
    - Geo: scaled-degree space; radius still in degrees (caller unchanged)
 2. **Extreme latitudes** — `cosLat → 0` falls back to `Math.max(cosLat, 1e-6)`
    to avoid division by zero.
-3. **Polygon closure auto-handled** — `pointToPolygonDist(Geo)` implicitly
+3. **Polygon closure auto-handled** — `pointToPolygonDistGeo` implicitly
    appends `[last, first]` when first ≠ last.
 
 ## Public API
-
-### `pointToPolylineDist(point, coords): number` (legacy Euclidean)
-
-```ts
-let min = Infinity;
-for (let i = 0; i < coords.length - 1; i++) {
-  const d = pointToSegmentDist(
-    point[0],
-    point[1],
-    coords[i][0],
-    coords[i][1],
-    coords[i + 1][0],
-    coords[i + 1][1],
-  );
-  if (d < min) min = d;
-}
-return min;
-```
-
-Degree-space Euclidean.
-(`hitTest.ts:47-56`)
 
 ### `pointInPolygon(point, polygon): boolean`
 
@@ -72,11 +43,6 @@ for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
 `yi > py !== yj > py` implies `yi !== yj`, so the divisor is safe and
 horizontal edges are auto-skipped (no inside flip).
 (`hitTest.ts:59-72`)
-
-### `pointToPolygonDist(point, polygon): number`
-
-Inside → 0; outside → distance to the (auto-closed) ring.
-(`hitTest.ts:75-82`)
 
 ### `pointToPolylineDistGeo(point, coords, cosLat): number`
 
@@ -115,10 +81,6 @@ caller's lng-degree units (zero caller change).
 ## Usage contrast
 
 ```ts
-// Main thread (hot-layer min-distance ranking)
-const d = pointToPolylineDist(cursor, lineCoords);
-// d unit = degree-Euclidean; under-estimates at high latitudes
-
 // Worker hit test (lng-degree radius)
 const cosLat = Math.max(Math.cos((point.y * Math.PI) / 180), 1e-6);
 const d = pointToPolylineDistGeo(cursor, lineCoords, cosLat);
@@ -132,21 +94,20 @@ if (d <= r) {
 
 `hitTest.test.ts` covers:
 
-- `pointToPolylineDist`: start / end / mid nearest, empty array → ∞, single-point degeneracy.
+- `pointToPolylineDistGeo`: start / end / mid nearest, empty array → ∞, single-point degeneracy.
 - `pointInPolygon`: inside, outside, vertex, on-edge, horizontal edge no-flip.
-- `pointToPolygonDist`: inside = 0, outside = distance, auto-closure.
+- `pointToPolygonDistGeo`: inside = 0, outside = distance, auto-closure.
 - Geo flavour at low latitudes (equator) ≈ Euclidean.
 - Geo flavour at high latitudes (lat 60°) deviates significantly (≈ cos60° = 0.5 factor).
 - `cosLat → 0` polar fallback.
 
 ## Complexity
 
-| Function               | Complexity |
-| ---------------------- | ---------- |
-| `pointToSegmentDist*`  | O(1)       |
-| `pointToPolylineDist*` | O(P-1)     |
-| `pointInPolygon`       | O(P)       |
-| `pointToPolygonDist*`  | O(P)       |
+| Function                 | Complexity |
+| ------------------------ | ---------- |
+| `pointToPolylineDistGeo` | O(P-1)     |
+| `pointInPolygon`         | O(P)       |
+| `pointToPolygonDistGeo`  | O(P)       |
 
 Worker hitTest narrows candidates via RBush; at 50k-entity scale, a
 hit-neighborhood is ~10 candidates × 30 vertices each ≈ 300 evaluations,

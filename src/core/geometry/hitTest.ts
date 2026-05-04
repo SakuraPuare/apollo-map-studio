@@ -1,16 +1,10 @@
 /**
  * 精确碰撞检测：点到线段/多边形的距离计算
  *
- * 两套 API：
- *   - pointToPolylineDist / pointToPolygonDist  —— 纯欧氏度空间（legacy，仅用于
- *     向后兼容 + 单元测试断言），把 (lng,lat) 当同一量纲。赤道附近误差小，但
- *     高纬度会把 "东西向 1 度" 错当成 "南北向 1 度" 处理，导致高 zoom 下的命中
- *     排序/半径过滤偏差（R4 bug）。
- *
- *   - pointToPolylineDistGeo / pointToPolygonDistGeo —— 纬度补偿版。caller 传入
- *     midLat 对应的 cosLat，函数内部把 Δlat 乘 1/cosLat 转到 "等效 lng 度空间"，
- *     于是返回的 "距离" 和调用端传入的 lng-度半径 (pixelToRadius) 量纲一致，
- *     排序也反映真实物理距离。worker hitTest 用这一套。
+ * `pointToPolylineDistGeo` / `pointToPolygonDistGeo` 是纬度补偿版。caller
+ * 传入 midLat 对应的 cosLat，函数内部把 Δlat 乘 1/cosLat 转到 "等效 lng
+ * 度空间"，于是返回的 "距离" 和调用端传入的 lng-度半径 (pixelToRadius)
+ * 量纲一致，排序也反映真实物理距离。worker hitTest 用这一套。
  *
  * 数学说明：
  *   Web Mercator 每像素 lng 步长 = 360 / (512 * 2^zoom)  （常数，与 lat 无关）
@@ -21,33 +15,6 @@
  *   距离量纲和 caller 的 r (lng 度数) 一致，调用端零改动。
  */
 import type { LngLat } from '@/core/geometry/interpolate';
-
-// ── 纯欧氏度空间（legacy） ─────────────────────────────────────────────────
-
-/** 点到线段的最近距离（纯欧氏度空间） */
-function pointToSegmentDist(point: LngLat, a: LngLat, b: LngLat): number {
-  const [px, py] = point;
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(px - a[0], py - a[1]);
-
-  let t = ((px - a[0]) * dx + (py - a[1]) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy));
-}
-
-/** 点到折线的最近距离（纯欧氏度空间） */
-export function pointToPolylineDist(point: LngLat, coords: LngLat[]): number {
-  let min = Infinity;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const a = coords[i]!;
-    const b = coords[i + 1]!;
-    const d = pointToSegmentDist(point, a, b);
-    if (d < min) min = d;
-  }
-  return min;
-}
 
 /** 点是否在多边形内（射线法） */
 export function pointInPolygon(point: LngLat, polygon: LngLat[]): boolean {
@@ -64,18 +31,6 @@ export function pointInPolygon(point: LngLat, polygon: LngLat[]): boolean {
   }
   return inside;
 }
-
-/** 点到多边形的距离（纯欧氏度空间：内部为 0，外部为到边界的最近距离） */
-export function pointToPolygonDist(point: LngLat, polygon: LngLat[]): number {
-  if (pointInPolygon(point, polygon)) return 0;
-  if (polygon.length === 0) return Infinity;
-  const first = polygon[0]!;
-  const last = polygon[polygon.length - 1]!;
-  const ring = first[0] === last[0] && first[1] === last[1] ? polygon : [...polygon, first];
-  return pointToPolylineDist(point, ring);
-}
-
-// ── 纬度补偿版（worker hitTest 使用） ─────────────────────────────────────
 
 /** 点到线段的最近距离（Δlat 按 1/cosLat 放大到 lng 度空间） */
 function pointToSegmentDistGeo(point: LngLat, a: LngLat, b: LngLat, invCosLat: number): number {
@@ -118,7 +73,7 @@ export function pointToPolylineDistGeo(point: LngLat, coords: LngLat[], cosLat: 
 
 /**
  * 点到多边形的距离（纬度补偿版）。
- * 注：pointInPolygon 只判断拓扑包含，和量纲无关，直接复用欧氏版本。
+ * 注：pointInPolygon 只判断拓扑包含，和量纲无关，可直接复用。
  */
 export function pointToPolygonDistGeo(point: LngLat, polygon: LngLat[], cosLat: number): number {
   if (pointInPolygon(point, polygon)) return 0;

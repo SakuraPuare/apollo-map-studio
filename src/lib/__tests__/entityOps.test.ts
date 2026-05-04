@@ -25,7 +25,7 @@ import {
   entityCoords,
   reparent,
   canReparent,
-  cascadeDeleteRefs,
+  cascadeDeleteRefsFull,
 } from '../entityOps';
 import type {
   JunctionEntity,
@@ -498,15 +498,15 @@ describe('reparent: 非法路径', () => {
   });
 });
 
-// ── cascadeDeleteRefs ──────────────────────────────────────────
+// ── cascadeDeleteRefsFull ──────────────────────────────────────
 //
 // 删除一个对象时，所有指向它的外键都要被清掉，否则导出 map.bin
 // 加载就 NPE。这里覆盖最常见的 5 条路径。
 
-describe('cascadeDeleteRefs', () => {
+describe('cascadeDeleteRefsFull', () => {
   it('removedIds 为空时直接 no-op', () => {
     const lane = makeLane();
-    const result = cascadeDeleteRefs(new Set(), asMap(lane));
+    const result = cascadeDeleteRefsFull(new Set(), asMap(lane)).changes;
     expect(result.size).toBe(0);
   });
 
@@ -516,7 +516,7 @@ describe('cascadeDeleteRefs', () => {
     const road = makeRoad('r_1', 'j_1');
     const rsu = makeRSU('rsu_1', 'j_1');
     const j = makeJunction('j_1');
-    const result = cascadeDeleteRefs(new Set(['j_1']), asMap(lane, road, rsu, j));
+    const result = cascadeDeleteRefsFull(new Set(['j_1']), asMap(lane, road, rsu, j)).changes;
     expect((result.get(lane.id) as ApolloLaneEntity).junctionId).toBeNull();
     expect((result.get('r_1') as RoadEntity).junctionId).toBeNull();
     expect((result.get('rsu_1') as RSUEntity).junctionId).toBeNull();
@@ -530,7 +530,7 @@ describe('cascadeDeleteRefs', () => {
     r1.sections[0]!.laneIds = [lane.id, 'other'];
     const r2 = makeRoad('r_2');
     r2.sections[0]!.laneIds = [lane.id];
-    const result = cascadeDeleteRefs(new Set([lane.id]), asMap(lane, r1, r2));
+    const result = cascadeDeleteRefsFull(new Set([lane.id]), asMap(lane, r1, r2)).changes;
     expect((result.get('r_1') as RoadEntity).sections[0]!.laneIds).toEqual(['other']);
     expect((result.get('r_2') as RoadEntity).sections[0]!.laneIds).toEqual([]);
   });
@@ -541,7 +541,7 @@ describe('cascadeDeleteRefs', () => {
     (other as ApolloLaneEntity).id = 'lane_other';
     (other as ApolloLaneEntity).predecessorIds = [target.id, 'keep'];
     (other as ApolloLaneEntity).successorIds = [target.id];
-    const result = cascadeDeleteRefs(new Set([target.id]), asMap(target, other));
+    const result = cascadeDeleteRefsFull(new Set([target.id]), asMap(target, other)).changes;
     const updated = result.get('lane_other') as ApolloLaneEntity;
     expect(updated.predecessorIds).toEqual(['keep']);
     expect(updated.successorIds).toEqual([]);
@@ -552,7 +552,7 @@ describe('cascadeDeleteRefs', () => {
     (lane as ApolloLaneEntity).overlapIds = ['ov_1', 'ov_2'];
     const j = makeJunction('j_1');
     j.overlapIds = ['ov_1'];
-    const result = cascadeDeleteRefs(new Set(['ov_1']), asMap(lane, j));
+    const result = cascadeDeleteRefsFull(new Set(['ov_1']), asMap(lane, j)).changes;
     expect((result.get(lane.id) as ApolloLaneEntity).overlapIds).toEqual(['ov_2']);
     expect((result.get('j_1') as JunctionEntity).overlapIds).toEqual([]);
   });

@@ -149,16 +149,15 @@ See [License Activation](./license-activation.md). Paste a new code; banner turn
 
 ### Root cause
 
-`ams-layout-v3-drawing` / `ams-layout-v3-scene` JSON in `localStorage` is corrupt (manual edit, version mismatch).
+`apollo-map-studio:layout:drawing` / `apollo-map-studio:layout:scene` JSON in `localStorage` is corrupt (manual edit, version mismatch).
 
 ### Mitigation
 
 `View → Reset Layout`. If even the menu is dead:
 
 ```js
-localStorage.removeItem('ams-layout-v3-drawing');
-localStorage.removeItem('ams-layout-v3-scene');
-localStorage.removeItem('ams-layout-v2');
+localStorage.removeItem('apollo-map-studio:layout:drawing');
+localStorage.removeItem('apollo-map-studio:layout:scene');
 location.reload();
 ```
 
@@ -336,12 +335,11 @@ flowchart TD
 
 Keys you may need to nuke when debugging:
 
-| Key                     | Scenario               |
-| ----------------------- | ---------------------- |
-| `ams-layout-v3-drawing` | dockview corruption    |
-| `ams-layout-v3-scene`   | same                   |
-| `ams-layout-v2`         | legacy leftover        |
-| `apollo-map-studio:*`   | misconfigured settings |
+| Key                                | Scenario               |
+| ---------------------------------- | ---------------------- |
+| `apollo-map-studio:layout:drawing` | dockview corruption    |
+| `apollo-map-studio:layout:scene`   | same                   |
+| `apollo-map-studio:*`              | misconfigured settings |
 
 ## Source
 

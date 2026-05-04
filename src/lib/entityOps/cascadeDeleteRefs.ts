@@ -120,18 +120,6 @@ function decideOverlap(ov: OverlapEntity, removed: ReadonlySet<string>): Overlap
   return { patched: { ...ov, objects: remaining } };
 }
 
-/**
- * @deprecated Returns only `changes`. Prefer `cascadeDeleteRefsFull` which
- * also yields a `cascadeRemoved` set so callers can drop orphaned Overlap
- * entities. This signature is kept temporarily for incremental migration.
- */
-export function cascadeDeleteRefs(
-  removedIds: ReadonlySet<string>,
-  allEntities: ReadonlyMap<string, MapEntity>,
-): Map<string, MapEntity> {
-  return cascadeDeleteRefsFull(removedIds, allEntities).changes;
-}
-
 export function cascadeDeleteRefsFull(
   removedIds: ReadonlySet<string>,
   allEntities: ReadonlyMap<string, MapEntity>,

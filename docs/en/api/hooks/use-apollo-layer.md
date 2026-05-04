@@ -7,9 +7,8 @@ description: Renders the imported, read-only Apollo HD-map as a cyan-toned set o
 
 > Source: `src/hooks/useApolloLayer.ts`
 
-`useApolloLayer` paints the HD-map imported via Apollo IO (parked in
-`apolloMapStore.rawMap`) onto the MapLibre canvas as a **read-only**
-overlay. It registers a set of `apollo-`-prefixed GeoJSON sources and
+`useApolloLayer` registers the `apollo-*` sources/layers after Apollo IO
+imports and auto-fits the viewport from `apolloMapStore.bounds`. It registers a set of `apollo-`-prefixed GeoJSON sources and
 layers using a deliberately distinct cyan / signal-yellow palette so
 imported data stays visually separate from the user's edits.
 
@@ -66,9 +65,6 @@ edit-layer entityType.
 - `apolloMapStore.bounds` — written by the Apollo IO worker after
   `parseAndCompile`. Bounds shape: `[[lng, lat], [lng, lat]]` (SW + NE
   corners).
-- `apolloMapStore.rawMap` — raw proto parse result; not consumed
-  directly here, but the source list mirrors proto entity types
-  one-to-one.
 - `mapStore.entities` — editable entities bridged via the entityOps
   adapter; not read here, but z-order keeps the cold layer above
   `apollo-*` layers.
@@ -206,8 +202,8 @@ The only caller is `MapCanvas`. Each mount registers once;
 
 ```mermaid
 graph TD
-    A[Apollo IO worker] -->|apolloMapStore.rawMap| B[apolloMapStore]
-    B -->|MapEntity bridge| C[mapStore.entities]
+    A[Apollo IO worker] -->|entities| C[mapStore.entities]
+    A -->|bounds/header/info| B[apolloMapStore]
     C --> D[useColdLayer SYNC]
     D --> E[cold-* layers]
     B -->|bounds| F[useApolloLayer.fitBounds]
@@ -232,8 +228,7 @@ sources + layers also make a future toggle trivial.
 A: Today: `apolloMapStore.clear()` + `mapStore.clear()`.
 `useApolloLayer` does not removeSource — layer registration is
 considered lifecycle-permanent. Full unload would require
-`map.removeLayer` / `map.removeSource` when
-`apolloMapStore.rawMap === null`.
+`map.removeLayer` / `map.removeSource` when import context is cleared.
 
 ## Source map
 

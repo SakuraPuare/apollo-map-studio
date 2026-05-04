@@ -8,7 +8,7 @@
  *   - 每像素 lat 度数      = pxDeg * cos(lat)                 —— 高纬方向变小
  *   - 两者对应的物理长度（米）相等 = pxDeg * 111320 * cos(lat)
  *
- * 根因：旧实现 pointToPolylineDist 把 (lng,lat) 当同量纲欧氏空间。
+ * 根因：旧算法把 (lng,lat) 当同量纲欧氏空间。
  * 对一条东西向 lane：Δlat = (物理法向像素数) × pxDeg * cos(lat) —— 在 lat 40°
  * 会比同像素数的南北向 Δlng 小 cos(40°) ≈ 0.766 倍。欧氏距离把 Δlat 当
  * Δlng 同量纲算，EW 的 "度数距离" 被算小 0.766 倍：
@@ -21,12 +21,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { LngLat } from '../interpolate';
-import {
-  pointToPolylineDist,
-  pointToPolylineDistGeo,
-  pointToPolygonDistGeo,
-  pointInPolygon,
-} from '../hitTest';
+import { pointToPolylineDistGeo, pointToPolygonDistGeo, pointInPolygon } from '../hitTest';
 
 // ── 测试常量 ────────────────────────────────────────────────────
 
@@ -47,16 +42,39 @@ function pixelToRadius(px: number, zoom: number): number {
 
 const cosDeg = (deg: number) => Math.cos((deg * Math.PI) / 180);
 
+function pointToSegmentDistEuclid(point: LngLat, a: LngLat, b: LngLat): number {
+  const [px, py] = point;
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(px - a[0], py - a[1]);
+
+  let t = ((px - a[0]) * dx + (py - a[1]) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (a[0] + t * dx), py - (a[1] + t * dy));
+}
+
+function pointToPolylineDistEuclid(point: LngLat, coords: LngLat[]): number {
+  let min = Infinity;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i]!;
+    const b = coords[i + 1]!;
+    const d = pointToSegmentDistEuclid(point, a, b);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
 // ── 基线：赤道附近 Geo 版本 ≈ 欧氏版本 ─────────────────────────
 
 describe('pointToPolylineDistGeo — 赤道退化为欧氏版本', () => {
-  it('赤道 (cosLat=1) 的结果应与 pointToPolylineDist 相等', () => {
+  it('赤道 (cosLat=1) 的结果应与本地欧氏基线相等', () => {
     const point: LngLat = [0, 0];
     const line: LngLat[] = [
       [0.0001, -0.001],
       [0.0001, 0.001],
     ];
-    const euclid = pointToPolylineDist(point, line);
+    const euclid = pointToPolylineDistEuclid(point, line);
     const geo = pointToPolylineDistGeo(point, line, cosDeg(LAT_EQUATOR));
     expect(geo).toBeCloseTo(euclid, 12);
   });
@@ -107,8 +125,8 @@ describe('pointToPolylineDistGeo — 高纬度 40° + zoom 20 排序正确性', 
 
     // 欧氏旧实现：EW 被低估到 3*pxDeg*cosLat ≈ 2.298*pxDeg，NS 是 3*pxDeg
     // → 欧氏错判 "EW 离 click 更近" —— R4 bug 的数值表现
-    const dNSEuclid = pointToPolylineDist(click, nsLane);
-    const dEWEuclid = pointToPolylineDist(click, ewLane);
+    const dNSEuclid = pointToPolylineDistEuclid(click, nsLane);
+    const dEWEuclid = pointToPolylineDistEuclid(click, ewLane);
     expect(dEWEuclid).toBeLessThan(dNSEuclid);
     expect(dEWEuclid / dNSEuclid).toBeCloseTo(cosLat, 6);
   });
@@ -170,7 +188,7 @@ describe('pointToPolylineDistGeo — 高纬度 40° + zoom 20 排序正确性', 
       [116.4 + spanLng, 40 + 12 * pxDeg * cosLat],
     ];
     const dGeo = pointToPolylineDistGeo(click, falseHit, cosLat);
-    const dEuclid = pointToPolylineDist(click, falseHit);
+    const dEuclid = pointToPolylineDistEuclid(click, falseHit);
 
     // Geo 正确：物理 12 像素 > 10 像素半径 → 应过滤
     expect(dGeo).toBeGreaterThan(radius);

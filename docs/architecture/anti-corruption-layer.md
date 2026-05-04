@@ -99,7 +99,7 @@ graph TB
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 类型     | `MapEntity`, `ApolloEntity`, `DrawingEntity`, `GeoPoint`, `BezierAnchorData`                                                       |
 | 编辑     | `compileEntity`, `createEntity`, `getEditPoints`, `setEditPoint`, `setAllEditPoints`, `moveEntity`, `deleteVertex`, `entityCoords` |
-| 级联     | `cascadeDeleteRefs` (deprecated), `cascadeDeleteRefsFull`                                                                          |
+| 级联     | `cascadeDeleteRefsFull`                                                                                                            |
 | reparent | `reparent`, `canReparent`                                                                                                          |
 | guard    | `isApolloEntityType`, `isAreaEntity`, `isDrawingEntity`, `isPolygonEditEntity`                                                     |
 

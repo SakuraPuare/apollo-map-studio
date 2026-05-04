@@ -94,14 +94,11 @@ geometry while drawing bezier or polyline shapes.
 
 ### 2.4 Hit test
 
-`hitTest.ts` ships two API families:
+`hitTest.ts` exposes the latitude-compensated API family:
 
-- Pure Euclidean degree space (legacy):
-  `pointToPolylineDist` / `pointToPolygonDist`
-- **Latitude-compensated (preferred)**:
-  `pointToPolylineDistGeo` / `pointToPolygonDistGeo`
+- `pointToPolylineDistGeo` / `pointToPolygonDistGeo`
 
-The latter scales Δlat by 1/cosLat, lifting it into "lng-degree
+It scales Δlat by 1/cosLat, lifting it into "lng-degree
 equivalent space" so the result matches the `pixelToRadius` (lng
 degrees) unit. The worker hit test uses this family — see
 [Spatial Index](./spatial-index.md).
@@ -283,9 +280,9 @@ for regression coverage.
   guard's job).
 - **2026-04 Phase E**: `laneJunctions.ts` gained the `decorateOnly`
   parameter for incremental decoration.
-- **2026-04**: `hitTest.ts` introduced the latitude-compensated
-  family (`pointToPolylineDistGeo`); the legacy Euclidean version is
-  retained for unit-test compatibility.
+- **2026-04**: `hitTest.ts` exposes the latitude-compensated
+  `pointToPolylineDistGeo` / `pointToPolygonDistGeo` family; Euclidean
+  distance remains only as a local test baseline helper.
 
 ## 9. FAQ
 

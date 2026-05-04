@@ -1,11 +1,11 @@
 ---
-title: apolloMapStore — Apollo 原始地图缓存
-description: 保存 IO 解码后的 apollo.hdmap.Map 树及导入元数据，供 round-trip 导出复用。
+title: apolloMapStore — Apollo 导入元数据缓存
+description: 保存 IO 导入元数据、header 副本与 bounds，供状态栏、元数据面板和 round-trip 导出复用。
 ---
 
-# `apolloMapStore` — Apollo 原始地图缓存
+# `apolloMapStore` — Apollo 导入元数据缓存
 
-> 源码：`src/store/apolloMapStore.ts` · 体量约 86 行 · 无撤销
+> 源码：`src/store/apolloMapStore.ts` · 无撤销
 
 ## 用途
 
@@ -14,20 +14,19 @@ description: 保存 IO 解码后的 apollo.hdmap.Map 树及导入元数据，供
 1. 保存最近一次导入的 Apollo HD Map 元数据（`filename`、`projString`、各类型实体计数等），供状态栏、状态提示、再次导出时预填名称使用。
 2. 暂存导入时的 WGS84 边界与 `header` 副本，方便 `WorkspaceLayout` 在新地图加载完成后调用 `map.fitBounds`。
 
-它故意 **不存储 React state 中的 `entities`**——后者由 `mapStore` 持有，并由 zundo 中间件做 `partialize` 撤销追踪。把"原样保留的 proto 树"塞进 zundo 的代价（每次撤销快照都要克隆一次 50–200MB 的对象）远超收益，因此本 store 是单独一份；浏览器导入路径中 `rawMap` 字段常驻 `null`——浏览器版本会把整棵 proto 树留在 IO worker 内，避免主线程结构化克隆。
+它故意 **不存储 React state 中的 `entities` 或原始 proto 树**——entities 由 `mapStore` 持有，并由 zundo 中间件做 `partialize` 撤销追踪；完整 proto 树留在 IO worker 内，避免主线程结构化克隆 50–200MB 的对象。
 
 ## 公共 API
 
-| 符号                  | 类型      | 签名                                      | 摘要                                                         |
-| --------------------- | --------- | ----------------------------------------- | ------------------------------------------------------------ |
-| `useApolloMapStore`   | hook      | `() => ApolloMapState & ApolloMapActions` | Zustand store，组件订阅入口                                  |
-| `ApolloMapImportInfo` | interface | 见下                                      | 导入诊断元数据；填充状态栏 / 提示                            |
-| `ApolloMapBounds`     | type      | `[[number, number], [number, number]]`    | WGS84 `[[minLng, minLat], [maxLng, maxLat]]`                 |
-| `ApolloMapHeader`     | type      | `Record<string, unknown>`                 | `Map.header` 的浅拷贝                                        |
-| `setMap`              | action    | `(rawMap, info) => void`                  | 同时落 `rawMap`、`header`、`info`，重置 `bounds`/`lastError` |
-| `setImported`         | action    | `(info, bounds, header?) => void`         | 浏览器路径首选；不写 `rawMap`                                |
-| `clear`               | action    | `() => void`                              | 重置所有字段为初始值                                         |
-| `setError`            | action    | `(message: string \| null) => void`       | 把最近一次 IO 错误暴露给状态栏                               |
+| 符号                  | 类型      | 签名                                      | 摘要                                         |
+| --------------------- | --------- | ----------------------------------------- | -------------------------------------------- |
+| `useApolloMapStore`   | hook      | `() => ApolloMapState & ApolloMapActions` | Zustand store，组件订阅入口                  |
+| `ApolloMapImportInfo` | interface | 见下                                      | 导入诊断元数据；填充状态栏 / 提示            |
+| `ApolloMapBounds`     | type      | `[[number, number], [number, number]]`    | WGS84 `[[minLng, minLat], [maxLng, maxLat]]` |
+| `ApolloMapHeader`     | type      | `Record<string, unknown>`                 | `Map.header` 的浅拷贝                        |
+| `setImported`         | action    | `(info, bounds, header?) => void`         | 写入导入元数据、bounds 与 header 副本        |
+| `clear`               | action    | `() => void`                              | 重置所有字段为初始值                         |
+| `setError`            | action    | `(message: string \| null) => void`       | 把最近一次 IO 错误暴露给状态栏               |
 
 ## 详细条目
 
@@ -70,38 +69,22 @@ export type ApolloMapHeader = Record<string, unknown>;
 
 State 字段一览：
 
-| 字段        | 类型                              | 用途                                                                                |
-| ----------- | --------------------------------- | ----------------------------------------------------------------------------------- |
-| `rawMap`    | `Record<string, unknown> \| null` | 解码后的完整 proto 树（**仅** legacy / Node 测试走这条路径；浏览器导入留在 worker） |
-| `header`    | `ApolloMapHeader \| null`         | `Map.header` 的浅副本，供 Header 面板展示                                           |
-| `bounds`    | `ApolloMapBounds \| null`         | 导入期间预计算的 WGS84 包围盒                                                       |
-| `info`      | `ApolloMapImportInfo \| null`     | 最近一次导入的元数据                                                                |
-| `lastError` | `string \| null`                  | 最近一次 IO 失败的人类可读信息                                                      |
+| 字段        | 类型                          | 用途                                      |
+| ----------- | ----------------------------- | ----------------------------------------- |
+| `header`    | `ApolloMapHeader \| null`     | `Map.header` 的浅副本，供 Header 面板展示 |
+| `bounds`    | `ApolloMapBounds \| null`     | 导入期间预计算的 WGS84 包围盒             |
+| `info`      | `ApolloMapImportInfo \| null` | 最近一次导入的元数据                      |
+| `lastError` | `string \| null`              | 最近一次 IO 失败的人类可读信息            |
 
-文件位置：`apolloMapStore.ts:28-43`。
-
-### `setMap(rawMap, info)`
-
-把 raw proto 树整体写入 store，同时从 `rawMap.header` 浅拷贝 `header` 字段。**仅** Node/Vitest 单测和 legacy 在用：浏览器内的实际导入路径走 `setImported`，`rawMap` 留 `null`。
-
-```ts
-useApolloMapStore.getState().setMap(decoded, {
-  filename: 'base_map.bin',
-  counts: { lane: 312, junction: 24 },
-  projString: '+proj=utm +zone=10 +datum=WGS84',
-  importedAt: Date.now(),
-});
-```
-
-文件位置：`apolloMapStore.ts:63-72`。
+文件位置：`apolloMapStore.ts`。
 
 ### `setImported(info, bounds, header?)`
 
-浏览器导入路径专用，**不** 携带 `rawMap`。`mapIO` 在 worker 中完成解码 → 把每个实体逐一推到 `mapStore`，仅把元数据 + 包围盒回传到主线程。
+导入路径专用。`mapIO` 在 worker 中完成解码 → 把每个实体逐一推到 `mapStore`，仅把元数据 + 包围盒 + header 副本回传到主线程。
 
 签名：`(info: ApolloMapImportInfo, bounds: ApolloMapBounds | null, header?: ApolloMapHeader | null) => void`
 
-副作用：清除 `lastError`、把 `rawMap` 复位为 `null`。
+副作用：清除 `lastError`。
 
 ```ts
 useApolloMapStore.getState().setImported(
@@ -135,7 +118,7 @@ useApolloMapStore.getState().setError('Failed to decode header: invalid varint a
 ## 内部实现
 
 - 没有 `subscribe` / `selector` 优化——store 的写入频率低（每次只在 import/export 边界触发），无需 `useShallow`。
-- 由于不参与 zundo，`rawMap` 字段在内存中可达数百兆，`Ctrl+Z` 不会触发其结构化克隆。
+- 由于不参与 zundo，导入上下文不会进入撤销栈；完整 proto 树留在 worker 内。
 - 类型守卫 `header && typeof header === 'object'` 防御 proto 解码失败时拿到 `undefined`。
 - 初始 state 全部为 `null`，组件需要 narrow 检查后再读字段。
 
@@ -151,7 +134,7 @@ useApolloMapStore.getState().setError('Failed to decode header: invalid varint a
 
 ## 调用方
 
-- `src/io/mapIO.ts` — 唯一写入方（`setMap` / `setImported` / `setError`）
+- `src/io/mapIO.ts` — 唯一写入方（`setImported` / `setError`）
 - `src/components/layout/StatusBar.tsx` — 读取 `info.filename`、`lastError`、`info.counts`
 - `src/components/layout/WorkspaceLayout.tsx` — 读取 `bounds` 触发 `map.fitBounds`
 - `src/components/menu/FileMenu.tsx` — 读取 `info.filename`/`projString` 复用为导出参数

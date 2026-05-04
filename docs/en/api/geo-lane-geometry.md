@@ -202,16 +202,13 @@ decision in `reconcileLaneTopology`.
 ## `hitTest.ts`
 
 ```ts
-export function pointToPolylineDist(point, coords): number;
 export function pointInPolygon(point, polygon): boolean;
-export function pointToPolygonDist(point, polygon): number;
 export function pointToPolylineDistGeo(point, coords, cosLat): number;
 export function pointToPolygonDistGeo(point, polygon, cosLat): number;
 ```
 
-Two flavours: pure Euclidean degree space (legacy, for assertion
-parity) and latitude-compensated (worker hitTest). `pointInPolygon`
-is topological and shared.
+Latitude-compensated distances are used by worker hitTest.
+`pointInPolygon` is topological and does not need unit correction.
 
 ## `validation.ts`
 
