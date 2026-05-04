@@ -77,6 +77,7 @@ function detectIdentity(): AccessGuardIdentity {
     identity.osUsername = userInfo.username || '';
     identity.homedir = userInfo.homedir || '';
   } catch {
+    // os.userInfo may throw in restricted runtimes; keep empty identity defaults.
   }
 
   identity.gitName = readGitConfig('user.name');
@@ -99,7 +100,11 @@ function readGitConfig(key: string): string {
 
 function readCommand(command: string): string {
   try {
-    return execSync(command, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 1000 }).trim();
+    return execSync(command, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 1000,
+    }).trim();
   } catch {
     return '';
   }
@@ -125,11 +130,13 @@ function readMachineSeed(): string {
       return output.match(/"IOPlatformUUID" = "([^"]+)"/)?.[1] ?? '';
     }
     case 'win32':
-      return readCommand('wmic csproduct get UUID')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .find((line) => !/^uuid$/i.test(line)) ?? '';
+      return (
+        readCommand('wmic csproduct get UUID')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .find((line) => !/^uuid$/i.test(line)) ?? ''
+      );
     case 'linux':
       return readCommand('cat /etc/machine-id') || readCommand('cat /var/lib/dbus/machine-id');
     default:
@@ -180,5 +187,9 @@ function generateDenialHtml(keyword: string): string {
 }
 
 function escapeHtml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
