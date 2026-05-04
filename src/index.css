@@ -107,32 +107,32 @@ body,
   background: rgba(34, 211, 238, 0.3);
 }
 
-.ams-layer-tree-scrollbar {
+.ams-scrollbar {
   scrollbar-color: rgba(113, 113, 122, 0.45) transparent;
   scrollbar-width: thin;
 }
 
-.ams-layer-tree-scrollbar::-webkit-scrollbar {
+.ams-scrollbar::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.ams-layer-tree-scrollbar::-webkit-scrollbar-track {
+.ams-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.ams-layer-tree-scrollbar::-webkit-scrollbar-thumb {
+.ams-scrollbar::-webkit-scrollbar-thumb {
   background-color: rgba(113, 113, 122, 0.35);
   background-clip: padding-box;
   border: 2px solid transparent;
   border-radius: 999px;
 }
 
-.ams-layer-tree-scrollbar::-webkit-scrollbar-thumb:hover {
+.ams-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: rgba(161, 161, 170, 0.55);
 }
 
-.ams-layer-tree-scrollbar::-webkit-scrollbar-corner {
+.ams-scrollbar::-webkit-scrollbar-corner {
   background: transparent;
 }
 

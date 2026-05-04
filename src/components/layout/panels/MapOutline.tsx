@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { getEntityColor, getEntityIcon, getEntityLabel } from '@/core/entityRegistry';
 import { useMapStore } from '@/store/mapStore';
 import type { MapEntity } from '@/types/entities';
@@ -116,7 +117,7 @@ export function MapOutline() {
   const hasAnything = entities.size > 0;
 
   return (
-    <div className="h-full overflow-y-auto ams-layer-tree-scrollbar text-xs text-zinc-300">
+    <ScrollArea className="h-full text-xs text-zinc-300">
       <div className="px-3 py-3 border-b border-white/[0.07]">
         <div className="grid grid-cols-3 gap-1.5">
           <SummaryMetric label="地图" value={apolloTotal} />
@@ -170,7 +171,7 @@ export function MapOutline() {
       <div className="border-t border-white/[0.07]">
         <MapMetadataForm />
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 

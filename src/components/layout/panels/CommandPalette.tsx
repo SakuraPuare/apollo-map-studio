@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
+import { scrollAreaClassName } from '@/components/ui/scroll-area-classes';
 import {
   formatShortcut,
   getCommandPaletteActions,
@@ -80,7 +81,7 @@ export function CommandPalette({
           </kbd>
         </div>
 
-        <Command.List className="max-h-[300px] overflow-y-auto p-2">
+        <Command.List className={scrollAreaClassName('max-h-[300px] p-2')}>
           <Command.Empty className="py-6 text-center text-sm text-zinc-500">
             No results found.
           </Command.Empty>

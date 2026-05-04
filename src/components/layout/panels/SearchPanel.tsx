@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMapStore } from '@/store/mapStore';
 import { useSidebar } from '@/context/SidebarContext';
 import { clsx } from 'clsx';
@@ -50,7 +51,7 @@ export function SearchPanel({ selectedId, onSelect }: SearchPanelProps) {
             : 'Type to search'}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <ScrollArea className="flex-1">
         {results.length === 0 ? (
           <div className="p-4 text-center text-zinc-600 text-xs">
             {searchQuery ? 'No matches' : 'Search across all entity ids and types.'}
@@ -76,7 +77,7 @@ export function SearchPanel({ selectedId, onSelect }: SearchPanelProps) {
             ))}
           </ul>
         )}
-      </div>
+      </ScrollArea>
     </div>
   );
 }

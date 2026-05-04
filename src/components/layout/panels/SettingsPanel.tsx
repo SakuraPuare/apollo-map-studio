@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FaXmark } from 'react-icons/fa6';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   useSettingsStore,
   MIN_HISTORY_LIMIT,
@@ -314,7 +315,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         </div>
 
         {/* Content */}
-        <div className="px-5 py-4 space-y-5 max-h-[60vh] overflow-y-auto">
+        <ScrollArea className="px-5 py-4 space-y-5 max-h-[60vh]">
           <HistorySettings
             value={draftHistory}
             onChange={setDraftHistory}
@@ -345,7 +346,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             setLaneArrowSpacing={setLaneArrowSpacing}
           />
           <LayoutSettings />
-        </div>
+        </ScrollArea>
       </div>
     </div>
   );

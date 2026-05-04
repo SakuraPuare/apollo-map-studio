@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { useSelector } from '@xstate/react';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEditorActor } from '@/context/EditorContext';
 import { useMapStore } from '@/store/mapStore';
 
@@ -82,7 +83,7 @@ export function InspectorPanelContent() {
   const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : undefined));
 
   return (
-    <div className="h-full bg-zinc-900/50 overflow-y-auto">
+    <ScrollArea className="h-full bg-zinc-900/50">
       <div className="p-3">
         {entity ? (
           <>
@@ -104,7 +105,7 @@ export function InspectorPanelContent() {
           </div>
         )}
       </div>
-    </div>
+    </ScrollArea>
   );
 }
 
