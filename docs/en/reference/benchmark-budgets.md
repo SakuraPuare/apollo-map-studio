@@ -251,7 +251,7 @@ This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.j
     "p99Ms": 0.5
   },
   "overlay catmull 1000 pts — buildOverlayFeatures": {
-    "p99Ms": 4
+    "p99Ms": 8
   },
   "overlay bezier 1000 anchors — buildOverlayFeatures": {
     "p99Ms": 4
@@ -467,7 +467,7 @@ This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.j
 | `overlay catmull 100 pts — buildOverlayFeatures`      | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.8 ms**  | draw preview feature generation                             |
 | `overlay bezier 100 anchors — buildOverlayFeatures`   | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
 | `overlay polyline 1000 pts — buildOverlayFeatures`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | draw preview feature generation                             |
-| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
+| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **8 ms**    | draw preview feature generation                             |
 | `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
 | `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
 

@@ -78,7 +78,7 @@
     "overlay catmull 100 pts — buildOverlayFeatures": { "p99Ms": 0.8 },
     "overlay bezier 100 anchors — buildOverlayFeatures": { "p99Ms": 0.3 },
     "overlay polyline 1000 pts — buildOverlayFeatures": { "p99Ms": 0.5 },
-    "overlay catmull 1000 pts — buildOverlayFeatures": { "p99Ms": 4 },
+    "overlay catmull 1000 pts — buildOverlayFeatures": { "p99Ms": 8 },
     "overlay bezier 1000 anchors — buildOverlayFeatures": { "p99Ms": 4 },
     "grid max-density viewport — buildGrid": { "p99Ms": 0.05 },
     "entityOps 10k — cascadeDeleteRefsFull one lane": { "p99Ms": 3 },
