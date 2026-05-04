@@ -41,6 +41,7 @@ import {
   makeSidebarPanel,
 } from './WorkspaceLayout/lazyPanels';
 import type { WorkspaceViewActionId } from '@/core/actions/registry';
+import { getSidebarViewDef, getWorkspaceViewByActionId } from '@/core/workspaceViews';
 
 // ─── Inner Layout ─────────────────────────────────────────
 
@@ -86,12 +87,14 @@ function WorkspaceLayoutInner() {
 
   const getWorkspaceViewState = useCallback(
     (actionId: WorkspaceViewActionId) => {
-      const panelId = VIEW_ACTION_TO_PANEL[actionId];
-      const tab = VIEW_ACTION_TO_TAB[actionId];
-      if (panelId === 'sidebar') {
-        return tab ? openPanelIds.has('sidebar') && activeTab === tab : openPanelIds.has('sidebar');
+      const view = getWorkspaceViewByActionId(actionId);
+      if (!view) return false;
+      if (view.panelId === 'sidebar') {
+        return view.sidebarViewId
+          ? openPanelIds.has('sidebar') && activeTab === view.sidebarViewId
+          : openPanelIds.has('sidebar');
       }
-      return openPanelIds.has(panelId);
+      return openPanelIds.has(view.panelId);
     },
     [activeTab, openPanelIds],
   );
@@ -153,10 +156,11 @@ function WorkspaceLayoutInner() {
   );
 
   function handleActivityTabChange(tab: ActivityTab) {
-    if (tab !== 'settings') {
+    const sidebarView = getSidebarViewDef(tab);
+    if (sidebarView?.kind === 'panel') {
       const api = apiRef.current;
       if (api) {
-        openWorkspacePanel(api, 'sidebar', { title: getSidebarTitle(tab) });
+        openWorkspacePanel(api, 'sidebar', { title: sidebarView.label });
         refreshOpenPanels(api);
       }
     }
@@ -164,31 +168,8 @@ function WorkspaceLayoutInner() {
   }
 }
 
-const SIDEBAR_TITLES: Record<ActivityTab, string> = {
-  explorer: 'Outline',
-  layers: 'Layers',
-  search: 'Search',
-  timeline: 'Timeline',
-  settings: 'Settings',
-};
-
-const VIEW_ACTION_TO_PANEL: Record<WorkspaceViewActionId, WorkspacePanelId> = {
-  'view:mapEditor': 'map',
-  'view:outline': 'sidebar',
-  'view:layers': 'sidebar',
-  'view:search': 'sidebar',
-  'view:inspector': 'inspector',
-  'view:timeline': 'timeline',
-};
-
-const VIEW_ACTION_TO_TAB: Partial<Record<WorkspaceViewActionId, ActivityTab>> = {
-  'view:outline': 'explorer',
-  'view:layers': 'layers',
-  'view:search': 'search',
-};
-
 function getSidebarTitle(tab: ActivityTab): string {
-  return SIDEBAR_TITLES[tab] ?? tab;
+  return getSidebarViewDef(tab)?.label ?? tab;
 }
 
 function useWorkspaceViewToggle({
@@ -207,9 +188,11 @@ function useWorkspaceViewToggle({
       const api = apiRef.current;
       if (!api) return;
 
-      const panelId = VIEW_ACTION_TO_PANEL[actionId];
-      const tab = VIEW_ACTION_TO_TAB[actionId];
-      if (panelId === 'sidebar' && tab) {
+      const view = getWorkspaceViewByActionId(actionId);
+      if (!view) return;
+
+      if (view.panelId === 'sidebar' && view.sidebarViewId) {
+        const tab = view.sidebarViewId;
         const shouldClose = api.getPanel('sidebar') && activeTab === tab;
         if (shouldClose) {
           closeWorkspacePanel(api, 'sidebar');
@@ -221,8 +204,8 @@ function useWorkspaceViewToggle({
         return;
       }
 
-      if (api.getPanel(panelId)) closeWorkspacePanel(api, panelId);
-      else openWorkspacePanel(api, panelId);
+      if (api.getPanel(view.panelId)) closeWorkspacePanel(api, view.panelId);
+      else openWorkspacePanel(api, view.panelId);
       refreshOpenPanels(api);
     },
     [activeTab, apiRef, refreshOpenPanels, setActiveTab],

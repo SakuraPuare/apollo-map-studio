@@ -9,6 +9,7 @@ import {
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
+import { WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
 import type { KeyBindingEvent } from '../registry';
 
 describe('Action Registry', () => {
@@ -99,12 +100,9 @@ describe('Action Registry', () => {
   it('View menu exposes workspace panels', () => {
     const viewActions = getMenuActions('View');
     const ids = viewActions.map((a) => a.id);
-    expect(ids).toContain('view:mapEditor');
-    expect(ids).toContain('view:outline');
-    expect(ids).toContain('view:layers');
-    expect(ids).toContain('view:search');
-    expect(ids).toContain('view:inspector');
-    expect(ids).toContain('view:timeline');
+    for (const view of WORKSPACE_VIEW_DEFS) {
+      expect(ids).toContain(view.actionId);
+    }
   });
 
   it('About menu has version information and help documentation', () => {

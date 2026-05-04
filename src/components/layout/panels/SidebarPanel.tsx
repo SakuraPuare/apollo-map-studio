@@ -3,6 +3,11 @@ import { useSelector } from '@xstate/react';
 import { useEditorActor } from '@/context/EditorContext';
 import { useSidebar } from '@/context/SidebarContext';
 import { useUIStore } from '@/store/uiStore';
+import {
+  getDefaultSidebarViewId,
+  getSidebarViewDef,
+  type SidebarRendererId,
+} from '@/core/workspaceViews';
 
 const LazyLayerTree = lazy(async () => {
   const m = await import('./LayerTree');
@@ -29,14 +34,6 @@ function PanelFallback({ label }: { label: string }) {
   );
 }
 
-const TAB_TITLES: Record<string, string> = {
-  explorer: 'Outline',
-  layers: 'Layers',
-  search: 'Search',
-  timeline: 'Timeline',
-  settings: 'Settings',
-};
-
 interface SidebarPanelContentProps {
   /** Hook to open the global Settings modal when the user clicks the settings tab. */
   onOpenSettings(): void;
@@ -48,6 +45,7 @@ interface SidebarPanelContentProps {
  */
 export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps) {
   const { activeTab, setActiveTab } = useSidebar();
+  const activeView = getSidebarViewDef(activeTab);
   const actorRef = useEditorActor();
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
   const requestFocusEntity = useUIStore((s) => s.requestFocusEntity);
@@ -61,45 +59,68 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
     [actorRef, requestFocusEntity],
   );
 
-  // Settings is a modal — clicking the tab opens it and snaps back to the
-  // default content so the sidebar isn't left blank. Done in an effect so
-  // the state update doesn't fire during render.
+  // Modal activity entries open outside the sidebar, then restore a panel view
+  // so the Dockview sidebar title/content never remains on a non-panel entry.
   useEffect(() => {
-    if (activeTab === 'settings') {
+    if (activeView?.kind === 'modal') {
       onOpenSettings();
-      setActiveTab('explorer');
+      setActiveTab(getDefaultSidebarViewId());
     }
-  }, [activeTab, onOpenSettings, setActiveTab]);
+  }, [activeView, onOpenSettings, setActiveTab]);
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-hidden flex flex-col">
       <div className="px-3 py-2 border-b border-white/[0.07] shrink-0">
         <h2 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-          {TAB_TITLES[activeTab] ?? activeTab}
+          {activeView?.label ?? activeTab}
         </h2>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'layers' && (
-          <Suspense fallback={<PanelFallback label="Loading layers..." />}>
-            <LazyLayerTree onSelect={handleSelect} selectedId={selectedId} />
-          </Suspense>
-        )}
-        {activeTab === 'explorer' && (
-          <Suspense fallback={<PanelFallback label="Loading outline..." />}>
-            <LazyMapOutline />
-          </Suspense>
-        )}
-        {activeTab === 'search' && (
-          <Suspense fallback={<PanelFallback label="Loading search..." />}>
-            <LazySearchPanel onSelect={handleSelect} selectedId={selectedId} />
-          </Suspense>
-        )}
-        {activeTab === 'timeline' && (
-          <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
-            <LazyTimelinePanel />
-          </Suspense>
-        )}
+        <SidebarRenderer
+          renderer={activeView?.renderer}
+          onSelect={handleSelect}
+          selectedId={selectedId}
+        />
       </div>
     </div>
   );
+}
+
+function SidebarRenderer({
+  renderer,
+  onSelect,
+  selectedId,
+}: {
+  renderer?: SidebarRendererId;
+  onSelect: (id: string | null) => void;
+  selectedId: string | null;
+}) {
+  switch (renderer) {
+    case 'layers':
+      return (
+        <Suspense fallback={<PanelFallback label="Loading layers..." />}>
+          <LazyLayerTree onSelect={onSelect} selectedId={selectedId} />
+        </Suspense>
+      );
+    case 'outline':
+      return (
+        <Suspense fallback={<PanelFallback label="Loading outline..." />}>
+          <LazyMapOutline />
+        </Suspense>
+      );
+    case 'search':
+      return (
+        <Suspense fallback={<PanelFallback label="Loading search..." />}>
+          <LazySearchPanel onSelect={onSelect} selectedId={selectedId} />
+        </Suspense>
+      );
+    case 'timeline':
+      return (
+        <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
+          <LazyTimelinePanel />
+        </Suspense>
+      );
+    default:
+      return null;
+  }
 }

@@ -1,29 +1,18 @@
 import type { DockviewApi } from 'dockview-react';
 import type { AppMode } from '@/store/uiStore';
-
-export type WorkspacePanelId = 'map' | 'sidebar' | 'inspector' | 'timeline';
-
-interface PanelDefinition {
-  id: WorkspacePanelId;
-  component: WorkspacePanelId;
-  defaultTitle: string;
-}
-
-const PANEL_DEFS: Record<WorkspacePanelId, PanelDefinition> = {
-  map: { id: 'map', component: 'map', defaultTitle: 'Map Editor' },
-  sidebar: { id: 'sidebar', component: 'sidebar', defaultTitle: 'Outline' },
-  inspector: { id: 'inspector', component: 'inspector', defaultTitle: 'Inspector' },
-  timeline: { id: 'timeline', component: 'timeline', defaultTitle: 'Timeline' },
-};
+import {
+  getWorkspacePanelDef,
+  isWorkspacePanelId,
+  type WorkspacePanelId,
+} from '@/core/workspaceViews';
 
 const LAYOUT_KEY_BY_MODE: Record<AppMode, string> = {
   drawing: 'ams-layout-v3-drawing',
   scene: 'ams-layout-v3-scene',
 };
 
-export function isWorkspacePanelId(id: string): id is WorkspacePanelId {
-  return id === 'map' || id === 'sidebar' || id === 'inspector' || id === 'timeline';
-}
+export { isWorkspacePanelId };
+export type { WorkspacePanelId };
 
 export function clearSavedLayout(mode: AppMode) {
   localStorage.removeItem(LAYOUT_KEY_BY_MODE[mode]);
@@ -51,34 +40,38 @@ export function loadLayout(api: DockviewApi, mode: AppMode): boolean {
 }
 
 export function createDefaultLayout(api: DockviewApi, mode: AppMode) {
+  const mapDef = getWorkspacePanelDef('map');
+  const sidebarDef = getWorkspacePanelDef('sidebar');
+  const inspectorDef = getWorkspacePanelDef('inspector');
+  const timelineDef = getWorkspacePanelDef('timeline');
   const mapPanel = api.addPanel({
-    id: PANEL_DEFS.map.id,
-    component: PANEL_DEFS.map.component,
-    title: PANEL_DEFS.map.defaultTitle,
+    id: mapDef.id,
+    component: mapDef.component,
+    title: mapDef.defaultTitle,
   });
   api.addPanel({
-    id: PANEL_DEFS.sidebar.id,
-    component: PANEL_DEFS.sidebar.component,
-    title: PANEL_DEFS.sidebar.defaultTitle,
+    id: sidebarDef.id,
+    component: sidebarDef.component,
+    title: sidebarDef.defaultTitle,
     position: { referencePanel: mapPanel, direction: 'left' },
   });
   api.addPanel({
-    id: PANEL_DEFS.inspector.id,
-    component: PANEL_DEFS.inspector.component,
-    title: PANEL_DEFS.inspector.defaultTitle,
+    id: inspectorDef.id,
+    component: inspectorDef.component,
+    title: inspectorDef.defaultTitle,
     position: { referencePanel: mapPanel, direction: 'right' },
   });
-  api.getPanel('sidebar')?.api.setSize({ width: 240 });
-  api.getPanel('inspector')?.api.setSize({ width: 280 });
+  applyPanelDefaultSize(api.getPanel('sidebar'), sidebarDef.defaultSize);
+  applyPanelDefaultSize(api.getPanel('inspector'), inspectorDef.defaultSize);
 
   if (mode === 'scene') {
     api.addPanel({
-      id: PANEL_DEFS.timeline.id,
-      component: PANEL_DEFS.timeline.component,
-      title: PANEL_DEFS.timeline.defaultTitle,
+      id: timelineDef.id,
+      component: timelineDef.component,
+      title: timelineDef.defaultTitle,
       position: { referencePanel: mapPanel, direction: 'below' },
     });
-    api.getPanel('timeline')?.api.setSize({ height: 180 });
+    applyPanelDefaultSize(api.getPanel('timeline'), timelineDef.defaultSize);
   }
 }
 
@@ -94,7 +87,7 @@ export function openWorkspacePanel(
     return existing;
   }
 
-  const def = PANEL_DEFS[panelId];
+  const def = getWorkspacePanelDef(panelId);
   const title = options.title ?? def.defaultTitle;
   const referencePanel = getReferencePanel(api, panelId);
   const position = referencePanel
@@ -108,9 +101,7 @@ export function openWorkspacePanel(
     position,
   });
 
-  if (panelId === 'sidebar') panel.api.setSize({ width: 240 });
-  if (panelId === 'inspector') panel.api.setSize({ width: 280 });
-  if (panelId === 'timeline') panel.api.setSize({ height: 180 });
+  applyPanelDefaultSize(panel, def.defaultSize);
   return panel;
 }
 
@@ -138,4 +129,12 @@ function getPanelDirection(panelId: WorkspacePanelId) {
   if (panelId === 'sidebar') return 'left';
   if (panelId === 'timeline') return 'below';
   return 'right';
+}
+
+function applyPanelDefaultSize(
+  panel: ReturnType<DockviewApi['getPanel']>,
+  size: { width?: number; height?: number } | undefined,
+) {
+  if (!panel || !size) return;
+  panel.api.setSize(size);
 }

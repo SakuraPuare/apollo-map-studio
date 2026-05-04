@@ -20,6 +20,18 @@ import {
   FaUpload,
 } from 'react-icons/fa6';
 import type { ActionDef } from './types';
+import { WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
+
+const WORKSPACE_VIEW_ACTION_DEFS: ActionDef[] = WORKSPACE_VIEW_DEFS.map((view) => ({
+  id: view.actionId,
+  label: view.label,
+  category: 'view',
+  icon: view.icon,
+  inCommandPalette: true,
+  menu: 'View',
+  menuOrder: view.menuOrder,
+  isToggle: true,
+}));
 
 export const ACTION_DEFS: ActionDef[] = [
   {
@@ -132,66 +144,7 @@ export const ACTION_DEFS: ActionDef[] = [
     menu: 'View',
     menuOrder: 10,
   },
-  {
-    id: 'view:mapEditor',
-    label: 'Map Editor',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 20,
-    isToggle: true,
-  },
-  {
-    id: 'view:outline',
-    label: 'Outline',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 21,
-    isToggle: true,
-  },
-  {
-    id: 'view:layers',
-    label: 'Layers',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 22,
-    isToggle: true,
-  },
-  {
-    id: 'view:search',
-    label: 'Search',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 23,
-    isToggle: true,
-  },
-  {
-    id: 'view:inspector',
-    label: 'Inspector',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 24,
-    isToggle: true,
-  },
-  {
-    id: 'view:timeline',
-    label: 'Timeline',
-    category: 'view',
-    icon: FaTableColumns,
-    inCommandPalette: true,
-    menu: 'View',
-    menuOrder: 25,
-    isToggle: true,
-  },
+  ...WORKSPACE_VIEW_ACTION_DEFS,
   {
     id: 'commandPalette',
     label: 'Command Palette',

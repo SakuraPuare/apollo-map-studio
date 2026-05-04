@@ -23,6 +23,7 @@ import {
   type ActionId,
   type WorkspaceViewActionId,
 } from '@/core/actions/registry';
+import { isWorkspaceViewActionId, WORKSPACE_VIEW_DEFS } from '@/core/workspaceViews';
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
 import { appBridge } from '@/lib/app-bridge';
 import { assertEditable } from '@/lib/editable-guard';
@@ -92,12 +93,9 @@ function registerViewHandlers(map: Map<ActionId, () => void>, options: ActionDis
   map.set('toggleGrid', () => useUIStore.getState().toggleGrid());
   map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
   map.set('resetLayout', options.onResetLayout);
-  map.set('view:mapEditor', () => options.onToggleWorkspaceView?.('view:mapEditor'));
-  map.set('view:outline', () => options.onToggleWorkspaceView?.('view:outline'));
-  map.set('view:layers', () => options.onToggleWorkspaceView?.('view:layers'));
-  map.set('view:search', () => options.onToggleWorkspaceView?.('view:search'));
-  map.set('view:inspector', () => options.onToggleWorkspaceView?.('view:inspector'));
-  map.set('view:timeline', () => options.onToggleWorkspaceView?.('view:timeline'));
+  for (const view of WORKSPACE_VIEW_DEFS) {
+    map.set(view.actionId, () => options.onToggleWorkspaceView?.(view.actionId));
+  }
   map.set('commandPalette', options.onOpenCommandPalette);
 }
 
@@ -190,10 +188,6 @@ function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [execute]);
-}
-
-function isWorkspaceViewActionId(actionId: ActionId): actionId is WorkspaceViewActionId {
-  return actionId.startsWith('view:');
 }
 
 function useActionToggleState(

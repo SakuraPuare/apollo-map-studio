@@ -1,15 +1,8 @@
 import type { IconType } from 'react-icons';
 import type { DrawTool } from '@/core/fsm/editorMachine';
+import type { WorkspaceViewActionId } from '@/core/workspaceViews';
 
 export type ActionCategory = 'file' | 'edit' | 'view' | 'tool' | 'selection' | 'help';
-
-export type WorkspaceViewActionId =
-  | 'view:mapEditor'
-  | 'view:outline'
-  | 'view:layers'
-  | 'view:search'
-  | 'view:inspector'
-  | 'view:timeline';
 
 export type ActionId =
   | 'importApollo'
