@@ -48,10 +48,7 @@ function addColdFillLayers(map: maplibregl.Map) {
     type: 'fill',
     source: 'cold',
     filter: COLD_LAYER_FILTERS['cold-fill-crosswalk'],
-    paint: {
-      'fill-pattern': ['coalesce', ['get', 'fillPattern'], 'zebra-stripe-0'],
-      'fill-opacity': 0.9,
-    },
+    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.14 },
   });
 
   map.addLayer({
