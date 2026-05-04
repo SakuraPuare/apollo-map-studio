@@ -9,6 +9,7 @@ import {
   getCommandPaletteActions,
   getCommandPaletteActionsForMode,
   getKeyBindingActions,
+  getToolStripSlotActions,
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
@@ -41,6 +42,14 @@ describe('Action Registry', () => {
 
   it('action map covers all definitions', () => {
     expect(getActionMap().size).toBe(getActionDefs().length);
+  });
+
+  it('selection ToolStrip slot exposes top-level mode actions', () => {
+    expect(getToolStripSlotActions('selection').map((a) => a.id)).toEqual([
+      'defaultMode',
+      'connectLanes',
+      'boundaryBrush',
+    ]);
   });
 
   // ── Coverage checks ─────────────────────────────────────

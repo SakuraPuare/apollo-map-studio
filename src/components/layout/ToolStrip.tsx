@@ -8,7 +8,6 @@ import { useUIStore } from '@/store/uiStore';
 import { boundaryTypeOptions } from '@/lib/schemas';
 import {
   formatShortcut,
-  getActionDefs,
   getToolAction,
   getToolStripSlotActions,
   type ActionId,
@@ -187,7 +186,7 @@ interface ActionButtonGroupProps {
 }
 
 function ModeActionButtons({ getToggleState, onExecuteAction }: ActionButtonGroupProps) {
-  const actions = getActionDefs().filter((a) => a.id === 'defaultMode' || a.id === 'connectLanes');
+  const actions = getToolStripSlotActions('selection');
   if (actions.length === 0) return null;
 
   return (

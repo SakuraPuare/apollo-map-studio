@@ -170,6 +170,8 @@ export const BASE_ACTION_DEFS: ActionDef[] = [
     icon: FaRegHand,
     inCommandPalette: true,
     isToggle: true,
+    uiSlot: 'selection',
+    uiOrder: 10,
   },
   {
     id: 'connectLanes',
@@ -182,6 +184,8 @@ export const BASE_ACTION_DEFS: ActionDef[] = [
     menu: 'Edit',
     menuOrder: 50,
     isToggle: true,
+    uiSlot: 'selection',
+    uiOrder: 20,
   },
   {
     id: 'boundaryBrush',
@@ -194,6 +198,8 @@ export const BASE_ACTION_DEFS: ActionDef[] = [
     menu: 'Edit',
     menuOrder: 55,
     isToggle: true,
+    uiSlot: 'selection',
+    uiOrder: 30,
   },
   {
     id: 'tool:drawPolyline',
