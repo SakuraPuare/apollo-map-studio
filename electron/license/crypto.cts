@@ -69,6 +69,48 @@ export interface ParsedToken {
   sigB64: string;
 }
 
+const MACHINE_CODE_RE = /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/;
+const MAX_STRING_FIELD = 256;
+
+function isFiniteEpoch(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function isValidPayload(payload: LicensePayload): boolean {
+  if (
+    typeof payload.lic !== 'string' ||
+    typeof payload.machine !== 'string' ||
+    typeof payload.issued !== 'number' ||
+    typeof payload.expires !== 'number' ||
+    typeof payload.nonce !== 'string'
+  ) {
+    return false;
+  }
+
+  if (payload.lic.trim().length === 0 || payload.lic.length > MAX_STRING_FIELD) return false;
+  if (!MACHINE_CODE_RE.test(payload.machine)) return false;
+  if (!isFiniteEpoch(payload.issued) || !isFiniteEpoch(payload.expires)) return false;
+  if (payload.expires !== 0 && payload.expires <= payload.issued) return false;
+  if (!/^[a-fA-F0-9]{16,128}$/.test(payload.nonce)) return false;
+  if (payload.name !== undefined && payload.name.length > MAX_STRING_FIELD) return false;
+  if (payload.features !== undefined) {
+    if (!Array.isArray(payload.features) || payload.features.length > 64) return false;
+    if (
+      payload.features.some(
+        (feature) =>
+          typeof feature !== 'string' ||
+          feature.length === 0 ||
+          feature.length > 64 ||
+          !/^[a-zA-Z0-9:_-]+$/.test(feature),
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /** Strip whitespace, validate prefix, split into body/signature. */
 export function parseToken(token: string): ParsedToken | null {
   if (typeof token !== 'string') return null;
@@ -85,15 +127,7 @@ export function parseToken(token: string): ParsedToken | null {
     return null;
   }
   if (!payload || payload.v !== 1) return null;
-  if (
-    typeof payload.lic !== 'string' ||
-    typeof payload.machine !== 'string' ||
-    typeof payload.issued !== 'number' ||
-    typeof payload.expires !== 'number' ||
-    typeof payload.nonce !== 'string'
-  ) {
-    return null;
-  }
+  if (!isValidPayload(payload)) return null;
   return { payload, bodyB64, sigB64 };
 }
 

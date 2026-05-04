@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.electron.json",
+  "compilerOptions": {
+    "outDir": ".tmp/electron-license-tests",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["electron/license/**/*.cts"]
+}
