@@ -99,7 +99,7 @@ function boundarySegments(
 ): BoundarySegment[] {
   const entries = [...(boundary?.boundaryType ?? [])]
     .map((entry) => ({
-      s: Math.max(0, Math.min(totalLength, entry.s)),
+      s: Math.max(0, Math.min(totalLength, entry.s ?? 0)),
       type: normalizeBoundaryType(entry.types),
     }))
     .sort((a, b) => a.s - b.s);

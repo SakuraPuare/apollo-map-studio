@@ -81,8 +81,8 @@ export type BoundaryLineType =
   | 'CURB';
 
 export interface LaneBoundaryTypeEntry {
-  /** offset relative to the starting point of boundary */
-  s: number;
+  /** Optional offset relative to the starting point of boundary. */
+  s?: number;
   types: BoundaryLineType[];
 }
 

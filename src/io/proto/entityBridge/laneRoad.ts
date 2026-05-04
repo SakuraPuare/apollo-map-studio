@@ -85,14 +85,19 @@ function sampleToProto(s: LaneSampleAssociation): RawLaneSampleAssociation {
 }
 
 function boundaryTypeEntryFromProto(e: RawLaneBoundaryTypeEntry): LaneBoundaryTypeEntry {
-  return {
-    s: e.s ?? 0,
+  const out: LaneBoundaryTypeEntry = {
     types: (e.types ?? []).map((n) => enumFromProto(LANE_BOUNDARY_LINE_TYPE, n, 'UNKNOWN')),
   };
+  if (e.s !== undefined) out.s = e.s;
+  return out;
 }
 
 function boundaryTypeEntryToProto(e: LaneBoundaryTypeEntry): RawLaneBoundaryTypeEntry {
-  return { s: e.s, types: e.types.map((t) => enumToProto(LANE_BOUNDARY_LINE_TYPE_INV, t)) };
+  const out: RawLaneBoundaryTypeEntry = {
+    types: e.types.map((t) => enumToProto(LANE_BOUNDARY_LINE_TYPE_INV, t)),
+  };
+  if (e.s !== undefined) out.s = e.s;
+  return out;
 }
 
 function laneBoundaryFromProto(b: RawLaneBoundary | undefined): LaneBoundary {

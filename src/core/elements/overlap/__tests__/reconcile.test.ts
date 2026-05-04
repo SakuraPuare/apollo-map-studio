@@ -94,15 +94,15 @@ class GuardedEntityMap implements ReadonlyMap<string, MapEntity> {
     return this.backing.has(key);
   }
 
-  entries(): IterableIterator<[string, MapEntity]> {
+  entries(): MapIterator<[string, MapEntity]> {
     throw new Error('unexpected full iteration in incremental reconcile');
   }
 
-  keys(): IterableIterator<string> {
+  keys(): MapIterator<string> {
     throw new Error('unexpected full iteration in incremental reconcile');
   }
 
-  values(): IterableIterator<MapEntity> {
+  values(): MapIterator<MapEntity> {
     throw new Error('unexpected full iteration in incremental reconcile');
   }
 
@@ -110,7 +110,7 @@ class GuardedEntityMap implements ReadonlyMap<string, MapEntity> {
     throw new Error('unexpected full iteration in incremental reconcile');
   }
 
-  [Symbol.iterator](): IterableIterator<[string, MapEntity]> {
+  [Symbol.iterator](): MapIterator<[string, MapEntity]> {
     throw new Error('unexpected full iteration in incremental reconcile');
   }
 }

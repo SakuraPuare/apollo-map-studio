@@ -64,7 +64,7 @@ import {
   type RawYieldSign,
 } from './simpleEntities';
 
-interface RawApolloMap {
+export interface RawApolloMap {
   crosswalk?: RawCrosswalk[];
   junction?: RawJunction[];
   lane?: RawLane[];
@@ -83,6 +83,7 @@ interface RawApolloMap {
 }
 
 type EntityType = MapEntity['entityType'];
+export type ApolloMapEntityField = keyof RawApolloMap;
 
 function pushIfNotNull<T>(arr: T[], v: T | null) {
   if (v !== null) arr.push(v);
@@ -101,7 +102,7 @@ function pushIfNotNull<T>(arr: T[], v: T | null) {
  */
 interface BridgeRule {
   /** Proto field name on the raw Apollo map. */
-  field: keyof RawApolloMap;
+  field: ApolloMapEntityField;
   /** MapEntity discriminator that routes back to this rule on serialize. */
   entityType: EntityType;
   fromProto: (raw: unknown) => MapEntity | null;
@@ -111,7 +112,7 @@ interface BridgeRule {
 // Helper to register a typed pair without losing call-site type checking on
 // the Raw/Entity functions; the cast happens once here, not at every row.
 function rule<RawT, EntityT extends MapEntity>(
-  field: keyof RawApolloMap,
+  field: ApolloMapEntityField,
   entityType: EntityT['entityType'],
   fromProto: (raw: RawT) => EntityT | null,
   toProto: (entity: EntityT) => unknown,
@@ -186,6 +187,28 @@ const BRIDGES: readonly BridgeRule[] = [
     entityToRawBarrierGate,
   ),
 ];
+
+const BRIDGE_BY_FIELD = new Map<ApolloMapEntityField, BridgeRule>(
+  BRIDGES.map((bridge) => [bridge.field, bridge]),
+);
+const BRIDGE_BY_ENTITY_TYPE = new Map<EntityType, BridgeRule>(
+  BRIDGES.map((bridge) => [bridge.entityType, bridge]),
+);
+
+export const APOLLO_MAP_ENTITY_FIELDS: readonly ApolloMapEntityField[] = BRIDGES.map(
+  (bridge) => bridge.field,
+);
+
+export function rawApolloElementToEntity(
+  field: ApolloMapEntityField,
+  raw: unknown,
+): MapEntity | null {
+  return BRIDGE_BY_FIELD.get(field)?.fromProto(raw) ?? null;
+}
+
+export function entityToRawApolloElement(entity: MapEntity): unknown | null {
+  return BRIDGE_BY_ENTITY_TYPE.get(entity.entityType)?.toProto(entity) ?? null;
+}
 
 export function apolloMapToEntities(map: RawApolloMap): MapEntity[] {
   const out: MapEntity[] = [];

@@ -14,7 +14,14 @@ export {
   rawLaneToEntity,
   rawRoadToEntity,
 } from './entityBridge/laneRoad';
-export { apolloMapToEntities, entitiesToApolloMap } from './entityBridge/map';
+export {
+  APOLLO_MAP_ENTITY_FIELDS,
+  apolloMapToEntities,
+  entitiesToApolloMap,
+  entityToRawApolloElement,
+  rawApolloElementToEntity,
+} from './entityBridge/map';
+export type { ApolloMapEntityField, RawApolloMap } from './entityBridge/map';
 export { entityToRawOverlap, rawOverlapToEntity } from './entityBridge/overlap';
 export {
   entityToRawArea,
