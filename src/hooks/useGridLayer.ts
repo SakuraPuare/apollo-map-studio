@@ -24,7 +24,7 @@ const METERS_PER_DEG_LAT = 111320;
 /** 安全上限：避免极端 zoom-out + step 错配时生成几万条线。 */
 export const MAX_LINES_PER_AXIS = 240;
 
-function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
+export function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
   const bounds = map.getBounds();
   const zoom = map.getZoom();
   const { step, majorEvery } = metersForZoom(zoom);

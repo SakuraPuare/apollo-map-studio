@@ -31,7 +31,7 @@ export function groupFeaturesByEntity(features: GeoJSON.Feature[]): Map<string, 
   return buckets;
 }
 
-function groupsToFeatureMap(groups: EntityFeatureGroup[]): Map<string, GeoJSON.Feature[]> {
+export function groupsToFeatureMap(groups: EntityFeatureGroup[]): Map<string, GeoJSON.Feature[]> {
   const out = new Map<string, GeoJSON.Feature[]>();
   for (const group of groups) out.set(group.id, group.features);
   return out;
@@ -75,7 +75,7 @@ export function flattenEntityFeatures(
   return { type: 'FeatureCollection', features };
 }
 
-async function rebuildColdSourceFromCache(
+export async function rebuildColdSourceFromCache(
   src: maplibregl.GeoJSONSource,
   cache: Map<string, GeoJSON.Feature[]>,
 ) {
@@ -93,7 +93,7 @@ async function rebuildColdSourceFromCache(
   if (chunk.length > 0) await updateColdSourceChunk(src, { add: chunk });
 }
 
-async function applyColdDeltaToSource(
+export async function applyColdDeltaToSource(
   src: maplibregl.GeoJSONSource,
   previousFeatures: GeoJSON.Feature[],
   changed: EntityFeatureGroup[],

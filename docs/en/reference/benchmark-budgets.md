@@ -1,310 +1,495 @@
 ---
 title: Benchmark Budgets
-description: Per-bench reference for scripts/bench-budgets.json — names, p99 ceilings, source files, and what each measures.
+description: 'Per-bench reference for scripts/bench-budgets.json: names, p99 ceilings, source files, and guarded paths.'
 ---
 
 # Benchmark Budgets
 
-This page is a per-row reading of `scripts/bench-budgets.json` plus a summary
-of how `scripts/check-bench-budget.mjs` enforces it. CI runs `pnpm bench`,
-collects each measured p99, and exits 1 if any value exceeds the matching
-ceiling.
+This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
 
-::: tip Reading the numbers
+## File Locations
 
-- **p99**: the 99th-percentile sample latency in milliseconds. More robust
-  than the mean for tail-latency regression detection.
-- **Budget ≠ target**: the budget is a hard "must not be slower than" line,
-  with ~1.5x of GitHub Actions runner jitter baked in. Local mean values are
-  typically far below.
-  :::
+| Path                             | Role                                                             |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `scripts/bench-budgets.json`     | Budget table, the single CI data source                          |
+| `scripts/check-bench-budget.mjs` | Fail-closed guard script                                         |
+| `bench-results.json`             | Scratch output from `pnpm bench --outputJson bench-results.json` |
 
-## File locations
-
-| Path                             | Role                                                                    |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| `scripts/bench-budgets.json`     | Budget table — the source of truth for this page                        |
-| `scripts/check-bench-budget.mjs` | The CI guard script                                                     |
-| `bench-results.json`             | Output of `pnpm bench --outputJson bench-results.json`; CI scratch file |
-
-## Verification flow
-
-```mermaid
-flowchart LR
-  A[pnpm bench] --> B[bench-results.json]
-  B --> C[check-bench-budget.mjs]
-  C --> D{Each bench<br/>p99 ≤ budget?}
-  D -- yes --> E[exit 0 PASS]
-  D -- no --> F[exit 1 FAIL]
-  D -- no entry --> G[exit 1 FAIL]
-```
-
-## Current budgets (`scripts/bench-budgets.json`)
+## Current Budgets
 
 ```json
 {
-  "10-point polyline, 3.5m offset": { "p99Ms": 1 },
-  "100-point polyline, 3.5m offset": { "p99Ms": 3 },
-  "1000-point polyline, 3.5m offset": { "p99Ms": 40 },
-  "full stitch — 10-lane linear chain": { "p99Ms": 3 },
-  "full stitch — 100-lane linear chain": { "p99Ms": 6 },
-  "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
-  "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
-  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
-  "topology 100 lanes — full reconcile": { "p99Ms": 2 },
-  "topology 100 lanes — incremental (1 dirty lane)": { "p99Ms": 1 },
-  "topology 500 lanes — full reconcile": { "p99Ms": 5 },
-  "topology 500 lanes — incremental (1 dirty lane)": { "p99Ms": 2 },
-  "topology 1000 lanes — full reconcile": { "p99Ms": 10 },
-  "topology 1000 lanes — incremental (1 dirty lane)": { "p99Ms": 4 },
-  "overlap 5k — full mode (cold)": { "p99Ms": 25 },
-  "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 5k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
-  "overlap 10k — full mode (cold)": { "p99Ms": 50 },
-  "overlap 10k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 10k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 10k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
-  "overlap 25k — full mode (cold)": { "p99Ms": 150 },
-  "overlap 25k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 25k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 25k — syncDirty (1 dirty)": { "p99Ms": 0.05 }
-}
-```
-
-## Bench-by-bench breakdown
-
-### `10-point polyline, 3.5m offset`
-
-| Field              | Value                                                                         |
-| ------------------ | ----------------------------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/offsetPolyline.bench.ts:27`                      |
-| p99 ceiling        | **1 ms**                                                                      |
-| Subject under test | The polyline offset core algorithm with a 10-point input                      |
-| Why it matters     | Keeps short polyline offsets sub-millisecond so hot-layer drag stays at 60fps |
-
-### `100-point polyline, 3.5m offset`
-
-| Field              | Value                                                          |
-| ------------------ | -------------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/offsetPolyline.bench.ts:31`       |
-| p99 ceiling        | **3 ms**                                                       |
-| Subject under test | 100-point polyline offset                                      |
-| Why it matters     | Mid-length lanes (typical ~100 points) must remain interactive |
-
-### `1000-point polyline, 3.5m offset`
-
-| Field              | Value                                                                            |
-| ------------------ | -------------------------------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/offsetPolyline.bench.ts:35`                         |
-| p99 ceiling        | **40 ms**                                                                        |
-| Subject under test | 1000-point polyline offset                                                       |
-| Why it matters     | Extreme-length tolerance ceiling. Exceeding it forces async / sampling treatment |
-
-### `full stitch — 10-lane linear chain`
-
-| Field              | Value                                                      |
-| ------------------ | ---------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/laneJunctions.bench.ts:73`    |
-| p99 ceiling        | **3 ms**                                                   |
-| Subject under test | Full stitching pass on a 10-lane linear chain              |
-| Why it matters     | Small-map full rebuild must stay below interaction latency |
-
-### `full stitch — 100-lane linear chain`
-
-| Field              | Value                                                   |
-| ------------------ | ------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/laneJunctions.bench.ts:77` |
-| p99 ceiling        | **6 ms**                                                |
-| Subject under test | 100-lane linear chain full stitch                       |
-| Why it matters     | Mid-scale import or bulk-edit full rebuild ceiling      |
-
-### `full stitch — 100 lanes / 50 isolated junctions`
-
-| Field              | Value                                                   |
-| ------------------ | ------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/laneJunctions.bench.ts:81` |
-| p99 ceiling        | **6 ms**                                                |
-| Subject under test | 100 lanes + 50 isolated junctions                       |
-| Why it matters     | Confirms many junctions do not amplify full-stitch cost |
-
-### `incremental — 100-lane chain, 1 lane decorated`
-
-| Field              | Value                                                                                                                 |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/laneJunctions.bench.ts:92`                                                               |
-| p99 ceiling        | **5 ms**                                                                                                              |
-| Subject under test | Phase E single-lane incremental decoration                                                                            |
-| Why it matters     | Single-lane edits should be far cheaper than a full stitch; hitting this ceiling means the dependency graph is broken |
-
-### `incremental — 100-lane chain, 3 lanes decorated`
-
-| Field              | Value                                                   |
-| ------------------ | ------------------------------------------------------- |
-| Source file        | `src/core/geometry/__tests__/laneJunctions.bench.ts:96` |
-| p99 ceiling        | **5 ms**                                                |
-| Subject under test | 3-lane batched incremental decoration                   |
-| Why it matters     | Multi-lane batches should scale roughly linearly        |
-
-### Lane topology budgets
-
-| Bench name                                         | Source file                                             | p99 ceiling | What it guards                                      |
-| -------------------------------------------------- | ------------------------------------------------------- | ----------- | --------------------------------------------------- |
-| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **2 ms**    | full pred/succ/neighbor derivation for 100 lanes    |
-| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **1 ms**    | single-dirty topology derivation at 100 lanes       |
-| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **5 ms**    | full topology recompute stays interactive           |
-| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **2 ms**    | 500-lane incremental path remains cheaper than full |
-| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **10 ms**   | 1000-lane full recompute avoids order regressions   |
-| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **4 ms**    | 1000-lane dirty affected set stays local            |
-
-### Overlap reconcile budgets
-
-| Bench name                                                  | Source file                                                | p99 ceiling | What it guards                                      |
-| ----------------------------------------------------------- | ---------------------------------------------------------- | ----------- | --------------------------------------------------- |
-| `overlap 5k — full mode (cold)`                             | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **25 ms**   | full overlap reconcile at ~6k entities              |
-| `overlap 5k — incremental (1 dirty lane, warm index)`       | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | single-lane edit does not scan the whole map        |
-| `overlap 5k — incremental (1 dirty crosswalk, warm index)`  | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | crosswalk drag-end reconcile stays local            |
-| `overlap 5k — syncDirty (1 dirty)`                          | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | spatial index sync scales with dirty set size       |
-| `overlap 10k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **50 ms**   | full overlap reconcile at ~12k entities             |
-| `overlap 10k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | lane dirty edit stays frame-budget safe             |
-| `overlap 10k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | crosswalk dirty edit does not regress to full scan  |
-| `overlap 10k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | single-dirty index update remains near-constant     |
-| `overlap 25k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **150 ms**  | worker-grade full recompute at ~30k entities        |
-| `overlap 25k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | large-map single-lane edit remains local            |
-| `overlap 25k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | covers the crosswalk drag-end regression risk       |
-| `overlap 25k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | large-map dirty index update ignores total map size |
-
-## What `check-bench-budget.mjs` does
-
-```js
-// scripts/check-bench-budget.mjs:35-50
-function collectBenches(report) {
-  // Recursively walk the vitest --outputJson tree, gathering
-  // { name: string, p99Ms: number } leaves.
-}
-// scripts/check-bench-budget.mjs:60-80
-for (const bench of benches) {
-  const budget = budgets[bench.name];
-  if (!budget) {
-    unbudgeted.push(bench);    // missing budget → exit 1
-    continue;
+  "10-point polyline, 3.5m offset": {
+    "p99Ms": 1
+  },
+  "100-point polyline, 3.5m offset": {
+    "p99Ms": 3
+  },
+  "1000-point polyline, 3.5m offset": {
+    "p99Ms": 40
+  },
+  "full stitch — 10-lane linear chain": {
+    "p99Ms": 3
+  },
+  "full stitch — 100-lane linear chain": {
+    "p99Ms": 6
+  },
+  "full stitch — 100 lanes / 50 isolated junctions": {
+    "p99Ms": 6
+  },
+  "incremental — 100-lane chain, 1 lane decorated": {
+    "p99Ms": 5
+  },
+  "incremental — 100-lane chain, 3 lanes decorated": {
+    "p99Ms": 5
+  },
+  "topology 100 lanes — full reconcile": {
+    "p99Ms": 2
+  },
+  "topology 100 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 1
+  },
+  "topology 500 lanes — full reconcile": {
+    "p99Ms": 5
+  },
+  "topology 500 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 2
+  },
+  "topology 1000 lanes — full reconcile": {
+    "p99Ms": 10
+  },
+  "topology 1000 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 4
+  },
+  "overlap 5k — full mode (cold)": {
+    "p99Ms": 25
+  },
+  "overlap 5k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 5k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 5k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "overlap 10k — full mode (cold)": {
+    "p99Ms": 50
+  },
+  "overlap 10k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 10k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 10k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "overlap 25k — full mode (cold)": {
+    "p99Ms": 150
+  },
+  "overlap 25k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 25k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 25k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "snap 1k entities — find target": {
+    "p99Ms": 0.8
+  },
+  "snap 5k entities — find target": {
+    "p99Ms": 2.5
+  },
+  "snap 10k entities — find target": {
+    "p99Ms": 6
+  },
+  "hitTest polyline 1000 segments — distance": {
+    "p99Ms": 0.1
+  },
+  "hitTest polyline 5000 segments — distance": {
+    "p99Ms": 0.25
+  },
+  "hitTest polygon 1000 vertices — distance": {
+    "p99Ms": 0.1
+  },
+  "hitTest polygon 5000 vertices — distance": {
+    "p99Ms": 0.4
+  },
+  "validation 100 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 100 vertices — full self-intersection": {
+    "p99Ms": 0.1
+  },
+  "validation 500 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 500 vertices — full self-intersection": {
+    "p99Ms": 0.8
+  },
+  "validation 1000 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 1000 vertices — full self-intersection": {
+    "p99Ms": 3
+  },
+  "spatial 1k — syncEntities": {
+    "p99Ms": 60
+  },
+  "spatial 1k — buildFeatureCollection full": {
+    "p99Ms": 8
+  },
+  "spatial 1k — buildFeatureCollection incremental 1 lane": {
+    "p99Ms": 4
+  },
+  "spatial 1k — featureGroupsForState": {
+    "p99Ms": 1
+  },
+  "spatial 1k — HIT_TEST dense query": {
+    "p99Ms": 1
+  },
+  "spatial 1k — INCREMENTAL request 1 dirty lane": {
+    "p99Ms": 5
+  },
+  "spatial 5k — syncEntities": {
+    "p99Ms": 80
+  },
+  "spatial 5k — buildFeatureCollection full": {
+    "p99Ms": 50
+  },
+  "spatial 5k — buildFeatureCollection incremental 1 lane": {
+    "p99Ms": 30
+  },
+  "spatial 5k — featureGroupsForState": {
+    "p99Ms": 10
+  },
+  "spatial 5k — HIT_TEST dense query": {
+    "p99Ms": 4
+  },
+  "spatial 5k — INCREMENTAL request 1 dirty lane": {
+    "p99Ms": 25
+  },
+  "cold layer 5k — groupsToFeatureMap": {
+    "p99Ms": 0.6
+  },
+  "cold layer 5k — flattenEntityFeatures": {
+    "p99Ms": 1
+  },
+  "cold layer 5k — diffEntities one update one remove": {
+    "p99Ms": 0.5
+  },
+  "cold source 5k — rebuild from cache": {
+    "p99Ms": 1.2
+  },
+  "cold source 5k — apply delta 100 changed": {
+    "p99Ms": 0.05
+  },
+  "cold layer 25k — groupsToFeatureMap": {
+    "p99Ms": 6
+  },
+  "cold layer 25k — flattenEntityFeatures": {
+    "p99Ms": 5
+  },
+  "cold layer 25k — diffEntities one update one remove": {
+    "p99Ms": 3
+  },
+  "cold source 25k — rebuild from cache": {
+    "p99Ms": 4
+  },
+  "cold source 25k — apply delta 100 changed": {
+    "p99Ms": 0.05
+  },
+  "hot layer lane 100 pts — entityToHotFeatures": {
+    "p99Ms": 0.05
+  },
+  "hot layer lane 100 pts — applyDrag and features": {
+    "p99Ms": 0.1
+  },
+  "hot layer lane 1000 pts — entityToHotFeatures": {
+    "p99Ms": 0.15
+  },
+  "hot layer lane 1000 pts — applyDrag and features": {
+    "p99Ms": 0.5
+  },
+  "hot layer lane 5000 pts — entityToHotFeatures": {
+    "p99Ms": 1.5
+  },
+  "hot layer lane 5000 pts — applyDrag and features": {
+    "p99Ms": 2
+  },
+  "overlay polyline 100 pts — buildOverlayFeatures": {
+    "p99Ms": 0.05
+  },
+  "overlay catmull 100 pts — buildOverlayFeatures": {
+    "p99Ms": 0.8
+  },
+  "overlay bezier 100 anchors — buildOverlayFeatures": {
+    "p99Ms": 0.3
+  },
+  "overlay polyline 1000 pts — buildOverlayFeatures": {
+    "p99Ms": 0.3
+  },
+  "overlay catmull 1000 pts — buildOverlayFeatures": {
+    "p99Ms": 3
+  },
+  "overlay bezier 1000 anchors — buildOverlayFeatures": {
+    "p99Ms": 4
+  },
+  "grid max-density viewport — buildGrid": {
+    "p99Ms": 0.05
+  },
+  "entityOps 10k — cascadeDeleteRefsFull one lane": {
+    "p99Ms": 3
+  },
+  "entityOps 10k — cascadeDeleteRefsFull 100 lanes": {
+    "p99Ms": 4
+  },
+  "entityOps 10k — reparent lane to road section": {
+    "p99Ms": 0.5
+  },
+  "entityOps 50k — cascadeDeleteRefsFull one lane": {
+    "p99Ms": 20
+  },
+  "entityOps 50k — cascadeDeleteRefsFull 100 lanes": {
+    "p99Ms": 25
+  },
+  "entityOps 50k — reparent lane to road section": {
+    "p99Ms": 2
+  },
+  "mapStore 10k — update lane transaction": {
+    "p99Ms": 45
+  },
+  "mapStore 10k — remove lane transaction": {
+    "p99Ms": 40
+  },
+  "mapStore 25k — update lane transaction": {
+    "p99Ms": 90
+  },
+  "mapStore 25k — remove lane transaction": {
+    "p99Ms": 120
+  },
+  "proto bridge 1k — apolloMapToEntities": {
+    "p99Ms": 5
+  },
+  "proto bridge 1k — entitiesToApolloMap": {
+    "p99Ms": 2
+  },
+  "proto projection 1k — to lonlat": {
+    "p99Ms": 45
+  },
+  "proto projection 1k — from lonlat": {
+    "p99Ms": 30
+  },
+  "proto bridge 5k — apolloMapToEntities": {
+    "p99Ms": 12
+  },
+  "proto bridge 5k — entitiesToApolloMap": {
+    "p99Ms": 6
+  },
+  "proto projection 5k — to lonlat": {
+    "p99Ms": 150
+  },
+  "proto projection 5k — from lonlat": {
+    "p99Ms": 150
+  },
+  "proto bin 1k lanes — encode": {
+    "p99Ms": 30
+  },
+  "proto bin 1k lanes — decode": {
+    "p99Ms": 8
+  },
+  "proto text 100 lanes — encode": {
+    "p99Ms": 12
+  },
+  "proto text 100 lanes — decode": {
+    "p99Ms": 8
   }
-  if (bench.p99Ms > budget.p99Ms) {
-    violations.push(...);      // budget exceeded → exit 1
-  } else {
-    passed.push(...);
-  }
 }
 ```
 
-The script prints three sections:
+## Bench Groups
 
-| Section                    | Meaning                                    |
-| -------------------------- | ------------------------------------------ |
-| `PASS:`                    | Within budget                              |
-| `FAIL: no budget defined:` | Bench ran but is not budgeted; exit code 1 |
-| `FAIL:`                    | Above budget; exit code 1                  |
+### offset polyline geometry
 
-## Reproducing locally
+| Bench                              | File                                                  | p99 ceiling | Guarded path                                                |
+| ---------------------------------- | ----------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `10-point polyline, 3.5m offset`   | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **1 ms**    | polyline offset used by lane polygon and boundary rendering |
+| `100-point polyline, 3.5m offset`  | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **3 ms**    | polyline offset used by lane polygon and boundary rendering |
+| `1000-point polyline, 3.5m offset` | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **40 ms**   | polyline offset used by lane polygon and boundary rendering |
 
-```bash
-pnpm bench --outputJson bench-results.json
-node scripts/check-bench-budget.mjs bench-results.json
-```
+### lane junction derivation
 
-Sample output:
+| Bench                                             | File                                                 | p99 ceiling | Guarded path                                                |
+| ------------------------------------------------- | ---------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `full stitch — 10-lane linear chain`              | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **3 ms**    | lane junction stitching and incremental boundary decoration |
+| `full stitch — 100-lane linear chain`             | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **6 ms**    | lane junction stitching and incremental boundary decoration |
+| `full stitch — 100 lanes / 50 isolated junctions` | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **6 ms**    | lane junction stitching and incremental boundary decoration |
+| `incremental — 100-lane chain, 1 lane decorated`  | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **5 ms**    | lane junction stitching and incremental boundary decoration |
+| `incremental — 100-lane chain, 3 lanes decorated` | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **5 ms**    | lane junction stitching and incremental boundary decoration |
 
-```text
-## Perf budget report
+### lane topology reconcile
 
-PASS:
-  10-point polyline, 3.5m offset: p99=0.412ms (ceiling 1ms)
-  100-point polyline, 3.5m offset: p99=2.103ms (ceiling 3ms)
-  ...
-```
+| Bench                                              | File                                                | p99 ceiling | Guarded path                                    |
+| -------------------------------------------------- | --------------------------------------------------- | ----------- | ----------------------------------------------- |
+| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts` | **2 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts` | **1 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts` | **5 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts` | **2 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts` | **10 ms**   | pred/succ/neighbor/junction topology derivation |
+| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts` | **4 ms**    | pred/succ/neighbor/junction topology derivation |
 
-## Adjusting a budget
+### overlap reconcile and spatial index
 
-::: warning Do not adjust budgets casually
-Budgets are perf guardrails. Every change requires a PR with rationale.
+| Bench                                                       | File                                                   | p99 ceiling | Guarded path                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------ | ----------- | ------------------------------------------------------------ |
+| `overlap 5k — full mode (cold)`                             | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **25 ms**   | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — incremental (1 dirty lane, warm index)`       | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — incremental (1 dirty crosswalk, warm index)`  | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — syncDirty (1 dirty)`                          | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **50 ms**   | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **150 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+
+### interaction geometry
+
+| Bench                                               | File                                                       | p99 ceiling | Guarded path                                        |
+| --------------------------------------------------- | ---------------------------------------------------------- | ----------- | --------------------------------------------------- |
+| `snap 1k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | mousemove snap scan over visible entities           |
+| `snap 5k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **2.5 ms**  | mousemove snap scan over visible entities           |
+| `snap 10k entities — find target`                   | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **6 ms**    | mousemove snap scan over visible entities           |
+| `hitTest polyline 1000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
+| `hitTest polyline 5000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.25 ms** | worker hit-test distance primitives                 |
+| `hitTest polygon 1000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
+| `hitTest polygon 5000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.4 ms**  | worker hit-test distance primitives                 |
+| `validation 100 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 100 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | polygon self-intersection checks in draw/edit flows |
+| `validation 500 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 500 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | polygon self-intersection checks in draw/edit flows |
+| `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows |
+
+### spatial worker pipeline
+
+| Bench                                                    | File                                                  | p99 ceiling | Guarded path                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------- | ----------- | --------------------------------------------------------------- |
+| `spatial 1k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **60 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **8 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **5 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **80 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **50 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **30 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **25 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+
+### cold, hot, overlay, and grid layers
+
+| Bench                                                 | File                                         | p99 ceiling | Guarded path                                                |
+| ----------------------------------------------------- | -------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `cold layer 5k — groupsToFeatureMap`                  | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.6 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 5k — flattenEntityFeatures`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **1 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 5k — diffEntities one update one remove`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 5k — rebuild from cache`                 | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.2 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 5k — apply delta 100 changed`            | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — groupsToFeatureMap`                 | `src/hooks/__tests__/layerBuilders.bench.ts` | **6 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — flattenEntityFeatures`              | `src/hooks/__tests__/layerBuilders.bench.ts` | **5 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — diffEntities one update one remove` | `src/hooks/__tests__/layerBuilders.bench.ts` | **3 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 25k — rebuild from cache`                | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 25k — apply delta 100 changed`           | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | main-thread cold source cache, diff, and updateData helpers |
+| `hot layer lane 100 pts — entityToHotFeatures`        | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | selected entity drag display and hot feature generation     |
+| `hot layer lane 100 pts — applyDrag and features`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.1 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 1000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.15 ms** | selected entity drag display and hot feature generation     |
+| `hot layer lane 1000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 5000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.5 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 5000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **2 ms**    | selected entity drag display and hot feature generation     |
+| `overlay polyline 100 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | draw preview feature generation                             |
+| `overlay catmull 100 pts — buildOverlayFeatures`      | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.8 ms**  | draw preview feature generation                             |
+| `overlay bezier 100 anchors — buildOverlayFeatures`   | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
+| `overlay polyline 1000 pts — buildOverlayFeatures`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
+| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **3 ms**    | draw preview feature generation                             |
+| `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
+| `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
+
+### entity reference operations
+
+| Bench                                             | File                                             | p99 ceiling | Guarded path                                   |
+| ------------------------------------------------- | ------------------------------------------------ | ----------- | ---------------------------------------------- |
+| `entityOps 10k — cascadeDeleteRefsFull one lane`  | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **3 ms**    | whole-map reference cleanup and reparent scans |
+| `entityOps 10k — cascadeDeleteRefsFull 100 lanes` | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **4 ms**    | whole-map reference cleanup and reparent scans |
+| `entityOps 10k — reparent lane to road section`   | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **0.5 ms**  | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — cascadeDeleteRefsFull one lane`  | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **20 ms**   | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — cascadeDeleteRefsFull 100 lanes` | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **25 ms**   | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — reparent lane to road section`   | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **2 ms**    | whole-map reference cleanup and reparent scans |
+
+### map store write transactions
+
+| Bench                                    | File                                    | p99 ceiling | Guarded path                                                          |
+| ---------------------------------------- | --------------------------------------- | ----------- | --------------------------------------------------------------------- |
+| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **45 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **40 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 25k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **120 ms**  | store add/update/remove transaction with topology and overlap patches |
+
+### Apollo proto pipeline
+
+| Bench                                   | File                                            | p99 ceiling | Guarded path                                                  |
+| --------------------------------------- | ----------------------------------------------- | ----------- | ------------------------------------------------------------- |
+| `proto bridge 1k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **5 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 1k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **6 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto projection 5k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto projection 5k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — encode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — decode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — encode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — decode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+
+## Bench Naming
+
+::: tip Naming rules
+
+- Start with the measured object: `<algorithm> — <input description>`.
+- Put the scale in the name; avoid vague small/medium/large labels.
+- The name must exactly match `scripts/bench-budgets.json`; the guard uses exact string matching.
+  :::
+
+## Cross-Platform Variance
+
+CI runs on GitHub `ubuntu-latest`, where VM jitter is normal. Budgets should:
+
+- Keep roughly 30% headroom; sub-1ms benches need larger relative headroom.
+- Treat repeated failures as real regressions; rerun one-off outliers first.
+- Update `scripts/bench-budgets.json` and this page whenever a bench is added.
+
+## Coverage Scope
+
+::: tip Why there are 96 benches now
+
+The budget set covers code that can stall the main thread, pile work onto workers, or regress on large-map complexity:
+
+- Geometry hot paths: offset, snap, hit-test, polygon validation.
+- Map derivation: lane junctions, lane topology, overlap reconcile.
+- Worker and layer paths: spatial worker cold pipeline, cold source diff/updateData helpers, hot/overlay/grid builders.
+- Store and entity operations: mapStore write transactions, cascade delete, whole-map reparent scans.
+- IO paths: Apollo proto bridge, projection, binary codec, and text codec.
+
+MapLibre's internal `setData/updateData/queryRenderedFeatures` implementation is not executed in Node benches. These benches guard the app-side construction, diff, chunking, and protocol costs around those calls.
 :::
 
-1. **Investigate environment first**: a high local mean often means a busy
-   machine, not a regression.
-2. **Resample**: CI jitter is normally ~1.5x; require three consecutive
-   failures before tightening or loosening.
-3. **Document context**: the PR body must explain "why we relax now" or
-   "why we can tighten now".
-4. **Sync this page**: the table must mirror `bench-budgets.json` exactly.
-5. **Attach baselines**: when tightening, attach before/after numbers so
-   reviewers can verify the ROI.
+## Why p99 Instead Of Mean
 
-## Relationship to other perf mechanisms
-
-| Mechanism                   | When                  | Granularity                         |
-| --------------------------- | --------------------- | ----------------------------------- |
-| `bench-budgets.json`        | CI on every push / PR | Per-algorithm p99                   |
-| Cold/hot layer split        | Runtime               | Render-pipeline throughput          |
-| `decorationCache` (Phase E) | Runtime               | Incremental decoration affected set |
-| `useColdLayer` RAF coalesce | Runtime               | Many entity changes → one rebuild   |
-
-## Historical context
-
-::: tip Why these 26 benches?
-
-- **Phase B**: introduced three polyline-offset benches (10 / 100 / 1000
-  points) covering hot-layer drag's short / typical / extreme length cases.
-- **Phase D**: introduced three full-stitch benches (10 / 100 / 100 + 50
-  junctions) covering small / medium / medium-with-junctions topology.
-- **Phase E**: introduced two incremental benches (1 / 3 lanes decorated)
-  to guard near-constant complexity in the incremental decoration path.
-- **Lane topology guard**: introduced full / incremental budgets across 100 /
-  500 / 1000 lanes to guard pred/succ/neighbor/junctionId derivation.
-- **Overlap incremental guard**: introduced full / dirty lane / dirty
-  crosswalk / syncDirty budgets across 5k / 10k / 25k scales to prevent
-  dirty edits from regressing to whole-map scans.
-
-When a new critical path lands (e.g. import / export), expand all three
-artefacts:
-
-1. Add `bench(label, fn)` in `src/**/__tests__/*.bench.ts`.
-2. Add a p99 ceiling in `scripts/bench-budgets.json`.
-3. Add the corresponding row in this page.
-   :::
-
-## Why p99 instead of mean
-
-CI gates on p99 because **tail latency, not the average, governs user
-experience**. An algorithm whose mean is 0.5ms but occasionally spikes to
-50ms is visible in 60fps drag. p99 surfaces that occasional spike.
-
-| Metric | Use             | Example                                |
-| ------ | --------------- | -------------------------------------- |
-| mean   | "average speed" | Improvement deltas in optimisation PRs |
-| p50    | "typical speed" | Cost of an ordinary operation          |
-| p99    | "slowest 1%"    | CI guard, perceived stutter            |
-| max    | "worst case"    | Unstable; CI does not use it           |
-
-## Cross-runner jitter
-
-| Runner                        | Relative to local | Notes                           |
-| ----------------------------- | ----------------- | ------------------------------- |
-| Local Mac M-series            | 1.0x              | Baseline                        |
-| ubuntu-latest (GitHub-hosted) | ≈ 1.2–1.5x        | Shared CPU, disk jitter         |
-| ubuntu-latest (self-hosted)   | ≈ 1.0x            | Depends on the physical machine |
-| windows-latest                | ≈ 1.5x            | Node startup is slower          |
-| macos-latest                  | ≈ 1.1x            | Generally stable                |
-
-::: warning Budgets target ubuntu-latest
-All p99 ceilings are calibrated for the GitHub-hosted ubuntu-latest
-runner. If local numbers exceed the ceiling but CI passes, suspect the
-local environment first.
-:::
-
-## Related pages
-
-- [CI Pipeline](/en/reference/ci-pipeline)
-- [Cold/hot layers](/en/architecture/cold-hot-layers)
-- [Junction stitching](/en/architecture/junction-stitching)
-- [Architecture overview](/en/architecture/overview)
-- [Glossary: bench-budgets](/en/reference/glossary#bench-budgets)
+CI gates on p99 because tail latency, not average speed, governs perceived stutter. A path with a low mean but occasional multi-frame spikes is still visible during 60fps drag and click workflows.

@@ -75,17 +75,15 @@ function topologyAffectingType(t: MapEntity['entityType']): boolean {
 }
 
 /**
- * 在 immer producer 内调用 reconcileOverlaps；patch 直接落到 draft，
- * 与 laneTopology / cascadeDelete 共享同一个 zundo 事务（R1 闭环不破）。
+ * Apply overlap changes to the cloned entity map before the store publishes
+ * it, so topology, cascade delete, and overlap patches still land in one
+ * zundo transaction.
  */
-function applyOverlapPatch(
-  draft: { entities: Map<string, MapEntity> },
-  dirtyIds: Set<string>,
-): void {
+function applyOverlapPatch(entities: Map<string, MapEntity>, dirtyIds: Set<string>): void {
   if (dirtyIds.size === 0) return;
-  const patch = reconcileOverlaps(draft.entities, { mode: 'incremental', dirtyIds });
-  for (const id of patch.removedOverlapIds) draft.entities.delete(id);
-  for (const [id, e] of patch.changes) draft.entities.set(id, e);
+  const patch = reconcileOverlaps(entities, { mode: 'incremental', dirtyIds });
+  for (const id of patch.removedOverlapIds) entities.delete(id);
+  for (const [id, e] of patch.changes) entities.set(id, e);
 }
 
 function reconcileTopologyPatch(
@@ -121,13 +119,18 @@ function collectSpatialNeighborLanes(
   return lanes;
 }
 
-function applyFullImport(state: { entities: Map<string, MapEntity> }, entities: MapEntity[]): void {
-  for (const e of entities) state.entities.set(e.id, e);
-  const { changes: topoChanges } = reconcileLaneTopology(state.entities);
-  for (const [cid, c] of topoChanges) state.entities.set(cid, c);
-  const patch = reconcileOverlaps(state.entities, { mode: 'full' });
-  for (const oid of patch.removedOverlapIds) state.entities.delete(oid);
-  for (const [oid, e] of patch.changes) state.entities.set(oid, e);
+function applyFullImport(
+  base: ReadonlyMap<string, MapEntity>,
+  entities: MapEntity[],
+): Map<string, MapEntity> {
+  const next = new Map(base);
+  for (const e of entities) next.set(e.id, e);
+  const { changes: topoChanges } = reconcileLaneTopology(next);
+  for (const [cid, c] of topoChanges) next.set(cid, c);
+  const patch = reconcileOverlaps(next, { mode: 'full' });
+  for (const oid of patch.removedOverlapIds) next.delete(oid);
+  for (const [oid, e] of patch.changes) next.set(oid, e);
+  return next;
 }
 
 function createEntityActions(
@@ -137,30 +140,30 @@ function createEntityActions(
   return {
     addEntity(entity) {
       if (!assertEditable('addEntity')) return;
-      set((state) => {
-        state.entities.set(entity.id, entity);
-        const dirty = new Set<string>([entity.id]);
-        if (topologyAffectingType(entity.entityType)) {
-          reconcileTopologyPatch(state.entities, dirty);
-        }
-        applyOverlapPatch(state, dirty);
-      });
+      const entities = new Map(get().entities);
+      entities.set(entity.id, entity);
+      const dirty = new Set<string>([entity.id]);
+      if (topologyAffectingType(entity.entityType)) {
+        reconcileTopologyPatch(entities, dirty);
+      }
+      applyOverlapPatch(entities, dirty);
+      set({ entities });
     },
 
     updateEntity(id, entity) {
       if (!assertEditable('updateEntity')) return;
-      const previous = get().entities.get(id);
-      set((state) => {
-        if (!state.entities.has(id)) return;
-        state.entities.set(id, entity);
-        const dirty = new Set<string>([id]);
-        if (topologyAffectingType(entity.entityType)) {
-          const previousEntities =
-            previous && previous !== entity ? new Map([[id, previous]]) : undefined;
-          reconcileTopologyPatch(state.entities, dirty, previousEntities);
-        }
-        applyOverlapPatch(state, dirty);
-      });
+      const current = get().entities;
+      const previous = current.get(id);
+      if (!previous) return;
+      const entities = new Map(current);
+      entities.set(id, entity);
+      const dirty = new Set<string>([id]);
+      if (topologyAffectingType(entity.entityType)) {
+        const previousEntities = previous !== entity ? new Map([[id, previous]]) : undefined;
+        reconcileTopologyPatch(entities, dirty, previousEntities);
+      }
+      applyOverlapPatch(entities, dirty);
+      set({ entities });
     },
 
     removeEntity(id) {
@@ -171,17 +174,17 @@ function createEntityActions(
       const spatialNeighborLanes = collectSpatialNeighborLanes(removed, all, id);
       const { changes: cleanups, cascadeRemoved } = cascadeDeleteRefsFull(new Set([id]), all);
 
-      set((state) => {
-        for (const [cid, entity] of cleanups) state.entities.set(cid, entity);
-        for (const cid of cascadeRemoved) state.entities.delete(cid);
-        state.entities.delete(id);
-        const dirty = new Set<string>([...cleanups.keys(), ...spatialNeighborLanes]);
-        if (removed && topologyAffectingType(removed.entityType)) {
-          dirty.add(removed.id);
-          reconcileTopologyPatch(state.entities, dirty, new Map([[removed.id, removed]]));
-        }
-        applyOverlapPatch(state, dirty);
-      });
+      const entities = new Map(all);
+      for (const [cid, entity] of cleanups) entities.set(cid, entity);
+      for (const cid of cascadeRemoved) entities.delete(cid);
+      entities.delete(id);
+      const dirty = new Set<string>([...cleanups.keys(), ...spatialNeighborLanes]);
+      if (removed && topologyAffectingType(removed.entityType)) {
+        dirty.add(removed.id);
+        reconcileTopologyPatch(entities, dirty, new Map([[removed.id, removed]]));
+      }
+      applyOverlapPatch(entities, dirty);
+      set({ entities });
       if (removed?.entityType === 'lane') invalidateLaneCaches([removed.id]);
     },
   };
@@ -194,7 +197,7 @@ function createImportActions(
   return {
     batchImport(entities) {
       if (entities.length === 0) return;
-      set((state) => applyFullImport(state, entities));
+      set({ entities: applyFullImport(get().entities, entities) });
     },
 
     replaceImportedEntities(entities) {
@@ -227,9 +230,9 @@ function createReparentAction(set: MapSet, get: MapGet): Pick<MapActions, 'repar
       if (!child) return { changes: new Map(), rejected: `entity ${childId} not found` };
       const result = reparent(child, target, get().entities);
       if (result.rejected || result.changes.size === 0) return result;
-      set((state) => {
-        for (const [id, entity] of result.changes) state.entities.set(id, entity);
-      });
+      const entities = new Map(get().entities);
+      for (const [id, entity] of result.changes) entities.set(id, entity);
+      set({ entities });
       return result;
     },
   };
@@ -243,10 +246,10 @@ function createWorkerActions(set: MapSet, get: MapGet): Pick<MapActions, 'recomp
       const bridge = new OverlapWorkerBridge();
       try {
         const patch = await bridge.reconcileFull(entities);
-        set((state) => {
-          for (const id of patch.removedOverlapIds) state.entities.delete(id);
-          for (const [id, e] of patch.changes) state.entities.set(id, e);
-        });
+        const next = new Map(get().entities);
+        for (const id of patch.removedOverlapIds) next.delete(id);
+        for (const [id, e] of patch.changes) next.set(id, e);
+        set({ entities: next });
         resetSharedSpatialIndex();
         return patch.stats;
       } finally {

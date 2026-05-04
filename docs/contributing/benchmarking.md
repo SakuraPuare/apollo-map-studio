@@ -179,6 +179,11 @@ a comment in bench-budgets.json explaining the trade-off.
 | `lane topology reconcile`  | 全量 / 单 dirty 拓扑派生在多规模下的 p99    |
 | `overlap reconcile`        | full 重算随规模线性；dirty 增量近似常数     |
 | `spatial index syncDirty`  | 单 dirty 更新不随全图实体数增长             |
+| `interaction geometry`     | snap、hit-test 距离、polygon validation     |
+| `spatial worker pipeline`  | sync、cold feature rebuild、delta、hit-test |
+| `cold/hot/overlay/grid`    | 主线程 source diff/update 与预览构造        |
+| `entityOps/mapStore`       | 引用清理、reparent、store 写事务            |
+| `proto pipeline`           | bridge、projection、binary/text codec       |
 
 详见 `scripts/bench-budgets.json`（[源码](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)）。
 

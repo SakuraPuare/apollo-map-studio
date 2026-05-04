@@ -185,6 +185,11 @@ reject.
 | `lane topology reconcile`  | full / single-dirty topology derivation across several sizes |
 | `overlap reconcile`        | full recompute scales linearly; dirty edit is near-constant  |
 | `spatial index syncDirty`  | single-dirty sync does not grow with whole-map entity count  |
+| `interaction geometry`     | snap, hit-test distance, and polygon validation              |
+| `spatial worker pipeline`  | sync, cold feature rebuild, delta, and hit-test protocol     |
+| `cold/hot/overlay/grid`    | main-thread source diff/update and preview construction      |
+| `entityOps/mapStore`       | reference cleanup, reparent scans, and store write txns      |
+| `proto pipeline`           | bridge, projection, binary codec, and text codec             |
 
 See `scripts/bench-budgets.json`
 ([source](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)).

@@ -1,73 +1,462 @@
 ---
 title: 性能预算
-description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与衡量目标的逐条参考。
+description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与衡量目标的参考。
 ---
 
 # 性能预算
 
-本页是 `scripts/bench-budgets.json` 的逐条解读，外加 `scripts/check-bench-budget.mjs`
-的逻辑摘要。CI 在 `pnpm bench` 之后调用守卫脚本，把每条 bench 的 p99 与本表
-比对，超出即 `exit 1`。
-
-::: tip 数值含义
-
-- **p99**：100 次采样后第 99 百分位耗时（毫秒）。比 mean 更鲁棒地反映尾延迟。
-- **预算 ≠ 目标**：预算是「不能更慢」的硬上限，留有 ~1.5x 的 GitHub Actions runner 抖动
-  buffer，本地 mean 通常远低于预算。
-  :::
+本页概括 `scripts/bench-budgets.json` 的 96 条 p99 性能预算。CI 在 `pnpm bench` 后调用 `scripts/check-bench-budget.mjs`，任何未注册 bench 或超预算 bench 都会让检查失败。
 
 ## 文件位置
 
-| 路径                             | 作用                                                           |
-| -------------------------------- | -------------------------------------------------------------- |
-| `scripts/bench-budgets.json`     | 预算表，本页源头                                               |
-| `scripts/check-bench-budget.mjs` | CI 校验脚本                                                    |
-| `bench-results.json`             | `pnpm bench --outputJson bench-results.json` 输出，CI 临时文件 |
+| 路径                             | 作用                                                    |
+| -------------------------------- | ------------------------------------------------------- |
+| `scripts/bench-budgets.json`     | 预算表，CI 的唯一数据源                                 |
+| `scripts/check-bench-budget.mjs` | fail-closed 校验脚本                                    |
+| `bench-results.json`             | `pnpm bench --outputJson bench-results.json` 的临时输出 |
 
-## 校验流程
-
-```mermaid
-flowchart LR
-  A[pnpm bench] --> B[bench-results.json]
-  B --> C[check-bench-budget.mjs]
-  C --> D{每条 bench<br/>p99 ≤ 预算?}
-  D -- 是 --> E[exit 0 PASS]
-  D -- 否 --> F[exit 1 FAIL]
-  D -- 未在预算表 --> G[exit 1 FAIL]
-```
-
-## 当前预算（`scripts/bench-budgets.json`）
+## 当前预算
 
 ```json
 {
-  "10-point polyline, 3.5m offset": { "p99Ms": 1 },
-  "100-point polyline, 3.5m offset": { "p99Ms": 3 },
-  "1000-point polyline, 3.5m offset": { "p99Ms": 40 },
-  "full stitch — 10-lane linear chain": { "p99Ms": 3 },
-  "full stitch — 100-lane linear chain": { "p99Ms": 6 },
-  "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
-  "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
-  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
-  "topology 100 lanes — full reconcile": { "p99Ms": 2 },
-  "topology 100 lanes — incremental (1 dirty lane)": { "p99Ms": 1 },
-  "topology 500 lanes — full reconcile": { "p99Ms": 5 },
-  "topology 500 lanes — incremental (1 dirty lane)": { "p99Ms": 2 },
-  "topology 1000 lanes — full reconcile": { "p99Ms": 10 },
-  "topology 1000 lanes — incremental (1 dirty lane)": { "p99Ms": 4 },
-  "overlap 5k — full mode (cold)": { "p99Ms": 25 },
-  "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 5k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
-  "overlap 10k — full mode (cold)": { "p99Ms": 50 },
-  "overlap 10k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 10k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 10k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
-  "overlap 25k — full mode (cold)": { "p99Ms": 150 },
-  "overlap 25k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
-  "overlap 25k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
-  "overlap 25k — syncDirty (1 dirty)": { "p99Ms": 0.05 }
+  "10-point polyline, 3.5m offset": {
+    "p99Ms": 1
+  },
+  "100-point polyline, 3.5m offset": {
+    "p99Ms": 3
+  },
+  "1000-point polyline, 3.5m offset": {
+    "p99Ms": 40
+  },
+  "full stitch — 10-lane linear chain": {
+    "p99Ms": 3
+  },
+  "full stitch — 100-lane linear chain": {
+    "p99Ms": 6
+  },
+  "full stitch — 100 lanes / 50 isolated junctions": {
+    "p99Ms": 6
+  },
+  "incremental — 100-lane chain, 1 lane decorated": {
+    "p99Ms": 5
+  },
+  "incremental — 100-lane chain, 3 lanes decorated": {
+    "p99Ms": 5
+  },
+  "topology 100 lanes — full reconcile": {
+    "p99Ms": 2
+  },
+  "topology 100 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 1
+  },
+  "topology 500 lanes — full reconcile": {
+    "p99Ms": 5
+  },
+  "topology 500 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 2
+  },
+  "topology 1000 lanes — full reconcile": {
+    "p99Ms": 10
+  },
+  "topology 1000 lanes — incremental (1 dirty lane)": {
+    "p99Ms": 4
+  },
+  "overlap 5k — full mode (cold)": {
+    "p99Ms": 25
+  },
+  "overlap 5k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 5k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 5k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "overlap 10k — full mode (cold)": {
+    "p99Ms": 50
+  },
+  "overlap 10k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 10k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 10k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "overlap 25k — full mode (cold)": {
+    "p99Ms": 150
+  },
+  "overlap 25k — incremental (1 dirty lane, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 25k — incremental (1 dirty crosswalk, warm index)": {
+    "p99Ms": 0.5
+  },
+  "overlap 25k — syncDirty (1 dirty)": {
+    "p99Ms": 0.05
+  },
+  "snap 1k entities — find target": {
+    "p99Ms": 0.8
+  },
+  "snap 5k entities — find target": {
+    "p99Ms": 2.5
+  },
+  "snap 10k entities — find target": {
+    "p99Ms": 6
+  },
+  "hitTest polyline 1000 segments — distance": {
+    "p99Ms": 0.1
+  },
+  "hitTest polyline 5000 segments — distance": {
+    "p99Ms": 0.25
+  },
+  "hitTest polygon 1000 vertices — distance": {
+    "p99Ms": 0.1
+  },
+  "hitTest polygon 5000 vertices — distance": {
+    "p99Ms": 0.4
+  },
+  "validation 100 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 100 vertices — full self-intersection": {
+    "p99Ms": 0.1
+  },
+  "validation 500 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 500 vertices — full self-intersection": {
+    "p99Ms": 0.8
+  },
+  "validation 1000 vertices — append edge": {
+    "p99Ms": 0.01
+  },
+  "validation 1000 vertices — full self-intersection": {
+    "p99Ms": 3
+  },
+  "spatial 1k — syncEntities": {
+    "p99Ms": 60
+  },
+  "spatial 1k — buildFeatureCollection full": {
+    "p99Ms": 8
+  },
+  "spatial 1k — buildFeatureCollection incremental 1 lane": {
+    "p99Ms": 4
+  },
+  "spatial 1k — featureGroupsForState": {
+    "p99Ms": 1
+  },
+  "spatial 1k — HIT_TEST dense query": {
+    "p99Ms": 1
+  },
+  "spatial 1k — INCREMENTAL request 1 dirty lane": {
+    "p99Ms": 5
+  },
+  "spatial 5k — syncEntities": {
+    "p99Ms": 80
+  },
+  "spatial 5k — buildFeatureCollection full": {
+    "p99Ms": 50
+  },
+  "spatial 5k — buildFeatureCollection incremental 1 lane": {
+    "p99Ms": 30
+  },
+  "spatial 5k — featureGroupsForState": {
+    "p99Ms": 10
+  },
+  "spatial 5k — HIT_TEST dense query": {
+    "p99Ms": 4
+  },
+  "spatial 5k — INCREMENTAL request 1 dirty lane": {
+    "p99Ms": 25
+  },
+  "cold layer 5k — groupsToFeatureMap": {
+    "p99Ms": 0.6
+  },
+  "cold layer 5k — flattenEntityFeatures": {
+    "p99Ms": 1
+  },
+  "cold layer 5k — diffEntities one update one remove": {
+    "p99Ms": 0.5
+  },
+  "cold source 5k — rebuild from cache": {
+    "p99Ms": 1.2
+  },
+  "cold source 5k — apply delta 100 changed": {
+    "p99Ms": 0.05
+  },
+  "cold layer 25k — groupsToFeatureMap": {
+    "p99Ms": 6
+  },
+  "cold layer 25k — flattenEntityFeatures": {
+    "p99Ms": 5
+  },
+  "cold layer 25k — diffEntities one update one remove": {
+    "p99Ms": 3
+  },
+  "cold source 25k — rebuild from cache": {
+    "p99Ms": 4
+  },
+  "cold source 25k — apply delta 100 changed": {
+    "p99Ms": 0.05
+  },
+  "hot layer lane 100 pts — entityToHotFeatures": {
+    "p99Ms": 0.05
+  },
+  "hot layer lane 100 pts — applyDrag and features": {
+    "p99Ms": 0.1
+  },
+  "hot layer lane 1000 pts — entityToHotFeatures": {
+    "p99Ms": 0.15
+  },
+  "hot layer lane 1000 pts — applyDrag and features": {
+    "p99Ms": 0.5
+  },
+  "hot layer lane 5000 pts — entityToHotFeatures": {
+    "p99Ms": 1.5
+  },
+  "hot layer lane 5000 pts — applyDrag and features": {
+    "p99Ms": 2
+  },
+  "overlay polyline 100 pts — buildOverlayFeatures": {
+    "p99Ms": 0.05
+  },
+  "overlay catmull 100 pts — buildOverlayFeatures": {
+    "p99Ms": 0.8
+  },
+  "overlay bezier 100 anchors — buildOverlayFeatures": {
+    "p99Ms": 0.3
+  },
+  "overlay polyline 1000 pts — buildOverlayFeatures": {
+    "p99Ms": 0.3
+  },
+  "overlay catmull 1000 pts — buildOverlayFeatures": {
+    "p99Ms": 3
+  },
+  "overlay bezier 1000 anchors — buildOverlayFeatures": {
+    "p99Ms": 4
+  },
+  "grid max-density viewport — buildGrid": {
+    "p99Ms": 0.05
+  },
+  "entityOps 10k — cascadeDeleteRefsFull one lane": {
+    "p99Ms": 3
+  },
+  "entityOps 10k — cascadeDeleteRefsFull 100 lanes": {
+    "p99Ms": 4
+  },
+  "entityOps 10k — reparent lane to road section": {
+    "p99Ms": 0.5
+  },
+  "entityOps 50k — cascadeDeleteRefsFull one lane": {
+    "p99Ms": 20
+  },
+  "entityOps 50k — cascadeDeleteRefsFull 100 lanes": {
+    "p99Ms": 25
+  },
+  "entityOps 50k — reparent lane to road section": {
+    "p99Ms": 2
+  },
+  "mapStore 10k — update lane transaction": {
+    "p99Ms": 45
+  },
+  "mapStore 10k — remove lane transaction": {
+    "p99Ms": 40
+  },
+  "mapStore 25k — update lane transaction": {
+    "p99Ms": 90
+  },
+  "mapStore 25k — remove lane transaction": {
+    "p99Ms": 120
+  },
+  "proto bridge 1k — apolloMapToEntities": {
+    "p99Ms": 5
+  },
+  "proto bridge 1k — entitiesToApolloMap": {
+    "p99Ms": 2
+  },
+  "proto projection 1k — to lonlat": {
+    "p99Ms": 45
+  },
+  "proto projection 1k — from lonlat": {
+    "p99Ms": 30
+  },
+  "proto bridge 5k — apolloMapToEntities": {
+    "p99Ms": 12
+  },
+  "proto bridge 5k — entitiesToApolloMap": {
+    "p99Ms": 6
+  },
+  "proto projection 5k — to lonlat": {
+    "p99Ms": 150
+  },
+  "proto projection 5k — from lonlat": {
+    "p99Ms": 150
+  },
+  "proto bin 1k lanes — encode": {
+    "p99Ms": 30
+  },
+  "proto bin 1k lanes — decode": {
+    "p99Ms": 8
+  },
+  "proto text 100 lanes — encode": {
+    "p99Ms": 12
+  },
+  "proto text 100 lanes — decode": {
+    "p99Ms": 8
+  }
 }
 ```
+
+## Bench 分组
+
+### offset polyline geometry
+
+| Bench                              | File                                                  | p99 ceiling | Guarded path                                                |
+| ---------------------------------- | ----------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `10-point polyline, 3.5m offset`   | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **1 ms**    | polyline offset used by lane polygon and boundary rendering |
+| `100-point polyline, 3.5m offset`  | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **3 ms**    | polyline offset used by lane polygon and boundary rendering |
+| `1000-point polyline, 3.5m offset` | `src/core/geometry/__tests__/offsetPolyline.bench.ts` | **40 ms**   | polyline offset used by lane polygon and boundary rendering |
+
+### lane junction derivation
+
+| Bench                                             | File                                                 | p99 ceiling | Guarded path                                                |
+| ------------------------------------------------- | ---------------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `full stitch — 10-lane linear chain`              | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **3 ms**    | lane junction stitching and incremental boundary decoration |
+| `full stitch — 100-lane linear chain`             | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **6 ms**    | lane junction stitching and incremental boundary decoration |
+| `full stitch — 100 lanes / 50 isolated junctions` | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **6 ms**    | lane junction stitching and incremental boundary decoration |
+| `incremental — 100-lane chain, 1 lane decorated`  | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **5 ms**    | lane junction stitching and incremental boundary decoration |
+| `incremental — 100-lane chain, 3 lanes decorated` | `src/core/geometry/__tests__/laneJunctions.bench.ts` | **5 ms**    | lane junction stitching and incremental boundary decoration |
+
+### lane topology reconcile
+
+| Bench                                              | File                                                | p99 ceiling | Guarded path                                    |
+| -------------------------------------------------- | --------------------------------------------------- | ----------- | ----------------------------------------------- |
+| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts` | **2 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts` | **1 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts` | **5 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts` | **2 ms**    | pred/succ/neighbor/junction topology derivation |
+| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts` | **10 ms**   | pred/succ/neighbor/junction topology derivation |
+| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts` | **4 ms**    | pred/succ/neighbor/junction topology derivation |
+
+### overlap reconcile and spatial index
+
+| Bench                                                       | File                                                   | p99 ceiling | Guarded path                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------ | ----------- | ------------------------------------------------------------ |
+| `overlap 5k — full mode (cold)`                             | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **25 ms**   | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — incremental (1 dirty lane, warm index)`       | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — incremental (1 dirty crosswalk, warm index)`  | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 5k — syncDirty (1 dirty)`                          | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **50 ms**   | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 10k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **150 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
+| `overlap 25k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
+
+### interaction geometry
+
+| Bench                                               | File                                                       | p99 ceiling | Guarded path                                        |
+| --------------------------------------------------- | ---------------------------------------------------------- | ----------- | --------------------------------------------------- |
+| `snap 1k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | mousemove snap scan over visible entities           |
+| `snap 5k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **2.5 ms**  | mousemove snap scan over visible entities           |
+| `snap 10k entities — find target`                   | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **6 ms**    | mousemove snap scan over visible entities           |
+| `hitTest polyline 1000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
+| `hitTest polyline 5000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.25 ms** | worker hit-test distance primitives                 |
+| `hitTest polygon 1000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
+| `hitTest polygon 5000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.4 ms**  | worker hit-test distance primitives                 |
+| `validation 100 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 100 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | polygon self-intersection checks in draw/edit flows |
+| `validation 500 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 500 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | polygon self-intersection checks in draw/edit flows |
+| `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
+| `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows |
+
+### spatial worker pipeline
+
+| Bench                                                    | File                                                  | p99 ceiling | Guarded path                                                    |
+| -------------------------------------------------------- | ----------------------------------------------------- | ----------- | --------------------------------------------------------------- |
+| `spatial 1k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **60 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **8 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **5 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **80 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **50 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **30 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **25 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+
+### cold, hot, overlay, and grid layers
+
+| Bench                                                 | File                                         | p99 ceiling | Guarded path                                                |
+| ----------------------------------------------------- | -------------------------------------------- | ----------- | ----------------------------------------------------------- |
+| `cold layer 5k — groupsToFeatureMap`                  | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.6 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 5k — flattenEntityFeatures`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **1 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 5k — diffEntities one update one remove`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 5k — rebuild from cache`                 | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.2 ms**  | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 5k — apply delta 100 changed`            | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — groupsToFeatureMap`                 | `src/hooks/__tests__/layerBuilders.bench.ts` | **6 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — flattenEntityFeatures`              | `src/hooks/__tests__/layerBuilders.bench.ts` | **5 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold layer 25k — diffEntities one update one remove` | `src/hooks/__tests__/layerBuilders.bench.ts` | **3 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 25k — rebuild from cache`                | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | main-thread cold source cache, diff, and updateData helpers |
+| `cold source 25k — apply delta 100 changed`           | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | main-thread cold source cache, diff, and updateData helpers |
+| `hot layer lane 100 pts — entityToHotFeatures`        | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | selected entity drag display and hot feature generation     |
+| `hot layer lane 100 pts — applyDrag and features`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.1 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 1000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.15 ms** | selected entity drag display and hot feature generation     |
+| `hot layer lane 1000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 5000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.5 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 5000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **2 ms**    | selected entity drag display and hot feature generation     |
+| `overlay polyline 100 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | draw preview feature generation                             |
+| `overlay catmull 100 pts — buildOverlayFeatures`      | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.8 ms**  | draw preview feature generation                             |
+| `overlay bezier 100 anchors — buildOverlayFeatures`   | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
+| `overlay polyline 1000 pts — buildOverlayFeatures`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
+| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **3 ms**    | draw preview feature generation                             |
+| `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
+| `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
+
+### entity reference operations
+
+| Bench                                             | File                                             | p99 ceiling | Guarded path                                   |
+| ------------------------------------------------- | ------------------------------------------------ | ----------- | ---------------------------------------------- |
+| `entityOps 10k — cascadeDeleteRefsFull one lane`  | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **3 ms**    | whole-map reference cleanup and reparent scans |
+| `entityOps 10k — cascadeDeleteRefsFull 100 lanes` | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **4 ms**    | whole-map reference cleanup and reparent scans |
+| `entityOps 10k — reparent lane to road section`   | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **0.5 ms**  | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — cascadeDeleteRefsFull one lane`  | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **20 ms**   | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — cascadeDeleteRefsFull 100 lanes` | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **25 ms**   | whole-map reference cleanup and reparent scans |
+| `entityOps 50k — reparent lane to road section`   | `src/lib/entityOps/__tests__/entityOps.bench.ts` | **2 ms**    | whole-map reference cleanup and reparent scans |
+
+### map store write transactions
+
+| Bench                                    | File                                    | p99 ceiling | Guarded path                                                          |
+| ---------------------------------------- | --------------------------------------- | ----------- | --------------------------------------------------------------------- |
+| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **45 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **40 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove transaction with topology and overlap patches |
+| `mapStore 25k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **120 ms**  | store add/update/remove transaction with topology and overlap patches |
+
+### Apollo proto pipeline
+
+| Bench                                   | File                                            | p99 ceiling | Guarded path                                                  |
+| --------------------------------------- | ----------------------------------------------- | ----------- | ------------------------------------------------------------- |
+| `proto bridge 1k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **5 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 1k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **6 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto projection 5k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto projection 5k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — encode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — decode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — encode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — decode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
 
 ## Bench 命名约定
 
@@ -75,328 +464,32 @@ flowchart LR
 
 - **必须以衡量对象开头**：`<algorithm> — <input description>`，例如 `full stitch — 100-lane chain`。
 - **数字直接出现**：避免 vague 的 small/medium/large；写 `100-lane` 才便于扫表。
-- **使用 em-dash（—）作为分隔符**：与现有 budgets 保持一致，便于复制粘贴。
 - **必须与 `bench-budgets.json` 完全一致**：脚本按字符串精确匹配。
   :::
 
-## Bench 详解
+## 跨平台波动
 
-### `10-point polyline, 3.5m offset`
+CI 跑在 GitHub `ubuntu-latest`（虚拟机，性能波动 ±20%）。所以预算要：
 
-| 项目     | 值                                                            |
-| -------- | ------------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:27`      |
-| p99 上限 | **1 ms**                                                      |
-| 衡量对象 | 偏移多段线核心算法在 10 点输入下的耗时                        |
-| 衡量目标 | 保证短 polyline 偏移在「亚毫秒级」以支持 hot layer 60fps 拖拽 |
+- 留 30% 左右缓冲；对 < 1ms 的 bench 留更高比例缓冲。
+- 连续复现的失败按真实回退处理；单次偶发失败先 rerun。
+- 新增 bench 必须同步更新 `scripts/bench-budgets.json` 和本文。
 
-### `100-point polyline, 3.5m offset`
+## 覆盖范围
 
-| 项目     | 值                                                       |
-| -------- | -------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:31` |
-| p99 上限 | **3 ms**                                                 |
-| 衡量对象 | 100 点 polyline 偏移                                     |
-| 衡量目标 | 中等长度 lane（典型 100 点）偏移耗时上限                 |
+::: tip 为什么现在是 96 条 bench
 
-### `1000-point polyline, 3.5m offset`
+预算覆盖以下会导致主线程卡顿、worker 队列堆积、或大图复杂度退化的路径：
 
-| 项目     | 值                                                       |
-| -------- | -------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/offsetPolyline.bench.ts:35` |
-| p99 上限 | **40 ms**                                                |
-| 衡量对象 | 1000 点 polyline 偏移                                    |
-| 衡量目标 | 极端长 lane 容忍上限；超过 40ms 必须切异步 / 抽样        |
+- geometry hot path：offset、snap、hit-test、polygon validation。
+- map derivation：lane junction、lane topology、overlap reconcile。
+- worker and layer path：spatial worker cold pipeline、cold source diff/updateData、hot/overlay/grid builders。
+- store and entity operations：mapStore 写事务、cascade delete、reparent 全表扫描。
+- IO path：Apollo proto bridge、projection、binary codec、text codec。
 
-### `full stitch — 10-lane linear chain`
-
-| 项目     | 值                                                      |
-| -------- | ------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:73` |
-| p99 上限 | **3 ms**                                                |
-| 衡量对象 | 10 lane 线性链全量缝合                                  |
-| 衡量目标 | 小图全量重建保留交互级响应                              |
-
-### `full stitch — 100-lane linear chain`
-
-| 项目     | 值                                                      |
-| -------- | ------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:77` |
-| p99 上限 | **6 ms**                                                |
-| 衡量对象 | 100 lane 线性链全量缝合                                 |
-| 衡量目标 | 中等规模地图导入或大批量编辑全量重建上限                |
-
-### `full stitch — 100 lanes / 50 isolated junctions`
-
-| 项目     | 值                                                      |
-| -------- | ------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:81` |
-| p99 上限 | **6 ms**                                                |
-| 衡量对象 | 100 lane 配 50 个孤立 junction                          |
-| 衡量目标 | 多 junction 对全量缝合 cost 不应有明显放大              |
-
-### `incremental — 100-lane chain, 1 lane decorated`
-
-| 项目     | 值                                                                 |
-| -------- | ------------------------------------------------------------------ |
-| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:92`            |
-| p99 上限 | **5 ms**                                                           |
-| 衡量对象 | 100 lane 链上单 lane 增量装饰（Phase E）                           |
-| 衡量目标 | 单 lane 编辑应远低于 full stitch；触顶意味着 dependency graph 失效 |
-
-### `incremental — 100-lane chain, 3 lanes decorated`
-
-| 项目     | 值                                                      |
-| -------- | ------------------------------------------------------- |
-| 文件     | `src/core/geometry/__tests__/laneJunctions.bench.ts:96` |
-| p99 上限 | **5 ms**                                                |
-| 衡量对象 | 100 lane 链上 3 lane 同时增量装饰                       |
-| 衡量目标 | 多 lane batch 增量耗时近似线性                          |
-
-### Lane topology budgets
-
-| Bench 名称                                         | 文件                                                    | p99 上限  | 衡量目标                               |
-| -------------------------------------------------- | ------------------------------------------------------- | --------- | -------------------------------------- |
-| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **2 ms**  | 100 lane 全量 pred/succ/neighbor 派生  |
-| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **1 ms**  | 100 lane 下单 dirty lane 增量拓扑派生  |
-| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **5 ms**  | 500 lane 全量拓扑重算保持交互级预算    |
-| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **2 ms**  | 500 lane 下单 dirty 增量明显低于 full  |
-| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **10 ms** | 1000 lane 全量拓扑重算不发生数量级退化 |
-| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **4 ms**  | 1000 lane 下单 dirty 受影响集保持局部  |
-
-### `overlap 5k — full mode (cold)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
-| p99 上限 | **25 ms**                                                  |
-| 衡量对象 | 约 6k entities 上 cold full overlap reconcile              |
-| 衡量目标 | 导入 / 手动重算 / 导出前校验保持线性，防止全量路径异常放大 |
-
-### `overlap 5k — incremental (1 dirty lane, warm index)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
-| p99 上限 | **0.5 ms**                                                 |
-| 衡量对象 | 约 6k entities、索引预热后单 dirty lane 增量 reconcile     |
-| 衡量目标 | 单 lane 编辑不随全图实体数增长                             |
-
-### `overlap 5k — incremental (1 dirty crosswalk, warm index)`
-
-| 项目     | 值                                                          |
-| -------- | ----------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`  |
-| p99 上限 | **0.5 ms**                                                  |
-| 衡量对象 | 约 6k entities、索引预热后单 dirty crosswalk 增量 reconcile |
-| 衡量目标 | 守护拖动 crosswalk 后的 overlap 增量重算不扫全图            |
-
-### `overlap 5k — syncDirty (1 dirty)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
-| p99 上限 | **0.05 ms**                                                |
-| 衡量对象 | 约 6k entities 下空间索引单 dirty 同步                     |
-| 衡量目标 | 索引维护只与 dirty 集大小相关                              |
-
-### `overlap 10k — full mode (cold)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
-| p99 上限 | **50 ms**                                                  |
-| 衡量对象 | 约 12k entities 上 cold full overlap reconcile             |
-| 衡量目标 | full 路径随规模近似线性                                    |
-
-### `overlap 10k — incremental (1 dirty lane, warm index)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
-| p99 上限 | **0.5 ms**                                                 |
-| 衡量对象 | 约 12k entities、索引预热后单 dirty lane 增量 reconcile    |
-| 衡量目标 | 增量 lane 编辑保持帧内预算                                 |
-
-### `overlap 10k — incremental (1 dirty crosswalk, warm index)`
-
-| 项目     | 值                                                           |
-| -------- | ------------------------------------------------------------ |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`   |
-| p99 上限 | **0.5 ms**                                                   |
-| 衡量对象 | 约 12k entities、索引预热后单 dirty crosswalk 增量 reconcile |
-| 衡量目标 | 增量 crosswalk 编辑不回退到全图扫描                          |
-
-### `overlap 10k — syncDirty (1 dirty)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
-| p99 上限 | **0.05 ms**                                                |
-| 衡量对象 | 约 12k entities 下空间索引单 dirty 同步                    |
-| 衡量目标 | 单 dirty 索引维护保持近似常数                              |
-
-### `overlap 25k — full mode (cold)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
-| p99 上限 | **150 ms**                                                 |
-| 衡量对象 | 约 30k entities 上 cold full overlap reconcile             |
-| 衡量目标 | 大图 full 重算保持 worker-grade 预算                       |
-
-### `overlap 25k — incremental (1 dirty lane, warm index)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
-| p99 上限 | **0.5 ms**                                                 |
-| 衡量对象 | 约 30k entities、索引预热后单 dirty lane 增量 reconcile    |
-| 衡量目标 | 大图单 lane 编辑不随全图规模增长                           |
-
-### `overlap 25k — incremental (1 dirty crosswalk, warm index)`
-
-| 项目     | 值                                                           |
-| -------- | ------------------------------------------------------------ |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`   |
-| p99 上限 | **0.5 ms**                                                   |
-| 衡量对象 | 约 30k entities、索引预热后单 dirty crosswalk 增量 reconcile |
-| 衡量目标 | 覆盖拖动 crosswalk 松手后的性能回归风险                      |
-
-### `overlap 25k — syncDirty (1 dirty)`
-
-| 项目     | 值                                                         |
-| -------- | ---------------------------------------------------------- |
-| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
-| p99 上限 | **0.05 ms**                                                |
-| 衡量对象 | 约 30k entities 下空间索引单 dirty 同步                    |
-| 衡量目标 | 大图索引更新不随实体总数增长                               |
-
-## `check-bench-budget.mjs` 行为速览
-
-```js
-// scripts/check-bench-budget.mjs:35-50
-function collectBenches(report) {
-  // 递归遍历 vitest --outputJson 树，收集
-  // { name: string, p99Ms: number } 叶子。
-}
-// scripts/check-bench-budget.mjs:60-80
-for (const bench of benches) {
-  const budget = budgets[bench.name];
-  if (!budget) {
-    unbudgeted.push(bench);    // 未配置预算 → exit 1
-    continue;
-  }
-  if (bench.p99Ms > budget.p99Ms) {
-    violations.push(...);      // 超出预算 → exit 1
-  } else {
-    passed.push(...);
-  }
-}
-```
-
-输出三块：
-
-| 块                         | 含义                          |
-| -------------------------- | ----------------------------- |
-| `PASS:`                    | 命中预算且未超                |
-| `FAIL: no budget defined:` | 跑了但本表没声明，CI 退出码 1 |
-| `FAIL:`                    | 超过预算，CI 退出码 1         |
-
-## 用法示例
-
-本地复现 CI 守卫：
-
-```bash
-pnpm bench --outputJson bench-results.json
-node scripts/check-bench-budget.mjs bench-results.json
-```
-
-Vitest 输出形如：
-
-```text
-## Perf budget report
-
-PASS:
-  10-point polyline, 3.5m offset: p99=0.412ms (ceiling 1ms)
-  100-point polyline, 3.5m offset: p99=2.103ms (ceiling 3ms)
-  ...
-```
-
-## 调整预算的流程
-
-::: warning 不要随手改预算
-预算是性能护栏。每次调整必须 PR + 解释原因。
+MapLibre 自身的 `setData/updateData/queryRenderedFeatures` 内部实现不在 Node bench 中执行；这里用 mock source 和 worker/helper bench 守住应用侧构造、diff、chunk 和协议成本。
 :::
-
-1. **先排查环境**：本地 mean 异常说明本地负载，而非性能退化。
-2. **采样多次**：CI 抖动正常约 1.5x；连续 3 次失败再考虑收紧 / 放宽。
-3. **写明上下文**：PR 描述附上「为什么这次需要放宽」或「为什么这次能收紧」。
-4. **同步本页**：本页表格必须与 `bench-budgets.json` 一致。
-5. **附性能图**：tighten 时附带 baseline 对比，说明 ROI。
-
-## 与其它性能机制的关系
-
-| 机制                        | 时机              | 粒度                        |
-| --------------------------- | ----------------- | --------------------------- |
-| `bench-budgets.json`        | CI 每次 push / PR | 单个算法 p99                |
-| 冷热分层                    | 运行时            | 渲染管线吞吐                |
-| `decorationCache` (Phase E) | 运行时            | 增量装饰受影响集            |
-| `useColdLayer` RAF coalesce | 运行时            | 多次 entity 变化 → 单次重建 |
-
-## 历史背景
-
-::: tip 为什么现有 26 条 bench
-
-- **Phase B**：引入 polyline offset 三档（10 / 100 / 1000 点），对应 hot
-  layer 拖拽场景的下界 / 中位 / 极端长度。
-- **Phase D**：引入 full-stitch 三档（10 / 100 / 100+50 junctions），覆盖
-  小图、中图、含路口的中图。
-- **Phase E**：引入 incremental 两档（1 / 3 lane decorated），守护增量装饰
-  路径的复杂度近似常数。
-- **Lane topology 守卫**：引入 full / incremental 在 100 / 500 / 1000 lane
-  三档上的预算，守护 pred/succ/neighbor/junctionId 派生路径。
-- **Overlap 增量性能守卫**：引入 overlap full / dirty lane / dirty crosswalk /
-  syncDirty 在 5k / 10k / 25k 三档上的预算，防止 dirty 编辑回退到全图扫描。
-
-未来若引入新关键路径（例如导出 / 导入工作流），新增 bench 时同步：
-
-1. 在 `src/**/__tests__/*.bench.ts` 写新的 `bench(label, fn)`。
-2. 在 `scripts/bench-budgets.json` 配上 p99 上限。
-3. 在本页相应章节添加条目。
-   :::
 
 ## p99 与 mean 的关系
 
-CI 用 p99 是因为 **尾延迟才是用户体验的天花板**。一个 mean 0.5ms 的算法
-偶尔抖到 50ms，会在 60fps 拖拽中被肉眼感知。p99 把这种偶发抖动直接暴露。
-
-| 指标 | 用途               | 示例                     |
-| ---- | ------------------ | ------------------------ |
-| mean | 「平均下来多快」   | 性能优化 PR 中的进步幅度 |
-| p50  | 「典型情况多快」   | 大多数普通操作的耗时     |
-| p99  | 「最慢的 1% 多慢」 | CI guard、用户感知的卡顿 |
-| max  | 「最坏情况多慢」   | 不稳定，CI 不用          |
-
-## 跨 runner 抖动
-
-| Runner                         | 相对本地   | 备注               |
-| ------------------------------ | ---------- | ------------------ |
-| 本地 Mac M-series              | 1.0x       | 基准               |
-| ubuntu-latest（GitHub-hosted） | ≈ 1.2–1.5x | 共享 CPU，磁盘抖动 |
-| ubuntu-latest（self-hosted）   | ≈ 1.0x     | 取决于物理机       |
-| windows-latest                 | ≈ 1.5x     | Node 启动慢        |
-| macos-latest                   | ≈ 1.1x     | 一般稳定           |
-
-::: warning 当前 budget 基于 ubuntu-latest
-所有 p99 ceiling 都按 GitHub-hosted ubuntu-latest 校准。本地跑明显高于 ceiling
-但 CI 通过，先怀疑环境而不是代码。
-:::
-
-## 相关文档
-
-- [CI Pipeline](/reference/ci-pipeline)
-- [冷热分层](/architecture/cold-hot-layers)
-- [Junction 缝合](/architecture/junction-stitching)
-- [架构总览](/architecture/overview)
-- [Glossary：bench-budgets](/reference/glossary#bench-budgets)
+CI 用 p99 是因为尾延迟才是用户体验的天花板。一个 mean 很低但偶尔抖到几十毫秒的路径，会在 60fps 拖拽或点击中被感知；p99 能直接暴露这种抖动。
