@@ -70,11 +70,6 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-hidden flex flex-col">
-      <div className="px-3 py-2 border-b border-white/[0.07] shrink-0">
-        <h2 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
-          {activeView?.label ?? activeTab}
-        </h2>
-      </div>
       <div className="min-h-0 flex-1 overflow-hidden">
         <SidebarRenderer
           renderer={activeView?.renderer}

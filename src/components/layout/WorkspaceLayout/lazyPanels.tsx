@@ -83,9 +83,6 @@ export function InspectorPanelContent() {
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-y-auto">
-      <div className="px-3 py-2 border-b border-white/[0.07]">
-        <h2 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Inspector</h2>
-      </div>
       <div className="p-3">
         {entity ? (
           <>
