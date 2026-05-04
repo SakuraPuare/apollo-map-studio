@@ -250,28 +250,10 @@ function diffWithExisting(
   const removedOverlapIds = new Set<string>();
   let overlapsCreated = 0;
 
-  const inScope = (entityId: string): boolean => {
-    if (mode.mode === 'full') return true;
-    return mode.dirtyIds.has(entityId);
-  };
+  const scope = buildDiffScope(entities, derived, mode);
 
-  const overlapIdToParticipants = new Map<string, string[]>();
-  for (const [id, ov] of derived) overlapIdToParticipants.set(id, [...ov.participantIds]);
-
-  for (const e of entities.values()) {
-    if (e.entityType !== 'overlap') continue;
-    const ov = e as OverlapEntity;
-    // B.3 重构：所有 overlap 都视为 derived（无 imported-preserve 分支）。
-    // 增量模式下只清理「与 dirty 集相关」的 overlap：参与者集合里至少一个
-    // 在 dirtyIds 中，否则不归本轮的几何重算管 —— 不能误删未在 derived 里
-    // 的远端 overlap。
-    if (mode.mode === 'incremental') {
-      const anyParticipantDirty = ov.objects.some((o) => mode.dirtyIds.has(o.objectId));
-      if (!anyParticipantDirty) continue;
-    }
-    if (!derived.has(ov.id)) {
-      removedOverlapIds.add(ov.id);
-    }
+  for (const ov of scope.existingOverlaps.values()) {
+    if (!derived.has(ov.id)) removedOverlapIds.add(ov.id);
   }
 
   for (const [id, ov] of derived) {
@@ -300,9 +282,67 @@ function diffWithExisting(
   }
 
   // 同步回写每个参与实体的 overlapIds
-  applyOverlapIdsBack(entities, derived, removedOverlapIds, changes, inScope);
+  applyOverlapIdsBack(entities, derived, removedOverlapIds, changes, scope.participantIds);
 
   return { changes, removedOverlapIds, overlapsCreated };
+}
+
+interface DiffScope {
+  existingOverlaps: Map<string, OverlapEntity>;
+  participantIds: Set<string> | null;
+}
+
+function buildDiffScope(
+  entities: ReadonlyMap<string, MapEntity>,
+  derived: ReadonlyMap<string, DerivedOverlap>,
+  mode: ReconcileMode,
+): DiffScope {
+  if (mode.mode === 'full') {
+    const existingOverlaps = new Map<string, OverlapEntity>();
+    for (const e of entities.values()) {
+      if (e.entityType === 'overlap') existingOverlaps.set(e.id, e as OverlapEntity);
+    }
+    return { existingOverlaps, participantIds: null };
+  }
+
+  const existingOverlaps = new Map<string, OverlapEntity>();
+  const participantIds = new Set<string>(mode.dirtyIds);
+
+  for (const id of mode.dirtyIds) {
+    const e = entities.get(id);
+    addExistingOverlapsForEntity(entities, e, existingOverlaps, participantIds);
+  }
+
+  for (const [id, ov] of derived) {
+    for (const participantId of ov.participantIds) participantIds.add(participantId);
+    const existing = entities.get(id);
+    if (existing?.entityType === 'overlap') {
+      existingOverlaps.set(id, existing as OverlapEntity);
+      addOverlapParticipants(existing as OverlapEntity, participantIds);
+    }
+  }
+
+  return { existingOverlaps, participantIds };
+}
+
+function addExistingOverlapsForEntity(
+  entities: ReadonlyMap<string, MapEntity>,
+  entity: MapEntity | undefined,
+  existingOverlaps: Map<string, OverlapEntity>,
+  participantIds: Set<string>,
+): void {
+  const overlapIds = (entity as EntityWithOverlap | undefined)?.overlapIds;
+  if (!Array.isArray(overlapIds)) return;
+  for (const overlapId of overlapIds) {
+    const overlap = entities.get(overlapId);
+    if (overlap?.entityType !== 'overlap') continue;
+    existingOverlaps.set(overlap.id, overlap as OverlapEntity);
+    addOverlapParticipants(overlap as OverlapEntity, participantIds);
+  }
+}
+
+function addOverlapParticipants(overlap: OverlapEntity, participantIds: Set<string>): void {
+  for (const object of overlap.objects) participantIds.add(object.objectId);
 }
 
 /**
@@ -447,20 +487,16 @@ function applyOverlapIdsBack(
   derived: ReadonlyMap<string, DerivedOverlap>,
   removedOverlapIds: ReadonlySet<string>,
   changes: Map<string, MapEntity>,
-  inScope: (id: string) => boolean,
+  participantScope: ReadonlySet<string> | null,
 ): void {
   const targetSets = new Map<string, Set<string>>();
 
-  for (const e of entities.values()) {
+  const participantEntities =
+    participantScope === null ? entities.values() : scopedEntities(entities, participantScope);
+
+  for (const e of participantEntities) {
     const cur = (e as EntityWithOverlap).overlapIds;
     if (!Array.isArray(cur)) continue;
-    if (!inScope(e.id)) {
-      const filtered = cur.filter((id) => !removedOverlapIds.has(id));
-      if (filtered.length !== cur.length) {
-        changes.set(e.id, { ...e, overlapIds: filtered } as MapEntity);
-      }
-      continue;
-    }
     const keep = cur.filter((id) => !removedOverlapIds.has(id) && !isDerivedOverlapId(id));
     targetSets.set(e.id, new Set(keep));
   }
@@ -480,6 +516,16 @@ function applyOverlapIdsBack(
     if (arraysEqual(cur, next)) continue;
     const draft = changes.get(id) ?? e;
     changes.set(id, { ...draft, overlapIds: next } as MapEntity);
+  }
+}
+
+function* scopedEntities(
+  entities: ReadonlyMap<string, MapEntity>,
+  ids: ReadonlySet<string>,
+): Iterable<MapEntity> {
+  for (const id of ids) {
+    const entity = entities.get(id);
+    if (entity) yield entity;
   }
 }
 

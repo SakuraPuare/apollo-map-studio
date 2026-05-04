@@ -14,7 +14,7 @@
  * 用法：`npm run bench`（vitest bench）
  */
 import { bench, describe } from 'vitest';
-import type { Curve, JunctionEntity, LaneEntity } from '@/types/apollo';
+import type { CrosswalkEntity, Curve, JunctionEntity, LaneEntity } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 import { reconcileOverlaps } from '../reconcile';
 import { resetSharedSpatialIndex, getSharedSpatialIndex } from '../spatialIndex';
@@ -88,6 +88,23 @@ function makeJunctionAt(id: string, cx: number, cy: number, halfM: number): Junc
   };
 }
 
+function makeCrosswalkAt(id: string, cx: number, cy: number, halfM: number): CrosswalkEntity {
+  const half = halfM * DEG_PER_M;
+  return {
+    id,
+    entityType: 'crosswalk',
+    polygon: {
+      points: [
+        { x: cx - half, y: cy - half },
+        { x: cx + half, y: cy - half },
+        { x: cx + half, y: cy + half },
+        { x: cx - half, y: cy + half },
+      ],
+    },
+    overlapIds: [],
+  };
+}
+
 /**
  * Synthetic city-grid: rows × cols 阵列的 lane 路段，行间距 30m，列间距 200m。
  * 每隔 5 个 cell 放一个 junction，模拟典型 HD 地图密度。
@@ -105,6 +122,10 @@ function buildCityGrid(rows: number, cols: number): Map<string, MapEntity> {
       if ((r * cols + c) % 5 === 0) {
         const j = makeJunctionAt(`J_${r}_${c}`, x + 90 * DEG_PER_M, y, 15);
         map.set(j.id, j);
+      }
+      if ((r * cols + c) % 40 === 0) {
+        const cw = makeCrosswalkAt(`CW_${r}_${c}`, x + 90 * DEG_PER_M, y, 12);
+        map.set(cw.id, cw);
       }
     }
   }
@@ -146,6 +167,17 @@ for (const scale of SCALES) {
         reconcileOverlaps(map, {
           mode: 'incremental',
           dirtyIds: new Set([firstLaneId]),
+        });
+      },
+      { iterations: 200 },
+    );
+
+    bench(
+      `incremental (1 dirty crosswalk, warm index)`,
+      () => {
+        reconcileOverlaps(map, {
+          mode: 'incremental',
+          dirtyIds: new Set(['CW_0_0']),
         });
       },
       { iterations: 200 },

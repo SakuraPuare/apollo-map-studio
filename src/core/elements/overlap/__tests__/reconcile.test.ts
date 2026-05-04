@@ -609,6 +609,54 @@ describe('reconcileOverlaps', () => {
     expect(ovA.regionOverlaps[0]!.id).not.toBe(ovB.regionOverlaps[0]!.id);
   });
 
+  it('incremental crosswalk edit only rewrites local overlap participants', () => {
+    const dirtyLane = makeLane('Lane_dirty', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ]);
+    const dirtyCrosswalk = makeCrosswalk('Crosswalk_dirty', [
+      { x: 116.00015, y: 39.8999 },
+      { x: 116.00035, y: 39.8999 },
+      { x: 116.00035, y: 39.9001 },
+      { x: 116.00015, y: 39.9001 },
+    ]);
+    const farLane = makeLane('Lane_far', [
+      { x: 117.0, y: 40.0 },
+      { x: 117.0005, y: 40.0 },
+    ]);
+    const farCrosswalk = makeCrosswalk('Crosswalk_far', [
+      { x: 117.00015, y: 39.9999 },
+      { x: 117.00035, y: 39.9999 },
+      { x: 117.00035, y: 40.0001 },
+      { x: 117.00015, y: 40.0001 },
+    ]);
+
+    const initial = buildMap(dirtyLane, dirtyCrosswalk, farLane, farCrosswalk);
+    const patch1 = reconcileOverlaps(initial, { mode: 'full' });
+    const stable = new Map(initial);
+    for (const [id, e] of patch1.changes) stable.set(id, e);
+
+    const movedCrosswalk = makeCrosswalk('Crosswalk_dirty', [
+      { x: 116.00018, y: 39.8999 },
+      { x: 116.00038, y: 39.8999 },
+      { x: 116.00038, y: 39.9001 },
+      { x: 116.00018, y: 39.9001 },
+    ]);
+    movedCrosswalk.overlapIds = (stable.get('Crosswalk_dirty') as CrosswalkEntity).overlapIds;
+    stable.set('Crosswalk_dirty', movedCrosswalk);
+
+    const patch2 = reconcileOverlaps(stable, {
+      mode: 'incremental',
+      dirtyIds: new Set(['Crosswalk_dirty']),
+    });
+    const changedIds = new Set([...patch2.changes.keys(), ...patch2.removedOverlapIds]);
+    const farOverlapId = makeOverlapId(['Lane_far', 'Crosswalk_far']);
+
+    expect(changedIds.has('Crosswalk_far')).toBe(false);
+    expect(changedIds.has('Lane_far')).toBe(false);
+    expect(changedIds.has(farOverlapId)).toBe(false);
+  });
+
   it('full mode is idempotent on a stable map', () => {
     const lane = makeLane('Lane_1', [
       { x: 116.0, y: 39.9 },
