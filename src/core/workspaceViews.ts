@@ -65,7 +65,7 @@ export const WORKSPACE_PANEL_DEFS = [
     id: 'sidebar',
     component: 'sidebar',
     defaultTitle: 'Outline',
-    defaultSize: { width: 240 },
+    defaultSize: { width: 220 },
   },
   {
     id: 'inspector',

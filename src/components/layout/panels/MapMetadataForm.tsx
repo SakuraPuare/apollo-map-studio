@@ -96,23 +96,23 @@ function headerRows(header: RawHeader | null): MetadataRow[] {
   const proj = header?.projection ? asString(header.projection.proj) : null;
 
   return [
-    { label: 'Version', value: fmt(asString(header?.version)) },
-    { label: 'Date', value: fmt(asString(header?.date)) },
-    { label: 'District', value: fmt(asString(header?.district)) },
-    { label: 'Generation', value: fmt(asString(header?.generation)) },
-    { label: 'Rev Major', value: fmt(revMajor) },
-    { label: 'Rev Minor', value: fmt(revMinor) },
-    { label: 'Vendor', value: fmt(asString(header?.vendor)) },
-    { label: 'Projection', value: fmt(proj) },
+    { label: '版本', value: fmt(asString(header?.version)) },
+    { label: '日期', value: fmt(asString(header?.date)) },
+    { label: '区域', value: fmt(asString(header?.district)) },
+    { label: '生成方式', value: fmt(asString(header?.generation)) },
+    { label: '主版本', value: fmt(revMajor) },
+    { label: '次版本', value: fmt(revMinor) },
+    { label: '供应方', value: fmt(asString(header?.vendor)) },
+    { label: '投影', value: fmt(proj) },
   ];
 }
 
 function boundsRows(header: RawHeader | null): MetadataRow[] {
   return [
-    { label: 'Left', value: fmtNum(asNumber(header?.left)) },
-    { label: 'Top', value: fmtNum(asNumber(header?.top)) },
-    { label: 'Right', value: fmtNum(asNumber(header?.right)) },
-    { label: 'Bottom', value: fmtNum(asNumber(header?.bottom)) },
+    { label: '左边界', value: fmtNum(asNumber(header?.left)) },
+    { label: '上边界', value: fmtNum(asNumber(header?.top)) },
+    { label: '右边界', value: fmtNum(asNumber(header?.right)) },
+    { label: '下边界', value: fmtNum(asNumber(header?.bottom)) },
   ];
 }
 
@@ -129,7 +129,7 @@ function MetadataSection({ title, rows }: { title: string; rows: MetadataRow[] }
 function NoMetadataNotice() {
   return (
     <div className="px-3 py-4 text-[11px] text-zinc-500 italic">
-      No Apollo map imported. Header metadata becomes available after import.
+      导入 Apollo 地图后，这里会显示源文件和地图头部信息。
     </div>
   );
 }
@@ -147,18 +147,13 @@ export function MapMetadataForm() {
 
   return (
     <div className="px-3 py-3">
-      <Section title="Source">
-        <Value label="File" value={info.filename} />
-        <Value label="Imported" value={new Date(info.importedAt).toLocaleString()} />
-        <Value label="PROJ used" value={info.projString} />
+      <Section title="来源信息">
+        <Value label="文件" value={info.filename} />
+        <Value label="导入时间" value={new Date(info.importedAt).toLocaleString()} />
+        <Value label="坐标投影" value={info.projString} />
       </Section>
-      <MetadataSection title="Header" rows={headerRows(header)} />
-      <MetadataSection title="Bounds" rows={boundsRows(header)} />
-
-      <div className="mt-3 px-1 text-[10px] text-zinc-600 italic leading-relaxed">
-        Read-only — header editing is gated on an `apolloMapStore.updateHeader` action that does not
-        exist yet. See `MapMetadataForm.tsx` source comment.
-      </div>
+      <MetadataSection title="头部信息" rows={headerRows(header)} />
+      <MetadataSection title="地图边界" rows={boundsRows(header)} />
     </div>
   );
 }

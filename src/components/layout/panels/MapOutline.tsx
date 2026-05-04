@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { getEntityPluralLabel, TOP_LEVEL_ENTITY_TYPES } from '@/core/entityRegistry';
+import { getEntityColor, getEntityIcon, getEntityLabel } from '@/core/entityRegistry';
 import { useMapStore } from '@/store/mapStore';
 import type { MapEntity } from '@/types/entities';
 import { MapMetadataForm } from './MapMetadataForm';
@@ -9,7 +9,32 @@ import { MapMetadataForm } from './MapMetadataForm';
 // quickly auditing what's in the document before exporting.
 
 const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
-const APOLLO_TOP_LEVEL_TYPES = TOP_LEVEL_ENTITY_TYPES.filter((type) => !DRAWING_TYPES.has(type));
+const OUTLINE_GROUPS = [
+  {
+    title: '路网结构',
+    types: ['road', 'junction', 'lane'],
+  },
+  {
+    title: '交通控制',
+    types: ['signal', 'stopSign', 'yieldSign', 'speedControl', 'barrierGate', 'rsu'],
+  },
+  {
+    title: '区域与设施',
+    types: [
+      'crosswalk',
+      'parkingSpace',
+      'parkingLot',
+      'clearArea',
+      'speedBump',
+      'area',
+      'pncJunction',
+    ],
+  },
+  {
+    title: '关联关系',
+    types: ['overlap'],
+  },
+] satisfies ReadonlyArray<{ title: string; types: readonly string[] }>;
 
 interface OutlineStats {
   apolloCounts: Map<string, number>;
@@ -82,65 +107,156 @@ function hasMissingJunctionRef(entity: MapEntity, entities: ReadonlyMap<string, 
 export function MapOutline() {
   const entities = useMapStore((s) => s.entities);
   const stats = useMemo(() => computeStats(entities), [entities]);
+  const apolloTotal = useMemo(
+    () => [...stats.apolloCounts.values()].reduce((sum, n) => sum + n, 0),
+    [stats],
+  );
+  const issueCount = stats.unparentedLanes + stats.orphanedJunctionRefs;
 
   const hasAnything = entities.size > 0;
 
   return (
-    <div className="h-full overflow-y-auto p-3 text-xs text-zinc-300 font-mono">
-      <div className="mb-3 pb-2 border-b border-white/10">
-        <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Map Outline</div>
-        <div className="text-zinc-400">
-          Total entities: <span className="text-cyan-400">{entities.size}</span>
+    <div className="h-full overflow-y-auto ams-layer-tree-scrollbar text-xs text-zinc-300">
+      <div className="px-3 py-3 border-b border-white/[0.07]">
+        <div className="grid grid-cols-3 gap-1.5">
+          <SummaryMetric label="地图" value={apolloTotal} />
+          <SummaryMetric label="草图" value={stats.drawingCount} />
+          <SummaryMetric label="检查" value={issueCount} tone={issueCount > 0 ? 'warn' : 'ok'} />
         </div>
       </div>
 
-      {!hasAnything ? (
-        <div className="text-zinc-600 italic">No entities yet.</div>
-      ) : (
-        <>
-          <Section title="Apollo HD-Map">
-            {APOLLO_TOP_LEVEL_TYPES.map((t) => {
-              const n = stats.apolloCounts.get(t) ?? 0;
-              if (n === 0) return null;
-              return <Row key={t} label={getEntityPluralLabel(t)} value={n} />;
-            })}
-          </Section>
+      <div className="px-3 py-3">
+        {!hasAnything ? (
+          <EmptyState />
+        ) : (
+          <>
+            {OUTLINE_GROUPS.map((group) => (
+              <EntitySection
+                key={group.title}
+                title={group.title}
+                types={group.types}
+                counts={stats.apolloCounts}
+              />
+            ))}
 
-          {stats.drawingCount > 0 && (
-            <Section title="Drawing Primitives">
-              <Row label="Total" value={stats.drawingCount} />
+            {stats.drawingCount > 0 && (
+              <Section title="草图元素">
+                <Row label="临时绘制对象" value={stats.drawingCount} />
+              </Section>
+            )}
+
+            <Section title="结构检查">
+              {issueCount === 0 ? (
+                <CheckPassed />
+              ) : (
+                <>
+                  <Row
+                    label="未归属车道"
+                    value={stats.unparentedLanes}
+                    warn={stats.unparentedLanes > 0}
+                  />
+                  <Row
+                    label="失效路口引用"
+                    value={stats.orphanedJunctionRefs}
+                    warn={stats.orphanedJunctionRefs > 0}
+                  />
+                </>
+              )}
             </Section>
-          )}
+          </>
+        )}
+      </div>
 
-          <Section title="Health">
-            <Row
-              label="Unparented Lanes"
-              value={stats.unparentedLanes}
-              warn={stats.unparentedLanes > 0}
-            />
-            <Row
-              label="Dangling junction_id"
-              value={stats.orphanedJunctionRefs}
-              warn={stats.orphanedJunctionRefs > 0}
-            />
-          </Section>
-        </>
-      )}
-
-      {/* Map.header metadata — surfaces version/date/projection/bounds/etc.
-          from the imported Apollo proto. Read-only; see MapMetadataForm
-          source for the cross-agent gap on editability. */}
-      <div className="mt-2 -mx-3 border-t border-white/10">
+      <div className="border-t border-white/[0.07]">
         <MapMetadataForm />
       </div>
     </div>
   );
 }
 
+function SummaryMetric({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: number;
+  tone?: 'default' | 'ok' | 'warn';
+}) {
+  const valueClass =
+    tone === 'warn' ? 'text-amber-300' : tone === 'ok' ? 'text-emerald-300' : 'text-cyan-300';
+
+  return (
+    <div className="min-w-0 rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5">
+      <div className="text-[10px] text-zinc-500 leading-none mb-1">{label}</div>
+      <div className={`font-mono text-sm leading-none ${valueClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-4 text-[11px] leading-5 text-zinc-500">
+      当前地图还没有实体。导入 Apollo 地图或开始绘制后，这里会显示路网、交通设施和结构检查。
+    </div>
+  );
+}
+
+function EntitySection({
+  title,
+  types,
+  counts,
+}: {
+  title: string;
+  types: readonly string[];
+  counts: ReadonlyMap<string, number>;
+}) {
+  const rows = types
+    .map((type) => ({ type, count: counts.get(type) ?? 0 }))
+    .filter((row) => row.count > 0);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Section title={title}>
+      {rows.map(({ type, count }) => (
+        <EntityRow key={type} type={type} value={count} />
+      ))}
+    </Section>
+  );
+}
+
+function EntityRow({ type, value }: { type: string; value: number }) {
+  const Icon = getEntityIcon(type);
+  const color = getEntityColor(type) ?? '#a1a1aa';
+
+  return (
+    <div className="group flex items-center gap-2 rounded px-1.5 py-1 hover:bg-white/[0.04]">
+      <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" style={{ color }} />
+      <span className="min-w-0 flex-1 truncate text-zinc-400 group-hover:text-zinc-200">
+        {getEntityLabel(type)}
+      </span>
+      <span className="font-mono text-[11px] text-cyan-300 tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function CheckPassed() {
+  return (
+    <div className="flex items-center justify-between rounded px-1.5 py-1 text-[11px]">
+      <span className="text-zinc-500">车道归属与路口引用</span>
+      <span className="text-emerald-300">正常</span>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-4">
-      <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">{title}</div>
+    <div className="mb-4 last:mb-0">
+      <div className="mb-1.5 flex items-center gap-2">
+        <div className="h-3 w-[2px] rounded-full bg-cyan-400/60" />
+        <div className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">{title}</div>
+      </div>
       <div className="space-y-0.5">{children}</div>
     </div>
   );
@@ -148,9 +264,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Row({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
-    <div className="flex justify-between items-center px-1.5 py-0.5 hover:bg-white/5 rounded">
+    <div className="flex items-center justify-between rounded px-1.5 py-1 hover:bg-white/[0.04]">
       <span className="text-zinc-400">{label}</span>
-      <span className={warn ? 'text-amber-400' : 'text-cyan-400'}>{value}</span>
+      <span className={warn ? 'font-mono text-amber-300' : 'font-mono text-cyan-300'}>{value}</span>
     </div>
   );
 }
