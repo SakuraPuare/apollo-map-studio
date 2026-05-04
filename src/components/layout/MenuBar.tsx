@@ -3,6 +3,7 @@ import {
   formatShortcut,
   getMenuActions,
   getMenuNames,
+  isMacPlatform,
   type ActionDef,
   type ActionId,
 } from '@/core/actions/registry';
@@ -56,7 +57,7 @@ function Menu({
         {label}
       </button>
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 py-1 min-w-[200px] bg-zinc-900 border border-white/10 rounded-md shadow-xl z-50">
+        <div className="absolute top-full left-0 mt-1 py-1 min-w-[180px] w-max bg-zinc-900 border border-white/10 rounded-md shadow-xl z-50">
           {itemsWithDividers.map((item, i) =>
             item === 'divider' ? (
               <div key={`div-${i}`} className="my-1 border-t border-white/10" />
@@ -67,17 +68,13 @@ function Menu({
                   onExecute(item.id);
                   onClose();
                 }}
-                className="w-full px-3 py-1.5 text-xs flex items-center gap-4 text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
+                className="grid w-full grid-cols-[10px_minmax(0,1fr)_max-content] items-center gap-x-1 px-1.5 py-1.5 text-left text-xs whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
               >
-                <span className="flex items-center gap-2 flex-1">
-                  <span className="w-4 text-center shrink-0">
-                    {item.isToggle && getToggleState(item.id) ? '✓' : ''}
-                  </span>
-                  <span>{item.label}</span>
+                <span className="text-center text-[11px] leading-none text-zinc-300">
+                  {item.isToggle && getToggleState(item.id) ? '✓' : ''}
                 </span>
-                <span className="text-zinc-600 font-mono text-[10px] min-w-[3.5rem] text-right shrink-0">
-                  {item.shortcut ? formatShortcut(item.shortcut) : ''}
-                </span>
+                <span>{item.label}</span>
+                <MenuShortcut shortcut={item.shortcut} />
               </button>
             ),
           )}
@@ -85,6 +82,46 @@ function Menu({
       )}
     </div>
   );
+}
+
+function MenuShortcut({ shortcut }: { shortcut?: string }) {
+  const display = formatShortcut(shortcut);
+  if (!display) {
+    return <span className="min-w-[3.5rem] pl-5" />;
+  }
+
+  if (shortcut && isMacPlatform()) {
+    const { key, modifiers } = splitMacShortcut(shortcut);
+    return (
+      <span
+        aria-label={display}
+        className="grid min-w-[3.9rem] grid-cols-[0.65rem_0.65rem_0.65rem_0.65rem_0.9rem] items-center justify-end pl-5 text-right text-[12px] leading-none text-zinc-500/85"
+      >
+        {modifiers.map((modifier, index) => (
+          <span key={MAC_MODIFIER_ORDER[index]}>{modifier}</span>
+        ))}
+        <span>{key}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="min-w-[4.75rem] pl-5 text-right text-[11px] leading-none text-zinc-500/80">
+      {display}
+    </span>
+  );
+}
+
+const MAC_MODIFIER_ORDER = ['⌃', '⌥', '⇧', '⌘'] as const;
+
+function splitMacShortcut(shortcut: string): {
+  key: string;
+  modifiers: string[];
+} {
+  return {
+    key: shortcut.replace(/[⌃⌥⇧⌘]/g, ''),
+    modifiers: MAC_MODIFIER_ORDER.map((modifier) => (shortcut.includes(modifier) ? modifier : '')),
+  };
 }
 
 function withMenuDividers(actions: ActionDef[]): (ActionDef | 'divider')[] {
