@@ -106,6 +106,7 @@ jobs:
       - name: Build desktop artifacts
         run: pnpm ${{ matrix.package-script }}
         env:
+          APMS_LICENSE_PRIVATE_KEY_BASE64: ${{ secrets.APMS_LICENSE_PRIVATE_KEY_BASE64 }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

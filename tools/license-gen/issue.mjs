@@ -11,7 +11,8 @@
  *   --expires "2026-12-31T23:59:59Z"   # absolute, overrides --days
  *   --features draw,export             # comma list, reserved for future
  *   --lic LIC-2026-0001                # license id; auto-generated if omitted
- *   --key tools/license-gen/keys/private.pem
+ *   --key tools/license-gen/keys/private.pem      # optional override
+ *   APMS_LICENSE_PRIVATE_KEY_BASE64 in .env/CI    # default private-key source
  *   --quiet                            # suppress preamble; only print code
  *
  * Output: prints the activation code to stdout. It is safe to email/print
@@ -19,11 +20,9 @@
  */
 
 import { createPrivateKey, randomBytes, sign as edSign } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { readLicensePrivateKeyPem } from './env.mjs';
+
 const TOKEN_PREFIX = 'APMS1';
 
 function parseArgs(argv) {
@@ -89,12 +88,13 @@ const features =
         .filter(Boolean)
     : [];
 
-const keyPath = path.resolve(args.key ?? path.join(__dirname, 'keys', 'private.pem'));
-if (!existsSync(keyPath)) {
-  fail(`private key not found at ${keyPath} — run \`node tools/license-gen/gen-keys.mjs\` first`);
+let keySource;
+try {
+  keySource = readLicensePrivateKeyPem({ keyPath: args.key });
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
 }
-const privatePem = readFileSync(keyPath, 'utf8');
-const privateKey = createPrivateKey({ key: privatePem, format: 'pem' });
+const privateKey = createPrivateKey({ key: keySource.pem, format: 'pem' });
 
 const payload = {
   v: 1,
@@ -120,6 +120,7 @@ if (!args.quiet) {
   console.error(`  issued  : ${new Date(payload.issued).toISOString()}`);
   console.error(`  expires : ${expiresLabel}`);
   console.error(`  features: ${features.join(',') || '(none)'}`);
+  console.error(`  key     : ${keySource.source}`);
   console.error('---------------------');
   console.error('');
   console.error('activation code:');

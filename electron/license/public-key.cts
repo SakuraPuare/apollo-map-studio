@@ -1,16 +1,17 @@
 /**
  * Embedded Ed25519 public key — the *only* trust anchor for activation codes.
  *
- * The matching private key lives in `tools/license-gen/keys/private.pem` and
- * MUST never be shipped with the app. Re-generate the pair with:
+ * The matching private key lives in local `.env` / GitHub Actions secrets as
+ * `APMS_LICENSE_PRIVATE_KEY_BASE64` and MUST never be shipped with the app.
+ * Re-generate the pair with:
  *
  *     node tools/license-gen/gen-keys.mjs --rotate
  *
- * which atomically rewrites this file and writes a fresh PKCS8 private key.
+ * which atomically rewrites this file and writes a fresh private key to `.env`.
  */
 
 export const LICENSE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAc2wnOyeb2Mb5p/byoxXv5WEJfiRMGbI54BCVSWVp63s=
+MCowBQYDK2VwAyEAkZBezo6wosC3Di7KaCUQKZ19IaXnRxbgjz6OtICDJA8=
 -----END PUBLIC KEY-----
 ` as const;
 
