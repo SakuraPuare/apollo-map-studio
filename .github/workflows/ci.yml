@@ -12,8 +12,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: Typecheck & Test
+  quality:
+    name: Quality (${{ matrix.task }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - task: Typecheck
+            command: pnpm typecheck
+          - task: ESLint
+            command: pnpm lint
+          - task: Prettier
+            command: pnpm format:check
+          - task: Unit tests
+            command: pnpm test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Run ${{ matrix.task }}
+        run: ${{ matrix.command }}
+
+  benchmarks:
+    name: Benchmarks
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -33,31 +71,39 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: TypeScript typecheck
-        run: pnpm typecheck
-
-      - name: ESLint
-        run: pnpm lint
-
-      - name: Prettier formatting
-        run: pnpm format:check
-
-      - name: Web production build
-        run: pnpm build:web
-
-      - name: Documentation build
-        run: pnpm docs:build
-
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Benchmarks
+      - name: Run benchmarks
         run: pnpm bench --outputJson bench-results.json
 
       - name: Perf budget guard
         run: node scripts/check-bench-budget.mjs bench-results.json
+
+  web-build:
+    name: Web build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build web app
+        run: pnpm build:web
 
       - name: Upload web artifact
         uses: actions/upload-artifact@v7
@@ -66,23 +112,99 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  docs-build:
+    name: Documentation build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build documentation
+        run: pnpm docs:build
+
+  desktop-build:
+    name: Desktop build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: web-build
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Download web build
+        uses: actions/download-artifact@v5
+        with:
+          name: apollo-map-studio-web
+          path: dist
+
+      - name: Build desktop docs
+        run: pnpm build:docs:desktop
+
+      - name: Build hardened Electron assets
+        run: pnpm build:electron:hardened
+        env:
+          APMS_LICENSE_PRIVATE_KEY_BASE64: ${{ secrets.APMS_LICENSE_PRIVATE_KEY_BASE64 }}
+
+      - name: Verify Electron hardening
+        run: pnpm verify:electron-hardening
+
+      - name: Upload desktop build
+        uses: actions/upload-artifact@v7
+        with:
+          name: apollo-map-studio-desktop-build
+          path: |
+            dist/
+            dist-electron/
+          if-no-files-found: error
+
   desktop-package:
     name: Desktop package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    needs: check
+    needs: desktop-build
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            package-script: package:linux
+            builder-args: --linux --x64
             artifact-name: apollo-map-studio-linux
           - os: macos-latest
-            package-script: package:mac
+            builder-args: --mac --x64 --arm64
             artifact-name: apollo-map-studio-macos
           - os: windows-latest
-            package-script: package:win
+            builder-args: --win --x64
             artifact-name: apollo-map-studio-windows
 
     steps:
@@ -101,12 +223,18 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Build desktop artifacts
-        run: pnpm ${{ matrix.package-script }}
+      - name: Download desktop build
+        uses: actions/download-artifact@v5
+        with:
+          name: apollo-map-studio-desktop-build
+          path: .
+
+      - name: Package desktop artifacts
+        run: pnpm exec electron-builder ${{ matrix.builder-args }} --publish never
         env:
-          APMS_LICENSE_PRIVATE_KEY_BASE64: ${{ secrets.APMS_LICENSE_PRIVATE_KEY_BASE64 }}
+          NODE_OPTIONS: --no-deprecation
           CSC_IDENTITY_AUTO_DISCOVERY: false
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -128,16 +256,35 @@ jobs:
     name: GitHub Release
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [check, desktop-package]
+    needs: [quality, benchmarks, web-build, docs-build, desktop-package]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
     steps:
-      - name: Download build artifacts
+      - name: Download web artifact
         uses: actions/download-artifact@v5
         with:
-          path: artifacts
+          name: apollo-map-studio-web
+          path: artifacts/apollo-map-studio-web
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: apollo-map-studio-linux
+          path: artifacts/apollo-map-studio-linux
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: apollo-map-studio-macos
+          path: artifacts/apollo-map-studio-macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: apollo-map-studio-windows
+          path: artifacts/apollo-map-studio-windows
 
       - name: Archive web artifact
         run: |
