@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
 
+import { checkAccessGuardAccess, getAccessGuardIdentity } from './access-guard-runtime.cjs';
 import { LicenseManager } from './license/manager.cjs';
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -10,6 +11,7 @@ const APP_PROTOCOL = 'apollo-map-studio';
 const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
+  GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
 } as const;
 
 protocol.registerSchemesAsPrivileged([
@@ -173,7 +175,40 @@ async function openHelpWindow() {
   return true;
 }
 
+async function openDeniedWindow(denialHtml: string) {
+  const deniedWindow = new BrowserWindow({
+    width: 640,
+    height: 480,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    title: 'Access Denied',
+    backgroundColor: '#1e1e1e',
+    show: false,
+  });
+
+  deniedWindow.once('ready-to-show', () => {
+    deniedWindow.show();
+  });
+
+  deniedWindow.on('closed', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      app.quit();
+    }
+  });
+
+  configureExternalNavigation(deniedWindow);
+
+  await deniedWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(denialHtml)}`);
+}
+
 function registerAppIpc() {
+  ipcMain.on(APP_IPC.GET_ACCESS_GUARD_IDENTITY, (event) => {
+    event.returnValue = getAccessGuardIdentity();
+  });
+
   ipcMain.handle(APP_IPC.GET_INFO, () => ({
     name: app.getName(),
     productName: 'Apollo Map Studio',
@@ -249,6 +284,13 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    const access = checkAccessGuardAccess();
+
+    if (!access.allowed) {
+      void openDeniedWindow(access.denialHtml ?? '');
+      return;
+    }
+
     // Wire the license manager *before* creating any window so the renderer
     // can request state from a fully-initialised IPC surface.
     licenseManager = new LicenseManager();

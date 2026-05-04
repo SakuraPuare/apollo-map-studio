@@ -12,6 +12,7 @@ const LICENSE_IPC = {
 const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
+  GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
 } as const;
 
 contextBridge.exposeInMainWorld('apolloMapStudio', {
@@ -28,6 +29,7 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     return ipcRenderer.invoke(APP_IPC.OPEN_HELP);
   },
 });
+contextBridge.exposeInMainWorld('accessGuardIdentity', ipcRenderer.sendSync(APP_IPC.GET_ACCESS_GUARD_IDENTITY));
 
 const licenseApi = {
   /** Snapshot of the current license state. */
