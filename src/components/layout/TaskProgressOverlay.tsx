@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTaskProgressStore } from '@/store/taskProgressStore';
+import { useProjDialogStore } from '@/store/projDialogStore';
 
 export function TaskProgressOverlay() {
   const activeTask = useTaskProgressStore((s) => s.activeTask);
+  const projectionDialogPending = useProjDialogStore((s) => s.pending);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -12,7 +14,7 @@ export function TaskProgressOverlay() {
     return () => window.clearInterval(timer);
   }, [activeTask]);
 
-  if (!activeTask) return null;
+  if (!activeTask || projectionDialogPending) return null;
 
   const elapsedMs = now - activeTask.startedAt;
   if (elapsedMs < activeTask.visibleAfterMs) return null;
