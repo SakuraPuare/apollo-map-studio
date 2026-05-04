@@ -60,12 +60,12 @@ interface Track {
 | 时机                                               | 行为                                                                                                                                                     |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `useLayoutEffect([])`                              | 创建 `ResizeObserver(update)`，初次同步宽度，cleanup 时 `disconnect()`                                                                                   |
-| `useEffect([isPlaying, duration])`                 | `isPlaying=true` 时 `requestAnimationFrame(tick)`：每帧 `currentTime = startPlayTime + (now - startTime)`；越界则停止；cleanup 时 `cancelAnimationFrame` |
+| `useEffect([setState, isPlaying, duration])`       | `isPlaying=true` 时 `requestAnimationFrame(tick)`：每帧 `currentTime = startPlayTime + (now - startTime)`；越界则停止；cleanup 时 `cancelAnimationFrame` |
 | `togglePlay` / `stop` / `skipBack` / `skipForward` | 修改 `isPlaying` / `currentTime`                                                                                                                         |
 | `toggleTrackExpand(id)`                            | 切换 track 的 `expanded`                                                                                                                                 |
 
 ::: info `tick` 闭包注意事项
-`tick` 内部用函数式 setState 更新 `currentTime`，所以 `useEffect` 依赖数组**不**包含 `currentTime` —— 否则每帧都会 restart 动画。注意 `// eslint-disable-next-line react-hooks/exhaustive-deps`。
+`tick` 从 `currentTimeRef` 读取播放开始时刻，并用函数式 `setState` 更新 `currentTime`，所以 `useEffect` 依赖数组不需要包含每帧变化的 `currentTime`。
 :::
 
 ## 子组件

@@ -110,11 +110,11 @@ useEffect(() => {
   if (!containerRef.current) return;
   const map = new maplibregl.Map({...});
   // ...
-}, []);  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [containerRef]);
 ```
 
-依赖列表故意为空。`containerRef` 是 ref（非反应式），且地图初始化代价昂贵
-（`new Map` 同时启动 GPU context），不能在 props 变化时重做。
+依赖列表只包含 `containerRef` 本身；`containerRef.current` 是 ref 内容（非反应式）。
+调用方应传入稳定 ref，避免重复创建昂贵的 MapLibre GPU context。
 
 ### `doubleClickZoom: false`
 

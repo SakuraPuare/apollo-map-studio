@@ -60,12 +60,14 @@ interface Track {
 | When                                               | Behavior                                                                                                                                                                 |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `useLayoutEffect([])`                              | Creates a `ResizeObserver(update)` and observes `trackAreaRef`; disconnects on cleanup                                                                                   |
-| `useEffect([isPlaying, duration])`                 | When `isPlaying=true`, runs `requestAnimationFrame(tick)`: each frame `currentTime = startPlayTime + (now - startTime)`; stops at end; `cancelAnimationFrame` on cleanup |
+| `useEffect([setState, isPlaying, duration])`       | When `isPlaying=true`, runs `requestAnimationFrame(tick)`: each frame `currentTime = startPlayTime + (now - startTime)`; stops at end; `cancelAnimationFrame` on cleanup |
 | `togglePlay` / `stop` / `skipBack` / `skipForward` | Mutate `isPlaying` / `currentTime`                                                                                                                                       |
 | `toggleTrackExpand(id)`                            | Flip `expanded` on a track                                                                                                                                               |
 
 ::: info `tick` closure caveat
-`tick` updates `currentTime` via functional `setState`, so the `useEffect` deps **must not** include `currentTime` — listing it would restart the animation every frame. Note the `// eslint-disable-next-line react-hooks/exhaustive-deps`.
+`tick` reads the playback start time from `currentTimeRef` and updates `currentTime`
+via functional `setState`, so the `useEffect` deps do not need the per-frame
+`currentTime` value.
 :::
 
 ## Subcomponents

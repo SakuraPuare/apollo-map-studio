@@ -11,6 +11,17 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import prettierConfig from 'eslint-config-prettier';
 import globals from 'globals';
 
+const FAST_REFRESH_ALLOWED_EXPORTS = [
+  'EditorContext',
+  'SidebarContext',
+  'diffLaneFormAgainstEntity',
+  'laneFormValuesFromEntity',
+  'makeSidebarPanel',
+  'shouldPersistLaneForm',
+  'useEditorActor',
+  'useSidebar',
+];
+
 export default tseslint.config(
   {
     ignores: [
@@ -52,7 +63,16 @@ export default tseslint.config(
 
       // Fast refresh: only named-export components from files that
       // Dockview discovers.
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': [
+        'warn',
+        {
+          allowConstantExport: true,
+          // Stable public helpers intentionally co-located with their providers
+          // or component entry points. Keep the exception centralized instead of
+          // scattering react-refresh disables across source files.
+          allowExportNames: FAST_REFRESH_ALLOWED_EXPORTS,
+        },
+      ],
 
       // TypeScript ergonomics — off for things tsc already catches.
       '@typescript-eslint/no-unused-vars': [

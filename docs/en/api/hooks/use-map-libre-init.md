@@ -104,12 +104,12 @@ useEffect(() => {
   if (!containerRef.current) return;
   const map = new maplibregl.Map({...});
   // ...
-}, []);  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [containerRef]);
 ```
 
-Empty dependencies are intentional — `containerRef` is a ref (non-
-reactive), and `new Map` is expensive (boots a GPU context); we never
-want to reinitialize on prop changes.
+The dependency list includes only the `containerRef` object; `containerRef.current`
+is ref contents and therefore non-reactive. Callers should pass a stable ref so
+the expensive MapLibre GPU context is not recreated.
 
 ### `doubleClickZoom: false`
 

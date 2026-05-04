@@ -50,7 +50,5 @@ export function useCursorManager(
       subscription.unsubscribe();
       unsubUI();
     };
-    // mapRef is a ref — non-reactive by design.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRef]);
+  }, [actorRef, mapRef]);
 }

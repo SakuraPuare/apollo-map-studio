@@ -177,12 +177,14 @@ function useTimelinePlayback(
   setState: React.Dispatch<React.SetStateAction<TimelineState>>,
 ) {
   const animationRef = useRef<number | null>(null);
+  const currentTimeRef = useRef(state.currentTime);
+  currentTimeRef.current = state.currentTime;
 
   useEffect(() => {
     if (!state.isPlaying) return undefined;
 
     const startTime = performance.now();
-    const startPlayTime = state.currentTime;
+    const startPlayTime = currentTimeRef.current;
     const tick = () => {
       const newTime = startPlayTime + (performance.now() - startTime) / 1000;
       if (newTime >= state.duration) {
@@ -200,10 +202,7 @@ function useTimelinePlayback(
         cancelAnimationFrame(animationRef.current);
       }
     };
-    // state.currentTime is written inside tick() via functional setState;
-    // listing it would restart the animation on every frame.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.isPlaying, state.duration]);
+  }, [setState, state.isPlaying, state.duration]);
 }
 
 function formatTime(t: number) {

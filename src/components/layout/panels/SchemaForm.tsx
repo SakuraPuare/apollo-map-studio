@@ -60,6 +60,8 @@ export function SchemaForm<TEntity extends MapEntity, TFormValues extends FieldV
   // the current entity without tearing down on every store update.
   const entityRef = useRef(entity);
   entityRef.current = entity;
+  const schemaRef = useRef(schema);
+  schemaRef.current = schema;
 
   const methods = useForm<TFormValues>({
     resolver: zodResolverZ4<TFormValues>(schema.validation),
@@ -69,49 +71,45 @@ export function SchemaForm<TEntity extends MapEntity, TFormValues extends FieldV
     mode: 'onChange',
     defaultValues: formValuesFromEntity(schema, entity) as DefaultValues<TFormValues>,
   });
+  const { getValues, reset, setValue, watch } = methods;
 
   // Re-seed on entity ID swap only — mid-edit same-id updates are
   // handled by the cherry-pick effect below so we don't clobber the
   // field the user is typing into.
   useEffect(() => {
-    methods.reset(formValuesFromEntity(schema, entity) as TFormValues);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity.id]);
+    reset(formValuesFromEntity(schemaRef.current, entityRef.current) as TFormValues);
+  }, [entity.id, reset]);
 
   // Same-id drift sync — pushes only the fields whose store-side
   // value moved away from the form-side value (undo/redo, canvas
   // drag, etc.). The diff guard short-circuits the death loop after
   // the watch callback writes back into the store.
   useEffect(() => {
-    const current = methods.getValues();
-    const diffs = diffFormAgainstEntity(schema, current, entity);
+    const current = getValues();
+    const diffs = diffFormAgainstEntity(schemaRef.current, current, entity);
     if (diffs.length === 0) return;
     for (const [key, value] of diffs) {
-      methods.setValue(
-        key as Path<TFormValues>,
-        value as PathValue<TFormValues, Path<TFormValues>>,
-        {
-          shouldDirty: false,
-          shouldTouch: false,
-          shouldValidate: false,
-        },
-      );
+      setValue(key as Path<TFormValues>, value as PathValue<TFormValues, Path<TFormValues>>, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity]);
+  }, [entity, getValues, setValue]);
 
   // Auto-save on change. Single subscription per form lifetime — the
   // closure reads from `entityRef.current` so it cannot go stale.
   // `shouldPersistForm` is the dedupe gate that breaks the loop.
   useEffect(() => {
-    const subscription = methods.watch((value) => {
+    const subscription = watch((value) => {
       const liveEntity = entityRef.current;
-      if (!shouldPersistForm(schema, value as Partial<TFormValues>, liveEntity)) return;
-      const next = applyFormValuesToEntity(schema, liveEntity, value as Partial<TFormValues>);
+      const liveSchema = schemaRef.current;
+      if (!shouldPersistForm(liveSchema, value as Partial<TFormValues>, liveEntity)) return;
+      const next = applyFormValuesToEntity(liveSchema, liveEntity, value as Partial<TFormValues>);
       updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
-  }, [methods, updateEntity, schema]);
+  }, [updateEntity, watch]);
 
   // Group fields + readonly rows by section, then render in
   // schema.sectionOrder. Sections referenced but not in sectionOrder

@@ -8,12 +8,10 @@ import {
 } from '@/types/inspectorSchema';
 import { SchemaForm } from '../SchemaForm';
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function laneFormValuesFromEntity(entity: LaneEntity): LaneFormValues {
   return formValuesFromEntity(LaneInspectorSchema, entity);
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function diffLaneFormAgainstEntity(
   current: Partial<LaneFormValues>,
   entity: LaneEntity,
@@ -21,7 +19,6 @@ export function diffLaneFormAgainstEntity(
   return diffFormAgainstEntity(LaneInspectorSchema, current, entity);
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function shouldPersistLaneForm(
   formValues: Partial<LaneFormValues>,
   entity: LaneEntity,

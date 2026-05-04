@@ -9,7 +9,6 @@ interface SidebarContextValue {
   setSearchQuery(q: string): void;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const SidebarContext = createContext<SidebarContextValue | null>(null);
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
@@ -33,7 +32,6 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useSidebar(): SidebarContextValue {
   const ctx = useContext(SidebarContext);
   if (!ctx) throw new Error('useSidebar must be used within SidebarProvider');

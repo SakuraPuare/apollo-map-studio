@@ -126,7 +126,5 @@ export function useHotLayer(
         cancelAnimationFrame(frameId);
       }
     };
-    // mapRef / mapLoadedRef are refs — non-reactive by design.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRef]);
+  }, [actorRef, mapLoadedRef, mapRef]);
 }

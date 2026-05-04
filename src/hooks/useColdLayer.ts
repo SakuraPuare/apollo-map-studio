@@ -423,7 +423,5 @@ export function useColdLayer(
       entityFeatureCacheRef,
     };
     return setupColdLayerSync({ map, mapLoadedRef, actorRef, bridge, refs });
-    // mapRef / mapLoadedRef / bridgeRef are refs — non-reactive by design.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [actorRef]);
+  }, [actorRef, bridgeRef, mapLoadedRef, mapRef]);
 }

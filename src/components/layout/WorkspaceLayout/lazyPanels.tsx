@@ -66,7 +66,6 @@ export function MapPanelContent() {
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function makeSidebarPanel(onOpenSettings: () => void) {
   return function SidebarSlot() {
     return (

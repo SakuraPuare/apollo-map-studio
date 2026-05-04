@@ -19,20 +19,20 @@ export function useEntityFormSync<TEntity extends { id: string }, TFormValues ex
   valuesFromEntity: (entity: TEntity) => TFormValues,
 ) {
   const entityRef = useLatestEntity(entity);
+  const valuesFromEntityRef = useRef(valuesFromEntity);
+  valuesFromEntityRef.current = valuesFromEntity;
 
   useEffect(() => {
-    methods.reset(valuesFromEntity(entityRef.current));
+    methods.reset(valuesFromEntityRef.current(entityRef.current));
     // Reset is intentionally keyed only by identity swaps. Same-id store drift
     // is merged field-by-field below so a canvas update does not clobber focus.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity.id]);
+  }, [entity.id, entityRef, methods]);
 
   useEffect(() => {
-    syncFormValues(methods, valuesFromEntity(entity));
+    syncFormValues(methods, valuesFromEntityRef.current(entity));
     // The current entity object is the drift signal; methods and mapper are stable
     // for each mounted form instance.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity]);
+  }, [entity, methods]);
 
   return entityRef;
 }

@@ -30,9 +30,7 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       mapRef.current = null;
       mapLoadedRef.current = false;
     };
-    // containerRef is a ref — initializer runs once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [containerRef]);
 
   const laneArrowSpacing = useSettingsStore((s) => s.laneArrowSpacing);
   const laneArrowSize = useSettingsStore((s) => s.laneArrowSize);

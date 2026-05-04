@@ -63,16 +63,12 @@ interface ActionDispatcherOptions {
   getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean;
 }
 
-function importApolloWithLog() {
-  void pickAndImportApollo().then((info) => {
-    if (!info) return;
-    // eslint-disable-next-line no-console
-    console.info(`[Apollo IO] imported ${info.filename}:`, info.counts, `proj=${info.projString}`);
-  });
+function importApollo() {
+  void pickAndImportApollo();
 }
 
 function registerFileHandlers(map: Map<ActionId, () => void>, options: ActionDispatcherOptions) {
-  map.set('importApollo', importApolloWithLog);
+  map.set('importApollo', importApollo);
   map.set('exportApolloBin', () => void exportApolloBin());
   map.set('exportApolloText', () => void exportApolloText());
   map.set('settings', options.onOpenSettings);
