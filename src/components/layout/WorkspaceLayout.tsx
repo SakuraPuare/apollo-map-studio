@@ -103,10 +103,8 @@ function WorkspaceLayoutInner() {
     (actionId: WorkspaceViewActionId) => {
       const view = getWorkspaceViewByActionId(actionId, appMode);
       if (!view) return false;
-      if (view.panelId === 'sidebar') {
-        return view.sidebarViewId
-          ? openPanelIds.has('sidebar') && activeTab === view.sidebarViewId
-          : openPanelIds.has('sidebar');
+      if (view.kind === 'sidebar') {
+        return openPanelIds.has('sidebar') && activeTab === view.sidebarViewId;
       }
       return openPanelIds.has(view.panelId);
     },
@@ -182,7 +180,7 @@ function WorkspaceLayoutInner() {
     if (sidebarView?.kind === 'panel') {
       const api = apiRef.current;
       if (api) {
-        openWorkspacePanel(api, 'sidebar', { title: sidebarView.label });
+        openWorkspacePanel(api, 'sidebar', { mode: appMode, title: sidebarView.label });
         refreshOpenPanels(api);
       }
     }
@@ -215,21 +213,21 @@ function useWorkspaceViewToggle({
       const view = getWorkspaceViewByActionId(actionId, appMode);
       if (!view) return;
 
-      if (view.panelId === 'sidebar' && view.sidebarViewId) {
+      if (view.kind === 'sidebar') {
         const tab = view.sidebarViewId;
         const shouldClose = api.getPanel('sidebar') && activeTab === tab;
         if (shouldClose) {
           closeWorkspacePanel(api, 'sidebar');
         } else {
           setActiveTab(tab);
-          openWorkspacePanel(api, 'sidebar', { title: getSidebarTitle(tab) });
+          openWorkspacePanel(api, 'sidebar', { mode: appMode, title: getSidebarTitle(tab) });
         }
         refreshOpenPanels(api);
         return;
       }
 
       if (api.getPanel(view.panelId)) closeWorkspacePanel(api, view.panelId);
-      else openWorkspacePanel(api, view.panelId);
+      else openWorkspacePanel(api, view.panelId, { mode: appMode });
       refreshOpenPanels(api);
     },
     [activeTab, apiRef, appMode, refreshOpenPanels, setActiveTab],

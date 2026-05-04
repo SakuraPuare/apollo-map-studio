@@ -1,10 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { FaLayerGroup } from 'react-icons/fa6';
-import {
-  registerSidebarView,
-  registerWorkspaceView,
-  type SidebarViewRenderProps,
-} from '@/core/workspaceViewRegistry';
+import { registerSidebarView, type SidebarViewRenderProps } from '@/core/workspaceViewRegistry';
 
 const duplicate = { duplicate: 'ignore' } as const;
 
@@ -24,24 +20,15 @@ export function registerWorkspaceContribution(): void {
       placement: 'top',
       order: 20,
       kind: 'panel',
+      action: {
+        actionId: 'view:layers',
+        menuOrder: 22,
+      },
       render: ({ onSelect, selectedId }: SidebarViewRenderProps) => (
         <Suspense fallback={<PanelFallback label="Loading layers..." />}>
           <LazyLayerTree onSelect={onSelect} selectedId={selectedId} />
         </Suspense>
       ),
-    },
-    duplicate,
-  );
-
-  registerWorkspaceView(
-    {
-      id: 'layers',
-      actionId: 'view:layers',
-      label: 'Layers',
-      icon: FaLayerGroup,
-      menuOrder: 22,
-      panelId: 'sidebar',
-      sidebarViewId: 'layers',
     },
     duplicate,
   );

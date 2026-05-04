@@ -1,6 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { FaFolderTree } from 'react-icons/fa6';
-import { registerSidebarView, registerWorkspaceView } from '@/core/workspaceViewRegistry';
+import { registerSidebarView } from '@/core/workspaceViewRegistry';
 
 const duplicate = { duplicate: 'ignore' } as const;
 
@@ -20,24 +20,15 @@ export function registerWorkspaceContribution(): void {
       placement: 'top',
       order: 10,
       kind: 'panel',
+      action: {
+        actionId: 'view:outline',
+        menuOrder: 21,
+      },
       render: () => (
         <Suspense fallback={<PanelFallback label="Loading outline..." />}>
           <LazyMapOutline />
         </Suspense>
       ),
-    },
-    duplicate,
-  );
-
-  registerWorkspaceView(
-    {
-      id: 'outline',
-      actionId: 'view:outline',
-      label: 'Outline',
-      icon: FaFolderTree,
-      menuOrder: 21,
-      panelId: 'sidebar',
-      sidebarViewId: 'outline',
     },
     duplicate,
   );

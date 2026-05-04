@@ -1,10 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
-import {
-  registerSidebarView,
-  registerWorkspaceView,
-  type SidebarViewRenderProps,
-} from '@/core/workspaceViewRegistry';
+import { registerSidebarView, type SidebarViewRenderProps } from '@/core/workspaceViewRegistry';
 
 const duplicate = { duplicate: 'ignore' } as const;
 
@@ -24,24 +20,15 @@ export function registerWorkspaceContribution(): void {
       placement: 'top',
       order: 30,
       kind: 'panel',
+      action: {
+        actionId: 'view:search',
+        menuOrder: 23,
+      },
       render: ({ onSelect, selectedId }: SidebarViewRenderProps) => (
         <Suspense fallback={<PanelFallback label="Loading search..." />}>
           <LazySearchPanel onSelect={onSelect} selectedId={selectedId} />
         </Suspense>
       ),
-    },
-    duplicate,
-  );
-
-  registerWorkspaceView(
-    {
-      id: 'search',
-      actionId: 'view:search',
-      label: 'Search',
-      icon: FaMagnifyingGlass,
-      menuOrder: 23,
-      panelId: 'sidebar',
-      sidebarViewId: 'search',
     },
     duplicate,
   );

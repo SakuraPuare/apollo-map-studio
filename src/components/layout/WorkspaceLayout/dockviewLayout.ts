@@ -1,8 +1,10 @@
 import type { DockviewApi } from 'dockview-react';
 import type { AppMode } from '@/store/uiStore';
 import {
+  getWorkspacePanelDefs,
   getWorkspacePanelDef,
   isWorkspacePanelId,
+  isWorkspacePanelAvailable,
   type WorkspacePanelId,
 } from '@/core/workspaceViews';
 
@@ -40,45 +42,35 @@ export function loadLayout(api: DockviewApi, mode: AppMode): boolean {
 }
 
 export function createDefaultLayout(api: DockviewApi, mode: AppMode) {
-  const mapDef = getWorkspacePanelDef('map');
-  const sidebarDef = getWorkspacePanelDef('sidebar');
-  const inspectorDef = getWorkspacePanelDef('inspector');
-  const timelineDef = getWorkspacePanelDef('timeline');
-  const mapPanel = api.addPanel({
-    id: mapDef.id,
-    component: mapDef.component,
-    title: mapDef.defaultTitle,
-  });
-  api.addPanel({
-    id: sidebarDef.id,
-    component: sidebarDef.component,
-    title: sidebarDef.defaultTitle,
-    position: { referencePanel: mapPanel, direction: 'left' },
-  });
-  api.addPanel({
-    id: inspectorDef.id,
-    component: inspectorDef.component,
-    title: inspectorDef.defaultTitle,
-    position: { referencePanel: mapPanel, direction: 'right' },
-  });
-  applyPanelDefaultSize(api.getPanel('sidebar'), sidebarDef.defaultSize);
-  applyPanelDefaultSize(api.getPanel('inspector'), inspectorDef.defaultSize);
+  const panels = getWorkspacePanelDefs(mode);
+  const editorDef = panels.find((panel) => panel.zone === 'editor');
+  if (!editorDef) throw new Error(`No editor panel is available for mode: ${mode}`);
 
-  if (mode === 'scene') {
-    api.addPanel({
-      id: timelineDef.id,
-      component: timelineDef.component,
-      title: timelineDef.defaultTitle,
-      position: { referencePanel: mapPanel, direction: 'below' },
+  const editorPanel = api.addPanel({
+    id: editorDef.id,
+    component: editorDef.component,
+    title: editorDef.defaultTitle,
+  });
+  applyPanelDefaultSize(editorPanel, editorDef.defaultSize);
+
+  for (const panel of panels.filter((candidate) => candidate.id !== editorDef.id)) {
+    const dockPanel = api.addPanel({
+      id: panel.id,
+      component: panel.component,
+      title: panel.defaultTitle,
+      position: {
+        referencePanel: editorPanel,
+        direction: getPanelDirection(panel),
+      },
     });
-    applyPanelDefaultSize(api.getPanel('timeline'), timelineDef.defaultSize);
+    applyPanelDefaultSize(dockPanel, panel.defaultSize);
   }
 }
 
 export function openWorkspacePanel(
   api: DockviewApi,
   panelId: WorkspacePanelId,
-  options: { title?: string } = {},
+  options: { mode?: AppMode; title?: string } = {},
 ) {
   const existing = api.getPanel(panelId);
   if (existing) {
@@ -88,10 +80,11 @@ export function openWorkspacePanel(
   }
 
   const def = getWorkspacePanelDef(panelId);
+  if (!isWorkspacePanelAvailable(def, options.mode)) return undefined;
   const title = options.title ?? def.defaultTitle;
   const referencePanel = getReferencePanel(api, panelId);
   const position = referencePanel
-    ? { referencePanel, direction: getPanelDirection(panelId) }
+    ? { referencePanel, direction: getPanelDirection(def) }
     : undefined;
 
   const panel = api.addPanel({
@@ -113,21 +106,17 @@ export function closeWorkspacePanel(api: DockviewApi, panelId: WorkspacePanelId)
 }
 
 function getReferencePanel(api: DockviewApi, panelId: WorkspacePanelId) {
-  if (panelId === 'map') return api.activePanel;
-  if (panelId === 'sidebar') {
-    return (
-      api.getPanel('map') ?? api.getPanel('inspector') ?? api.getPanel('timeline') ?? undefined
-    );
-  }
-  if (panelId === 'inspector') {
-    return api.getPanel('map') ?? api.getPanel('sidebar') ?? api.getPanel('timeline') ?? undefined;
-  }
-  return api.getPanel('map') ?? api.getPanel('sidebar') ?? api.getPanel('inspector') ?? undefined;
+  const def = getWorkspacePanelDef(panelId);
+  if (def.zone === 'editor') return api.activePanel;
+  return getWorkspacePanelDefs()
+    .filter((candidate) => candidate.id !== panelId)
+    .map((candidate) => api.getPanel(candidate.id))
+    .find(Boolean);
 }
 
-function getPanelDirection(panelId: WorkspacePanelId) {
-  if (panelId === 'sidebar') return 'left';
-  if (panelId === 'timeline') return 'below';
+function getPanelDirection(panel: ReturnType<typeof getWorkspacePanelDef>) {
+  if (panel.zone === 'primarySidebar') return 'left';
+  if (panel.zone === 'bottomPanel') return 'below';
   return 'right';
 }
 

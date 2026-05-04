@@ -1,12 +1,12 @@
 import { FaTableColumns } from 'react-icons/fa6';
-import { registerWorkspaceView } from '@/core/workspaceViewRegistry';
+import { registerWorkspacePanelView } from '@/core/workspaceViewRegistry';
 
 const duplicate = { duplicate: 'ignore' } as const;
 
 export const workspaceContributionOrder = 50;
 
 export function registerWorkspaceContribution(): void {
-  registerWorkspaceView(
+  registerWorkspacePanelView(
     {
       id: 'inspector',
       actionId: 'view:inspector',

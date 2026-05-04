@@ -135,7 +135,7 @@ describe('Action Registry', () => {
     const drawingIds = getSidebarViewsByPlacement('top', 'drawing').map((view) => view.id);
     const sceneIds = getSidebarViewsByPlacement('top', 'scene').map((view) => view.id);
     expect(drawingIds).toEqual(['outline', 'layers', 'search']);
-    expect(sceneIds).toEqual(['outline', 'layers', 'search', 'timeline']);
+    expect(sceneIds).toEqual(['outline', 'layers', 'search']);
   });
 
   it('About menu has version information and help documentation', () => {

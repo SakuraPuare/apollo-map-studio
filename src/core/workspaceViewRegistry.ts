@@ -4,6 +4,7 @@ import type { IconType } from 'react-icons';
 export type WorkspaceMode = 'drawing' | 'scene';
 export type WorkspacePanelId = string;
 export type WorkspacePanelComponent = string;
+export type WorkbenchPanelZone = 'editor' | 'primarySidebar' | 'secondarySidebar' | 'bottomPanel';
 export type WorkspaceViewId = string;
 export type SidebarViewId = string;
 export type WorkspaceViewActionId = `view:${string}`;
@@ -25,18 +26,37 @@ export interface WorkspacePanelDef {
   id: WorkspacePanelId;
   component: WorkspacePanelComponent;
   defaultTitle: string;
+  zone: WorkbenchPanelZone;
+  order: number;
   defaultSize?: { width?: number; height?: number };
+  when?: WorkspaceWhenClause;
 }
 
-export interface WorkspaceViewDef {
+interface WorkspaceViewActionBase {
   id: WorkspaceViewId;
   actionId: WorkspaceViewActionId;
   label: string;
   icon: IconType;
   menuOrder: number;
-  panelId: WorkspacePanelId;
-  sidebarViewId?: SidebarViewId;
   when?: WorkspaceWhenClause;
+}
+
+export interface WorkspacePanelViewDef extends WorkspaceViewActionBase {
+  kind: 'panel';
+  panelId: WorkspacePanelId;
+}
+
+export interface SidebarWorkspaceViewDef extends WorkspaceViewActionBase {
+  kind: 'sidebar';
+  panelId: 'sidebar';
+  sidebarViewId: SidebarViewId;
+}
+
+export type WorkspaceViewDef = WorkspacePanelViewDef | SidebarWorkspaceViewDef;
+
+export interface SidebarViewActionDef {
+  actionId: WorkspaceViewActionId;
+  menuOrder: number;
 }
 
 export interface SidebarViewDef {
@@ -47,11 +67,12 @@ export interface SidebarViewDef {
   order: number;
   kind: 'panel' | 'modal';
   render?: SidebarViewRenderer;
+  action?: SidebarViewActionDef;
   when?: WorkspaceWhenClause;
 }
 
 const workspacePanels = new Map<WorkspacePanelId, WorkspacePanelDef>();
-const workspaceViews = new Map<WorkspaceViewId, WorkspaceViewDef>();
+const workspacePanelViews = new Map<WorkspaceViewId, WorkspacePanelViewDef>();
 const sidebarViews = new Map<SidebarViewId, SidebarViewDef>();
 
 interface RegisterOptions {
@@ -69,16 +90,19 @@ export function registerWorkspacePanel(
   workspacePanels.set(panel.id, panel);
 }
 
-export function registerWorkspaceView(view: WorkspaceViewDef, options: RegisterOptions = {}): void {
-  if (workspaceViews.has(view.id)) {
+export function registerWorkspacePanelView(
+  view: Omit<WorkspacePanelViewDef, 'kind'>,
+  options: RegisterOptions = {},
+): void {
+  if (workspacePanelViews.has(view.id)) {
     if (options.duplicate === 'ignore') return;
-    throw new Error(`Duplicate workspace view: ${view.id}`);
+    throw new Error(`Duplicate workspace panel view: ${view.id}`);
   }
-  const duplicateAction = [...workspaceViews.values()].find(
+  const duplicateAction = getWorkspaceViewDefs().find(
     (candidate) => candidate.actionId === view.actionId,
   );
   if (duplicateAction) throw new Error(`Duplicate workspace view action: ${view.actionId}`);
-  workspaceViews.set(view.id, view);
+  workspacePanelViews.set(view.id, { ...view, kind: 'panel' });
 }
 
 export function registerSidebarView(view: SidebarViewDef, options: RegisterOptions = {}): void {
@@ -86,15 +110,47 @@ export function registerSidebarView(view: SidebarViewDef, options: RegisterOptio
     if (options.duplicate === 'ignore') return;
     throw new Error(`Duplicate sidebar view: ${view.id}`);
   }
+  if (view.action) {
+    const duplicateAction = getWorkspaceViewDefs().find(
+      (candidate) => candidate.actionId === view.action?.actionId,
+    );
+    if (duplicateAction) {
+      throw new Error(`Duplicate workspace view action: ${view.action.actionId}`);
+    }
+  }
   sidebarViews.set(view.id, view);
 }
 
-export function getWorkspacePanelDefs(): WorkspacePanelDef[] {
-  return [...workspacePanels.values()];
+export function getWorkspacePanelDefs(mode?: WorkspaceMode): WorkspacePanelDef[] {
+  return [...workspacePanels.values()]
+    .filter((panel) => isWorkspacePanelAvailable(panel, mode))
+    .sort((a, b) => a.order - b.order);
 }
 
 export function getWorkspaceViewDefs(): WorkspaceViewDef[] {
-  return [...workspaceViews.values()].sort((a, b) => a.menuOrder - b.menuOrder);
+  return [...getSidebarWorkspaceViewDefs(), ...workspacePanelViews.values()].sort(
+    (a, b) => a.menuOrder - b.menuOrder,
+  );
+}
+
+export function getWorkspacePanelViewDefs(): WorkspacePanelViewDef[] {
+  return [...workspacePanelViews.values()].sort((a, b) => a.menuOrder - b.menuOrder);
+}
+
+export function getSidebarWorkspaceViewDefs(): SidebarWorkspaceViewDef[] {
+  return getSidebarViewDefs()
+    .filter((view) => view.kind === 'panel' && Boolean(view.action))
+    .map((view) => ({
+      id: view.id,
+      actionId: view.action!.actionId,
+      label: view.label,
+      icon: view.icon,
+      menuOrder: view.action!.menuOrder,
+      kind: 'sidebar',
+      panelId: 'sidebar',
+      sidebarViewId: view.id,
+      when: view.when,
+    }));
 }
 
 export function getSidebarViewDefs(): SidebarViewDef[] {
@@ -159,6 +215,15 @@ export function isSidebarViewAvailable(
 
 export function isWorkspaceViewAvailable(view: WorkspaceViewDef, mode?: WorkspaceMode): boolean {
   return isWhenClauseEnabled(view.when, mode);
+}
+
+export function isWorkspacePanelAvailable(
+  panel: WorkspacePanelDef | WorkspacePanelId,
+  mode?: WorkspaceMode,
+): boolean {
+  const def = typeof panel === 'string' ? workspacePanels.get(panel) : panel;
+  if (!def) return false;
+  return isWhenClauseEnabled(def.when, mode);
 }
 
 function isWhenClauseEnabled(
