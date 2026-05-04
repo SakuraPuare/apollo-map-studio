@@ -17,6 +17,8 @@ export default tseslint.config(
       'dist',
       'dist-electron',
       'docs/.vitepress/dist',
+      'docs/.vitepress/cache',
+      'docs/.vitepress/*.timestamp-*',
       'release',
       'node_modules',
       '.github',

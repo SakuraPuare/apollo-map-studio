@@ -1,8 +1,9 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin, type ViteDevServer } from 'vite';
 import accessGuard from 'access-guard/vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
+import { createServer as createVitePressServer } from 'vitepress';
 
 const ACCESS_GUARD_BLOCKLIST = ['daohu527', 'wheelos-tools', 'wheelos'];
 
@@ -70,8 +71,46 @@ function getVendorChunkName(id: string) {
   return packageName.startsWith('@') ? 'vendor-scoped' : 'vendor-misc';
 }
 
+const DOCS_BASE = '/docs/';
+
+function vitePressDocsDevPlugin(): Plugin {
+  let docsServer: ViteDevServer | undefined;
+
+  return {
+    name: 'apollo-map-studio:vitepress-docs-dev',
+    apply: 'serve',
+    async configureServer(server) {
+      docsServer = await createVitePressServer('docs', {
+        base: DOCS_BASE,
+        middlewareMode: server.httpServer ? { server: server.httpServer } : true,
+        hmr: server.httpServer ? { server: server.httpServer, path: '/docs-hmr' } : false,
+      });
+
+      server.middlewares.use((req, res, next) => {
+        const requestUrl = req.url ?? '/';
+
+        if (requestUrl === '/docs' || requestUrl.startsWith(DOCS_BASE)) {
+          docsServer?.middlewares(req, res, next);
+          return;
+        }
+
+        next();
+      });
+
+      server.httpServer?.once('close', () => {
+        void docsServer?.close();
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [accessGuard({ blocklist: ACCESS_GUARD_BLOCKLIST }), react(), tailwindcss()],
+  plugins: [
+    vitePressDocsDevPlugin(),
+    accessGuard({ blocklist: ACCESS_GUARD_BLOCKLIST }),
+    react(),
+    tailwindcss(),
+  ],
   base: './',
   resolve: {
     alias: {
