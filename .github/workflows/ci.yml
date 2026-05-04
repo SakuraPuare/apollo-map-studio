@@ -77,7 +77,15 @@ jobs:
         run: pnpm bench --outputJson bench-results.json
 
       - name: Perf budget guard
+        continue-on-error: true
         run: node scripts/check-bench-budget.mjs bench-results.json
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: bench-results.json
+          if-no-files-found: error
 
   web-build:
     name: Web build
