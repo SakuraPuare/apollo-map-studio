@@ -1,19 +1,49 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FaXmark } from 'react-icons/fa6';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
+import { useSettingsStore } from '@/store/settingsStore';
 import {
-  useSettingsStore,
-  MIN_HISTORY_LIMIT,
-  MAX_HISTORY_LIMIT,
-  MIN_LANE_HALF_WIDTH,
-  MAX_LANE_HALF_WIDTH,
-  MIN_LANE_ARROW_SPACING,
-  MAX_LANE_ARROW_SPACING,
-  MIN_MAP_ZOOM,
-  MAX_MAP_ZOOM,
-} from '@/store/settingsStore';
+  getSettingsTabs,
+  type ActionSettingEntryDef,
+  type NumberSettingEntryDef,
+  type SettingsEntryDef,
+  type SettingsSectionDef,
+  type SettingsTabDef,
+} from './settingsRegistry';
 
-// ─── NumInput ──────────────────────────────────────────────
+interface SettingsPanelProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+function formatDraft(entry: NumberSettingEntryDef, value: number): string {
+  return entry.format?.(value) ?? String(value);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getDraftKey(entry: NumberSettingEntryDef): string {
+  return entry.id;
+}
+
+function buildInitialDrafts(
+  tabs: readonly SettingsTabDef[],
+  settings: ReturnType<typeof useSettingsStore.getState>,
+) {
+  const drafts: Record<string, string> = {};
+  for (const tab of tabs) {
+    for (const section of tab.sections) {
+      for (const entry of section.entries) {
+        if (entry.kind !== 'number') continue;
+        drafts[getDraftKey(entry)] = formatDraft(entry, entry.value(settings));
+      }
+    }
+  }
+  return drafts;
+}
 
 function NumInput({
   value,
@@ -25,18 +55,19 @@ function NumInput({
   onReset,
 }: {
   value: string;
-  onChange: (v: string) => void;
+  onChange: (value: string) => void;
   min: number;
   max: number;
   step?: number;
-  onCommit: (n: number) => void;
+  onCommit: (value: number) => void;
   onReset: () => void;
 }) {
   const commit = () => {
     const n = Number(value);
-    if (Number.isFinite(n)) onCommit(Math.max(min, Math.min(max, n)));
+    if (Number.isFinite(n)) onCommit(clamp(n, min, max));
     else onReset();
   };
+
   return (
     <input
       type="number"
@@ -44,309 +75,214 @@ function NumInput({
       max={max}
       step={step}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(event) => onChange(event.target.value)}
       onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
       }}
-      className="w-full px-2 py-1 rounded bg-zinc-800/50 border border-white/10 text-zinc-200 text-xs outline-none focus:border-cyan-500/50"
+      className="h-7 w-full rounded border border-white/10 bg-zinc-800/50 px-2 text-xs text-zinc-200 outline-none transition-colors focus:border-cyan-500/50"
     />
   );
 }
 
-// ─── Main Component ────────────────────────────────────────
-
-interface SettingsPanelProps {
-  open: boolean;
-  onClose: () => void;
+function TabButton({
+  tab,
+  active,
+  onSelect,
+}: {
+  tab: SettingsTabDef;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = tab.icon;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'flex h-9 w-full items-center gap-2 rounded px-3 text-left text-xs transition-colors',
+        active
+          ? 'bg-cyan-500/15 text-cyan-200'
+          : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-200',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{tab.label}</span>
+    </button>
+  );
 }
 
 function SettingsSection({
-  title,
-  children,
+  section,
+  drafts,
+  setDraft,
+  settings,
 }: {
-  title: React.ReactNode;
-  children: React.ReactNode;
+  section: SettingsSectionDef;
+  drafts: Record<string, string>;
+  setDraft: (key: string, value: string) => void;
+  settings: ReturnType<typeof useSettingsStore.getState>;
 }) {
   return (
     <section>
-      <h3 className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2">
-        {title}
-      </h3>
-      {children}
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h3 className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+          {section.title}
+        </h3>
+        {section.note && <span className="text-[10px] text-zinc-600">{section.note}</span>}
+      </div>
+      <div className="space-y-3">{section.entries.map((entry) => renderEntry(entry))}</div>
     </section>
   );
+
+  function renderEntry(entry: SettingsEntryDef) {
+    if (entry.kind === 'number') {
+      return (
+        <NumberSetting
+          key={entry.id}
+          entry={entry}
+          draftValue={drafts[getDraftKey(entry)] ?? formatDraft(entry, entry.value(settings))}
+          setDraft={setDraft}
+          settings={settings}
+        />
+      );
+    }
+    return <ActionSetting key={entry.id} entry={entry} />;
+  }
 }
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="block mb-1 text-zinc-400 text-xs">{children}</label>;
-}
-
-function HistorySettings({
-  value,
-  onChange,
-  currentValue,
-  onCommit,
+function NumberSetting({
+  entry,
+  draftValue,
+  setDraft,
+  settings,
 }: {
-  value: string;
-  onChange: (value: string) => void;
-  currentValue: number;
-  onCommit: (value: number) => void;
+  entry: NumberSettingEntryDef;
+  draftValue: string;
+  setDraft: (key: string, value: string) => void;
+  settings: ReturnType<typeof useSettingsStore.getState>;
 }) {
-  return (
-    <SettingsSection title="Undo History">
-      <FieldLabel>History limit</FieldLabel>
-      <NumInput
-        value={value}
-        onChange={onChange}
-        min={MIN_HISTORY_LIMIT}
-        max={MAX_HISTORY_LIMIT}
-        onCommit={(n) => {
-          onCommit(n);
-          onChange(String(Math.round(n)));
-        }}
-        onReset={() => onChange(String(currentValue))}
-      />
-      <p className="mt-1 text-zinc-600 text-[10px]">
-        Range: {MIN_HISTORY_LIMIT}–{MAX_HISTORY_LIMIT}
-      </p>
-    </SettingsSection>
-  );
-}
+  const draftKey = getDraftKey(entry);
+  const currentValue = entry.value(settings);
+  const rangeLabel = entry.rangeLabel ?? `Range: ${entry.min}-${entry.max}`;
 
-interface ViewportSettingsProps {
-  draftLng: string;
-  draftLat: string;
-  draftZoom: string;
-  mapCenterLng: number;
-  mapCenterLat: number;
-  mapZoom: number;
-  setDraftLng: (value: string) => void;
-  setDraftLat: (value: string) => void;
-  setDraftZoom: (value: string) => void;
-  setMapCenter: (lng: number, lat: number) => void;
-  setMapZoom: (zoom: number) => void;
-}
-
-function ViewportSettings({
-  draftLng,
-  draftLat,
-  draftZoom,
-  mapCenterLng,
-  mapCenterLat,
-  mapZoom,
-  setDraftLng,
-  setDraftLat,
-  setDraftZoom,
-  setMapCenter,
-  setMapZoom,
-}: ViewportSettingsProps) {
   return (
-    <SettingsSection
-      title={
-        <>
-          Map Viewport <span className="text-zinc-600 normal-case">(restart to apply)</span>
-        </>
-      }
-    >
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <FieldLabel>Longitude</FieldLabel>
-          <NumInput
-            value={draftLng}
-            onChange={setDraftLng}
-            min={-180}
-            max={180}
-            onCommit={(n) => {
-              setMapCenter(n, mapCenterLat);
-              setDraftLng(String(n));
-            }}
-            onReset={() => setDraftLng(String(mapCenterLng))}
-          />
-        </div>
-        <div>
-          <FieldLabel>Latitude</FieldLabel>
-          <NumInput
-            value={draftLat}
-            onChange={setDraftLat}
-            min={-90}
-            max={90}
-            onCommit={(n) => {
-              setMapCenter(mapCenterLng, n);
-              setDraftLat(String(n));
-            }}
-            onReset={() => setDraftLat(String(mapCenterLat))}
-          />
-        </div>
+    <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-start gap-3">
+      <label className="pt-1.5 text-xs text-zinc-400">{entry.label}</label>
+      <div>
+        <NumInput
+          value={draftValue}
+          onChange={(value) => setDraft(draftKey, value)}
+          min={entry.min}
+          max={entry.max}
+          step={entry.step}
+          onCommit={(value) => {
+            entry.commit(settings, value);
+            const nextSettings = useSettingsStore.getState();
+            setDraft(draftKey, formatDraft(entry, entry.value(nextSettings)));
+          }}
+          onReset={() => setDraft(draftKey, formatDraft(entry, currentValue))}
+        />
+        <p className="mt-1 text-[10px] text-zinc-600">{rangeLabel}</p>
       </div>
-      <FieldLabel>Zoom</FieldLabel>
-      <NumInput
-        value={draftZoom}
-        onChange={setDraftZoom}
-        min={MIN_MAP_ZOOM}
-        max={MAX_MAP_ZOOM}
-        onCommit={(n) => {
-          setMapZoom(n);
-          setDraftZoom(String(n));
-        }}
-        onReset={() => setDraftZoom(String(mapZoom))}
-      />
-    </SettingsSection>
+    </div>
   );
 }
 
-function LaneSettings({
-  draftLaneW,
-  draftArrow,
-  laneHalfWidth,
-  laneArrowSpacing,
-  setDraftLaneW,
-  setDraftArrow,
-  setLaneHalfWidth,
-  setLaneArrowSpacing,
-}: {
-  draftLaneW: string;
-  draftArrow: string;
-  laneHalfWidth: number;
-  laneArrowSpacing: number;
-  setDraftLaneW: (value: string) => void;
-  setDraftArrow: (value: string) => void;
-  setLaneHalfWidth: (value: number) => void;
-  setLaneArrowSpacing: (value: number) => void;
-}) {
+function ActionSetting({ entry }: { entry: ActionSettingEntryDef }) {
   return (
-    <SettingsSection title="Lane">
-      <FieldLabel>Default half-width (m)</FieldLabel>
-      <NumInput
-        value={draftLaneW}
-        onChange={setDraftLaneW}
-        min={MIN_LANE_HALF_WIDTH}
-        max={MAX_LANE_HALF_WIDTH}
-        step={0.25}
-        onCommit={(n) => {
-          setLaneHalfWidth(n);
-          setDraftLaneW(String(n));
-        }}
-        onReset={() => setDraftLaneW(String(laneHalfWidth))}
-      />
-      <FieldLabel>Arrow spacing (px)</FieldLabel>
-      <NumInput
-        value={draftArrow}
-        onChange={setDraftArrow}
-        min={MIN_LANE_ARROW_SPACING}
-        max={MAX_LANE_ARROW_SPACING}
-        step={10}
-        onCommit={(n) => {
-          setLaneArrowSpacing(n);
-          setDraftArrow(String(n));
-        }}
-        onReset={() => setDraftArrow(String(laneArrowSpacing))}
-      />
-    </SettingsSection>
-  );
-}
-
-function LayoutSettings() {
-  return (
-    <SettingsSection title="Layout">
-      <button
-        onClick={() => {
-          localStorage.removeItem('ams-layout-v2');
-          window.location.reload();
-        }}
-        className="px-3 py-1.5 text-xs text-zinc-400 bg-zinc-800/50 border border-white/10 rounded hover:bg-zinc-700/50 hover:text-zinc-200 transition-colors"
-      >
-        Reset Layout to Default
-      </button>
-    </SettingsSection>
+    <button
+      type="button"
+      onClick={entry.run}
+      className={cn(
+        'rounded border px-3 py-1.5 text-xs transition-colors',
+        entry.tone === 'danger'
+          ? 'border-red-400/20 bg-red-500/10 text-red-200 hover:bg-red-500/15'
+          : 'border-white/10 bg-zinc-800/50 text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200',
+      )}
+    >
+      {entry.label}
+    </button>
   );
 }
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
-  const historyLimit = useSettingsStore((s) => s.historyLimit);
-  const setHistoryLimit = useSettingsStore((s) => s.setHistoryLimit);
-  const [draftHistory, setDraftHistory] = useState(String(historyLimit));
+  const tabs = useMemo(() => getSettingsTabs(), []);
+  const settings = useSettingsStore();
+  const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '');
+  const [drafts, setDrafts] = useState<Record<string, string>>(() =>
+    buildInitialDrafts(tabs, settings),
+  );
 
-  const mapCenterLng = useSettingsStore((s) => s.mapCenterLng);
-  const mapCenterLat = useSettingsStore((s) => s.mapCenterLat);
-  const mapZoom = useSettingsStore((s) => s.mapZoom);
-  const setMapCenter = useSettingsStore((s) => s.setMapCenter);
-  const setMapZoom = useSettingsStore((s) => s.setMapZoom);
-  const [draftLng, setDraftLng] = useState(String(mapCenterLng));
-  const [draftLat, setDraftLat] = useState(String(mapCenterLat));
-  const [draftZoom, setDraftZoom] = useState(String(mapZoom));
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
-  const laneHalfWidth = useSettingsStore((s) => s.laneHalfWidth);
-  const setLaneHalfWidth = useSettingsStore((s) => s.setLaneHalfWidth);
-  const [draftLaneW, setDraftLaneW] = useState(String(laneHalfWidth));
-
-  const laneArrowSpacing = useSettingsStore((s) => s.laneArrowSpacing);
-  const setLaneArrowSpacing = useSettingsStore((s) => s.setLaneArrowSpacing);
-  const [draftArrow, setDraftArrow] = useState(String(laneArrowSpacing));
-
-  // ESC to close
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    setDrafts(buildInitialDrafts(tabs, useSettingsStore.getState()));
+  }, [open, tabs]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !activeTab) return null;
+
+  const setDraft = (key: string, value: string) => {
+    setDrafts((current) => ({ ...current, [key]: value }));
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative grid h-[min(34rem,82vh)] w-[min(44rem,calc(100vw-2rem))] grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-2xl">
+        <aside className="border-r border-white/10 bg-zinc-950/40 px-2 py-3">
+          <div className="mb-3 px-2 text-sm font-medium text-zinc-200">Settings</div>
+          <div className="space-y-1">
+            {tabs.map((tab) => (
+              <TabButton
+                key={tab.id}
+                tab={tab}
+                active={tab.id === activeTab.id}
+                onSelect={() => setActiveTabId(tab.id)}
+              />
+            ))}
+          </div>
+        </aside>
 
-      {/* Panel */}
-      <div className="relative w-full max-w-md bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-          <h2 className="text-sm font-medium text-zinc-200">Settings</h2>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
-          >
-            <FaXmark className="w-4 h-4" />
-          </button>
+        <div className="min-w-0">
+          <div className="flex h-12 items-center justify-between border-b border-white/10 px-5">
+            <div>
+              <h2 className="text-sm font-medium text-zinc-200">{activeTab.label}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-300"
+              aria-label="Close settings"
+            >
+              <FaXmark className="h-4 w-4" />
+            </button>
+          </div>
+
+          <ScrollArea className="h-[calc(min(34rem,82vh)-3rem)]" viewportClassName="px-5 py-4">
+            <div className="space-y-6">
+              {activeTab.sections.map((section) => (
+                <SettingsSection
+                  key={section.id}
+                  section={section}
+                  drafts={drafts}
+                  setDraft={setDraft}
+                  settings={settings}
+                />
+              ))}
+            </div>
+          </ScrollArea>
         </div>
-
-        {/* Content */}
-        <ScrollArea className="max-h-[60vh]" viewportClassName="px-5 py-4 space-y-5">
-          <HistorySettings
-            value={draftHistory}
-            onChange={setDraftHistory}
-            currentValue={historyLimit}
-            onCommit={setHistoryLimit}
-          />
-          <ViewportSettings
-            draftLng={draftLng}
-            draftLat={draftLat}
-            draftZoom={draftZoom}
-            mapCenterLng={mapCenterLng}
-            mapCenterLat={mapCenterLat}
-            mapZoom={mapZoom}
-            setDraftLng={setDraftLng}
-            setDraftLat={setDraftLat}
-            setDraftZoom={setDraftZoom}
-            setMapCenter={setMapCenter}
-            setMapZoom={setMapZoom}
-          />
-          <LaneSettings
-            draftLaneW={draftLaneW}
-            draftArrow={draftArrow}
-            laneHalfWidth={laneHalfWidth}
-            laneArrowSpacing={laneArrowSpacing}
-            setDraftLaneW={setDraftLaneW}
-            setDraftArrow={setDraftArrow}
-            setLaneHalfWidth={setLaneHalfWidth}
-            setLaneArrowSpacing={setLaneArrowSpacing}
-          />
-          <LayoutSettings />
-        </ScrollArea>
       </div>
     </div>
   );

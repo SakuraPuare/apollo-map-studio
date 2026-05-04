@@ -23,6 +23,10 @@ export const MAX_HISTORY_LIMIT = 1000;
 
 export const MIN_MAP_ZOOM = 1;
 export const MAX_MAP_ZOOM = 22;
+export const MIN_MAP_CENTER_LNG = -180;
+export const MAX_MAP_CENTER_LNG = 180;
+export const MIN_MAP_CENTER_LAT = -90;
+export const MAX_MAP_CENTER_LAT = 90;
 
 export const MIN_LANE_HALF_WIDTH = 0.5;
 export const MAX_LANE_HALF_WIDTH = 10;
@@ -50,8 +54,18 @@ export function readHistoryLimit(): number {
 }
 
 export function readMapCenter(): [number, number] {
-  const lng = readNum(MAP_CENTER_LNG_KEY, MAP_DEFAULT_CENTER[0], -180, 180);
-  const lat = readNum(MAP_CENTER_LAT_KEY, MAP_DEFAULT_CENTER[1], -90, 90);
+  const lng = readNum(
+    MAP_CENTER_LNG_KEY,
+    MAP_DEFAULT_CENTER[0],
+    MIN_MAP_CENTER_LNG,
+    MAX_MAP_CENTER_LNG,
+  );
+  const lat = readNum(
+    MAP_CENTER_LAT_KEY,
+    MAP_DEFAULT_CENTER[1],
+    MIN_MAP_CENTER_LAT,
+    MAX_MAP_CENTER_LAT,
+  );
   return [lng, lat];
 }
 
@@ -120,8 +134,8 @@ export const useSettingsStore = create<SettingsState & SettingsActions>()((set) 
       persist(HISTORY_LIMIT_KEY, v);
     },
     setMapCenter(lng, lat) {
-      const lo = Math.max(-180, Math.min(180, lng));
-      const la = Math.max(-90, Math.min(90, lat));
+      const lo = Math.max(MIN_MAP_CENTER_LNG, Math.min(MAX_MAP_CENTER_LNG, lng));
+      const la = Math.max(MIN_MAP_CENTER_LAT, Math.min(MAX_MAP_CENTER_LAT, lat));
       set({ mapCenterLng: lo, mapCenterLat: la });
       persist(MAP_CENTER_LNG_KEY, lo);
       persist(MAP_CENTER_LAT_KEY, la);
