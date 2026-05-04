@@ -1,5 +1,6 @@
 import { bench, describe } from 'vitest';
 import { apolloMapFromLonLat, apolloMapToLonLat } from '../adapter';
+import { computeApolloMapBounds } from '../apolloGeoJson';
 import { decodeMapBin, encodeMapBin } from '../binCodec';
 import { apolloMapToEntities, entitiesToApolloMap, type RawApolloMap } from '../entityBridge';
 import { decodeMapText, encodeMapText } from '../textCodec';
@@ -115,6 +116,10 @@ describe('proto entity bridge and projection', () => {
       entitiesToApolloMap(map, entities);
     });
 
+    bench(`proto bounds ${scale.label} — computeApolloMapBounds`, () => {
+      computeApolloMapBounds(map as Parameters<typeof computeApolloMapBounds>[0]);
+    });
+
     bench(`proto projection ${scale.label} — to lonlat`, async () => {
       await apolloMapToLonLat(map, PROJ);
     });
@@ -130,6 +135,7 @@ describe('proto codecs', async () => {
   const bytes = await encodeMapBin(map);
   const textMap = rawMap(100, 8);
   const text = await encodeMapText(textMap);
+  const roundtripEntities = apolloMapToEntities(map);
 
   bench(`proto bin 1k lanes — encode`, async () => {
     await encodeMapBin(map);
@@ -145,5 +151,11 @@ describe('proto codecs', async () => {
 
   bench(`proto text 100 lanes — decode`, async () => {
     await decodeMapText(text);
+  });
+
+  bench(`proto roundtrip 1k lanes — bridge project encode`, async () => {
+    const merged = entitiesToApolloMap(map, roundtripEntities);
+    const { map: projected } = await apolloMapFromLonLat(merged, PROJ);
+    await encodeMapBin(projected);
   });
 });

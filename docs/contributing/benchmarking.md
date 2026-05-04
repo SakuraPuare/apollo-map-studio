@@ -172,18 +172,19 @@ a comment in bench-budgets.json explaining the trade-off.
 
 ## 现有 bench 区域
 
-| 区域                       | 关注的契约                                  |
-| -------------------------- | ------------------------------------------- |
-| `offset polyline geometry` | 10 / 100 / 1000 点 offset 的 p99 上限       |
-| `lane junction derivation` | 全量 stitch 与 1 / 3 lane 增量装饰 p99 上限 |
-| `lane topology reconcile`  | 全量 / 单 dirty 拓扑派生在多规模下的 p99    |
-| `overlap reconcile`        | full 重算随规模线性；dirty 增量近似常数     |
-| `spatial index syncDirty`  | 单 dirty 更新不随全图实体数增长             |
-| `interaction geometry`     | snap、hit-test 距离、polygon validation     |
-| `spatial worker pipeline`  | sync、cold feature rebuild、delta、hit-test |
-| `cold/hot/overlay/grid`    | 主线程 source diff/update 与预览构造        |
-| `entityOps/mapStore`       | 引用清理、reparent、store 写事务            |
-| `proto pipeline`           | bridge、projection、binary/text codec       |
+| 区域                       | 关注的契约                                   |
+| -------------------------- | -------------------------------------------- |
+| `offset polyline geometry` | 10 / 100 / 1000 点 offset 的 p99 上限        |
+| `lane junction derivation` | 全量 stitch 与 1 / 3 lane 增量装饰 p99 上限  |
+| `lane topology reconcile`  | 全量 / 单 dirty 拓扑派生在多规模下的 p99     |
+| `overlap reconcile`        | full 重算随规模线性；dirty 增量近似常数      |
+| `spatial index syncDirty`  | 单 dirty 更新不随全图实体数增长              |
+| `interaction geometry`     | snap、hit-test 距离、polygon validation      |
+| `spatial worker pipeline`  | sync、cold feature rebuild、delta、hit-test  |
+| `cold/hot/overlay/grid`    | 主线程 source diff/update 与预览构造         |
+| `entityOps/mapStore`       | 引用清理、reparent、store 写事务             |
+| `worker/IO chunking`       | 主线程 2k 分块 slice / progress 循环         |
+| `proto pipeline`           | bridge、bounds、projection、roundtrip、codec |
 
 详见 `scripts/bench-budgets.json`（[源码](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)）。
 

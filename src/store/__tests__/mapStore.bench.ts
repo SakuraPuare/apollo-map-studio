@@ -49,5 +49,14 @@ describe('map store write transactions', () => {
       },
       { iterations: 10 },
     );
+
+    bench(
+      `mapStore ${scale.label} — batchImport transaction`,
+      () => {
+        seedStore(new Map());
+        useMapStore.getState().batchImport([...entities.values()]);
+      },
+      { iterations: 3 },
+    );
   }
 });

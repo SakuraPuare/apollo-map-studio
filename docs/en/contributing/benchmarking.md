@@ -189,7 +189,8 @@ reject.
 | `spatial worker pipeline`  | sync, cold feature rebuild, delta, and hit-test protocol     |
 | `cold/hot/overlay/grid`    | main-thread source diff/update and preview construction      |
 | `entityOps/mapStore`       | reference cleanup, reparent scans, and store write txns      |
-| `proto pipeline`           | bridge, projection, binary codec, and text codec             |
+| `worker/IO chunking`       | main-thread 2k chunk slice / progress loops                  |
+| `proto pipeline`           | bridge, bounds, projection, roundtrip, and codecs            |
 
 See `scripts/bench-budgets.json`
 ([source](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)).

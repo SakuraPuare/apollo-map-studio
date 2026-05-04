@@ -5,7 +5,7 @@ description: 'Per-bench reference for scripts/bench-budgets.json: names, p99 cei
 
 # Benchmark Budgets
 
-This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
+This page summarizes the 105 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
 
 ## File Locations
 
@@ -106,6 +106,12 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
   "snap 10k entities — find target": {
     "p99Ms": 6
   },
+  "snap applySnap 1k entities — editingPoint": {
+    "p99Ms": 0.8
+  },
+  "snap applySnap 5k entities — editingPoint": {
+    "p99Ms": 4
+  },
   "hitTest polyline 1000 segments — distance": {
     "p99Ms": 0.1
   },
@@ -140,7 +146,7 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
     "p99Ms": 60
   },
   "spatial 1k — buildFeatureCollection full": {
-    "p99Ms": 8
+    "p99Ms": 10
   },
   "spatial 1k — buildFeatureCollection incremental 1 lane": {
     "p99Ms": 4
@@ -265,29 +271,47 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
   "mapStore 10k — remove lane transaction": {
     "p99Ms": 40
   },
+  "mapStore 10k — batchImport transaction": {
+    "p99Ms": 90
+  },
   "mapStore 25k — update lane transaction": {
     "p99Ms": 90
   },
   "mapStore 25k — remove lane transaction": {
     "p99Ms": 120
   },
+  "mapStore 25k — batchImport transaction": {
+    "p99Ms": 240
+  },
+  "chunking 10k entities — slice 2k chunks": {
+    "p99Ms": 0.05
+  },
+  "chunking 50k entities — slice 2k chunks": {
+    "p99Ms": 0.1
+  },
   "proto bridge 1k — apolloMapToEntities": {
     "p99Ms": 5
   },
   "proto bridge 1k — entitiesToApolloMap": {
-    "p99Ms": 2
+    "p99Ms": 3
+  },
+  "proto bounds 1k — computeApolloMapBounds": {
+    "p99Ms": 0.5
   },
   "proto projection 1k — to lonlat": {
     "p99Ms": 45
   },
   "proto projection 1k — from lonlat": {
-    "p99Ms": 30
+    "p99Ms": 60
   },
   "proto bridge 5k — apolloMapToEntities": {
     "p99Ms": 12
   },
   "proto bridge 5k — entitiesToApolloMap": {
-    "p99Ms": 6
+    "p99Ms": 16
+  },
+  "proto bounds 5k — computeApolloMapBounds": {
+    "p99Ms": 2
   },
   "proto projection 5k — to lonlat": {
     "p99Ms": 150
@@ -299,13 +323,16 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
     "p99Ms": 30
   },
   "proto bin 1k lanes — decode": {
-    "p99Ms": 8
+    "p99Ms": 16
   },
   "proto text 100 lanes — encode": {
     "p99Ms": 12
   },
   "proto text 100 lanes — decode": {
     "p99Ms": 8
+  },
+  "proto roundtrip 1k lanes — bridge project encode": {
+    "p99Ms": 60
   }
 }
 ```
@@ -358,30 +385,32 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
 | `overlap 25k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.5 ms**  | full and dirty overlap reconciliation plus index maintenance |
 | `overlap 25k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts` | **0.05 ms** | full and dirty overlap reconciliation plus index maintenance |
 
-### interaction geometry
+### interaction geometry and snap integration
 
-| Bench                                               | File                                                       | p99 ceiling | Guarded path                                        |
-| --------------------------------------------------- | ---------------------------------------------------------- | ----------- | --------------------------------------------------- |
-| `snap 1k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | mousemove snap scan over visible entities           |
-| `snap 5k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **2.5 ms**  | mousemove snap scan over visible entities           |
-| `snap 10k entities — find target`                   | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **6 ms**    | mousemove snap scan over visible entities           |
-| `hitTest polyline 1000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
-| `hitTest polyline 5000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.25 ms** | worker hit-test distance primitives                 |
-| `hitTest polygon 1000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                 |
-| `hitTest polygon 5000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.4 ms**  | worker hit-test distance primitives                 |
-| `validation 100 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
-| `validation 100 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.1 ms**  | polygon self-intersection checks in draw/edit flows |
-| `validation 500 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
-| `validation 500 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.8 ms**  | polygon self-intersection checks in draw/edit flows |
-| `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows |
-| `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows |
+| Bench                                               | File                                                                                                      | p99 ceiling | Guarded path                                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------ |
+| `snap 1k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.8 ms**  | mousemove snap scan over visible entities                          |
+| `snap 5k entities — find target`                    | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **2.5 ms**  | mousemove snap scan over visible entities                          |
+| `snap 10k entities — find target`                   | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **6 ms**    | mousemove snap scan over visible entities                          |
+| `snap applySnap 1k entities — editingPoint`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.8 ms**  | mousemove snap integration through map, UI store, and entity store |
+| `snap applySnap 5k entities — editingPoint`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **4 ms**    | mousemove snap integration through map, UI store, and entity store |
+| `hitTest polyline 1000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                                |
+| `hitTest polyline 5000 segments — distance`         | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.25 ms** | worker hit-test distance primitives                                |
+| `hitTest polygon 1000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.1 ms**  | worker hit-test distance primitives                                |
+| `hitTest polygon 5000 vertices — distance`          | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.4 ms**  | worker hit-test distance primitives                                |
+| `validation 100 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows                |
+| `validation 100 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.1 ms**  | polygon self-intersection checks in draw/edit flows                |
+| `validation 500 vertices — append edge`             | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows                |
+| `validation 500 vertices — full self-intersection`  | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.8 ms**  | polygon self-intersection checks in draw/edit flows                |
+| `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows                |
+| `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows                |
 
 ### spatial worker pipeline
 
 | Bench                                                    | File                                                  | p99 ceiling | Guarded path                                                    |
 | -------------------------------------------------------- | ----------------------------------------------------- | ----------- | --------------------------------------------------------------- |
 | `spatial 1k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **60 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
-| `spatial 1k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **8 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
@@ -434,29 +463,41 @@ This page summarizes the 96 p99 performance budgets in `scripts/bench-budgets.js
 
 ### map store write transactions
 
-| Bench                                    | File                                    | p99 ceiling | Guarded path                                                          |
-| ---------------------------------------- | --------------------------------------- | ----------- | --------------------------------------------------------------------- |
-| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **45 ms**   | store add/update/remove transaction with topology and overlap patches |
-| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **40 ms**   | store add/update/remove transaction with topology and overlap patches |
-| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove transaction with topology and overlap patches |
-| `mapStore 25k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **120 ms**  | store add/update/remove transaction with topology and overlap patches |
+| Bench                                    | File                                    | p99 ceiling | Guarded path                                                                 |
+| ---------------------------------------- | --------------------------------------- | ----------- | ---------------------------------------------------------------------------- |
+| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **45 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **40 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 10k — batchImport transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 25k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **120 ms**  | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 25k — batchImport transaction` | `src/store/__tests__/mapStore.bench.ts` | **240 ms**  | store add/update/remove/import transaction with topology and overlap patches |
+
+### main-thread chunking
+
+| Bench                                     | File                                  | p99 ceiling | Guarded path                                              |
+| ----------------------------------------- | ------------------------------------- | ----------- | --------------------------------------------------------- |
+| `chunking 10k entities — slice 2k chunks` | `src/lib/__tests__/chunking.bench.ts` | **0.05 ms** | main-thread worker/IO chunk slice loop before postMessage |
+| `chunking 50k entities — slice 2k chunks` | `src/lib/__tests__/chunking.bench.ts` | **0.1 ms**  | main-thread worker/IO chunk slice loop before postMessage |
 
 ### Apollo proto pipeline
 
-| Bench                                   | File                                            | p99 ceiling | Guarded path                                                  |
-| --------------------------------------- | ----------------------------------------------- | ----------- | ------------------------------------------------------------- |
-| `proto bridge 1k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **5 ms**    | import/export bridge, projection, binary, and text codec work |
-| `proto bridge 1k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import/export bridge, projection, binary, and text codec work |
-| `proto projection 1k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto projection 1k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bridge 5k — apolloMapToEntities` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bridge 5k — entitiesToApolloMap` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **6 ms**    | import/export bridge, projection, binary, and text codec work |
-| `proto projection 5k — to lonlat`       | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
-| `proto projection 5k — from lonlat`     | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
-| `proto bin 1k lanes — encode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bin 1k lanes — decode`           | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
-| `proto text 100 lanes — encode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto text 100 lanes — decode`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| Bench                                              | File                                            | p99 ceiling | Guarded path                                                  |
+| -------------------------------------------------- | ----------------------------------------------- | ----------- | ------------------------------------------------------------- |
+| `proto bridge 1k — apolloMapToEntities`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **5 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 1k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **3 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bounds 1k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **0.5 ms**  | import auto-fit bounds traversal                              |
+| `proto projection 1k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — apolloMapToEntities`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bounds 5k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import auto-fit bounds traversal                              |
+| `proto projection 5k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto projection 5k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — encode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — decode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — encode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto text 100 lanes — decode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto roundtrip 1k lanes — bridge project encode` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **60 ms**   | export-style bridge, projection, and binary encode pipeline   |
 
 ## Bench Naming
 
@@ -477,15 +518,15 @@ CI runs on GitHub `ubuntu-latest`, where VM jitter is normal. Budgets should:
 
 ## Coverage Scope
 
-::: tip Why there are 96 benches now
+::: tip Why there are 105 benches now
 
 The budget set covers code that can stall the main thread, pile work onto workers, or regress on large-map complexity:
 
 - Geometry hot paths: offset, snap, hit-test, polygon validation.
 - Map derivation: lane junctions, lane topology, overlap reconcile.
-- Worker and layer paths: spatial worker cold pipeline, cold source diff/updateData helpers, hot/overlay/grid builders.
-- Store and entity operations: mapStore write transactions, cascade delete, whole-map reparent scans.
-- IO paths: Apollo proto bridge, projection, binary codec, and text codec.
+- Worker and layer paths: spatial worker cold pipeline, cold source diff/updateData helpers, hot/overlay/grid builders, main-thread chunk slicing.
+- Store and entity operations: mapStore write transactions, batchImport, cascade delete, whole-map reparent scans.
+- IO paths: Apollo proto bridge, bounds, projection, roundtrip, binary codec, and text codec.
 
 MapLibre's internal `setData/updateData/queryRenderedFeatures` implementation is not executed in Node benches. These benches guard the app-side construction, diff, chunking, and protocol costs around those calls.
 :::

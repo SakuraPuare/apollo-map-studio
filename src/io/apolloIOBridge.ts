@@ -9,6 +9,7 @@ import type {
 import type { ApolloMapBounds, ApolloMapHeader, ApolloMapImportInfo } from '@/store/apolloMapStore';
 import { useProjDialogStore } from '@/store/projDialogStore';
 import type { MapEntity } from '@/types/entities';
+import { chunkArray } from '@/lib/chunking';
 
 const FALLBACK_PROJ = UTM_PRESETS.beijing;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
@@ -206,19 +207,18 @@ class ApolloIOBridge {
     entities: MapEntity[],
     onProgress?: (progress: ApolloIOProgress) => void,
   ): Promise<void> {
-    for (let offset = 0; offset < entities.length; offset += EXPORT_ENTITY_CHUNK_SIZE) {
-      const nextOffset = Math.min(offset + EXPORT_ENTITY_CHUNK_SIZE, entities.length);
+    for (const chunk of chunkArray(entities, EXPORT_ENTITY_CHUNK_SIZE)) {
       this.post({
         type: 'EXPORT_ENTITIES_CHUNK',
         requestId,
-        entities: entities.slice(offset, nextOffset),
-        offset,
-        total: entities.length,
+        entities: chunk.items,
+        offset: chunk.offset,
+        total: chunk.total,
       });
       onProgress?.({
         label: 'Exporting Apollo map',
-        detail: `Sending entities ${nextOffset.toLocaleString()} / ${entities.length.toLocaleString()}`,
-        progress: 0.02 + 0.08 * (nextOffset / Math.max(1, entities.length)),
+        detail: `Sending entities ${chunk.nextOffset.toLocaleString()} / ${chunk.total.toLocaleString()}`,
+        progress: 0.02 + 0.08 * (chunk.nextOffset / Math.max(1, chunk.total)),
       });
       await this.yieldToMain();
     }

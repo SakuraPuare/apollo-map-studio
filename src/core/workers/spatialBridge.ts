@@ -1,4 +1,5 @@
 import type { WorkerPublicRequest, WorkerRequest, WorkerResponse } from './protocol';
+import { chunkArray } from '@/lib/chunking';
 
 const DEFAULT_TIMEOUT = 120_000; // Full map-data cold-layer sync can exceed 10s on large maps.
 const SYNC_ENTITY_CHUNK_SIZE = 2_000;
@@ -92,12 +93,12 @@ export class SpatialWorkerBridge {
       excludeId: request.excludeId,
     } satisfies Extract<WorkerRequest, { type: 'SYNC_BEGIN' }>);
 
-    for (let offset = 0; offset < total; offset += SYNC_ENTITY_CHUNK_SIZE) {
+    for (const chunk of chunkArray(request.entities, SYNC_ENTITY_CHUNK_SIZE)) {
       this.worker.postMessage({
         type: 'SYNC_CHUNK',
         requestId,
-        entities: request.entities.slice(offset, offset + SYNC_ENTITY_CHUNK_SIZE),
-        offset,
+        entities: chunk.items,
+        offset: chunk.offset,
         total,
       } satisfies Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>);
       await this.yieldToMain();
