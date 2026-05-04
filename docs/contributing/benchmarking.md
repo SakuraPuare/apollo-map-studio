@@ -20,15 +20,16 @@ description: vitest bench、scripts/check-bench-budget.mjs、预算文件格式�
 ## 命令速查
 
 ```bash
-pnpm bench                                              # 跑全部
+pnpm bench                                              # 稳定门禁模式，单 worker 跑全部
 pnpm bench:fast                                         # 本地尽量使用所有 worker
 pnpm bench src/core/workers                             # 子目录
 pnpm bench --outputJson bench-results.json              # 写 JSON
 node scripts/check-bench-budget.mjs bench-results.json  # 预算检查
 ```
 
-`bench:fast` 显式传 `--maxWorkers=100%`，适合本地快速反馈。CI 仍使用
-`pnpm bench`，避免多个 benchmark 文件抢满 CPU 后放大 p99 抖动。
+`pnpm bench` 显式传 `--maxWorkers=1`，用于 CI 和本地预算门禁，避免多个
+benchmark 文件抢满 CPU 后放大 p99 抖动。`bench:fast` 显式传
+`--maxWorkers=100%`，适合本地快速摸底，但不要用它的 p99 判定预算是否通过。
 
 CI 步骤（[`.github/workflows/ci.yml`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/.github/workflows/ci.yml)
 `check` job）：

@@ -37,6 +37,7 @@ function boundaryPoints(lane: LaneEntity, side: LaneBoundarySide): GeoPoint[] {
   if (centerPoints.length < 2) return [];
   const samples = side === 'left' ? lane.leftSamples : lane.rightSamples;
   const width = samples[0]?.width ?? 0;
+  if (Math.abs(width) <= 1e-9) return centerPoints;
   return offsetPolylineDeg(centerPoints, width, side);
 }
 
@@ -45,28 +46,42 @@ function closestSOnPolyline(
   target: LngLat,
 ): { s: number; distanceMeters: number; lengthMeters: number } | null {
   if (points.length < 2) return null;
-  const avgLat = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  let latSum = 0;
+  for (const point of points) latSum += point.y;
+  const avgLat = latSum / points.length;
   const cosLat = Math.cos((avgLat * Math.PI) / 180);
   const targetProjected = project(target, cosLat);
+  const targetX = targetProjected.x;
+  const targetY = targetProjected.y;
   let accumulated = 0;
   let best: { s: number; distanceMeters: number } | null = null;
+  let ax = points[0]!.x * cosLat * DEG_TO_M;
+  let ay = points[0]!.y * DEG_TO_M;
 
   for (let i = 0; i < points.length - 1; i++) {
-    const a = project(points[i]!, cosLat);
-    const b = project(points[i + 1]!, cosLat);
-    const vx = b.x - a.x;
-    const vy = b.y - a.y;
+    const next = points[i + 1]!;
+    const bx = next.x * cosLat * DEG_TO_M;
+    const by = next.y * DEG_TO_M;
+    const vx = bx - ax;
+    const vy = by - ay;
     const lenSq = vx * vx + vy * vy;
     const len = Math.sqrt(lenSq);
-    if (len <= 1e-9) continue;
+    if (len <= 1e-9) {
+      ax = bx;
+      ay = by;
+      continue;
+    }
 
-    const rawT = ((targetProjected.x - a.x) * vx + (targetProjected.y - a.y) * vy) / lenSq;
+    const rawT = ((targetX - ax) * vx + (targetY - ay) * vy) / lenSq;
     const t = Math.max(0, Math.min(1, rawT));
-    const closest = { x: a.x + vx * t, y: a.y + vy * t };
-    const distanceMeters = Math.hypot(targetProjected.x - closest.x, targetProjected.y - closest.y);
+    const closestX = ax + vx * t;
+    const closestY = ay + vy * t;
+    const distanceMeters = Math.hypot(targetX - closestX, targetY - closestY);
     const s = accumulated + len * t;
     if (!best || distanceMeters < best.distanceMeters) best = { s, distanceMeters };
     accumulated += len;
+    ax = bx;
+    ay = by;
   }
 
   if (!best) return null;

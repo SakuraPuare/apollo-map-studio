@@ -21,16 +21,17 @@ benchmarks; `scripts/check-bench-budget.mjs` compares each p99 to
 ## Command cheat-sheet
 
 ```bash
-pnpm bench                                              # all
+pnpm bench                                              # stable gate mode, single worker
 pnpm bench:fast                                         # local run using all workers
 pnpm bench src/core/workers                             # subset
 pnpm bench --outputJson bench-results.json              # JSON output
 node scripts/check-bench-budget.mjs bench-results.json  # budget guard
 ```
 
-`bench:fast` passes `--maxWorkers=100%` explicitly and is useful for local
-feedback. CI still uses `pnpm bench` to avoid multiple benchmark files
-competing for CPU and inflating p99 jitter.
+`pnpm bench` passes `--maxWorkers=1` explicitly for CI and local budget gates,
+avoiding p99 jitter from multiple benchmark files competing for CPU.
+`bench:fast` passes `--maxWorkers=100%` and is useful for quick local smoke
+runs, but do not use its p99 values to decide whether budgets pass.
 
 CI steps
 ([`.github/workflows/ci.yml`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/.github/workflows/ci.yml)

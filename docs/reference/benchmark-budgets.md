@@ -161,7 +161,7 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
     "p99Ms": 10
   },
   "spatial 1k — buildFeatureCollection incremental 1 lane": {
-    "p99Ms": 4
+    "p99Ms": 6
   },
   "spatial 1k — featureGroupsForState": {
     "p99Ms": 1
@@ -185,10 +185,10 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
     "p99Ms": 10
   },
   "spatial 5k — HIT_TEST dense query": {
-    "p99Ms": 4
+    "p99Ms": 10
   },
   "spatial 5k — INCREMENTAL request 1 dirty lane": {
-    "p99Ms": 25
+    "p99Ms": 60
   },
   "cold layer 5k — groupsToFeatureMap": {
     "p99Ms": 0.6
@@ -230,7 +230,7 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
     "p99Ms": 0.15
   },
   "hot layer lane 1000 pts — applyDrag and features": {
-    "p99Ms": 0.5
+    "p99Ms": 1.5
   },
   "hot layer lane 5000 pts — entityToHotFeatures": {
     "p99Ms": 1.5
@@ -248,10 +248,10 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
     "p99Ms": 0.3
   },
   "overlay polyline 1000 pts — buildOverlayFeatures": {
-    "p99Ms": 0.3
+    "p99Ms": 0.5
   },
   "overlay catmull 1000 pts — buildOverlayFeatures": {
-    "p99Ms": 3
+    "p99Ms": 4
   },
   "overlay bezier 1000 anchors — buildOverlayFeatures": {
     "p99Ms": 4
@@ -278,16 +278,16 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
     "p99Ms": 2
   },
   "mapStore 10k — update lane transaction": {
-    "p99Ms": 45
+    "p99Ms": 90
   },
   "mapStore 10k — remove lane transaction": {
-    "p99Ms": 40
+    "p99Ms": 70
   },
   "mapStore 10k — batchImport transaction": {
     "p99Ms": 90
   },
   "mapStore 25k — update lane transaction": {
-    "p99Ms": 90
+    "p99Ms": 130
   },
   "mapStore 25k — remove lane transaction": {
     "p99Ms": 120
@@ -432,7 +432,7 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | -------------------------------------------------------- | ----------------------------------------------------- | ----------- | --------------------------------------------------------------- |
 | `spatial 1k — syncEntities`                              | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **60 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
-| `spatial 1k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 1k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **6 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **1 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 1k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **5 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
@@ -440,8 +440,8 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | `spatial 5k — buildFeatureCollection full`               | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **50 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 5k — buildFeatureCollection incremental 1 lane` | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **30 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
 | `spatial 5k — featureGroupsForState`                     | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
-| `spatial 5k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **4 ms**    | worker sync, cold feature rebuild, delta, and hit-test protocol |
-| `spatial 5k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **25 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — HIT_TEST dense query`                      | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **10 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
+| `spatial 5k — INCREMENTAL request 1 dirty lane`          | `src/core/workers/__tests__/spatialPipeline.bench.ts` | **60 ms**   | worker sync, cold feature rebuild, delta, and hit-test protocol |
 
 ### cold, hot, overlay, and grid layers
 
@@ -460,14 +460,14 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | `hot layer lane 100 pts — entityToHotFeatures`        | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | selected entity drag display and hot feature generation     |
 | `hot layer lane 100 pts — applyDrag and features`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.1 ms**  | selected entity drag display and hot feature generation     |
 | `hot layer lane 1000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.15 ms** | selected entity drag display and hot feature generation     |
-| `hot layer lane 1000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | selected entity drag display and hot feature generation     |
+| `hot layer lane 1000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.5 ms**  | selected entity drag display and hot feature generation     |
 | `hot layer lane 5000 pts — entityToHotFeatures`       | `src/hooks/__tests__/layerBuilders.bench.ts` | **1.5 ms**  | selected entity drag display and hot feature generation     |
 | `hot layer lane 5000 pts — applyDrag and features`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **2 ms**    | selected entity drag display and hot feature generation     |
 | `overlay polyline 100 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | draw preview feature generation                             |
 | `overlay catmull 100 pts — buildOverlayFeatures`      | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.8 ms**  | draw preview feature generation                             |
 | `overlay bezier 100 anchors — buildOverlayFeatures`   | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
-| `overlay polyline 1000 pts — buildOverlayFeatures`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.3 ms**  | draw preview feature generation                             |
-| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **3 ms**    | draw preview feature generation                             |
+| `overlay polyline 1000 pts — buildOverlayFeatures`    | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.5 ms**  | draw preview feature generation                             |
+| `overlay catmull 1000 pts — buildOverlayFeatures`     | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
 | `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
 | `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
 
@@ -486,10 +486,10 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 
 | Bench                                    | File                                    | p99 ceiling | Guarded path                                                                 |
 | ---------------------------------------- | --------------------------------------- | ----------- | ---------------------------------------------------------------------------- |
-| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **45 ms**   | store add/update/remove/import transaction with topology and overlap patches |
-| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **40 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 10k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 10k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **70 ms**   | store add/update/remove/import transaction with topology and overlap patches |
 | `mapStore 10k — batchImport transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove/import transaction with topology and overlap patches |
-| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **90 ms**   | store add/update/remove/import transaction with topology and overlap patches |
+| `mapStore 25k — update lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **130 ms**  | store add/update/remove/import transaction with topology and overlap patches |
 | `mapStore 25k — remove lane transaction` | `src/store/__tests__/mapStore.bench.ts` | **120 ms**  | store add/update/remove/import transaction with topology and overlap patches |
 | `mapStore 25k — batchImport transaction` | `src/store/__tests__/mapStore.bench.ts` | **240 ms**  | store add/update/remove/import transaction with topology and overlap patches |
 

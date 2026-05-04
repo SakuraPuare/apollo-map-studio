@@ -28,7 +28,7 @@
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "test": "vitest run",
-    "bench": "vitest bench --run",
+    "bench": "vitest bench --run --maxWorkers=1",
     "bench:fast": "vitest bench --run --maxWorkers=100%",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "lint": "eslint .",
