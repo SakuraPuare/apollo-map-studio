@@ -5,7 +5,7 @@ description: 'Per-bench reference for scripts/bench-budgets.json: names, p99 cei
 
 # Benchmark Budgets
 
-This page summarizes the 105 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
+This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
 
 ## File Locations
 
@@ -123,6 +123,18 @@ This page summarizes the 105 p99 performance budgets in `scripts/bench-budgets.j
   },
   "hitTest polygon 5000 vertices — distance": {
     "p99Ms": 0.4
+  },
+  "boundary brush 1k lanes — find paint hit": {
+    "p99Ms": 4
+  },
+  "boundary brush 5k lanes — find paint hit": {
+    "p99Ms": 16
+  },
+  "boundary brush 100 pts — paint lane type": {
+    "p99Ms": 0.1
+  },
+  "boundary brush 1000 pts — paint lane type": {
+    "p99Ms": 0.5
   },
   "validation 100 vertices — append edge": {
     "p99Ms": 0.01
@@ -405,6 +417,15 @@ This page summarizes the 105 p99 performance budgets in `scripts/bench-budgets.j
 | `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows                |
 | `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows                |
 
+### lane boundary brush
+
+| Bench                                       | File                                                     | p99 ceiling | Guarded path                                            |
+| ------------------------------------------- | -------------------------------------------------------- | ----------- | ------------------------------------------------------- |
+| `boundary brush 1k lanes — find paint hit`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **4 ms**    | mousemove lane-boundary brush scan over lane boundaries |
+| `boundary brush 5k lanes — find paint hit`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **16 ms**   | mousemove lane-boundary brush scan over lane boundaries |
+| `boundary brush 100 pts — paint lane type`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **0.1 ms**  | lane boundary type insertion and normalization          |
+| `boundary brush 1000 pts — paint lane type` | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **0.5 ms**  | lane boundary type insertion and normalization          |
+
 ### spatial worker pipeline
 
 | Bench                                                    | File                                                  | p99 ceiling | Guarded path                                                    |
@@ -487,14 +508,14 @@ This page summarizes the 105 p99 performance budgets in `scripts/bench-budgets.j
 | `proto bridge 1k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **3 ms**    | import/export bridge, projection, binary, and text codec work |
 | `proto bounds 1k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **0.5 ms**  | import auto-fit bounds traversal                              |
 | `proto projection 1k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto projection 1k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **60 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto bridge 5k — apolloMapToEntities`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bridge 5k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **16 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto bounds 5k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import auto-fit bounds traversal                              |
 | `proto projection 5k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
 | `proto projection 5k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
 | `proto bin 1k lanes — encode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bin 1k lanes — decode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — decode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **16 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto text 100 lanes — encode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto text 100 lanes — decode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
 | `proto roundtrip 1k lanes — bridge project encode` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **60 ms**   | export-style bridge, projection, and binary encode pipeline   |
@@ -518,11 +539,11 @@ CI runs on GitHub `ubuntu-latest`, where VM jitter is normal. Budgets should:
 
 ## Coverage Scope
 
-::: tip Why there are 105 benches now
+::: tip Why there are 109 benches now
 
 The budget set covers code that can stall the main thread, pile work onto workers, or regress on large-map complexity:
 
-- Geometry hot paths: offset, snap, hit-test, polygon validation.
+- Geometry hot paths: offset, snap, hit-test, boundary brush, polygon validation.
 - Map derivation: lane junctions, lane topology, overlap reconcile.
 - Worker and layer paths: spatial worker cold pipeline, cold source diff/updateData helpers, hot/overlay/grid builders, main-thread chunk slicing.
 - Store and entity operations: mapStore write transactions, batchImport, cascade delete, whole-map reparent scans.

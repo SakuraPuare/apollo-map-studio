@@ -180,6 +180,7 @@ a comment in bench-budgets.json explaining the trade-off.
 | `overlap reconcile`        | full 重算随规模线性；dirty 增量近似常数      |
 | `spatial index syncDirty`  | 单 dirty 更新不随全图实体数增长              |
 | `interaction geometry`     | snap、hit-test 距离、polygon validation      |
+| `lane boundary brush`      | 边界刷拖动命中扫描与 boundaryType 归一化     |
 | `spatial worker pipeline`  | sync、cold feature rebuild、delta、hit-test  |
 | `cold/hot/overlay/grid`    | 主线程 source diff/update 与预览构造         |
 | `entityOps/mapStore`       | 引用清理、reparent、store 写事务             |

@@ -5,7 +5,7 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 
 # 性能预算
 
-本页概括 `scripts/bench-budgets.json` 的 105 条 p99 性能预算。CI 在 `pnpm bench` 后调用 `scripts/check-bench-budget.mjs`，任何未注册 bench 或超预算 bench 都会让检查失败。
+本页概括 `scripts/bench-budgets.json` 的 109 条 p99 性能预算。CI 在 `pnpm bench` 后调用 `scripts/check-bench-budget.mjs`，任何未注册 bench 或超预算 bench 都会让检查失败。
 
 ## 文件位置
 
@@ -123,6 +123,18 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
   },
   "hitTest polygon 5000 vertices — distance": {
     "p99Ms": 0.4
+  },
+  "boundary brush 1k lanes — find paint hit": {
+    "p99Ms": 4
+  },
+  "boundary brush 5k lanes — find paint hit": {
+    "p99Ms": 16
+  },
+  "boundary brush 100 pts — paint lane type": {
+    "p99Ms": 0.1
+  },
+  "boundary brush 1000 pts — paint lane type": {
+    "p99Ms": 0.5
   },
   "validation 100 vertices — append edge": {
     "p99Ms": 0.01
@@ -405,6 +417,15 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | `validation 1000 vertices — append edge`            | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **0.01 ms** | polygon self-intersection checks in draw/edit flows                |
 | `validation 1000 vertices — full self-intersection` | `src/core/geometry/__tests__/interactionGeometry.bench.ts / src/hooks/__tests__/snapIntegration.bench.ts` | **3 ms**    | polygon self-intersection checks in draw/edit flows                |
 
+### lane boundary brush
+
+| Bench                                       | File                                                     | p99 ceiling | Guarded path                                            |
+| ------------------------------------------- | -------------------------------------------------------- | ----------- | ------------------------------------------------------- |
+| `boundary brush 1k lanes — find paint hit`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **4 ms**    | mousemove lane-boundary brush scan over lane boundaries |
+| `boundary brush 5k lanes — find paint hit`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **16 ms**   | mousemove lane-boundary brush scan over lane boundaries |
+| `boundary brush 100 pts — paint lane type`  | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **0.1 ms**  | lane boundary type insertion and normalization          |
+| `boundary brush 1000 pts — paint lane type` | `src/core/geometry/__tests__/laneBoundaryPaint.bench.ts` | **0.5 ms**  | lane boundary type insertion and normalization          |
+
 ### spatial worker pipeline
 
 | Bench                                                    | File                                                  | p99 ceiling | Guarded path                                                    |
@@ -487,14 +508,14 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | `proto bridge 1k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **3 ms**    | import/export bridge, projection, binary, and text codec work |
 | `proto bounds 1k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **0.5 ms**  | import auto-fit bounds traversal                              |
 | `proto projection 1k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **45 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto projection 1k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
+| `proto projection 1k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **60 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto bridge 5k — apolloMapToEntities`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bridge 5k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bridge 5k — entitiesToApolloMap`            | `src/io/proto/__tests__/protoPipeline.bench.ts` | **16 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto bounds 5k — computeApolloMapBounds`         | `src/io/proto/__tests__/protoPipeline.bench.ts` | **2 ms**    | import auto-fit bounds traversal                              |
 | `proto projection 5k — to lonlat`                  | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
 | `proto projection 5k — from lonlat`                | `src/io/proto/__tests__/protoPipeline.bench.ts` | **150 ms**  | import/export bridge, projection, binary, and text codec work |
 | `proto bin 1k lanes — encode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **30 ms**   | import/export bridge, projection, binary, and text codec work |
-| `proto bin 1k lanes — decode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
+| `proto bin 1k lanes — decode`                      | `src/io/proto/__tests__/protoPipeline.bench.ts` | **16 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto text 100 lanes — encode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **12 ms**   | import/export bridge, projection, binary, and text codec work |
 | `proto text 100 lanes — decode`                    | `src/io/proto/__tests__/protoPipeline.bench.ts` | **8 ms**    | import/export bridge, projection, binary, and text codec work |
 | `proto roundtrip 1k lanes — bridge project encode` | `src/io/proto/__tests__/protoPipeline.bench.ts` | **60 ms**   | export-style bridge, projection, and binary encode pipeline   |
@@ -518,11 +539,11 @@ CI 跑在 GitHub `ubuntu-latest`（虚拟机，性能波动 ±20%）。所以预
 
 ## 覆盖范围
 
-::: tip 为什么现在是 105 条 bench
+::: tip 为什么现在是 109 条 bench
 
 预算覆盖以下会导致主线程卡顿、worker 队列堆积、或大图复杂度退化的路径：
 
-- geometry hot path：offset、snap、hit-test、polygon validation。
+- geometry hot path：offset、snap、hit-test、boundary brush、polygon validation。
 - map derivation：lane junction、lane topology、overlap reconcile。
 - worker and layer path：spatial worker cold pipeline、cold source diff/updateData、hot/overlay/grid builders、主线程 chunk 切片。
 - store and entity operations：mapStore 写事务、batchImport、cascade delete、reparent 全表扫描。

@@ -70,7 +70,7 @@ graph TD
 | Apollo Types      | 30+ 接口，每接口 5-25 字段                      | 20–40 分钟   |
 | Proto Schema      | 21 个 .proto 文件                               | 20–40 分钟   |
 | Enum Mappings     | 13 类枚举共 ~70 值                              | 10–20 分钟   |
-| Benchmark Budgets | 105 条 bench                                    | 10–20 分钟   |
+| Benchmark Budgets | 109 条 bench                                    | 10–20 分钟   |
 | CI Pipeline       | 2 workflow，3 job                               | 10–15 分钟   |
 | Color Palette     | 12 色彩 token + Dockview 17 变量                | 5–10 分钟    |
 | Design Tokens     | typography / spacing / radius / shadow / motion | 10–15 分钟   |

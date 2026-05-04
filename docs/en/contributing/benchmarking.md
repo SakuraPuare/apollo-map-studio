@@ -186,6 +186,7 @@ reject.
 | `overlap reconcile`        | full recompute scales linearly; dirty edit is near-constant  |
 | `spatial index syncDirty`  | single-dirty sync does not grow with whole-map entity count  |
 | `interaction geometry`     | snap, hit-test distance, and polygon validation              |
+| `lane boundary brush`      | boundary-brush drag hit scan and boundaryType normalization  |
 | `spatial worker pipeline`  | sync, cold feature rebuild, delta, and hit-test protocol     |
 | `cold/hot/overlay/grid`    | main-thread source diff/update and preview construction      |
 | `entityOps/mapStore`       | reference cleanup, reparent scans, and store write txns      |
