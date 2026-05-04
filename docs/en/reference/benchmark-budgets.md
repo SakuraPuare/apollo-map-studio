@@ -36,7 +36,7 @@ flowchart LR
   C --> D{Each bench<br/>p99 ≤ budget?}
   D -- yes --> E[exit 0 PASS]
   D -- no --> F[exit 1 FAIL]
-  D -- no entry --> G[passthrough]
+  D -- no entry --> G[exit 1 FAIL]
 ```
 
 ## Current budgets (`scripts/bench-budgets.json`)
@@ -50,7 +50,19 @@ flowchart LR
   "full stitch — 100-lane linear chain": { "p99Ms": 6 },
   "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
   "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
-  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 }
+  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
+  "overlap 5k — full mode (cold)": { "p99Ms": 25 },
+  "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 5k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+  "overlap 10k — full mode (cold)": { "p99Ms": 50 },
+  "overlap 10k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 10k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 10k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+  "overlap 25k — full mode (cold)": { "p99Ms": 150 },
+  "overlap 25k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 25k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 25k — syncDirty (1 dirty)": { "p99Ms": 0.05 }
 }
 ```
 
@@ -128,6 +140,23 @@ flowchart LR
 | Subject under test | 3-lane batched incremental decoration                   |
 | Why it matters     | Multi-lane batches should scale roughly linearly        |
 
+### Overlap reconcile budgets
+
+| Bench name                                                  | Source file                                                | p99 ceiling | What it guards                                      |
+| ----------------------------------------------------------- | ---------------------------------------------------------- | ----------- | --------------------------------------------------- |
+| `overlap 5k — full mode (cold)`                             | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **25 ms**   | full overlap reconcile at ~6k entities              |
+| `overlap 5k — incremental (1 dirty lane, warm index)`       | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | single-lane edit does not scan the whole map        |
+| `overlap 5k — incremental (1 dirty crosswalk, warm index)`  | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | crosswalk drag-end reconcile stays local            |
+| `overlap 5k — syncDirty (1 dirty)`                          | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | spatial index sync scales with dirty set size       |
+| `overlap 10k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **50 ms**   | full overlap reconcile at ~12k entities             |
+| `overlap 10k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | lane dirty edit stays frame-budget safe             |
+| `overlap 10k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | crosswalk dirty edit does not regress to full scan  |
+| `overlap 10k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | single-dirty index update remains near-constant     |
+| `overlap 25k — full mode (cold)`                            | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` | **150 ms**  | worker-grade full recompute at ~30k entities        |
+| `overlap 25k — incremental (1 dirty lane, warm index)`      | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` | **0.5 ms**  | large-map single-lane edit remains local            |
+| `overlap 25k — incremental (1 dirty crosswalk, warm index)` | `src/core/elements/overlap/__tests__/overlap.bench.ts:176` | **0.5 ms**  | covers the crosswalk drag-end regression risk       |
+| `overlap 25k — syncDirty (1 dirty)`                         | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` | **0.05 ms** | large-map dirty index update ignores total map size |
+
 ## What `check-bench-budget.mjs` does
 
 ```js
@@ -140,7 +169,7 @@ function collectBenches(report) {
 for (const bench of benches) {
   const budget = budgets[bench.name];
   if (!budget) {
-    unbudgeted.push(bench);    // passthrough: missing entries do not fail CI
+    unbudgeted.push(bench);    // missing budget → exit 1
     continue;
   }
   if (bench.p99Ms > budget.p99Ms) {
@@ -153,11 +182,11 @@ for (const bench of benches) {
 
 The script prints three sections:
 
-| Section                            | Meaning                                 |
-| ---------------------------------- | --------------------------------------- |
-| `PASS:`                            | Within budget                           |
-| `No budget defined (passthrough):` | Bench ran but is not budgeted (no fail) |
-| `FAIL:`                            | Above budget; exit code 1               |
+| Section                    | Meaning                                    |
+| -------------------------- | ------------------------------------------ |
+| `PASS:`                    | Within budget                              |
+| `FAIL: no budget defined:` | Bench ran but is not budgeted; exit code 1 |
+| `FAIL:`                    | Above budget; exit code 1                  |
 
 ## Reproducing locally
 
@@ -204,7 +233,7 @@ Budgets are perf guardrails. Every change requires a PR with rationale.
 
 ## Historical context
 
-::: tip Why these eight benches?
+::: tip Why these 20 benches?
 
 - **Phase B**: introduced three polyline-offset benches (10 / 100 / 1000
   points) covering hot-layer drag's short / typical / extreme length cases.
@@ -212,6 +241,9 @@ Budgets are perf guardrails. Every change requires a PR with rationale.
   junctions) covering small / medium / medium-with-junctions topology.
 - **Phase E**: introduced two incremental benches (1 / 3 lanes decorated)
   to guard near-constant complexity in the incremental decoration path.
+- **Overlap incremental guard**: introduced full / dirty lane / dirty
+  crosswalk / syncDirty budgets across 5k / 10k / 25k scales to prevent
+  dirty edits from regressing to whole-map scans.
 
 When a new critical path lands (e.g. import / export), expand all three
 artefacts:

@@ -5,7 +5,8 @@
  * Reads vitest bench JSON output (file path arg) and compares each
  * benchmark's p99 against the ceilings in `bench-budgets.json`.
  * Exits 1 on any budget violation with a human-readable report.
- * Unknown bench names pass through (not-yet-budgeted).
+ * Unknown bench names fail closed. A benchmark without a budget cannot guard
+ * regressions in CI.
  *
  * Usage:
  *   pnpm bench --reporter=json --outputFile=bench.json
@@ -60,7 +61,6 @@ function main() {
   const budgets = loadBudgets();
   const benches = collectBenches(report);
 
-  let hadViolations = false;
   const passed = [];
   const violations = [];
   const unbudgeted = [];
@@ -74,7 +74,6 @@ function main() {
     const ceiling = budget.p99Ms;
     if (bench.p99Ms > ceiling) {
       violations.push({ ...bench, ceilingMs: ceiling });
-      hadViolations = true;
     } else {
       passed.push({ ...bench, ceilingMs: ceiling });
     }
@@ -88,7 +87,7 @@ function main() {
     }
   }
   if (unbudgeted.length > 0) {
-    console.log('\nNo budget defined (passthrough):');
+    console.log('\nFAIL: no budget defined:');
     for (const u of unbudgeted) {
       console.log(`  ${u.name}: p99=${u.p99Ms.toFixed(3)}ms`);
     }
@@ -100,7 +99,7 @@ function main() {
     }
   }
 
-  process.exit(hadViolations ? 1 : 0);
+  process.exit(violations.length > 0 || unbudgeted.length > 0 ? 1 : 0);
 }
 
 main();

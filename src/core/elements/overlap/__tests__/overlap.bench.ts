@@ -151,7 +151,7 @@ for (const scale of SCALES) {
     getSharedSpatialIndex().syncFromEntities(map);
 
     bench(
-      `full mode (cold)`,
+      `overlap ${scale.label} — full mode (cold)`,
       () => {
         resetSharedSpatialIndex();
         clearLaneArcLengthCache();
@@ -161,7 +161,7 @@ for (const scale of SCALES) {
     );
 
     bench(
-      `incremental (1 dirty lane, warm index)`,
+      `overlap ${scale.label} — incremental (1 dirty lane, warm index)`,
       () => {
         const firstLaneId = `Lane_0_0`;
         reconcileOverlaps(map, {
@@ -173,7 +173,7 @@ for (const scale of SCALES) {
     );
 
     bench(
-      `incremental (1 dirty crosswalk, warm index)`,
+      `overlap ${scale.label} — incremental (1 dirty crosswalk, warm index)`,
       () => {
         reconcileOverlaps(map, {
           mode: 'incremental',
@@ -184,7 +184,7 @@ for (const scale of SCALES) {
     );
 
     bench(
-      `syncDirty (1 dirty)`,
+      `overlap ${scale.label} — syncDirty (1 dirty)`,
       () => {
         getSharedSpatialIndex().syncDirty(map, new Set(['Lane_0_0']));
       },

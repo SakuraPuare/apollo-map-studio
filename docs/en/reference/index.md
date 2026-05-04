@@ -74,7 +74,7 @@ To help you estimate how long each page takes to scan, here are subjective
 | Apollo Types      | 30+ interfaces, 5–25 fields each                | 20–40 min           |
 | Proto Schema      | 21 `.proto` files                               | 20–40 min           |
 | Enum Mappings     | 13 enum families, ~70 values                    | 10–20 min           |
-| Benchmark Budgets | 8 benches                                       | 5–10 min            |
+| Benchmark Budgets | 20 benches                                      | 5–10 min            |
 | CI Pipeline       | 2 workflows, 3 jobs                             | 10–15 min           |
 | Color Palette     | 12 color tokens + 17 Dockview vars              | 5–10 min            |
 | Design Tokens     | typography / spacing / radius / shadow / motion | 10–15 min           |

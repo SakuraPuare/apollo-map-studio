@@ -8,6 +8,18 @@
     "full stitch — 100-lane linear chain": { "p99Ms": 6 },
     "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
     "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
-    "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 }
+    "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
+    "overlap 5k — full mode (cold)": { "p99Ms": 25 },
+    "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+    "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+    "overlap 5k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+    "overlap 10k — full mode (cold)": { "p99Ms": 50 },
+    "overlap 10k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+    "overlap 10k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+    "overlap 10k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+    "overlap 25k — full mode (cold)": { "p99Ms": 150 },
+    "overlap 25k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+    "overlap 25k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+    "overlap 25k — syncDirty (1 dirty)": { "p99Ms": 0.05 }
   }
 }

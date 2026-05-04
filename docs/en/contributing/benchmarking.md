@@ -98,13 +98,13 @@ flowchart TD
     A[pnpm bench] --> B[bench-results.json]
     B --> C[scripts/check-bench-budget.mjs]
     D[scripts/bench-budgets.json] --> C
-    C -->|unregistered| E[skip + warn]
+    C -->|unregistered| E[exit 1<br/>CI red]
     C -->|registered + p99 ≤ budget| F[pass]
     C -->|registered + p99 > budget| G[exit 1<br/>CI red]
 ```
 
-Unregistered benches pass through — a brand new bench has no baseline,
-observe a few runs before setting a budget.
+Unregistered benches fail closed. A new bench must add a matching budget in
+the same change, otherwise CI cannot detect regressions.
 
 ## Setting a budget
 
@@ -173,12 +173,12 @@ reject.
 
 ## Existing bench areas
 
-| Area                       | Contract                         |
-| -------------------------- | -------------------------------- |
-| `lane junction derivation` | rebuild 500 lanes in < 12 ms     |
-| `offset polyline geometry` | 100 pts / 1m offset < 0.5 ms     |
-| `spatial worker SYNC`      | full SYNC of 1k entities < 35 ms |
-| `apollo import / export`   | 1k-entity round trip < 200 ms    |
+| Area                       | Contract                                                    |
+| -------------------------- | ----------------------------------------------------------- |
+| `offset polyline geometry` | p99 ceilings for 10 / 100 / 1000 point offsets              |
+| `lane junction derivation` | full stitch and 1 / 3 lane incremental decoration budgets   |
+| `overlap reconcile`        | full recompute scales linearly; dirty edit is near-constant |
+| `spatial index syncDirty`  | single-dirty sync does not grow with whole-map entity count |
 
 See `scripts/bench-budgets.json`
 ([source](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)).
@@ -259,7 +259,7 @@ DevTools Performance:
 ### Bench reports nothing
 
 The `bench()` name does not match `bench-budgets.json` exactly — treated
-as unregistered and skipped. Copy the name verbatim (spaces included).
+as unregistered and failed. Copy the name verbatim (spaces included).
 
 ### p99 dwarfs p50
 

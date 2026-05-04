@@ -95,13 +95,13 @@ flowchart TD
     A[pnpm bench] --> B[bench-results.json]
     B --> C[scripts/check-bench-budget.mjs]
     D[scripts/bench-budgets.json] --> C
-    C -->|未注册| E[skip + warn]
+    C -->|未注册| E[exit 1<br/>CI red]
     C -->|已注册 + p99 ≤ budget| F[pass]
     C -->|已注册 + p99 > budget| G[exit 1<br/>CI red]
 ```
 
-未注册的 bench 直接放过——刚写的新 bench 还没基线，先跑几轮观察再设
-预算。
+未注册的 bench 会直接失败。新增 bench 时必须同步加预算，否则 CI 无法判断
+它是否退化。
 
 ## 设一个预算
 
@@ -168,12 +168,12 @@ a comment in bench-budgets.json explaining the trade-off.
 
 ## 现有 bench 区域
 
-| 区域                       | 关注的契约                       |
-| -------------------------- | -------------------------------- |
-| `lane junction derivation` | 拓扑图重建在 500 lanes 内 < 12ms |
-| `offset polyline geometry` | 100 点 / 1m offset < 0.5ms       |
-| `spatial worker SYNC`      | 1k entities 全量 SYNC < 35ms     |
-| `apollo import / export`   | 1k entities round-trip < 200ms   |
+| 区域                       | 关注的契约                                  |
+| -------------------------- | ------------------------------------------- |
+| `offset polyline geometry` | 10 / 100 / 1000 点 offset 的 p99 上限       |
+| `lane junction derivation` | 全量 stitch 与 1 / 3 lane 增量装饰 p99 上限 |
+| `overlap reconcile`        | full 重算随规模线性；dirty 增量近似常数     |
+| `spatial index syncDirty`  | 单 dirty 更新不随全图实体数增长             |
 
 详见 `scripts/bench-budgets.json`（[源码](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)）。
 
@@ -251,7 +251,7 @@ DevTools Performance：
 
 ### bench 不报数
 
-`bench()` 名字与 `bench-budgets.json` 不一致 = 视为未注册，跳过。
+`bench()` 名字与 `bench-budgets.json` 不一致 = 视为未注册并失败。
 精确复制 name 字符串（含空格）。
 
 ### p99 跟 p50 差异巨大

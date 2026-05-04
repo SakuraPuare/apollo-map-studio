@@ -10,7 +10,7 @@ import type { MapEntity } from '@/types/entities';
 import { reconcileOverlaps } from '../reconcile';
 import { clearLaneArcLengthCache } from '../computeLaneS';
 import { isDerivedOverlapId, makeOverlapId } from '../overlapId';
-import { resetSharedSpatialIndex } from '../spatialIndex';
+import { SpatialIndex, resetSharedSpatialIndex } from '../spatialIndex';
 
 function curve(points: { x: number; y: number }[]): Curve {
   return {
@@ -77,6 +77,42 @@ function buildMap(...entities: MapEntity[]): Map<string, MapEntity> {
   const m = new Map<string, MapEntity>();
   for (const e of entities) m.set(e.id, e);
   return m;
+}
+
+class GuardedEntityMap implements ReadonlyMap<string, MapEntity> {
+  constructor(private readonly backing: Map<string, MapEntity>) {}
+
+  get size(): number {
+    return this.backing.size;
+  }
+
+  get(key: string): MapEntity | undefined {
+    return this.backing.get(key);
+  }
+
+  has(key: string): boolean {
+    return this.backing.has(key);
+  }
+
+  entries(): IterableIterator<[string, MapEntity]> {
+    throw new Error('unexpected full iteration in incremental reconcile');
+  }
+
+  keys(): IterableIterator<string> {
+    throw new Error('unexpected full iteration in incremental reconcile');
+  }
+
+  values(): IterableIterator<MapEntity> {
+    throw new Error('unexpected full iteration in incremental reconcile');
+  }
+
+  forEach(): void {
+    throw new Error('unexpected full iteration in incremental reconcile');
+  }
+
+  [Symbol.iterator](): IterableIterator<[string, MapEntity]> {
+    throw new Error('unexpected full iteration in incremental reconcile');
+  }
 }
 
 describe('reconcileOverlaps', () => {
@@ -655,6 +691,62 @@ describe('reconcileOverlaps', () => {
     expect(changedIds.has('Crosswalk_far')).toBe(false);
     expect(changedIds.has('Lane_far')).toBe(false);
     expect(changedIds.has(farOverlapId)).toBe(false);
+  });
+
+  it('incremental crosswalk edit does not require full entity iteration', () => {
+    const dirtyLane = makeLane('Lane_dirty', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ]);
+    const dirtyCrosswalk = makeCrosswalk('Crosswalk_dirty', [
+      { x: 116.00015, y: 39.8999 },
+      { x: 116.00035, y: 39.8999 },
+      { x: 116.00035, y: 39.9001 },
+      { x: 116.00015, y: 39.9001 },
+    ]);
+
+    const farEntities: MapEntity[] = [];
+    for (let i = 0; i < 2_000; i++) {
+      const baseLng = 117 + i * 0.0002;
+      farEntities.push(
+        makeLane(`Lane_far_${i}`, [
+          { x: baseLng, y: 40 + i * 0.00001 },
+          { x: baseLng + 0.0005, y: 40 + i * 0.00001 },
+        ]),
+      );
+    }
+
+    const initial = buildMap(dirtyLane, dirtyCrosswalk, ...farEntities);
+    const patch1 = reconcileOverlaps(initial, { mode: 'full' });
+    const stable = new Map(initial);
+    for (const [id, e] of patch1.changes) stable.set(id, e);
+
+    const movedCrosswalk = makeCrosswalk('Crosswalk_dirty', [
+      { x: 116.00018, y: 39.8999 },
+      { x: 116.00038, y: 39.8999 },
+      { x: 116.00038, y: 39.9001 },
+      { x: 116.00018, y: 39.9001 },
+    ]);
+    movedCrosswalk.overlapIds = (stable.get('Crosswalk_dirty') as CrosswalkEntity).overlapIds;
+    stable.set('Crosswalk_dirty', movedCrosswalk);
+
+    const index = new SpatialIndex();
+    index.syncFromEntities(stable);
+
+    const patch2 = reconcileOverlaps(
+      new GuardedEntityMap(stable),
+      {
+        mode: 'incremental',
+        dirtyIds: new Set(['Crosswalk_dirty']),
+      },
+      index,
+    );
+
+    expect(patch2.stats.pairsTested).toBeLessThanOrEqual(1);
+    expect(patch2.stats.pairsMatched).toBeLessThanOrEqual(1);
+
+    const changedIds = new Set([...patch2.changes.keys(), ...patch2.removedOverlapIds]);
+    expect(changedIds.has('Lane_far_1999')).toBe(false);
   });
 
   it('full mode is idempotent on a stable map', () => {

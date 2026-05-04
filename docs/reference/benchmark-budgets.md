@@ -33,7 +33,7 @@ flowchart LR
   C --> D{每条 bench<br/>p99 ≤ 预算?}
   D -- 是 --> E[exit 0 PASS]
   D -- 否 --> F[exit 1 FAIL]
-  D -- 未在预算表 --> G[passthrough]
+  D -- 未在预算表 --> G[exit 1 FAIL]
 ```
 
 ## 当前预算（`scripts/bench-budgets.json`）
@@ -47,7 +47,19 @@ flowchart LR
   "full stitch — 100-lane linear chain": { "p99Ms": 6 },
   "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
   "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
-  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 }
+  "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
+  "overlap 5k — full mode (cold)": { "p99Ms": 25 },
+  "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 5k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+  "overlap 10k — full mode (cold)": { "p99Ms": 50 },
+  "overlap 10k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 10k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 10k — syncDirty (1 dirty)": { "p99Ms": 0.05 },
+  "overlap 25k — full mode (cold)": { "p99Ms": 150 },
+  "overlap 25k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
+  "overlap 25k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
+  "overlap 25k — syncDirty (1 dirty)": { "p99Ms": 0.05 }
 }
 ```
 
@@ -135,6 +147,114 @@ flowchart LR
 | 衡量对象 | 100 lane 链上 3 lane 同时增量装饰                       |
 | 衡量目标 | 多 lane batch 增量耗时近似线性                          |
 
+### `overlap 5k — full mode (cold)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
+| p99 上限 | **25 ms**                                                  |
+| 衡量对象 | 约 6k entities 上 cold full overlap reconcile              |
+| 衡量目标 | 导入 / 手动重算 / 导出前校验保持线性，防止全量路径异常放大 |
+
+### `overlap 5k — incremental (1 dirty lane, warm index)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
+| p99 上限 | **0.5 ms**                                                 |
+| 衡量对象 | 约 6k entities、索引预热后单 dirty lane 增量 reconcile     |
+| 衡量目标 | 单 lane 编辑不随全图实体数增长                             |
+
+### `overlap 5k — incremental (1 dirty crosswalk, warm index)`
+
+| 项目     | 值                                                          |
+| -------- | ----------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`  |
+| p99 上限 | **0.5 ms**                                                  |
+| 衡量对象 | 约 6k entities、索引预热后单 dirty crosswalk 增量 reconcile |
+| 衡量目标 | 守护拖动 crosswalk 后的 overlap 增量重算不扫全图            |
+
+### `overlap 5k — syncDirty (1 dirty)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
+| p99 上限 | **0.05 ms**                                                |
+| 衡量对象 | 约 6k entities 下空间索引单 dirty 同步                     |
+| 衡量目标 | 索引维护只与 dirty 集大小相关                              |
+
+### `overlap 10k — full mode (cold)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
+| p99 上限 | **50 ms**                                                  |
+| 衡量对象 | 约 12k entities 上 cold full overlap reconcile             |
+| 衡量目标 | full 路径随规模近似线性                                    |
+
+### `overlap 10k — incremental (1 dirty lane, warm index)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
+| p99 上限 | **0.5 ms**                                                 |
+| 衡量对象 | 约 12k entities、索引预热后单 dirty lane 增量 reconcile    |
+| 衡量目标 | 增量 lane 编辑保持帧内预算                                 |
+
+### `overlap 10k — incremental (1 dirty crosswalk, warm index)`
+
+| 项目     | 值                                                           |
+| -------- | ------------------------------------------------------------ |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`   |
+| p99 上限 | **0.5 ms**                                                   |
+| 衡量对象 | 约 12k entities、索引预热后单 dirty crosswalk 增量 reconcile |
+| 衡量目标 | 增量 crosswalk 编辑不回退到全图扫描                          |
+
+### `overlap 10k — syncDirty (1 dirty)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
+| p99 上限 | **0.05 ms**                                                |
+| 衡量对象 | 约 12k entities 下空间索引单 dirty 同步                    |
+| 衡量目标 | 单 dirty 索引维护保持近似常数                              |
+
+### `overlap 25k — full mode (cold)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:154` |
+| p99 上限 | **150 ms**                                                 |
+| 衡量对象 | 约 30k entities 上 cold full overlap reconcile             |
+| 衡量目标 | 大图 full 重算保持 worker-grade 预算                       |
+
+### `overlap 25k — incremental (1 dirty lane, warm index)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:164` |
+| p99 上限 | **0.5 ms**                                                 |
+| 衡量对象 | 约 30k entities、索引预热后单 dirty lane 增量 reconcile    |
+| 衡量目标 | 大图单 lane 编辑不随全图规模增长                           |
+
+### `overlap 25k — incremental (1 dirty crosswalk, warm index)`
+
+| 项目     | 值                                                           |
+| -------- | ------------------------------------------------------------ |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:176`   |
+| p99 上限 | **0.5 ms**                                                   |
+| 衡量对象 | 约 30k entities、索引预热后单 dirty crosswalk 增量 reconcile |
+| 衡量目标 | 覆盖拖动 crosswalk 松手后的性能回归风险                      |
+
+### `overlap 25k — syncDirty (1 dirty)`
+
+| 项目     | 值                                                         |
+| -------- | ---------------------------------------------------------- |
+| 文件     | `src/core/elements/overlap/__tests__/overlap.bench.ts:187` |
+| p99 上限 | **0.05 ms**                                                |
+| 衡量对象 | 约 30k entities 下空间索引单 dirty 同步                    |
+| 衡量目标 | 大图索引更新不随实体总数增长                               |
+
 ## `check-bench-budget.mjs` 行为速览
 
 ```js
@@ -147,7 +267,7 @@ function collectBenches(report) {
 for (const bench of benches) {
   const budget = budgets[bench.name];
   if (!budget) {
-    unbudgeted.push(bench);    // passthrough：未配置预算的不报错
+    unbudgeted.push(bench);    // 未配置预算 → exit 1
     continue;
   }
   if (bench.p99Ms > budget.p99Ms) {
@@ -160,11 +280,11 @@ for (const bench of benches) {
 
 输出三块：
 
-| 块                                 | 含义                         |
-| ---------------------------------- | ---------------------------- |
-| `PASS:`                            | 命中预算且未超               |
-| `No budget defined (passthrough):` | 跑了但本表没声明，不计入失败 |
-| `FAIL:`                            | 超过预算，CI 退出码 1        |
+| 块                         | 含义                          |
+| -------------------------- | ----------------------------- |
+| `PASS:`                    | 命中预算且未超                |
+| `FAIL: no budget defined:` | 跑了但本表没声明，CI 退出码 1 |
+| `FAIL:`                    | 超过预算，CI 退出码 1         |
 
 ## 用法示例
 
@@ -209,7 +329,7 @@ PASS:
 
 ## 历史背景
 
-::: tip 为什么现有 8 条 bench
+::: tip 为什么现有 20 条 bench
 
 - **Phase B**：引入 polyline offset 三档（10 / 100 / 1000 点），对应 hot
   layer 拖拽场景的下界 / 中位 / 极端长度。
@@ -217,6 +337,8 @@ PASS:
   小图、中图、含路口的中图。
 - **Phase E**：引入 incremental 两档（1 / 3 lane decorated），守护增量装饰
   路径的复杂度近似常数。
+- **Overlap 增量性能守卫**：引入 overlap full / dirty lane / dirty crosswalk /
+  syncDirty 在 5k / 10k / 25k 三档上的预算，防止 dirty 编辑回退到全图扫描。
 
 未来若引入新关键路径（例如导出 / 导入工作流），新增 bench 时同步：
 
