@@ -5,6 +5,7 @@ import { applyLaneJunctions } from '../laneJunctions';
 import {
   findLaneBoundaryPaintHit,
   paintLaneBoundaryTypeAtPoint,
+  setLaneBoundaryType,
   setLaneBoundaryTypeAtS,
 } from '../laneBoundaryPaint';
 
@@ -47,7 +48,7 @@ function leftDecorTypes(lane: LaneEntity): unknown[] {
 }
 
 describe('lane boundary paint', () => {
-  it('sets the boundary type from a clicked s-position without flattening existing segments', () => {
+  it('preserves imported s-segment boundary entries when setting by s', () => {
     const lane = setLaneBoundaryTypeAtS(makeLane(), 'left', 24, 'DOTTED_WHITE');
     const next = setLaneBoundaryTypeAtS(lane, 'left', 48, 'CURB');
 
@@ -57,6 +58,17 @@ describe('lane boundary paint', () => {
       { s: 48, types: ['CURB'] },
     ]);
     expect(next.rightBoundary.boundaryType).toEqual([{ s: 0, types: ['SOLID_YELLOW'] }]);
+  });
+
+  it('sets one boundary type for the whole lane side for editor brush edits', () => {
+    const lane = setLaneBoundaryType(
+      setLaneBoundaryTypeAtS(makeLane(), 'left', 24, 'DOTTED_WHITE'),
+      'left',
+      'CURB',
+    );
+
+    expect(lane.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['CURB'] }]);
+    expect(lane.rightBoundary.boundaryType).toEqual([{ s: 0, types: ['SOLID_YELLOW'] }]);
   });
 
   it('finds the nearest left/right boundary and converts click position to s', () => {
@@ -74,8 +86,7 @@ describe('lane boundary paint', () => {
 
     expect(result).not.toBeNull();
     expect(result!.hit.side).toBe('left');
-    expect(result!.lane.leftBoundary.boundaryType).toHaveLength(2);
-    expect(result!.lane.leftBoundary.boundaryType[1]!.types).toEqual(['CURB']);
+    expect(result!.lane.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['CURB'] }]);
   });
 
   it('renders one decor line per boundary type segment', () => {

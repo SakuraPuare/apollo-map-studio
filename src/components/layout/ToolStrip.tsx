@@ -156,12 +156,13 @@ export function ToolStrip({
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
       <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
-      <BoundaryBrushPalette />
 
       <ElementBar
         currentElement={currentElement}
         onSelect={(type) => onSelectTool(ELEMENT_MAP.get(type)!.defaultTool, type)}
       />
+
+      <BoundaryBrushPalette />
 
       <DrawToolButtons
         currentTool={currentTool}

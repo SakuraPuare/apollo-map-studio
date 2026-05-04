@@ -4,10 +4,7 @@ import type { ActorRefFrom } from 'xstate';
 import { applyDrag } from '@/components/map/entityMutations';
 import { CLICK_THRESHOLD_PX } from '@/config/mapConstants';
 import type { editorMachine } from '@/core/fsm/editorMachine';
-import {
-  findLaneBoundaryPaintHit,
-  setLaneBoundaryTypeAtS,
-} from '@/core/geometry/laneBoundaryPaint';
+import { findLaneBoundaryPaintHit, setLaneBoundaryType } from '@/core/geometry/laneBoundaryPaint';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import type { LaneEntity } from '@/types/apollo';
@@ -70,13 +67,13 @@ function handleBoundaryBrushInput(ctx: RouterContext, e: maplibregl.MapMouseEven
   const lanes = Array.from(useMapStore.getState().entities.values()).filter(isLaneEntity);
   const hit = findLaneBoundaryPaintHit(lanes, toLngLat(e));
   if (!hit) return true;
-  const hitKey = `${hit.laneId}:${hit.side}:${Math.round(hit.s * 10) / 10}:${brush.type}`;
+  const hitKey = `${hit.laneId}:${hit.side}:${brush.type}`;
   if (ctx.mutable.lastBoundaryBrushHit === hitKey) return true;
   ctx.mutable.lastBoundaryBrushHit = hitKey;
 
   const lane = useMapStore.getState().entities.get(hit.laneId);
   if (!lane || !isLaneEntity(lane)) return true;
-  const next = setLaneBoundaryTypeAtS(lane, hit.side, hit.s, brush.type);
+  const next = setLaneBoundaryType(lane, hit.side, brush.type);
   useMapStore.getState().updateEntity(lane.id, next);
   ctx.actorRef.send({ type: 'SELECT_ENTITY', id: lane.id });
   return true;

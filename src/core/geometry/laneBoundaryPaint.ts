@@ -102,6 +102,13 @@ function sameTypes(a: BoundaryLineType[], b: BoundaryLineType[]): boolean {
   return a.length === b.length && a.every((type, index) => type === b[index]);
 }
 
+function collapseBoundaryTypes(entries: LaneBoundaryTypeEntry[]): LaneBoundaryTypeEntry[] {
+  return entries.filter((entry, index) => {
+    const prev = entries[index - 1];
+    return !prev || !sameTypes(prev.types, entry.types);
+  });
+}
+
 export function setLaneBoundaryTypeAtS(
   lane: LaneEntity,
   side: LaneBoundarySide,
@@ -134,12 +141,21 @@ export function setLaneBoundaryTypeAtS(
     }
   }
 
-  const collapsed = nextEntries.filter((entry, index) => {
-    const prev = nextEntries[index - 1];
-    return !prev || !sameTypes(prev.types, entry.types);
-  });
+  const collapsed = collapseBoundaryTypes(nextEntries);
 
   const nextBoundary = { ...boundary, boundaryType: collapsed };
+  return side === 'left'
+    ? { ...lane, leftBoundary: nextBoundary }
+    : { ...lane, rightBoundary: nextBoundary };
+}
+
+export function setLaneBoundaryType(
+  lane: LaneEntity,
+  side: LaneBoundarySide,
+  type: BoundaryLineType,
+): LaneEntity {
+  const boundary = side === 'left' ? lane.leftBoundary : lane.rightBoundary;
+  const nextBoundary = { ...boundary, boundaryType: [{ s: 0, types: [type] }] };
   return side === 'left'
     ? { ...lane, leftBoundary: nextBoundary }
     : { ...lane, rightBoundary: nextBoundary };
@@ -179,5 +195,5 @@ export function paintLaneBoundaryTypeAtPoint(
 ): { lane: LaneEntity; hit: LaneBoundaryPaintHit } | null {
   const hit = findLaneBoundaryPaintHit([lane], point, options);
   if (!hit) return null;
-  return { lane: setLaneBoundaryTypeAtS(lane, hit.side, hit.s, type), hit };
+  return { lane: setLaneBoundaryType(lane, hit.side, type), hit };
 }
