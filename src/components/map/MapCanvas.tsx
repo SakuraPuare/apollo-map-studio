@@ -12,6 +12,7 @@ import { useGridLayer } from '@/hooks/useGridLayer';
 import { useApolloLayer } from '@/hooks/useApolloLayer';
 import { useCursorManager } from '@/hooks/useCursorManager';
 import { useDragPan } from '@/hooks/useDragPan';
+import { useFocusEntity } from '@/hooks/useFocusEntity';
 
 interface MapCanvasProps {
   actorRef: ActorRefFrom<typeof editorMachine>;
@@ -41,6 +42,7 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
   useApolloLayer(mapRef, mapLoadedRef);
   useCursorManager(mapRef, actorRef);
   useDragPan(mapRef, actorRef);
+  useFocusEntity(mapRef, mapLoadedRef);
 
   return <div ref={containerRef} className="w-full h-full" />;
 }

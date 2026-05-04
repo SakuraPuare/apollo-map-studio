@@ -30,6 +30,15 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
   const isSection = data.kind === 'section';
   const isEntity = data.kind === 'entity';
 
+  const handleClick = () => {
+    if (isEntity) {
+      node.select();
+      if (node.isInternal) node.toggle();
+      return;
+    }
+    if (node.isInternal) node.toggle();
+  };
+
   const handleVisibilityToggle = (e: MouseEvent) => {
     e.stopPropagation();
     if (isGroup && groupKey) toggleLayerVisible(groupKey);
@@ -54,10 +63,7 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
     <div
       ref={dragHandle}
       style={style}
-      onClick={() => {
-        if (node.isInternal) node.toggle();
-        else node.select();
-      }}
+      onClick={handleClick}
       className={nodeRowClass({
         selected: node.isSelected && isEntity,
         dimmed: isGroup && !isVisible,

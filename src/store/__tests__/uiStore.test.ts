@@ -144,4 +144,26 @@ describe('uiStore — viewport state', () => {
     useUIStore.getState().setCurrentZoom(20);
     expect(useUIStore.getState().currentZoom).toBe(20);
   });
+
+  it('requestFocusEntity 为相同实体生成新的定位请求', () => {
+    const s = useUIStore.getState();
+    s.requestFocusEntity('road_1');
+    const first = useUIStore.getState().focusEntityRequest;
+
+    s.requestFocusEntity('road_1');
+    const second = useUIStore.getState().focusEntityRequest;
+
+    expect(first).toMatchObject({ entityId: 'road_1', requestId: 1 });
+    expect(second).toMatchObject({ entityId: 'road_1', requestId: 2 });
+  });
+
+  it('clearFocusEntityRequest 只清理匹配 requestId 的请求', () => {
+    const s = useUIStore.getState();
+    s.requestFocusEntity('lane_1');
+    s.clearFocusEntityRequest(999);
+    expect(useUIStore.getState().focusEntityRequest).not.toBeNull();
+
+    s.clearFocusEntityRequest(1);
+    expect(useUIStore.getState().focusEntityRequest).toBeNull();
+  });
 });

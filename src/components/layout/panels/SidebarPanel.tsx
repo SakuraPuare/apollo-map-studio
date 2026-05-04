@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect } from 'react';
 import { useSelector } from '@xstate/react';
 import { useEditorActor } from '@/context/EditorContext';
 import { useSidebar } from '@/context/SidebarContext';
+import { useUIStore } from '@/store/uiStore';
 
 const LazyLayerTree = lazy(async () => {
   const m = await import('./LayerTree');
@@ -49,12 +50,15 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
   const { activeTab, setActiveTab } = useSidebar();
   const actorRef = useEditorActor();
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
+  const requestFocusEntity = useUIStore((s) => s.requestFocusEntity);
 
   const handleSelect = useCallback(
     (id: string | null) => {
-      if (id) actorRef.send({ type: 'SELECT_ENTITY', id });
+      if (!id) return;
+      actorRef.send({ type: 'SELECT_ENTITY', id });
+      requestFocusEntity(id);
     },
-    [actorRef],
+    [actorRef, requestFocusEntity],
   );
 
   // Settings is a modal — clicking the tab opens it and snaps back to the

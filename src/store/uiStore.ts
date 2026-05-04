@@ -42,6 +42,7 @@ interface UIState {
   // Viewport info (from MapLibre)
   cursorLngLat: [number, number] | null;
   currentZoom: number;
+  focusEntityRequest: { entityId: string; requestId: number } | null;
 
   // Sidebar
   sidebarVisible: boolean;
@@ -73,6 +74,8 @@ interface UIActions {
 
   setCursorLngLat(pos: [number, number] | null): void;
   setCurrentZoom(zoom: number): void;
+  requestFocusEntity(entityId: string): void;
+  clearFocusEntityRequest(requestId: number): void;
 
   toggleSidebar(): void;
 
@@ -114,6 +117,7 @@ const initialUIState: UIState = {
   layerStates: defaultLayerStates,
   cursorLngLat: null,
   currentZoom: 18,
+  focusEntityRequest: null,
   sidebarVisible: true,
   currentSnapTarget: null,
   connectMode: { active: false, firstLaneId: null },
@@ -134,6 +138,8 @@ function sameSnapTarget(prev: SnapTarget | null, target: SnapTarget | null): boo
 }
 
 function createUIActions(set: UISet, get: UIGet): UIActions {
+  const viewportActions = createViewportActions(set);
+
   return {
     setAppMode(mode) {
       set({ appMode: mode });
@@ -205,6 +211,28 @@ function createUIActions(set: UISet, get: UIGet): UIActions {
     },
     setConnectFirstLane(id) {
       set((s) => ({ connectMode: { ...s.connectMode, firstLaneId: id } }));
+    },
+
+    ...viewportActions,
+  };
+}
+
+function createViewportActions(
+  set: UISet,
+): Pick<UIActions, 'requestFocusEntity' | 'clearFocusEntityRequest'> {
+  return {
+    requestFocusEntity(entityId) {
+      set((s) => ({
+        focusEntityRequest: {
+          entityId,
+          requestId: (s.focusEntityRequest?.requestId ?? 0) + 1,
+        },
+      }));
+    },
+    clearFocusEntityRequest(requestId) {
+      set((s) =>
+        s.focusEntityRequest?.requestId === requestId ? { focusEntityRequest: null } : {},
+      );
     },
   };
 }
