@@ -128,6 +128,25 @@ export default tseslint.config(
     files: ['docs/.vitepress/sidebars.ts'],
     rules: { 'max-lines': 'off' },
   },
+  // WorkspaceLayout is the application shell: it wires global stores,
+  // Dockview state, shortcuts, dialogs, and top-level chrome in one place.
+  // Splitting this component only to satisfy the generic function cap creates
+  // prop plumbing without improving ownership, so keep the cap scoped.
+  {
+    files: ['src/components/layout/WorkspaceLayout.tsx'],
+    rules: {
+      'max-lines-per-function': ['warn', { max: 140, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  // Workspace contribution modules intentionally export registration metadata
+  // next to the registrar function. They are plugin descriptors, not refreshable
+  // component modules.
+  {
+    files: ['src/components/layout/workspaceContributions/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
   // Test files get laxer rules.
   {
     files: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
