@@ -21,6 +21,12 @@ uncrackable against an attacker who can patch the shipped binary or runtime.
 
 - Keep `tools/license-gen/keys/private.pem` out of shipped builds and source
   control. The app must only contain `electron/license/public-key.cts`.
+- Use `pnpm build:desktop` or the `pnpm package*` scripts for release
+  artifacts. They compile readable source first, then seal selected
+  `dist-electron/license/*.cjs` files and add a packaged-file integrity
+  manifest.
+- Keep `electron:dev` on the plain TypeScript build. Artifact hardening is
+  intentionally a release-build step, not a source-obfuscation step.
 - Issue renewal tokens with the same `lic` id and a later `expires` value.
   Older tokens for the same id are intentionally rejected.
 - Treat any `tampered`, `machine_mismatch`, `invalid`, `expired_trial`, or
@@ -31,10 +37,21 @@ uncrackable against an attacker who can patch the shipped binary or runtime.
 
 ## Verification
 
-Run the license hardening checks with:
+Run the source-level license hardening checks with:
 
 ```bash
 rm -rf .tmp/electron-license-tests
 pnpm exec tsc -p tsconfig.electron.test.json
 node --test .tmp/electron-license-tests/electron/license/__tests__/*.test.cjs
 ```
+
+Run the release artifact hardening checks with:
+
+```bash
+pnpm build:desktop
+pnpm verify:electron-hardening
+```
+
+The artifact check rejects sourcemaps, requires the protected Electron license
+modules to be AES-GCM sealed, and verifies `dist-electron/ams-integrity.cjs`
+against the generated `dist/` and `dist-electron/` files.

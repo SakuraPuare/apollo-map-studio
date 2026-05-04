@@ -6,7 +6,6 @@ import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'elect
 import { checkAccessGuardAccess, getAccessGuardIdentity } from './access-guard-runtime.cjs';
 import { LicenseManager } from './license/manager.cjs';
 
-const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const APP_PROTOCOL = 'apollo-map-studio';
 const APP_IPC = {
   GET_INFO: 'app:get-info',
@@ -67,6 +66,20 @@ function getPreloadPath() {
 
 function getRendererIndexPath() {
   return path.join(__dirname, '..', 'dist', 'index.html');
+}
+
+function getDevelopmentRendererUrl() {
+  if (app.isPackaged) return null;
+
+  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+  if (!rendererUrl) return null;
+
+  const parsedUrl = new URL(rendererUrl);
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new Error(`Unsupported ELECTRON_RENDERER_URL protocol: ${parsedUrl.protocol}`);
+  }
+
+  return parsedUrl.toString();
 }
 
 function getDocsIndexPath() {
@@ -137,26 +150,46 @@ function registerAppProtocol() {
   });
 }
 
-function isExternalUrl(url: string) {
-  return url.startsWith('http://') || url.startsWith('https://');
+function isHttpNavigationUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function getExternalNavigationTarget(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== 'https:') return null;
+    if (parsedUrl.username || parsedUrl.password) return null;
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
 }
 
 function configureExternalNavigation(window: BrowserWindow) {
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalUrl(url)) {
-      void shell.openExternal(url);
+    const target = getExternalNavigationTarget(url);
+    if (target) {
+      void shell.openExternal(target);
     }
 
     return { action: 'deny' };
   });
 
   window.webContents.on('will-navigate', (event, url) => {
-    if (!isExternalUrl(url)) {
+    if (!isHttpNavigationUrl(url)) {
       return;
     }
 
     event.preventDefault();
-    void shell.openExternal(url);
+    const target = getExternalNavigationTarget(url);
+    if (target) {
+      void shell.openExternal(target);
+    }
   });
 }
 
@@ -219,6 +252,11 @@ async function openDeniedWindow(denialHtml: string) {
     title: 'Access Denied',
     backgroundColor: '#1e1e1e',
     show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
   });
 
   deniedWindow.once('ready-to-show', () => {
@@ -311,8 +349,9 @@ async function createMainWindow() {
   wireWindowStateEvents(mainWindow);
   configureExternalNavigation(mainWindow);
 
-  if (rendererUrl) {
-    await mainWindow.loadURL(rendererUrl);
+  const developmentRendererUrl = getDevelopmentRendererUrl();
+  if (developmentRendererUrl) {
+    await mainWindow.loadURL(developmentRendererUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
     return;
   }
