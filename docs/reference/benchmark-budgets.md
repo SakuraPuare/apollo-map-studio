@@ -5,7 +5,7 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 
 # 性能预算
 
-本页概括 `scripts/bench-budgets.json` 的 109 条 p99 性能预算。CI 在 `pnpm bench` 后调用 `scripts/check-bench-budget.mjs`，任何未注册 bench 或超预算 bench 都会让检查失败。
+本页概括 `scripts/bench-budgets.json` 的 115 条 p99 性能预算。CI 在 `pnpm bench` 后调用 `scripts/check-bench-budget.mjs`，任何未注册 bench 或超预算 bench 都会让检查失败。
 
 ## 文件位置
 
@@ -259,6 +259,24 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
   "grid max-density viewport — buildGrid": {
     "p99Ms": 0.05
   },
+  "panel 10k — build layer tree": {
+    "p99Ms": 1
+  },
+  "panel 10k — compute outline stats": {
+    "p99Ms": 0.5
+  },
+  "panel 10k — search miss scan": {
+    "p99Ms": 0.5
+  },
+  "panel 50k — build layer tree": {
+    "p99Ms": 8
+  },
+  "panel 50k — compute outline stats": {
+    "p99Ms": 6
+  },
+  "panel 50k — search miss scan": {
+    "p99Ms": 4
+  },
   "entityOps 10k — cascadeDeleteRefsFull one lane": {
     "p99Ms": 3
   },
@@ -471,6 +489,17 @@ description: scripts/bench-budgets.json 中所有 bench 名称、p99 上限与�
 | `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
 | `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
 
+### panel data builders
+
+| Bench                               | File                                                        | p99 ceiling | Guarded path                         |
+| ----------------------------------- | ----------------------------------------------------------- | ----------- | ------------------------------------ |
+| `panel 10k — build layer tree`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **1 ms**    | layer tree build over all entities   |
+| `panel 10k — compute outline stats` | `src/components/layout/panels/__tests__/panelData.bench.ts` | **0.5 ms**  | outline scan and orphan checks       |
+| `panel 10k — search miss scan`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **0.5 ms**  | search linear scan over all entities |
+| `panel 50k — build layer tree`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **8 ms**    | layer tree build over all entities   |
+| `panel 50k — compute outline stats` | `src/components/layout/panels/__tests__/panelData.bench.ts` | **6 ms**    | outline scan and orphan checks       |
+| `panel 50k — search miss scan`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **4 ms**    | search linear scan over all entities |
+
 ### entity reference operations
 
 | Bench                                             | File                                             | p99 ceiling | Guarded path                                   |
@@ -539,13 +568,14 @@ CI 跑在 GitHub `ubuntu-latest`（虚拟机，性能波动 ±20%）。所以预
 
 ## 覆盖范围
 
-::: tip 为什么现在是 109 条 bench
+::: tip 为什么现在是 115 条 bench
 
 预算覆盖以下会导致主线程卡顿、worker 队列堆积、或大图复杂度退化的路径：
 
 - geometry hot path：offset、snap、hit-test、boundary brush、polygon validation。
 - map derivation：lane junction、lane topology、overlap reconcile。
 - worker and layer path：spatial worker cold pipeline、cold source diff/updateData、hot/overlay/grid builders、主线程 chunk 切片。
+- panel data builders：MapOutline 统计、LayerTree 建树、SearchPanel 全量扫描。
 - store and entity operations：mapStore 写事务、batchImport、cascade delete、reparent 全表扫描。
 - IO path：Apollo proto bridge、bounds、projection、roundtrip、binary codec、text codec。
 

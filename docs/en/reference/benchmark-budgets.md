@@ -5,7 +5,7 @@ description: 'Per-bench reference for scripts/bench-budgets.json: names, p99 cei
 
 # Benchmark Budgets
 
-This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
+This page summarizes the 115 p99 performance budgets in `scripts/bench-budgets.json`. CI runs `scripts/check-bench-budget.mjs` after `pnpm bench`; any unregistered bench or over-budget bench fails the check.
 
 ## File Locations
 
@@ -259,6 +259,24 @@ This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.j
   "grid max-density viewport — buildGrid": {
     "p99Ms": 0.05
   },
+  "panel 10k — build layer tree": {
+    "p99Ms": 1
+  },
+  "panel 10k — compute outline stats": {
+    "p99Ms": 0.5
+  },
+  "panel 10k — search miss scan": {
+    "p99Ms": 0.5
+  },
+  "panel 50k — build layer tree": {
+    "p99Ms": 8
+  },
+  "panel 50k — compute outline stats": {
+    "p99Ms": 6
+  },
+  "panel 50k — search miss scan": {
+    "p99Ms": 4
+  },
   "entityOps 10k — cascadeDeleteRefsFull one lane": {
     "p99Ms": 3
   },
@@ -471,6 +489,17 @@ This page summarizes the 109 p99 performance budgets in `scripts/bench-budgets.j
 | `overlay bezier 1000 anchors — buildOverlayFeatures`  | `src/hooks/__tests__/layerBuilders.bench.ts` | **4 ms**    | draw preview feature generation                             |
 | `grid max-density viewport — buildGrid`               | `src/hooks/__tests__/layerBuilders.bench.ts` | **0.05 ms** | grid viewport feature generation                            |
 
+### panel data builders
+
+| Bench                               | File                                                        | p99 ceiling | Guarded path                         |
+| ----------------------------------- | ----------------------------------------------------------- | ----------- | ------------------------------------ |
+| `panel 10k — build layer tree`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **1 ms**    | layer tree build over all entities   |
+| `panel 10k — compute outline stats` | `src/components/layout/panels/__tests__/panelData.bench.ts` | **0.5 ms**  | outline scan and orphan checks       |
+| `panel 10k — search miss scan`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **0.5 ms**  | search linear scan over all entities |
+| `panel 50k — build layer tree`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **8 ms**    | layer tree build over all entities   |
+| `panel 50k — compute outline stats` | `src/components/layout/panels/__tests__/panelData.bench.ts` | **6 ms**    | outline scan and orphan checks       |
+| `panel 50k — search miss scan`      | `src/components/layout/panels/__tests__/panelData.bench.ts` | **4 ms**    | search linear scan over all entities |
+
 ### entity reference operations
 
 | Bench                                             | File                                             | p99 ceiling | Guarded path                                   |
@@ -539,13 +568,14 @@ CI runs on GitHub `ubuntu-latest`, where VM jitter is normal. Budgets should:
 
 ## Coverage Scope
 
-::: tip Why there are 109 benches now
+::: tip Why there are 115 benches now
 
 The budget set covers code that can stall the main thread, pile work onto workers, or regress on large-map complexity:
 
 - Geometry hot paths: offset, snap, hit-test, boundary brush, polygon validation.
 - Map derivation: lane junctions, lane topology, overlap reconcile.
 - Worker and layer paths: spatial worker cold pipeline, cold source diff/updateData helpers, hot/overlay/grid builders, main-thread chunk slicing.
+- Panel data builders: MapOutline stats, LayerTree construction, and SearchPanel whole-map scans.
 - Store and entity operations: mapStore write transactions, batchImport, cascade delete, whole-map reparent scans.
 - IO paths: Apollo proto bridge, bounds, projection, roundtrip, binary codec, and text codec.
 

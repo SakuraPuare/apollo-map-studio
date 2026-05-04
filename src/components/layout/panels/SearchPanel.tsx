@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMapStore } from '@/store/mapStore';
 import { useSidebar } from '@/context/SidebarContext';
 import { clsx } from 'clsx';
+import { searchEntities } from './panelData';
 
 interface SearchPanelProps {
   selectedId?: string | null;
@@ -19,16 +20,7 @@ export function SearchPanel({ selectedId, onSelect }: SearchPanelProps) {
   const { searchQuery, setSearchQuery } = useSidebar();
 
   const results = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    const out: { id: string; entityType: string }[] = [];
-    for (const e of entities.values()) {
-      if (e.id.toLowerCase().includes(q) || e.entityType.toLowerCase().includes(q)) {
-        out.push({ id: e.id, entityType: e.entityType });
-        if (out.length >= 200) break; // safety cap for huge maps
-      }
-    }
-    return out;
+    return searchEntities(entities, searchQuery);
   }, [entities, searchQuery]);
 
   return (

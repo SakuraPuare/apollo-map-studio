@@ -2,14 +2,13 @@ import { useMemo } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getEntityColor, getEntityIcon, getEntityLabel } from '@/core/entityRegistry';
 import { useMapStore } from '@/store/mapStore';
-import type { MapEntity } from '@/types/entities';
 import { MapMetadataForm } from './MapMetadataForm';
+import { computeStats } from './panelData';
 
 // Read-only structural outline of the current map: per-type counts +
 // orphan checks (entities whose FK targets are missing). Useful for
 // quickly auditing what's in the document before exporting.
 
-const DRAWING_TYPES = new Set(['polyline', 'catmullRom', 'bezier', 'arc', 'rect', 'polygon']);
 const OUTLINE_GROUPS = [
   {
     title: '路网结构',
@@ -36,74 +35,6 @@ const OUTLINE_GROUPS = [
     types: ['overlap'],
   },
 ] satisfies ReadonlyArray<{ title: string; types: readonly string[] }>;
-
-interface OutlineStats {
-  apolloCounts: Map<string, number>;
-  drawingCount: number;
-  unparentedLanes: number;
-  orphanedJunctionRefs: number;
-}
-
-function computeStats(entities: ReadonlyMap<string, MapEntity>): OutlineStats {
-  const stats: OutlineStats = {
-    apolloCounts: new Map(),
-    drawingCount: 0,
-    unparentedLanes: 0,
-    orphanedJunctionRefs: 0,
-  };
-  const lanesInSection = collectRoadSectionLaneIds(entities);
-
-  for (const entity of entities.values()) {
-    addEntityToStats(stats, entity, entities, lanesInSection);
-  }
-
-  return stats;
-}
-
-function collectRoadSectionLaneIds(entities: ReadonlyMap<string, MapEntity>): Set<string> {
-  const laneIds = new Set<string>();
-  for (const e of entities.values()) {
-    if (e.entityType === 'road') {
-      for (const section of e.sections) {
-        for (const laneId of section.laneIds) laneIds.add(laneId);
-      }
-    }
-  }
-  return laneIds;
-}
-
-function addEntityToStats(
-  stats: OutlineStats,
-  entity: MapEntity,
-  entities: ReadonlyMap<string, MapEntity>,
-  lanesInSection: ReadonlySet<string>,
-): void {
-  if (DRAWING_TYPES.has(entity.entityType)) {
-    stats.drawingCount += 1;
-    return;
-  }
-
-  stats.apolloCounts.set(entity.entityType, (stats.apolloCounts.get(entity.entityType) ?? 0) + 1);
-  if (isUnparentedLane(entity, entities, lanesInSection)) stats.unparentedLanes += 1;
-  if (hasMissingJunctionRef(entity, entities)) stats.orphanedJunctionRefs += 1;
-}
-
-function isUnparentedLane(
-  entity: MapEntity,
-  entities: ReadonlyMap<string, MapEntity>,
-  lanesInSection: ReadonlySet<string>,
-): boolean {
-  if (entity.entityType !== 'lane') return false;
-  const hasJunction = entity.junctionId !== null && entities.has(entity.junctionId);
-  return !hasJunction && !lanesInSection.has(entity.id);
-}
-
-function hasMissingJunctionRef(entity: MapEntity, entities: ReadonlyMap<string, MapEntity>) {
-  if (entity.entityType !== 'lane' && entity.entityType !== 'road' && entity.entityType !== 'rsu') {
-    return false;
-  }
-  return entity.junctionId !== null && !entities.has(entity.junctionId);
-}
 
 export function MapOutline() {
   const entities = useMapStore((s) => s.entities);
