@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
-import { scrollAreaClassName } from '@/components/ui/scroll-area-classes';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   formatShortcut,
   getCommandPaletteActionsForMode,
@@ -83,21 +83,23 @@ export function CommandPalette({
           </kbd>
         </div>
 
-        <Command.List className={scrollAreaClassName('max-h-[300px] p-2')}>
-          <Command.Empty className="py-6 text-center text-sm text-zinc-500">
-            No results found.
-          </Command.Empty>
+        <ScrollArea className="max-h-[300px]">
+          <Command.List className="p-2">
+            <Command.Empty className="py-6 text-center text-sm text-zinc-500">
+              No results found.
+            </Command.Empty>
 
-          {Object.entries(grouped).map(([group, items]) => (
-            <CommandActionGroup
-              key={group}
-              group={group}
-              items={items}
-              getToggleState={getToggleState}
-              onRun={runCommand}
-            />
-          ))}
-        </Command.List>
+            {Object.entries(grouped).map(([group, items]) => (
+              <CommandActionGroup
+                key={group}
+                group={group}
+                items={items}
+                getToggleState={getToggleState}
+                onRun={runCommand}
+              />
+            ))}
+          </Command.List>
+        </ScrollArea>
 
         <div className="border-t border-white/10 px-4 py-2 flex items-center gap-4 text-[10px] text-zinc-600">
           <span>↑↓ Navigate</span>

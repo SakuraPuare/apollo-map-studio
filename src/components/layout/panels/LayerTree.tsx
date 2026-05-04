@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Tree, type NodeApi, type TreeApi } from 'react-arborist';
 import { FaPlus } from 'react-icons/fa6';
-import { scrollbarClassName } from '@/components/ui/scroll-area-classes';
+import { scrollAreaClassName } from '@/components/ui/scroll-area-classes';
 import { canReparent } from '@/lib/entityOps';
 import { nextEntityId, nextSubId, SUB_PREFIX } from '@/lib/idGenerator';
 import { useMapStore } from '@/store/mapStore';
@@ -192,7 +192,7 @@ function LayerTreeView({
         <Tree<TreeNode>
           ref={treeRef}
           data={treeData}
-          className={scrollbarClassName}
+          className={scrollAreaClassName()}
           openByDefault={false}
           width="100%"
           height={treeHeight}

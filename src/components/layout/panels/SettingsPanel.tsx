@@ -315,7 +315,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         </div>
 
         {/* Content */}
-        <ScrollArea className="px-5 py-4 space-y-5 max-h-[60vh]">
+        <ScrollArea className="max-h-[60vh]" viewportClassName="px-5 py-4 space-y-5">
           <HistorySettings
             value={draftHistory}
             onChange={setDraftHistory}
