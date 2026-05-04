@@ -82,7 +82,7 @@ features:
 按你的目标找入口：
 
 | 你想做什么                   | 起点                                                                |
-| ---------------------------- | ------------------------------------------------------------------- | --------------------------------------------------- | --- |
+| ---------------------------- | ------------------------------------------------------------------- |
 | 第一次接触 Apollo Map Studio | [快速开始](/guide/getting-started)                                  |
 | 导入一张 Apollo base_map     | [导入地图](/guide/import) → [导入深度](/guide/importing)            |
 | 在地图上绘制车道与连接       | [绘制工具](/guide/drawing-tools) → [车道绘制](/guide/drawing-lanes) |
@@ -93,7 +93,6 @@ features:
 | 二次开发架构与源码           | [架构总览](/architecture/overview)                                  |
 | 添加新动作 / 工具 / 元素     | [操作手册](/recipes/adding-a-new-action)                            |
 | 贡献代码与 PR                | [开发环境](/contributing/development-setup)                         |
-| <!--                         | 检查文档站主题与 Markdown                                           | [VitePress 功能展示](/reference/vitepress-showcase) | --> |
 
 ## 关键概念速查
 
