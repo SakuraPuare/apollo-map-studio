@@ -57,7 +57,10 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     return () => ipcRenderer.off('app:window-state', listener);
   },
 });
-contextBridge.exposeInMainWorld('accessGuardIdentity', ipcRenderer.sendSync(APP_IPC.GET_ACCESS_GUARD_IDENTITY));
+contextBridge.exposeInMainWorld(
+  'accessGuardIdentity',
+  ipcRenderer.sendSync(APP_IPC.GET_ACCESS_GUARD_IDENTITY),
+);
 
 const licenseApi = {
   /** Snapshot of the current license state. */
