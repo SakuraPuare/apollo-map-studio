@@ -22,10 +22,15 @@ benchmarks; `scripts/check-bench-budget.mjs` compares each p99 to
 
 ```bash
 pnpm bench                                              # all
+pnpm bench:fast                                         # local run using all workers
 pnpm bench src/core/workers                             # subset
 pnpm bench --outputJson bench-results.json              # JSON output
 node scripts/check-bench-budget.mjs bench-results.json  # budget guard
 ```
+
+`bench:fast` passes `--maxWorkers=100%` explicitly and is useful for local
+feedback. CI still uses `pnpm bench` to avoid multiple benchmark files
+competing for CPU and inflating p99 jitter.
 
 CI steps
 ([`.github/workflows/ci.yml`](https://github.com/SakuraPuare/apollo-map-studio/blob/main/.github/workflows/ci.yml)
@@ -173,12 +178,13 @@ reject.
 
 ## Existing bench areas
 
-| Area                       | Contract                                                    |
-| -------------------------- | ----------------------------------------------------------- |
-| `offset polyline geometry` | p99 ceilings for 10 / 100 / 1000 point offsets              |
-| `lane junction derivation` | full stitch and 1 / 3 lane incremental decoration budgets   |
-| `overlap reconcile`        | full recompute scales linearly; dirty edit is near-constant |
-| `spatial index syncDirty`  | single-dirty sync does not grow with whole-map entity count |
+| Area                       | Contract                                                     |
+| -------------------------- | ------------------------------------------------------------ |
+| `offset polyline geometry` | p99 ceilings for 10 / 100 / 1000 point offsets               |
+| `lane junction derivation` | full stitch and 1 / 3 lane incremental decoration budgets    |
+| `lane topology reconcile`  | full / single-dirty topology derivation across several sizes |
+| `overlap reconcile`        | full recompute scales linearly; dirty edit is near-constant  |
+| `spatial index syncDirty`  | single-dirty sync does not grow with whole-map entity count  |
 
 See `scripts/bench-budgets.json`
 ([source](https://github.com/SakuraPuare/apollo-map-studio/blob/main/scripts/bench-budgets.json)).

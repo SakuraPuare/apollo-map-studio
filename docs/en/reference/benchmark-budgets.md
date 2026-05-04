@@ -51,6 +51,12 @@ flowchart LR
   "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
   "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
   "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
+  "topology 100 lanes — full reconcile": { "p99Ms": 2 },
+  "topology 100 lanes — incremental (1 dirty lane)": { "p99Ms": 1 },
+  "topology 500 lanes — full reconcile": { "p99Ms": 5 },
+  "topology 500 lanes — incremental (1 dirty lane)": { "p99Ms": 2 },
+  "topology 1000 lanes — full reconcile": { "p99Ms": 10 },
+  "topology 1000 lanes — incremental (1 dirty lane)": { "p99Ms": 4 },
   "overlap 5k — full mode (cold)": { "p99Ms": 25 },
   "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
   "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
@@ -139,6 +145,17 @@ flowchart LR
 | p99 ceiling        | **5 ms**                                                |
 | Subject under test | 3-lane batched incremental decoration                   |
 | Why it matters     | Multi-lane batches should scale roughly linearly        |
+
+### Lane topology budgets
+
+| Bench name                                         | Source file                                             | p99 ceiling | What it guards                                      |
+| -------------------------------------------------- | ------------------------------------------------------- | ----------- | --------------------------------------------------- |
+| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **2 ms**    | full pred/succ/neighbor derivation for 100 lanes    |
+| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **1 ms**    | single-dirty topology derivation at 100 lanes       |
+| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **5 ms**    | full topology recompute stays interactive           |
+| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **2 ms**    | 500-lane incremental path remains cheaper than full |
+| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **10 ms**   | 1000-lane full recompute avoids order regressions   |
+| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **4 ms**    | 1000-lane dirty affected set stays local            |
 
 ### Overlap reconcile budgets
 
@@ -233,7 +250,7 @@ Budgets are perf guardrails. Every change requires a PR with rationale.
 
 ## Historical context
 
-::: tip Why these 20 benches?
+::: tip Why these 26 benches?
 
 - **Phase B**: introduced three polyline-offset benches (10 / 100 / 1000
   points) covering hot-layer drag's short / typical / extreme length cases.
@@ -241,6 +258,8 @@ Budgets are perf guardrails. Every change requires a PR with rationale.
   junctions) covering small / medium / medium-with-junctions topology.
 - **Phase E**: introduced two incremental benches (1 / 3 lanes decorated)
   to guard near-constant complexity in the incremental decoration path.
+- **Lane topology guard**: introduced full / incremental budgets across 100 /
+  500 / 1000 lanes to guard pred/succ/neighbor/junctionId derivation.
 - **Overlap incremental guard**: introduced full / dirty lane / dirty
   crosswalk / syncDirty budgets across 5k / 10k / 25k scales to prevent
   dirty edits from regressing to whole-map scans.

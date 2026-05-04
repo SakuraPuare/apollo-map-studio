@@ -48,6 +48,12 @@ flowchart LR
   "full stitch — 100 lanes / 50 isolated junctions": { "p99Ms": 6 },
   "incremental — 100-lane chain, 1 lane decorated": { "p99Ms": 5 },
   "incremental — 100-lane chain, 3 lanes decorated": { "p99Ms": 5 },
+  "topology 100 lanes — full reconcile": { "p99Ms": 2 },
+  "topology 100 lanes — incremental (1 dirty lane)": { "p99Ms": 1 },
+  "topology 500 lanes — full reconcile": { "p99Ms": 5 },
+  "topology 500 lanes — incremental (1 dirty lane)": { "p99Ms": 2 },
+  "topology 1000 lanes — full reconcile": { "p99Ms": 10 },
+  "topology 1000 lanes — incremental (1 dirty lane)": { "p99Ms": 4 },
   "overlap 5k — full mode (cold)": { "p99Ms": 25 },
   "overlap 5k — incremental (1 dirty lane, warm index)": { "p99Ms": 0.5 },
   "overlap 5k — incremental (1 dirty crosswalk, warm index)": { "p99Ms": 0.5 },
@@ -146,6 +152,17 @@ flowchart LR
 | p99 上限 | **5 ms**                                                |
 | 衡量对象 | 100 lane 链上 3 lane 同时增量装饰                       |
 | 衡量目标 | 多 lane batch 增量耗时近似线性                          |
+
+### Lane topology budgets
+
+| Bench 名称                                         | 文件                                                    | p99 上限  | 衡量目标                               |
+| -------------------------------------------------- | ------------------------------------------------------- | --------- | -------------------------------------- |
+| `topology 100 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **2 ms**  | 100 lane 全量 pred/succ/neighbor 派生  |
+| `topology 100 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **1 ms**  | 100 lane 下单 dirty lane 增量拓扑派生  |
+| `topology 500 lanes — full reconcile`              | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **5 ms**  | 500 lane 全量拓扑重算保持交互级预算    |
+| `topology 500 lanes — incremental (1 dirty lane)`  | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **2 ms**  | 500 lane 下单 dirty 增量明显低于 full  |
+| `topology 1000 lanes — full reconcile`             | `src/core/geometry/__tests__/laneTopology.bench.ts:104` | **10 ms** | 1000 lane 全量拓扑重算不发生数量级退化 |
+| `topology 1000 lanes — incremental (1 dirty lane)` | `src/core/geometry/__tests__/laneTopology.bench.ts:109` | **4 ms**  | 1000 lane 下单 dirty 受影响集保持局部  |
 
 ### `overlap 5k — full mode (cold)`
 
@@ -329,7 +346,7 @@ PASS:
 
 ## 历史背景
 
-::: tip 为什么现有 20 条 bench
+::: tip 为什么现有 26 条 bench
 
 - **Phase B**：引入 polyline offset 三档（10 / 100 / 1000 点），对应 hot
   layer 拖拽场景的下界 / 中位 / 极端长度。
@@ -337,6 +354,8 @@ PASS:
   小图、中图、含路口的中图。
 - **Phase E**：引入 incremental 两档（1 / 3 lane decorated），守护增量装饰
   路径的复杂度近似常数。
+- **Lane topology 守卫**：引入 full / incremental 在 100 / 500 / 1000 lane
+  三档上的预算，守护 pred/succ/neighbor/junctionId 派生路径。
 - **Overlap 增量性能守卫**：引入 overlap full / dirty lane / dirty crosswalk /
   syncDirty 在 5k / 10k / 25k 三档上的预算，防止 dirty 编辑回退到全图扫描。
 
