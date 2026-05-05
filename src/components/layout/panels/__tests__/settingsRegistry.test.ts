@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { useSettingsStore } from '@/store/settingsStore';
 import { registerBuiltinSettingsTabs } from '../builtinSettingsTabs';
-import { getSettingsTabs } from '../settingsRegistry';
+import {
+  getSettingsTabs,
+  type NumberSettingEntryDef,
+  type SettingsStoreSnapshot,
+} from '../settingsRegistry';
 
 registerBuiltinSettingsTabs();
 
@@ -52,5 +57,27 @@ describe('settingsRegistry', () => {
     expect(entries.some((entry) => entry.kind === 'select')).toBe(true);
     expect(entries.some((entry) => entry.kind === 'number')).toBe(true);
     expect(entries.some((entry) => entry.kind === 'action')).toBe(true);
+  });
+
+  it('formats and commits lane speed limit with one km/h conversion', () => {
+    const entry = getSettingsTabs()
+      .flatMap((tab) => tab.sections)
+      .flatMap((section) => section.entries)
+      .find(
+        (candidate): candidate is NumberSettingEntryDef =>
+          candidate.kind === 'number' && candidate.id === 'laneSpeedLimit',
+      );
+    const settings: SettingsStoreSnapshot = {
+      ...useSettingsStore.getState(),
+      laneSpeedLimit: 60 / 3.6,
+      setLaneSpeedLimit: vi.fn(),
+    };
+
+    if (!entry) throw new Error('laneSpeedLimit setting entry not found');
+
+    expect(entry.format?.(entry.value(settings))).toBe('60');
+
+    entry.commit(settings, 90);
+    expect(settings.setLaneSpeedLimit).toHaveBeenCalledWith(90 / 3.6);
   });
 });

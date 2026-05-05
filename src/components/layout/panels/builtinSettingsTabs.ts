@@ -215,7 +215,7 @@ function laneDefaultsSection() {
         min: MIN_LANE_SPEED_LIMIT * 3.6,
         max: MAX_LANE_SPEED_LIMIT * 3.6,
         step: 5,
-        value: (settings: SettingsState & SettingsActions) => settings.laneSpeedLimit * 3.6,
+        value: (settings: SettingsState & SettingsActions) => settings.laneSpeedLimit,
         commit: commitKphAsMps,
         format: formatMpsAsKph,
       },
