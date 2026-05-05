@@ -29,16 +29,6 @@ export function formatCountdownMs(ms: number): string {
   return days > 0 ? `${days}d ${clock}` : clock;
 }
 
-function formatShortCountdownMs(ms: number): string {
-  const totalMinutes = Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / MINUTE_MS)) : 0;
-  const days = Math.floor(totalMinutes / (DAY_MS / MINUTE_MS));
-  const hours = Math.floor((totalMinutes % (DAY_MS / MINUTE_MS)) / (HOUR_MS / MINUTE_MS));
-  const minutes = totalMinutes % (HOUR_MS / MINUTE_MS);
-  const clock = `${pad2(hours)}:${pad2(minutes)}`;
-
-  return days > 0 ? `${days}d ${clock}` : clock;
-}
-
 export function getLicenseExpiryTime(state: LicenseState): number | null {
   if (state.status === 'activated' || state.status === 'expired_license') {
     const expires = state.license?.expires;
@@ -74,9 +64,4 @@ export function formatLicenseExpirySummary(state: LicenseState, now: number): st
   if (hasLicenseExpired(state, now)) return `Expired ${expiry}`;
 
   return `Expires ${expiry} · ${formatCountdownUntil(expiresAt, now)} remaining`;
-}
-
-export function formatTrialShortLabel(state: LicenseState, now: number): string {
-  if (state.status !== 'trial') return state.canEdit ? 'Licensed' : 'Read-only';
-  return `Trial ${formatShortCountdownMs(state.trialEnd - now)}`;
 }

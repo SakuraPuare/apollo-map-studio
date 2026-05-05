@@ -1,8 +1,6 @@
 import { FaTriangleExclamation, FaShield, FaClock, FaKey } from 'react-icons/fa6';
 import { useLicenseStore } from '@/store/licenseStore';
 import type { LicenseState } from '@/lib/license-bridge';
-import { formatLicenseExpirySummary } from '@/lib/licenseDisplay';
-import { useNow } from '@/hooks/useNow';
 
 const STATUS_TONE: Record<
   string,
@@ -76,18 +74,20 @@ function shouldHideBanner(state: LicenseState): boolean {
   return state.daysRemaining === null || state.daysRemaining > 14;
 }
 
-function bannerMessage(state: LicenseState, now: number): string {
+function bannerMessage(state: LicenseState): string {
   switch (state.status) {
     case 'trial':
-      return `Trial ${formatLicenseExpirySummary(state, now)} — activate to keep editing`;
+      return state.hoursRemaining !== null && state.hoursRemaining <= 24
+        ? `Trial ends in ${state.hoursRemaining}h — activate to keep editing`
+        : `Trial: ${state.daysRemaining}d remaining`;
     case 'activated':
       return state.daysRemaining !== null
-        ? `Licensed · ${formatLicenseExpirySummary(state, now)}`
+        ? `Licensed · ${state.daysRemaining}d remaining`
         : 'Licensed · perpetual';
     case 'expired_trial':
-      return `Trial ${formatLicenseExpirySummary(state, now)} — read-only mode. Activate to continue editing.`;
+      return 'Trial expired — read-only mode. Activate to continue editing.';
     case 'expired_license':
-      return `License ${formatLicenseExpirySummary(state, now)} — read-only mode. Renew to continue editing.`;
+      return 'License expired — read-only mode. Renew to continue editing.';
     case 'machine_mismatch':
       return 'License is bound to a different machine — read-only mode.';
     case 'tampered':
@@ -108,13 +108,12 @@ function shouldShowAction(state: LicenseState): boolean {
 export function LicenseBanner() {
   const state = useLicenseStore((s) => s.state);
   const promptActivation = useLicenseStore((s) => s.promptActivation);
-  const now = useNow();
 
   if (shouldHideBanner(state)) return null;
 
   const tone = STATUS_TONE[state.status] ?? STATUS_TONE.trial!;
   const Icon = tone.icon;
-  const message = bannerMessage(state, now);
+  const message = bannerMessage(state);
 
   return (
     <div
