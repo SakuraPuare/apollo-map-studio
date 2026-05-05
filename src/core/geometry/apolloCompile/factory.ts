@@ -80,6 +80,9 @@ function buildSourceInfo(d: DrawResult): SourceDrawInfo | undefined {
       arcPoints: [toGeoPoint(d.points[0]!), toGeoPoint(d.points[1]!), toGeoPoint(d.points[2]!)],
     };
   }
+  if (d.drawTool === 'drawCatmullRom' && d.points.length >= 2) {
+    return { drawTool: d.drawTool, points: d.points.map(toGeoPoint) };
+  }
   return undefined;
 }
 

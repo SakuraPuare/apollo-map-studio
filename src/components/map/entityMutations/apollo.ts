@@ -1,9 +1,16 @@
 import type { DragPointType } from '@/types/editor';
-import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
+import type {
+  ApolloEntity,
+  SourceArcInfo,
+  SourceBezierInfo,
+  SourceCatmullRomInfo,
+  SourceDrawInfo,
+  SourceRectInfo,
+} from '@/types/apollo';
 import { getSource, getSourceRect } from '@/types/apollo';
 import type { GeoPoint, MapEntity } from '@/types/entities';
 import type { LngLat } from '@/core/geometry/interpolate';
-import { cubicBezier, threePointArc } from '@/core/geometry/interpolate';
+import { catmullRom, cubicBezier, threePointArc } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { coordsToPoints, toGeoPoint, toLngLat } from '@/core/geometry/coords';
 import {
@@ -58,7 +65,7 @@ export function deleteApolloEntityVertex(entity: ApolloEntity, index: number): M
 
 interface BezierSourceDragContext {
   entity: ApolloEntity;
-  source: SourceDrawInfo;
+  source: SourceBezierInfo;
   index: number;
   pointType: DragPointType;
   newPoint: LngLat;
@@ -111,7 +118,7 @@ function applyBezierSourceDrag({
 
 function applyArcSourceDrag(
   entity: ApolloEntity,
-  source: SourceDrawInfo,
+  source: SourceArcInfo,
   index: number,
   newPoint: LngLat,
 ): MapEntity {
@@ -120,6 +127,22 @@ function applyArcSourceDrag(
   const [s, m, e] = arcPoints;
   const newCurvePoints = coordsToPoints(threePointArc(toLngLat(s), toLngLat(m), toLngLat(e)));
   const newSource: SourceDrawInfo = { ...source, arcPoints };
+  const updated = setAllApolloEditPoints(entity, newCurvePoints);
+  return { ...updated, _source: newSource } as MapEntity;
+}
+
+function applyCatmullRomSourceDrag(
+  entity: ApolloEntity,
+  source: SourceCatmullRomInfo,
+  index: number,
+  pointType: DragPointType,
+  newPoint: LngLat,
+): MapEntity {
+  if (pointType !== 'vertex' || index < 0 || index >= source.points.length) return entity;
+  const points = source.points.map((point) => ({ ...point }));
+  points[index] = toGeoPoint(newPoint);
+  const newCurvePoints = coordsToPoints(catmullRom(points.map(toLngLat)));
+  const newSource: SourceDrawInfo = { ...source, points };
   const updated = setAllApolloEditPoints(entity, newCurvePoints);
   return { ...updated, _source: newSource } as MapEntity;
 }
@@ -176,6 +199,10 @@ export function applyApolloDrag(
     return applyArcSourceDrag(entity, source, index, newPoint);
   }
 
+  if (source?.drawTool === 'drawCatmullRom' && source.points) {
+    return applyCatmullRomSourceDrag(entity, source, index, pointType, newPoint);
+  }
+
   if (hasRectSource(entity)) {
     return applyRectSourceDrag(entity, entity._sourceRect, index, pointType, newPoint);
   }
@@ -194,7 +221,7 @@ export function applyApolloDrag(
 /** Alt+点击 Apollo 贝塞尔源实体的锚点：尖角 ↔ 平滑切换 */
 export function toggleSmoothApollo(entity: ApolloEntity, index: number): ApolloEntity {
   const source = getSource(entity);
-  if (!source?.anchors) return entity;
+  if (source?.drawTool !== 'drawBezier') return entity;
 
   const anchors = source.anchors.map((a) => ({ ...a }));
   const anchor = { ...anchors[index]! };

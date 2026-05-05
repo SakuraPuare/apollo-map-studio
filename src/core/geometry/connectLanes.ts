@@ -10,13 +10,19 @@
  * 方向语义：
  *   - mode 'AendToBstart' → A.end ≡ B.start → A.successor += B
  */
-import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
+import type {
+  LaneEntity,
+  SourceArcInfo,
+  SourceBezierInfo,
+  SourceCatmullRomInfo,
+  SourceDrawInfo,
+} from '@/types/apollo';
 import { getSource } from '@/types/apollo';
 import type { GeoPoint } from '@/types/entities';
 import { polylineLengthMeters } from '@/lib/geo';
 import { anchorToRuntime } from './anchorConvert';
 import { coordsToPoints, toLngLat } from './coords';
-import { cubicBezier, threePointArc } from './interpolate';
+import { catmullRom, cubicBezier, threePointArc } from './interpolate';
 import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
 import { applyDerive } from '@/core/elements/derive';
 
@@ -95,6 +101,7 @@ export function planConnection(a: LaneEntity, b: LaneEntity): ConnectionPlan | n
  *   - 贝塞尔源：定位首/末锚点，按 dx/dy 整体平移锚点 + 控制柄，
  *     再用 `cubicBezier` 重采样写回中心线，保留 `_source.anchors`。
  *   - 圆弧源：改 `arcPoints[0]` 或 `arcPoints[2]` 后 `threePointArc` 重采样。
+ *   - Catmull-Rom 源：改 `points[0]` 或 `points[last]` 后 `catmullRom` 重采样。
  *   - 折线源 / 无源：直接覆写 `centralCurve` 中对应索引点位。
  *
  * 任何分支结束都 `applyDerive(editGeometry)` 一遍，让 lane.length /
@@ -142,29 +149,68 @@ function writeCenterline(
 export function applyLaneConnection(lane: LaneEntity, plan: ConnectionPlan): LaneEntity {
   const source = getSource(lane);
 
-  // Bezier source: shift first/last anchor (and its handles), re-sample.
   if (source?.drawTool === 'drawBezier' && source.anchors && source.anchors.length > 0) {
-    const anchors = source.anchors.map((a) => ({ ...a }));
-    const idx = isStartIndex(plan) ? 0 : anchors.length - 1;
-    anchors[idx] = shiftAnchor(anchors[idx]!, plan.target);
-    const runtime = anchors.map(anchorToRuntime);
-    const newPoints = coordsToPoints(cubicBezier(runtime));
-    const next = writeCenterline(lane, newPoints, { ...source, anchors });
-    return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+    return applyBezierSourceConnection(lane, source, plan);
   }
 
-  // Arc source: replace one of the three control points, re-sample.
   if (source?.drawTool === 'drawArc' && source.arcPoints) {
-    const arcPoints = [...source.arcPoints] as [GeoPoint, GeoPoint, GeoPoint];
-    const idx = isStartIndex(plan) ? 0 : 2;
-    arcPoints[idx] = { ...arcPoints[idx]!, x: plan.target.x, y: plan.target.y };
-    const newPoints = coordsToPoints(
-      threePointArc(toLngLat(arcPoints[0]), toLngLat(arcPoints[1]), toLngLat(arcPoints[2])),
-    );
-    const next = writeCenterline(lane, newPoints, { ...source, arcPoints });
-    return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+    return applyArcSourceConnection(lane, source, plan);
   }
 
+  if (source?.drawTool === 'drawCatmullRom' && source.points.length > 0) {
+    return applyCatmullRomSourceConnection(lane, source, plan);
+  }
+
+  return applyPolylineConnection(lane, source, plan);
+}
+
+function applyBezierSourceConnection(
+  lane: LaneEntity,
+  source: SourceBezierInfo,
+  plan: ConnectionPlan,
+): LaneEntity {
+  const anchors = source.anchors.map((a) => ({ ...a }));
+  const idx = isStartIndex(plan) ? 0 : anchors.length - 1;
+  anchors[idx] = shiftAnchor(anchors[idx]!, plan.target);
+  const runtime = anchors.map(anchorToRuntime);
+  const newPoints = coordsToPoints(cubicBezier(runtime));
+  const next = writeCenterline(lane, newPoints, { ...source, anchors });
+  return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+}
+
+function applyArcSourceConnection(
+  lane: LaneEntity,
+  source: SourceArcInfo,
+  plan: ConnectionPlan,
+): LaneEntity {
+  const arcPoints = [...source.arcPoints] as [GeoPoint, GeoPoint, GeoPoint];
+  const idx = isStartIndex(plan) ? 0 : 2;
+  arcPoints[idx] = { ...arcPoints[idx]!, x: plan.target.x, y: plan.target.y };
+  const newPoints = coordsToPoints(
+    threePointArc(toLngLat(arcPoints[0]), toLngLat(arcPoints[1]), toLngLat(arcPoints[2])),
+  );
+  const next = writeCenterline(lane, newPoints, { ...source, arcPoints });
+  return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+}
+
+function applyCatmullRomSourceConnection(
+  lane: LaneEntity,
+  source: SourceCatmullRomInfo,
+  plan: ConnectionPlan,
+): LaneEntity {
+  const points = source.points.map((p) => ({ ...p }));
+  const idx = isStartIndex(plan) ? 0 : points.length - 1;
+  points[idx] = { ...points[idx]!, x: plan.target.x, y: plan.target.y };
+  const newPoints = coordsToPoints(catmullRom(points.map(toLngLat)));
+  const next = writeCenterline(lane, newPoints, { ...source, points });
+  return applyDerive(next, { cause: 'editGeometry', prev: lane }) as LaneEntity;
+}
+
+function applyPolylineConnection(
+  lane: LaneEntity,
+  source: SourceDrawInfo | undefined,
+  plan: ConnectionPlan,
+): LaneEntity {
   // Polyline / unknown source: just overwrite the centerline endpoint.
   const pts = curvePoints(lane.centralCurve);
   if (pts.length === 0) return lane;

@@ -1,5 +1,11 @@
 import type { MapEntity } from '@/types/entities';
-import type { ApolloEntity, SourceDrawInfo, SourceRectInfo } from '@/types/apollo';
+import type {
+  ApolloEntity,
+  SourceArcInfo,
+  SourceBezierInfo,
+  SourceCatmullRomInfo,
+  SourceRectInfo,
+} from '@/types/apollo';
 import { getSource, getSourceRect } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import {
@@ -147,17 +153,28 @@ function apolloHotFeatures(entity: ApolloEntity): GeoJSON.Feature[] {
     return bezierSourceFeatures(source);
   }
   if (source?.drawTool === 'drawArc' && source.arcPoints) return arcSourceFeatures(source);
+  if (source?.drawTool === 'drawCatmullRom' && source.points) {
+    return catmullRomSourceFeatures(source);
+  }
   if (sourceRect) return rectSourceFeatures(sourceRect);
   return genericApolloHotFeatures(entity);
 }
 
-function bezierSourceFeatures(source: SourceDrawInfo): GeoJSON.Feature[] {
+function bezierSourceFeatures(source: SourceBezierInfo): GeoJSON.Feature[] {
   return bezierAnchorFeatures(source.anchors!.map(anchorToRuntime));
 }
 
-function arcSourceFeatures(source: SourceDrawInfo): GeoJSON.Feature[] {
+function arcSourceFeatures(source: SourceArcInfo): GeoJSON.Feature[] {
   const [p1, p2, p3] = source.arcPoints!.map(toLngLat) as [LngLat, LngLat, LngLat];
   return arcPointFeatures([p1, p2, p3]);
+}
+
+function catmullRomSourceFeatures(source: SourceCatmullRomInfo): GeoJSON.Feature[] {
+  const features: GeoJSON.Feature[] = [];
+  const coords = source.points.map(toLngLat);
+  features.push(lineFeature(catmullRom(coords)));
+  coords.forEach((c, i) => features.push(pointFeature(c, 'vertex', { index: i })));
+  return features;
 }
 
 function rectSourceFeatures(sourceRect: SourceRectInfo): GeoJSON.Feature[] {

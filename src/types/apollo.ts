@@ -13,14 +13,28 @@ import type { GeoPoint, BezierAnchorData } from './entities';
 // Re-export for Apollo context
 export type PointENU = GeoPoint;
 
-/**
- * 编辑器扩展字段：保存原始绘制工具和锚点，
- * 使贝塞尔/圆弧/样条绘制的曲线元素在选中后仍可编辑原始控制柄
- */
-export interface SourceDrawInfo {
-  drawTool: string;
-  anchors?: BezierAnchorData[];
-  arcPoints?: [GeoPoint, GeoPoint, GeoPoint];
+/** 编辑器扩展字段：保存原始绘制工具参数，使曲线元素可恢复原始控制柄。 */
+export type SourceDrawInfo = SourceBezierInfo | SourceArcInfo | SourceCatmullRomInfo;
+
+export interface SourceBezierInfo {
+  drawTool: 'drawBezier';
+  anchors: BezierAnchorData[];
+  arcPoints?: never;
+  points?: never;
+}
+
+export interface SourceArcInfo {
+  drawTool: 'drawArc';
+  arcPoints: [GeoPoint, GeoPoint, GeoPoint];
+  anchors?: never;
+  points?: never;
+}
+
+export interface SourceCatmullRomInfo {
+  drawTool: 'drawCatmullRom';
+  points: GeoPoint[];
+  anchors?: never;
+  arcPoints?: never;
 }
 
 /** 编辑器扩展：保存矩形绘制参数以支持旋转编辑 */

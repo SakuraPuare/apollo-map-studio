@@ -7,8 +7,8 @@ import { computeApolloMapBounds } from '../proto/apolloGeoJson';
 import { createBlankApolloMap, setApolloMapBounds } from '../proto/blankApolloMap';
 import { apolloMapToEntities, entitiesToApolloMap } from '../proto/entityBridge';
 import {
-  hydrateSourceRectsFromEditorMeta,
-  writeSourceRectsToEditorMeta,
+  hydrateEntitySourcesFromEditorMeta,
+  writeEntitySourcesToEditorMeta,
 } from '../proto/editorMeta';
 import { UTM_PRESETS } from '../proto/projection';
 import {
@@ -20,7 +20,13 @@ import {
 import { createApolloEntity } from '@/core/geometry/apolloCompile';
 import type { MapElementType } from '@/core/elements';
 import { entityToHotFeatures } from '@/lib/geoJsonHelpers';
-import { getSourceRect, type ApolloEntity, type SourceRectInfo } from '@/types/apollo';
+import {
+  getSource,
+  getSourceRect,
+  type ApolloEntity,
+  type SourceDrawInfo,
+  type SourceRectInfo,
+} from '@/types/apollo';
 import type { CrosswalkEntity } from '@/types/entities';
 
 const APOLLO_BIN = path.resolve(
@@ -68,6 +74,43 @@ function expectSourceRectClose(actual: SourceRectInfo, expected: SourceRectInfo)
   expectPointClose(actual.p1, expected.p1);
   expectPointClose(actual.p2, expected.p2);
   expect(actual.rotation).toBeCloseTo(expected.rotation, 12);
+}
+
+function expectNullablePointClose(
+  actual: { x: number; y: number } | null,
+  expected: { x: number; y: number } | null,
+) {
+  if (expected === null) {
+    expect(actual).toBeNull();
+    return;
+  }
+  expect(actual).not.toBeNull();
+  expectPointClose(actual!, expected);
+}
+
+function expectSourceDrawClose(actual: SourceDrawInfo, expected: SourceDrawInfo) {
+  expect(actual.drawTool).toBe(expected.drawTool);
+  if (actual.drawTool === 'drawBezier' && expected.drawTool === 'drawBezier') {
+    expect(actual.anchors).toHaveLength(expected.anchors.length);
+    for (let i = 0; i < expected.anchors.length; i++) {
+      expectPointClose(actual.anchors[i]!.point, expected.anchors[i]!.point);
+      expectNullablePointClose(actual.anchors[i]!.handleIn, expected.anchors[i]!.handleIn);
+      expectNullablePointClose(actual.anchors[i]!.handleOut, expected.anchors[i]!.handleOut);
+    }
+    return;
+  }
+  if (actual.drawTool === 'drawArc' && expected.drawTool === 'drawArc') {
+    for (let i = 0; i < expected.arcPoints.length; i++) {
+      expectPointClose(actual.arcPoints[i]!, expected.arcPoints[i]!);
+    }
+    return;
+  }
+  if (actual.drawTool === 'drawCatmullRom' && expected.drawTool === 'drawCatmullRom') {
+    expect(actual.points).toHaveLength(expected.points.length);
+    for (let i = 0; i < expected.points.length; i++) {
+      expectPointClose(actual.points[i]!, expected.points[i]!);
+    }
+  }
 }
 
 function hasRotateHandle(entity: ApolloEntity): boolean {
@@ -138,13 +181,13 @@ describe('end-to-end Apollo map IO pipeline', () => {
     }
 
     const merged = entitiesToApolloMap(createBlankApolloMap(UTM_PRESETS.sunnyvale), entities);
-    writeSourceRectsToEditorMeta(merged, entities);
+    writeEntitySourcesToEditorMeta(merged, entities);
     const { map: enuMap } = await apolloMapFromLonLat(merged, UTM_PRESETS.sunnyvale);
     const bytes = await encodeMapBin(enuMap);
 
     const decoded = await decodeMapBin(bytes);
     const { map: lonLatMap } = await apolloMapToLonLat(decoded, UTM_PRESETS.sunnyvale);
-    const imported = hydrateSourceRectsFromEditorMeta(
+    const imported = hydrateEntitySourcesFromEditorMeta(
       lonLatMap,
       apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
     );
@@ -161,6 +204,83 @@ describe('end-to-end Apollo map IO pipeline', () => {
       expectSourceRectClose(restoredRect!, originalRect!);
       expect(hasRotateHandle(restored as ApolloEntity)).toBe(true);
     }
+  });
+
+  it('preserves drawBezier, drawArc and drawCatmullRom source handles through Apollo .bin export/import', async () => {
+    const entities = [
+      createApolloEntity(
+        'lane',
+        'drawBezier',
+        [],
+        [
+          { point: [-122.025, 37.37], handleIn: null, handleOut: [-122.0249, 37.3701] },
+          { point: [-122.024, 37.371], handleIn: [-122.0242, 37.3709], handleOut: null },
+        ],
+      ),
+      createApolloEntity(
+        'signal',
+        'drawArc',
+        [
+          [-122.025, 37.37],
+          [-122.0246, 37.3707],
+          [-122.024, 37.37],
+        ],
+        [],
+      ),
+      createApolloEntity(
+        'lane',
+        'drawCatmullRom',
+        [
+          [-122.025, 37.37],
+          [-122.0247, 37.3704],
+          [-122.024, 37.3701],
+        ],
+        [],
+      ),
+    ];
+
+    const originals = new Map(
+      entities.map((entity) => [entity.id, getSource(entity) ?? null] as const),
+    );
+    for (const entity of entities) {
+      expect(getSource(entity)).toBeDefined();
+    }
+
+    const merged = entitiesToApolloMap(createBlankApolloMap(UTM_PRESETS.sunnyvale), entities);
+    writeEntitySourcesToEditorMeta(merged, entities);
+    const { map: enuMap } = await apolloMapFromLonLat(merged, UTM_PRESETS.sunnyvale);
+    const bytes = await encodeMapBin(enuMap);
+    const decoded = await decodeMapBin(bytes);
+    const { map: lonLatMap } = await apolloMapToLonLat(decoded, UTM_PRESETS.sunnyvale);
+    const imported = hydrateEntitySourcesFromEditorMeta(
+      lonLatMap,
+      apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
+    );
+
+    for (const original of entities) {
+      const restored = imported.find((entity) => entity.id === original.id);
+      expect(restored).toBeDefined();
+      const originalSource = originals.get(original.id);
+      const restoredSource = getSource(restored!);
+      expect(originalSource).toBeTruthy();
+      expect(restoredSource).toBeTruthy();
+      expectSourceDrawClose(restoredSource!, originalSource!);
+    }
+
+    const bezier = imported.find((entity) => entity.id === entities[0]!.id)!;
+    expect(
+      entityToHotFeatures(bezier).filter((feature) => feature.properties?.role === 'handle'),
+    ).toHaveLength(2);
+
+    const arc = imported.find((entity) => entity.id === entities[1]!.id)!;
+    expect(
+      entityToHotFeatures(arc).filter((feature) => feature.properties?.role === 'vertex'),
+    ).toHaveLength(3);
+
+    const catmull = imported.find((entity) => entity.id === entities[2]!.id)!;
+    expect(
+      entityToHotFeatures(catmull).filter((feature) => feature.properties?.role === 'vertex'),
+    ).toHaveLength(3);
   });
 
   it.runIf(existsSync(APOLLO_BIN))(
@@ -189,18 +309,22 @@ describe('end-to-end Apollo map IO pipeline', () => {
   );
 
   it.runIf(existsSync(APOLLO_BIN))(
-    'borregas .bin without editor_meta still imports without _sourceRect',
+    'borregas .bin without editor_meta still imports without _source or _sourceRect',
     async () => {
       const original = new Uint8Array(readFileSync(APOLLO_BIN));
       const decoded = await decodeMapBin(original);
       const projString = readHeaderProjString(decoded);
       expect(projString).toBeTruthy();
       const { map: lonLatMap } = await apolloMapToLonLat(decoded, projString!);
-      const imported = hydrateSourceRectsFromEditorMeta(
+      const imported = hydrateEntitySourcesFromEditorMeta(
         lonLatMap,
         apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
       );
-      expect(imported.some((entity) => getSourceRect(entity) !== undefined)).toBe(false);
+      expect(
+        imported.some(
+          (entity) => getSourceRect(entity) !== undefined || getSource(entity) !== undefined,
+        ),
+      ).toBe(false);
     },
   );
 

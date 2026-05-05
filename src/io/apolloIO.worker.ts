@@ -10,7 +10,10 @@ import {
 import { apolloMapToEntities, entitiesToApolloMap } from './proto/entityBridge';
 import { computeApolloMapBounds } from './proto/apolloGeoJson';
 import { createBlankApolloMap, setApolloMapBounds } from './proto/blankApolloMap';
-import { hydrateSourceRectsFromEditorMeta, writeSourceRectsToEditorMeta } from './proto/editorMeta';
+import {
+  hydrateEntitySourcesFromEditorMeta,
+  writeEntitySourcesToEditorMeta,
+} from './proto/editorMeta';
 import { reconcileLaneTopology } from '@/core/geometry/laneTopology';
 import { reconcileOverlaps } from '@/core/elements/overlap';
 import { SpatialIndex } from '@/core/elements/overlap/spatialIndex';
@@ -161,7 +164,7 @@ async function runImport(
     progress: 0.58,
   });
   const bridgeStart = performance.now();
-  const baseEntities = hydrateSourceRectsFromEditorMeta(
+  const baseEntities = hydrateEntitySourcesFromEditorMeta(
     lonLatMap,
     apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
   );
@@ -238,7 +241,7 @@ async function runExport(
       : createBlankApolloMap(projString)
     : cachedRawLonLatMap!;
   const merged = entitiesToApolloMap(baseMap, processed.entities);
-  writeSourceRectsToEditorMeta(merged, processed.entities);
+  writeEntitySourcesToEditorMeta(merged, processed.entities);
 
   progress(requestId, {
     label: 'Exporting Apollo map',

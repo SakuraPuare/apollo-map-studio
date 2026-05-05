@@ -38,15 +38,51 @@ message EntityMeta {
   }
   optional GeometryKind geometry_kind = 1;
 
-  // Original rotated-rectangle edit parameters for polygon-backed Apollo
-  // entities. Apollo-native map protos only persist polygon points, while the
-  // editor needs these parameters to restore rotate/resize handles after
-  // `.bin` import.
-  optional SourceRect source_rect = 2;
+  // Original editor geometry source for Apollo entities. Apollo-native map
+  // protos only persist sampled points/polygons, while the editor needs these
+  // typed source parameters to restore curve/rectangle handles after `.bin`
+  // import.
+  optional GeometrySource geometry_source = 2;
+}
+
+message GeometrySource {
+  enum DrawTool {
+    DRAW_TOOL_UNSPECIFIED = 0;
+    DRAW_BEZIER = 1;
+    DRAW_ARC = 2;
+    DRAW_CATMULL_ROM = 3;
+    DRAW_ROTATED_RECT = 4;
+  }
+
+  optional DrawTool draw_tool = 1;
+  optional SourceRect rect = 2;
+  optional SourceBezier bezier = 3;
+  optional SourceArc arc = 4;
+  optional SourceCatmullRom catmull_rom = 5;
 }
 
 message SourceRect {
   optional apollo.common.PointENU p1 = 1;
   optional apollo.common.PointENU p2 = 2;
   optional double rotation = 3;
+}
+
+message SourceBezier {
+  repeated SourceBezierAnchor anchor = 1;
+}
+
+message SourceBezierAnchor {
+  optional apollo.common.PointENU point = 1;
+  optional apollo.common.PointENU handle_in = 2;
+  optional apollo.common.PointENU handle_out = 3;
+}
+
+message SourceArc {
+  optional apollo.common.PointENU p1 = 1;
+  optional apollo.common.PointENU p2 = 2;
+  optional apollo.common.PointENU p3 = 3;
+}
+
+message SourceCatmullRom {
+  repeated apollo.common.PointENU point = 1;
 }

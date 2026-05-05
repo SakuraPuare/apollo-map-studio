@@ -8,6 +8,8 @@ import {
   readHeaderProjString,
   entityCounts,
 } from '../adapter';
+import { EDITOR_META_VERSION, entityKey, readEditorMeta, writeEditorMeta } from '../editorMeta';
+import { UTM_PRESETS } from '../projection';
 
 const APOLLO_BORREGAS_BIN = path.resolve(
   import.meta.dirname,
@@ -82,5 +84,52 @@ describe('adapter — apolloMapToLonLat / fromLonLat', () => {
   it('readHeaderProjString decodes a Uint8Array PROJ string (bytes field)', () => {
     const proj = new TextEncoder().encode('+proj=utm +zone=10 +ellps=WGS84 +no_defs');
     expect(readHeaderProjString({ header: { projection: { proj } } })).toContain('+zone=10');
+  });
+
+  it('projects editor_meta geometry_source points through lon/lat and back', async () => {
+    const rawMap: Record<string, unknown> = {
+      header: {
+        projection: { proj: UTM_PRESETS.sunnyvale },
+      },
+    };
+    writeEditorMeta(rawMap, {
+      version: EDITOR_META_VERSION,
+      entity: {
+        [entityKey('lane', 'lane_1')]: {
+          geometrySource: {
+            drawTool: 'drawBezier',
+            anchors: [
+              {
+                point: { x: -122.025, y: 37.37 },
+                handleIn: null,
+                handleOut: { x: -122.0249, y: 37.3701 },
+              },
+              {
+                point: { x: -122.024, y: 37.371 },
+                handleIn: { x: -122.0242, y: 37.3709 },
+                handleOut: null,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const { map: enuMap } = await apolloMapFromLonLat(rawMap, UTM_PRESETS.sunnyvale);
+    const enuMeta = readEditorMeta(enuMap);
+    const enuSource = enuMeta.entity[entityKey('lane', 'lane_1')]?.geometrySource;
+    expect(enuSource?.drawTool).toBe('drawBezier');
+    if (enuSource?.drawTool === 'drawBezier') {
+      expect(enuSource.anchors[0]!.point.x).not.toBeCloseTo(-122.025, 3);
+    }
+
+    const { map: lonLatMap } = await apolloMapToLonLat(enuMap, UTM_PRESETS.sunnyvale);
+    const lonLatMeta = readEditorMeta(lonLatMap);
+    const lonLatSource = lonLatMeta.entity[entityKey('lane', 'lane_1')]?.geometrySource;
+    expect(lonLatSource?.drawTool).toBe('drawBezier');
+    if (lonLatSource?.drawTool === 'drawBezier') {
+      expect(lonLatSource.anchors[0]!.point.x).toBeCloseTo(-122.025, 6);
+      expect(lonLatSource.anchors[1]!.handleIn!.y).toBeCloseTo(37.3709, 6);
+    }
   });
 });

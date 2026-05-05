@@ -125,7 +125,7 @@ describe('planConnection — indexToMove / target details', () => {
 });
 
 // ---------------------------------------------------------------------------
-// applyLaneConnection — endpoint move across the three source flavors.
+// applyLaneConnection — endpoint move across source-aware geometry flavors.
 // Regression for the bezier-anchor index out-of-bounds crash that surfaced
 // as "Cannot read properties of undefined (reading 'x')" in connect mode.
 // ---------------------------------------------------------------------------
@@ -337,5 +337,73 @@ describe('applyLaneConnection — arc source', () => {
     const newSource = getSource(out)!;
     expect(newSource.arcPoints![0]).toEqual(expect.objectContaining(target));
     expect(newSource.arcPoints![2]).toEqual({ x: 0.001, y: 0 });
+  });
+});
+
+describe('applyLaneConnection — catmullRom source', () => {
+  it('rewrites the LAST control point when moving end endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 40 }, (_, i) => ({
+      x: i * 0.00003,
+      y: i % 2 === 0 ? 0 : 0.00001,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawCatmullRom',
+      points: [
+        { x: 0, y: 0 },
+        { x: 0.0005, y: 0.0002 },
+        { x: 0.001, y: 0 },
+      ],
+    });
+
+    const target: GeoPoint = { x: 0.0012, y: 0.00005 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AendToBstart',
+      indexToMove: samplePts.length - 1,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = getSource(out)!;
+    expect(newSource.drawTool).toBe('drawCatmullRom');
+    if (newSource.drawTool === 'drawCatmullRom') {
+      expect(newSource.points[2]).toEqual(expect.objectContaining(target));
+      expect(newSource.points[0]).toEqual({ x: 0, y: 0 });
+    }
+    const pts = out.centralCurve.segments[0]!.lineSegment.points;
+    expect(pts[pts.length - 1]).toEqual(expect.objectContaining(target));
+  });
+
+  it('rewrites the FIRST control point when moving start endpoint', () => {
+    const samplePts: GeoPoint[] = Array.from({ length: 40 }, (_, i) => ({
+      x: i * 0.00003,
+      y: i % 2 === 0 ? 0 : 0.00001,
+    }));
+    const lane = withSource(laneWithCenterline('a', samplePts), {
+      drawTool: 'drawCatmullRom',
+      points: [
+        { x: 0, y: 0 },
+        { x: 0.0005, y: 0.0002 },
+        { x: 0.001, y: 0 },
+      ],
+    });
+
+    const target: GeoPoint = { x: -0.0001, y: 0 };
+    const out = applyLaneConnection(lane, {
+      mode: 'AstartToBend',
+      indexToMove: 0,
+      target,
+      distanceMeters: 0,
+      isContinuous: true,
+    });
+
+    const newSource = getSource(out)!;
+    expect(newSource.drawTool).toBe('drawCatmullRom');
+    if (newSource.drawTool === 'drawCatmullRom') {
+      expect(newSource.points[0]).toEqual(expect.objectContaining(target));
+      expect(newSource.points[2]).toEqual({ x: 0.001, y: 0 });
+    }
+    const pts = out.centralCurve.segments[0]!.lineSegment.points;
+    expect(pts[0]).toEqual(expect.objectContaining(target));
   });
 });
