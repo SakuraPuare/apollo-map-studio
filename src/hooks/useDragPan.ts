@@ -3,7 +3,7 @@ import type maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { getDragCenter } from '@/components/map/entityMutations';
-import { isAreaEntity } from '@/core/geometry/compile';
+import { isPolygonEditEntity } from '@/lib/entityOps';
 import { useMapStore } from '@/store/mapStore';
 import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import { getSource } from '@/types/apollo';
@@ -37,7 +37,7 @@ function isSelectedLineDragActive(snapshot: EditorSnapshot): boolean {
 
   const source = getSource(entity);
   if (source?.drawTool === 'drawBezier' || source?.drawTool === 'drawArc') return false;
-  return !isAreaEntity(entity) && getDragCenter(entity) !== null;
+  return !isPolygonEditEntity(entity) && getDragCenter(entity) !== null;
 }
 
 export function shouldDisableDragPanForSnapshot(snapshot: EditorSnapshot): boolean {

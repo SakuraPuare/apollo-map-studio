@@ -11,8 +11,33 @@
  * (dragPanDisabledRef — avoid redundant enable/disable calls).
  */
 
-import { describe, it, expect } from 'vitest';
-import { shouldDisableDragPan as shouldDisable } from '../useDragPan';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  shouldDisableDragPan as shouldDisable,
+  shouldDisableDragPanForSnapshot,
+} from '../useDragPan';
+import { createEntity } from '@/lib/entityOps';
+import { useMapStore } from '@/store/mapStore';
+import { useUIStore } from '@/store/uiStore';
+import type { MapEntity, PolylineEntity, PolygonEntity } from '@/types/entities';
+
+const initialUISnapshot = useUIStore.getState();
+
+function selectedSnapshot(selectedEntityId: string) {
+  return {
+    value: 'selected',
+    context: {
+      selectedEntityId,
+      isDraggingHandle: false,
+    },
+  };
+}
+
+beforeEach(() => {
+  useMapStore.setState({ entities: new Map() });
+  useMapStore.temporal.getState().clear();
+  useUIStore.setState(initialUISnapshot, true);
+});
 
 // ---------------------------------------------------------------------------
 // Tests for shouldDisable
@@ -78,6 +103,52 @@ describe('shouldDisable (useDragPan)', () => {
     it('selected line drag guard disables pan before mousedown', () => {
       expect(shouldDisable('selected', false, false, true)).toBe(true);
     });
+  });
+});
+
+describe('shouldDisableDragPanForSnapshot', () => {
+  it('disables pan for a selected primitive polyline', () => {
+    const entity: PolylineEntity = {
+      id: 'polyline-1',
+      entityType: 'polyline',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+      ],
+    };
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+
+    expect(shouldDisableDragPanForSnapshot(selectedSnapshot(entity.id) as never)).toBe(true);
+  });
+
+  it('disables pan for a selected lane whose edit geometry is an open polyline', () => {
+    const lane = createEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [1, 0],
+      ],
+      [],
+    );
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[lane.id, lane]]) });
+
+    expect(shouldDisableDragPanForSnapshot(selectedSnapshot(lane.id) as never)).toBe(true);
+  });
+
+  it('keeps pan enabled for a selected polygon because its fill hit is stable', () => {
+    const entity: PolygonEntity = {
+      id: 'polygon-1',
+      entityType: 'polygon',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+      ],
+    };
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+
+    expect(shouldDisableDragPanForSnapshot(selectedSnapshot(entity.id) as never)).toBe(false);
   });
 });
 
