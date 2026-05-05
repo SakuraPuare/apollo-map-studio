@@ -231,6 +231,39 @@ export function polylineSelfIntersects(coords: readonly LngLat[]): boolean {
   return polylineSelfIntersectsIndexed(coords, items);
 }
 
+function openSegmentsTouchOrCrossBetween(
+  aCoords: readonly LngLat[],
+  a: SegmentItem,
+  bCoords: readonly LngLat[],
+  b: SegmentItem,
+): boolean {
+  const a1 = aCoords[a.index]!;
+  const a2 = aCoords[a.index + 1]!;
+  const b1 = bCoords[b.index]!;
+  const b2 = bCoords[b.index + 1]!;
+  return segmentsTouchOrCross(a1, a2, b1, b2);
+}
+
+export function polylinesIntersect(
+  aCoords: readonly LngLat[],
+  bCoords: readonly LngLat[],
+): boolean {
+  if (aCoords.length < 2 || bCoords.length < 2) return false;
+  const aItems = buildOpenSegmentItems(aCoords);
+  const bItems = buildOpenSegmentItems(bCoords);
+  if (aItems.length === 0 || bItems.length === 0) return false;
+
+  const tree = new RBush<SegmentItem>();
+  tree.load([...bItems]);
+  for (const item of aItems) {
+    for (const other of tree.search(item)) {
+      if (!segmentBoundsOverlap(item, other)) continue;
+      if (openSegmentsTouchOrCrossBetween(aCoords, item, bCoords, other)) return true;
+    }
+  }
+  return false;
+}
+
 function toClippingPolygon(coords: readonly LngLat[]): PCPolygon {
   const ring = closeRing(coords).map(([x, y]) => [x, y] as [number, number]) as Ring;
   return ring.length >= 4 ? [ring] : [];

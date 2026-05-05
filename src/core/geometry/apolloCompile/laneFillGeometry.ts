@@ -2,6 +2,7 @@ import { toLngLat } from '@/core/geometry/coords';
 import type { LngLat } from '@/core/geometry/interpolate';
 import {
   polygonGeometry,
+  polylinesIntersect,
   polylineSelfIntersects,
   unionPolygonGeometry,
 } from '@/core/geometry/polygonGeometry';
@@ -17,6 +18,15 @@ export interface LaneFillGeometryInput {
   leftWidthMeters: number;
   rightWidthMeters: number;
   syntheticEdges: boolean;
+}
+
+interface SyntheticLaneFillSegmentDecision {
+  centerCoords: readonly LngLat[];
+  leftCoords: readonly LngLat[];
+  rightCoords: readonly LngLat[];
+  wholeGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon;
+  wholeRing: readonly LngLat[];
+  segmentRings: readonly (readonly LngLat[])[];
 }
 
 export function laneFillGeometry({
@@ -39,24 +49,41 @@ export function laneFillGeometry({
     leftEdge.length === rightEdge.length
       ? laneSegmentRingsFromEdges(leftCoords, rightCoords)
       : laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
+  const stableRings = laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
+  const decisionRings = rings.length > 0 ? rings : stableRings;
   if (
-    rings.length === 0 ||
-    !shouldSegmentSyntheticLaneFill(centerCoords, wholeGeometry, wholeRing, rings)
+    decisionRings.length === 0 ||
+    !shouldSegmentSyntheticLaneFill({
+      centerCoords,
+      leftCoords,
+      rightCoords,
+      wholeGeometry,
+      wholeRing,
+      segmentRings: decisionRings,
+    })
   ) {
     return wholeGeometry;
   }
-  return unionPolygonGeometry(rings) ?? wholeGeometry;
+  return (
+    unionPolygonGeometry(stableRings.length > 0 ? stableRings : decisionRings) ?? wholeGeometry
+  );
 }
 
-function shouldSegmentSyntheticLaneFill(
-  centerCoords: readonly LngLat[],
-  wholeGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-  wholeRing: readonly LngLat[],
-  segmentRings: readonly (readonly LngLat[])[],
-): boolean {
+function shouldSegmentSyntheticLaneFill({
+  centerCoords,
+  leftCoords,
+  rightCoords,
+  wholeGeometry,
+  wholeRing,
+  segmentRings,
+}: SyntheticLaneFillSegmentDecision): boolean {
   return (
+    wholeGeometry.type === 'MultiPolygon' ||
     polylineSelfIntersects(centerCoords) ||
     polylineNearlyCloses(centerCoords) ||
+    polylinesIntersect(leftCoords, rightCoords) ||
+    polylineSelfIntersects(leftCoords) ||
+    polylineSelfIntersects(rightCoords) ||
     syntheticFillAreaIsAnomalous(wholeGeometry, wholeRing, segmentRings)
   );
 }

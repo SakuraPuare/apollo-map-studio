@@ -17,6 +17,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { compileApolloFeatures, createApolloEntity, pointsToCurve } from '../apolloCompile';
+import { laneFillGeometry } from '../apolloCompile/laneFillGeometry';
 import {
   getApolloEditPoints,
   moveApolloEntity,
@@ -440,6 +441,29 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(8);
+  });
+
+  it('crossed synthetic lane edges fall back to centerline segment strips', () => {
+    const fillGeometry = laneFillGeometry({
+      centerPts: [
+        { x: 0, y: 0 },
+        { x: 8, y: 0 },
+      ],
+      leftEdge: [
+        { x: 0, y: 1 },
+        { x: 8, y: -1 },
+      ],
+      rightEdge: [
+        { x: 0, y: -1 },
+        { x: 8, y: 1 },
+      ],
+      leftWidthMeters: 0.2,
+      rightWidthMeters: 0.2,
+      syntheticEdges: true,
+    });
+
+    expect(fillGeometry).not.toBeNull();
+    expect(geometryArea(fillGeometry!)).toBeLessThan(0.001);
   });
 
   it('orients reversed imported boundaries to the central curve direction', () => {

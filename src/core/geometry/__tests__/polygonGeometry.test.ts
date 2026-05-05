@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { polygonGeometry } from '../polygonGeometry';
+import { polygonGeometry, polylinesIntersect } from '../polygonGeometry';
 import type { LngLat } from '../interpolate';
 
 describe('polygonGeometry', () => {
@@ -41,5 +41,37 @@ describe('polygonGeometry', () => {
       expect(outer.length).toBeGreaterThanOrEqual(4);
       expect(outer[0]).toEqual(outer[outer.length - 1]);
     }
+  });
+});
+
+describe('polylinesIntersect', () => {
+  it('detects crossings between two open polylines', () => {
+    expect(
+      polylinesIntersect(
+        [
+          [0, 0],
+          [2, 2],
+        ],
+        [
+          [0, 2],
+          [2, 0],
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores separated open polylines', () => {
+    expect(
+      polylinesIntersect(
+        [
+          [0, 0],
+          [2, 0],
+        ],
+        [
+          [0, 1],
+          [2, 1],
+        ],
+      ),
+    ).toBe(false);
   });
 });
