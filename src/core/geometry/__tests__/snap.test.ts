@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { collectCandidates, collectSnapGuidePoints, findSnapTarget, pixelsToMeters } from '../snap';
 import type { MapEntity } from '@/types/entities';
-import type { JunctionEntity, LaneEntity } from '@/types/apollo';
+import type { JunctionEntity, LaneEntity, ParkingSpaceEntity } from '@/types/apollo';
 import type { PolygonEntity, RectEntity } from '@/types/entities';
 
 const ORIGIN_LNG = 116.4;
@@ -133,6 +133,36 @@ describe('collectCandidates', () => {
     const { vertices, edges } = collectCandidates([rect], null);
     expect(vertices).toHaveLength(4);
     expect(edges).toHaveLength(4);
+  });
+
+  it('uses source rectangle corners for Apollo entities drawn as rotated rectangles', () => {
+    const parkingSpace: ParkingSpaceEntity = {
+      id: 'parking-1',
+      entityType: 'parkingSpace',
+      polygon: {
+        points: [
+          { x: ORIGIN_LNG, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+          { x: ORIGIN_LNG, y: ORIGIN_LAT + 0.0001 },
+          { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        ],
+      },
+      heading: 0,
+      overlapIds: [],
+      _sourceRect: {
+        p1: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        p2: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.00005 },
+        rotation: Math.PI / 6,
+      },
+    };
+    const { vertices, edges } = collectCandidates([parkingSpace], null);
+    const guides = collectSnapGuidePoints(parkingSpace);
+
+    expect(vertices).toHaveLength(4);
+    expect(edges).toHaveLength(4);
+    expect(guides).toHaveLength(4);
+    expect(vertices.map((v) => v.point)).not.toContain(parkingSpace.polygon.points[4]);
   });
 
   it('exposes only control points for object move snapping', () => {

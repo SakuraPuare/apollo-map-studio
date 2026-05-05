@@ -16,13 +16,18 @@
 import type { ArcEntity, GeoPoint, PolygonEntity, RectEntity } from '@/types/entities';
 import type { MapEntity } from '@/types/entities';
 import type {
+  AreaEntity,
+  ClearAreaEntity,
+  CrosswalkEntity,
   LaneEntity,
   JunctionEntity,
   PNCJunctionEntity,
+  ParkingLotEntity,
   ParkingSpaceEntity,
-  CrosswalkEntity,
   SignalEntity,
+  SpeedControlEntity,
 } from '@/types/apollo';
+import { getSourceRect } from '@/types/apollo';
 import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
 import { rectCorners } from './interpolate';
 
@@ -137,10 +142,15 @@ function pushPolygonVertices(
   }
 }
 
-function rectPoints(rect: RectEntity): GeoPoint[] {
+function rectPoints(rect: Pick<RectEntity, 'p1' | 'p2' | 'rotation'>): GeoPoint[] {
   return rectCorners([rect.p1.x, rect.p1.y], [rect.p2.x, rect.p2.y], rect.rotation)
     .slice(0, 4)
     .map(([x, y]) => ({ x, y }));
+}
+
+function polygonControlPoints(entity: MapEntity, fallback: GeoPoint[]): GeoPoint[] {
+  const sourceRect = getSourceRect(entity);
+  return sourceRect ? rectPoints(sourceRect) : fallback;
 }
 
 function laneCenterPoints(lane: LaneEntity): GeoPoint[] {
@@ -161,7 +171,7 @@ const SNAP_COLLECTORS: Partial<Record<MapEntity['entityType'], CandidateCollecto
     pushPolygonVertices(
       vertices,
       edges,
-      (entity as JunctionEntity).polygon.points,
+      polygonControlPoints(entity, (entity as JunctionEntity).polygon.points),
       entity.id,
       entity.entityType,
     );
@@ -170,7 +180,7 @@ const SNAP_COLLECTORS: Partial<Record<MapEntity['entityType'], CandidateCollecto
     pushPolygonVertices(
       vertices,
       edges,
-      (entity as PNCJunctionEntity).polygon.points,
+      polygonControlPoints(entity, (entity as PNCJunctionEntity).polygon.points),
       entity.id,
       entity.entityType,
     );
@@ -179,7 +189,16 @@ const SNAP_COLLECTORS: Partial<Record<MapEntity['entityType'], CandidateCollecto
     pushPolygonVertices(
       vertices,
       edges,
-      (entity as ParkingSpaceEntity).polygon.points,
+      polygonControlPoints(entity, (entity as ParkingSpaceEntity).polygon.points),
+      entity.id,
+      entity.entityType,
+    );
+  },
+  parkingLot: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as ParkingLotEntity).polygon.points,
       entity.id,
       entity.entityType,
     );
@@ -188,7 +207,34 @@ const SNAP_COLLECTORS: Partial<Record<MapEntity['entityType'], CandidateCollecto
     pushPolygonVertices(
       vertices,
       edges,
-      (entity as CrosswalkEntity).polygon.points,
+      polygonControlPoints(entity, (entity as CrosswalkEntity).polygon.points),
+      entity.id,
+      entity.entityType,
+    );
+  },
+  clearArea: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      polygonControlPoints(entity, (entity as ClearAreaEntity).polygon.points),
+      entity.id,
+      entity.entityType,
+    );
+  },
+  area: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      polygonControlPoints(entity, (entity as AreaEntity).polygon.points),
+      entity.id,
+      entity.entityType,
+    );
+  },
+  speedControl: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as SpeedControlEntity).polygon.points,
       entity.id,
       entity.entityType,
     );

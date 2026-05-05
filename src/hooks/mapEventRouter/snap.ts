@@ -16,7 +16,7 @@ import { useMapStore } from '@/store/mapStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { isEntityTypeVisible, useUIStore, type LayerStates } from '@/store/uiStore';
 import type { MapEntity } from '@/types/entities';
-import { getEditPoints } from '@/lib/entityOps';
+import { getDragCenter } from '@/components/map/entityMutations';
 
 function isSnapApplicable(state: string): boolean {
   return state === 'editingPoint' || isDrawingState(state);
@@ -32,15 +32,7 @@ function* visibleSnapEntities(
 }
 
 function getEntityCenter(entity: MapEntity): LngLat | null {
-  const points = getEditPoints(entity);
-  if (points.length === 0) return null;
-  let sumX = 0;
-  let sumY = 0;
-  for (const point of points) {
-    sumX += point.x;
-    sumY += point.y;
-  }
-  return [sumX / points.length, sumY / points.length];
+  return getDragCenter(entity);
 }
 
 function offsetDistanceMeters(dx: number, dy: number, lat: number): number {
