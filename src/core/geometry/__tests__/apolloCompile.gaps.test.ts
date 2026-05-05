@@ -368,6 +368,34 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     expect(geometryArea(fill!.geometry)).toBeLessThan(5);
   });
 
+  it('open U-shaped drawn lane keeps the continuous whole corridor fill', () => {
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [0, 6],
+        [8, 6],
+        [8, 0],
+      ],
+      [],
+      { laneHalfWidth: 0.2 },
+    ) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const leftEdge = laneLine(features, lane.id, 'laneEdgeLeft');
+    const rightEdge = laneLine(features, lane.id, 'laneEdgeRight');
+    const fill = features.find((feature) => feature.properties?.noStroke === true) as
+      | GeoJSON.Feature<GeoJSON.Polygon>
+      | undefined;
+
+    expect(fill?.geometry.type).toBe('Polygon');
+    expect(fill!.geometry.coordinates[0]?.slice(0, leftEdge!.geometry.coordinates.length)).toEqual(
+      leftEdge!.geometry.coordinates,
+    );
+    expect(fill!.geometry.coordinates[0]?.at(-2)).toEqual(rightEdge!.geometry.coordinates[0]);
+  });
+
   it('folded drawn lane fill remains the union of segment strips', () => {
     const lane = createApolloEntity(
       'lane',
