@@ -24,6 +24,9 @@ import type {
   PolygonEntity,
 } from '@/types/entities';
 import type { LaneEntity, SignalEntity } from '@/types/apollo';
+import { getSourceRect } from '@/types/apollo';
+import type { MapElementType } from '@/core/elements';
+import { createApolloEntity } from '@/core/geometry/apolloCompile';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 // ── 基础 helper ─────────────────────────────────────────────────
@@ -177,6 +180,39 @@ describe('entityToHotFeatures — drawing entities', () => {
     expect(rotateHandle).toBeDefined();
     expect(rotateHandle!.properties?.index).toBe(-1);
   });
+
+  it.each([
+    'junction',
+    'pncJunction',
+    'parkingSpace',
+    'crosswalk',
+    'clearArea',
+    'area',
+  ] satisfies MapElementType[])(
+    'Apollo %s drawn with drawRotatedRect keeps a rotate handle',
+    (elementType) => {
+      const entity = createApolloEntity(
+        elementType,
+        'drawRotatedRect',
+        [
+          [0, 0],
+          [2, 1],
+          [2, 2],
+        ],
+        [],
+      );
+
+      const sourceRect = getSourceRect(entity);
+      expect(sourceRect).toBeDefined();
+      expect(sourceRect!.rotation).not.toBeCloseTo(0, 6);
+
+      const features = entityToHotFeatures(entity);
+      const rotateHandle = features.find(
+        (f) => f.properties?.role === 'handle' && f.properties?.handleType === 'rotate',
+      );
+      expect(rotateHandle).toBeDefined();
+    },
+  );
 
   it('polygon：1 个自闭合 Polygon + N vertex 点', () => {
     const e: PolygonEntity = {

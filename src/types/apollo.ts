@@ -180,6 +180,7 @@ export interface JunctionEntity {
   /** Optional in proto2; absent on import means absent on export. */
   type?: JunctionType;
   overlapIds: string[];
+  _sourceRect?: SourceRectInfo;
 }
 
 // ─── map_parking_space.proto ─────────────────────────────────────────
@@ -421,6 +422,7 @@ export interface PNCJunctionEntity {
   polygon: ApolloPolygon;
   overlapIds: string[];
   passageGroups: PassageGroup[];
+  _sourceRect?: SourceRectInfo;
 }
 
 // ─── map_barrier_gate.proto ──────────────────────────────────────────
@@ -457,6 +459,7 @@ export interface AreaEntity {
   polygon: ApolloPolygon;
   overlapIds: string[];
   name?: string;
+  _sourceRect?: SourceRectInfo;
 }
 
 // ─── map_speed_control.proto ─────────────────────────────────────────

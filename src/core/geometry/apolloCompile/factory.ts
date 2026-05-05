@@ -150,22 +150,26 @@ function createLane(id: string, d: DrawResult): LaneEntity {
 }
 
 function createJunction(id: string, d: DrawResult): JunctionEntity {
+  const rect = buildRectInfo(d);
   return {
     id,
     entityType: 'junction',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     type: 'CROSS_ROAD',
     overlapIds: [],
+    ...(rect ? { _sourceRect: rect } : {}),
   };
 }
 
 function createPNCJunction(id: string, d: DrawResult): PNCJunctionEntity {
+  const rect = buildRectInfo(d);
   return {
     id,
     entityType: 'pncJunction',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     overlapIds: [],
     passageGroups: [],
+    ...(rect ? { _sourceRect: rect } : {}),
   };
 }
 
@@ -282,12 +286,14 @@ function createBarrierGate(id: string, d: DrawResult): BarrierGateEntity {
 }
 
 function createArea(id: string, d: DrawResult): AreaEntity {
+  const rect = buildRectInfo(d);
   return {
     id,
     entityType: 'area',
     type: 'Driveable',
     polygon: pointsToPolygon(extractPolygonPoints(d)),
     overlapIds: [],
+    ...(rect ? { _sourceRect: rect } : {}),
   };
 }
 
