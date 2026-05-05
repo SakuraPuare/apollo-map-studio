@@ -37,6 +37,7 @@ There is no Save button: the form auto-commits on `change`. `Ctrl+Z` undoes.
 │    Turn            [LEFT_TURN ▼]         │
 │    Direction       [FORWARD ▼]           │
 │    Speed Limit     [16.6   ] m/s         │
+│    Speed Limit     [60     ] km/h        │
 │    ID              lane_AbCd123XyZ       │  ← read-only Value
 │  ▾ Boundaries                            │
 │    Left Width      [1.75 ] m             │
@@ -113,6 +114,7 @@ All fields below come from `LaneInspectorSchema` (`inspectorSchema.ts:263-435`).
 | `turn`                        | enum     | Attributes | `LaneTurn`         | same                                      | Turn type                                            |
 | `direction`                   | enum     | Attributes | `LaneDirection`    | same                                      | Direction                                            |
 | `speedLimit`                  | number   | Attributes | 0..50, step 0.5    | `e.speedLimit ?? 0`                       | m/s                                                  |
+| `speedLimitKmh`               | number   | Attributes | 0..180, step 1     | `speedLimit * 3.6` ↔ `km/h / 3.6`         | km/h visual input; stored value remains m/s          |
 | `leftWidth`                   | number   | Boundaries | 0.5..10, step 0.1  | `readLeftWidth` / `writeLeftWidth`        | Half-width — write applies uniformly to every sample |
 | `rightWidth`                  | number   | Boundaries | 0.5..10, step 0.1  | same family                               |                                                      |
 | `leftBoundaryType`            | enum     | Boundaries | `BoundaryLineType` | `e.leftBoundary.boundaryType[0].types[0]` | Write collapses to a single boundaryType segment     |

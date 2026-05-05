@@ -37,6 +37,7 @@ description: Inspector 面板的字段类型、Schema-driven 表单、Lane / Ove
 │    Turn            [LEFT_TURN ▼]         │
 │    Direction       [FORWARD ▼]           │
 │    Speed Limit     [16.6   ] m/s         │
+│    Speed Limit     [60     ] km/h        │
 │    ID              lane_AbCd123XyZ       │  ← read-only Value
 │  ▾ Boundaries                            │
 │    Left Width      [1.75 ] m             │
@@ -113,6 +114,7 @@ interface EntitySchema<TEntity, TFormValues> {
 | `turn`                        | enum     | Attributes | `LaneTurn` 枚举      | 同上                                      | 转弯类型                                |
 | `direction`                   | enum     | Attributes | `LaneDirection` 枚举 | 同上                                      | 方向                                    |
 | `speedLimit`                  | number   | Attributes | 0..50, step 0.5      | `e.speedLimit ?? 0`                       | 限速 m/s                                |
+| `speedLimitKmh`               | number   | Attributes | 0..180, step 1       | `speedLimit * 3.6` ↔ `km/h / 3.6`         | 限速 km/h，可视化输入，存储仍为 m/s     |
 | `leftWidth`                   | number   | Boundaries | 0.5..10, step 0.1    | `readLeftWidth` / `writeLeftWidth`        | 左侧半宽，写时**统一**应用到所有 sample |
 | `rightWidth`                  | number   | Boundaries | 0.5..10, step 0.1    | `readRightWidth` / `writeRightWidth`      | 右侧半宽                                |
 | `leftBoundaryType`            | enum     | Boundaries | `BoundaryLineType`   | `e.leftBoundary.boundaryType[0].types[0]` | 写时折叠为单段 boundaryType             |

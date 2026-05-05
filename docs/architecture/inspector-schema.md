@@ -154,14 +154,15 @@ sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
 
 `SchemaForm` 按此顺序渲染 section；同 section 内编辑字段在前、只读行在后。
 
-### 4.2 八个可编辑字段
+### 4.2 九个可编辑字段
 
 | name              | kind   | section    | range          | 派生                                   |
 | ----------------- | ------ | ---------- | -------------- | -------------------------------------- |
 | type              | enum   | Attributes | laneType       | —                                      |
 | turn              | enum   | Attributes | laneTurn       | —                                      |
 | direction         | enum   | Attributes | laneDirection  | —                                      |
-| speedLimit        | number | Attributes | 0..50, step .5 | —                                      |
+| speedLimit        | number | Attributes | 0..50, step .5 | 存储值，单位 m/s                       |
+| speedLimitKmh     | number | Attributes | 0..180, step 1 | 与 `speedLimit` 双向换算，单位 km/h    |
 | leftWidth         | number | Boundaries | 0.5..10        | 写入到 `leftSamples[*].width` 全部采样 |
 | rightWidth        | number | Boundaries | 0.5..10        | 同上 right                             |
 | leftBoundaryType  | enum   | Boundaries | boundaryType   | 写入 `leftBoundary.boundaryType[0]`    |

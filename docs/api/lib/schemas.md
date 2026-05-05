@@ -44,6 +44,7 @@ laneSchema = z.object({
   turn: z.enum(laneTurnOptions),
   direction: z.enum(laneDirectionOptions),
   speedLimit: z.number().min(0).max(50), // m/s
+  speedLimitKmh: z.number().min(0).max(180), // km/h, visual input
   leftWidth: z.number().min(0.5).max(10).optional(),
   rightWidth: z.number().min(0.5).max(10).optional(),
   leftBoundaryType: z.enum(boundaryTypeOptions),
@@ -54,6 +55,7 @@ laneSchema = z.object({
 Numeric ranges encode editor invariants, not arbitrary UX caps:
 
 - `speedLimit: 0..50` mirrors Apollo's plausible-speed envelope.
+- `speedLimitKmh: 0..180` mirrors the visual km/h alias for the same stored m/s value.
 - `leftWidth` / `rightWidth: 0.5..10` keeps lanes physically buildable.
   They are optional because lane width on the wire is encoded as a
   sample association `(s, width)[]` — not a scalar.

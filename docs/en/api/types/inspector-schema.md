@@ -183,7 +183,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
 };
 ```
 
-Eight editable fields + 12 readonly rows (ID, Length, plus seven topology lists). **Behaviourally identical** to the previous `LaneForm.tsx`.
+Nine editable fields + 12 readonly rows (ID, Length, plus seven topology lists). **Behaviourally identical** to the previous `LaneForm.tsx`, with a km/h alias linked to the stored m/s speed limit.
 
 #### Lane adapters
 

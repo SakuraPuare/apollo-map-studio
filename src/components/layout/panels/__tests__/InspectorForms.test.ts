@@ -84,6 +84,7 @@ describe('R1: InspectorForms reactive lane sync', () => {
       turn: 'NO_TURN',
       direction: 'FORWARD',
       speedLimit: 13.89,
+      speedLimitKmh: 50,
       leftWidth: 1.75,
       rightWidth: 1.75,
       leftBoundaryType: 'DOTTED_WHITE',
@@ -144,8 +145,9 @@ describe('R1: InspectorForms reactive lane sync', () => {
     const diffMap = new Map(diffs);
     expect(diffMap.get('type')).toBe('BIKING');
     expect(diffMap.get('speedLimit')).toBe(5);
+    expect(diffMap.get('speedLimitKmh')).toBe(18);
     expect(diffMap.get('leftWidth')).toBe(2.0);
-    expect(diffs).toHaveLength(3);
+    expect(diffs).toHaveLength(4);
   });
 
   it('shouldPersistLaneForm breaks the write→rerender→write loop', () => {
@@ -225,8 +227,8 @@ describe('R1: InspectorForms reactive lane sync', () => {
  * regression battery effectively pins both layers at once. This
  * suite adds direct coverage of the schema layer:
  *
- *  - Field shape: the schema lists exactly the eight editable
- *    fields the old LaneForm rendered, with the right names. This
+ *  - Field shape: the schema lists the editable fields the Lane
+ *    inspector renders, with the right names. This
  *    is what guarantees behavior parity at render time.
  *  - Round-trip via write adapters: applying a form-value patch
  *    through the schema's `write` adapters yields a structurally
@@ -244,13 +246,14 @@ import {
 } from '@/types/inspectorSchema';
 
 describe('LaneInspectorSchema: schema-driven path', () => {
-  it('declares the exact 8 editable fields the old LaneForm rendered', () => {
+  it('declares the editable fields the Lane inspector renders', () => {
     const names = LaneInspectorSchema.fields.map((f) => f.name);
     expect(names).toEqual([
       'type',
       'turn',
       'direction',
       'speedLimit',
+      'speedLimitKmh',
       'leftWidth',
       'rightWidth',
       'leftBoundaryType',
@@ -304,6 +307,28 @@ describe('LaneInspectorSchema: schema-driven path', () => {
     expect(next.rightBoundary.boundaryType).toEqual(lane.rightBoundary.boundaryType);
   });
 
+  it('links speed limit m/s and km/h through the same stored m/s value', () => {
+    const lane = makeLane({ speedLimit: 2.7777777777777777 });
+    expect(formValuesFromEntity(LaneInspectorSchema, lane)).toMatchObject({
+      speedLimit: 2.7777777777777777,
+      speedLimitKmh: 10,
+    });
+
+    const fromMps = applyFormValuesToEntity(LaneInspectorSchema, lane, {
+      ...laneFormValuesFromEntity(lane),
+      speedLimit: 5,
+    });
+    expect(fromMps.speedLimit).toBe(5);
+    expect(formValuesFromEntity(LaneInspectorSchema, fromMps).speedLimitKmh).toBe(18);
+
+    const fromKmh = applyFormValuesToEntity(LaneInspectorSchema, lane, {
+      ...laneFormValuesFromEntity(lane),
+      speedLimitKmh: 36,
+    });
+    expect(fromKmh.speedLimit).toBe(10);
+    expect(formValuesFromEntity(LaneInspectorSchema, fromKmh).speedLimitKmh).toBe(36);
+  });
+
   it('validation gate rejects out-of-range numeric edits', () => {
     // This is the gate that keeps `formState.isValid` honest under
     // `mode: 'onChange'` — without it the watch callback would write
@@ -315,6 +340,7 @@ describe('LaneInspectorSchema: schema-driven path', () => {
       turn: 'NO_TURN',
       direction: 'FORWARD',
       speedLimit: 13.89,
+      speedLimitKmh: 50,
       leftWidth: 1.75,
       rightWidth: 1.75,
       leftBoundaryType: 'DOTTED_WHITE',
@@ -327,16 +353,29 @@ describe('LaneInspectorSchema: schema-driven path', () => {
       turn: 'NO_TURN',
       direction: 'FORWARD',
       speedLimit: 999, // > 50 cap
+      speedLimitKmh: 50,
       leftBoundaryType: 'DOTTED_WHITE',
       rightBoundaryType: 'SOLID_WHITE',
     });
     expect(tooFast.success).toBe(false);
+
+    const tooFastKmh = LaneInspectorSchema.validation.safeParse({
+      type: 'CITY_DRIVING',
+      turn: 'NO_TURN',
+      direction: 'FORWARD',
+      speedLimit: 10,
+      speedLimitKmh: 181, // > 180 km/h cap
+      leftBoundaryType: 'DOTTED_WHITE',
+      rightBoundaryType: 'SOLID_WHITE',
+    });
+    expect(tooFastKmh.success).toBe(false);
 
     const tooNarrow = LaneInspectorSchema.validation.safeParse({
       type: 'CITY_DRIVING',
       turn: 'NO_TURN',
       direction: 'FORWARD',
       speedLimit: 10,
+      speedLimitKmh: 36,
       leftWidth: 0.1, // < 0.5 floor
       leftBoundaryType: 'DOTTED_WHITE',
       rightBoundaryType: 'SOLID_WHITE',

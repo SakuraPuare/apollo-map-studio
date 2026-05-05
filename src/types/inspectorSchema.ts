@@ -233,6 +233,9 @@ const readRightBoundary = (e: LaneEntity): BoundaryLineType =>
     ? 'UNKNOWN'
     : (e.rightBoundary.boundaryType[0]?.types[0] ?? 'UNKNOWN');
 
+const mpsToKmh = (speedLimitMps: number): number => Number((speedLimitMps * 3.6).toFixed(2));
+const kmhToMps = (speedLimitKmh: number): number => speedLimitKmh / 3.6;
+
 const writeLeftWidth = (e: LaneEntity, width: number | undefined): LaneEntity => {
   const next = width ?? DEFAULT_LANE_HALF_WIDTH;
   return { ...e, leftSamples: applySampleWidth(e.leftSamples, next, e.length ?? 0) };
@@ -259,8 +262,9 @@ const writeRightBoundary = (e: LaneEntity, type: BoundaryLineType): LaneEntity =
 const LaneField = fieldBuilder<LaneEntity, LaneFormValues>();
 
 /**
- * Schema for the Lane inspector panel. The eight editable fields
- * mirror exactly what LaneForm rendered before this refactor — the
+ * Schema for the Lane inspector panel. The editable fields mirror
+ * exactly what LaneForm rendered before this refactor, plus the
+ * km/h alias added for speed-limit readability — the
  * intent is behavior parity, with the JSX-per-entity duplication
  * replaced by data.
  */
@@ -309,6 +313,18 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
       step: 0.5,
       read: (e) => e.speedLimit ?? 0,
       write: (e, v) => ({ ...e, speedLimit: v ?? 0 }),
+    }),
+    LaneField.field({
+      kind: 'number',
+      name: 'speedLimitKmh',
+      label: 'Speed Limit (km/h)',
+      section: 'Attributes',
+      min: 0,
+      max: 180,
+      step: 1,
+      read: (e) => mpsToKmh(e.speedLimit ?? 0),
+      write: (e, v) => ({ ...e, speedLimit: kmhToMps(v ?? 0) }),
+      overridesPaths: ['speedLimit'],
     }),
     LaneField.field({
       kind: 'number',
@@ -521,7 +537,9 @@ export function applyFormValuesToEntity<
     const key = field.name as keyof TFormValues;
     if (key in values) {
       const v = values[key];
-      const prevValue = (field.read as (e: TEntity) => unknown)(next);
+      const prevValue = (field.read as (e: TEntity) => unknown)(entity);
+      if (Object.is(prevValue, v)) continue;
+
       // The write adapter is the per-key union; we have already
       // checked `key in values`, so call through after a cast that
       // matches the union's call signature shape.
@@ -532,7 +550,7 @@ export function applyFormValuesToEntity<
       // writes (e.g. re-seeding from formValuesFromEntity) must not
       // promote auto-derived values into manual overrides.
       const newValue = (field.read as (e: TEntity) => unknown)(next);
-      if (prevValue !== newValue) {
+      if (!Object.is(prevValue, newValue)) {
         const paths = field.overridesPaths ?? [String(field.name)];
         for (const path of paths) {
           next = markUserOverride(next, path);

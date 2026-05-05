@@ -28,6 +28,7 @@ describe('laneSchema', () => {
     turn: 'NO_TURN' as const,
     direction: 'FORWARD' as const,
     speedLimit: 13.9,
+    speedLimitKmh: 50,
     leftBoundaryType: 'SOLID_WHITE' as const,
     rightBoundaryType: 'SOLID_WHITE' as const,
   };
@@ -39,6 +40,11 @@ describe('laneSchema', () => {
   it('speedLimit 超出 [0, 50] 失败', () => {
     expect(laneSchema.safeParse({ ...validBase, speedLimit: -1 }).success).toBe(false);
     expect(laneSchema.safeParse({ ...validBase, speedLimit: 51 }).success).toBe(false);
+  });
+
+  it('speedLimitKmh 超出 [0, 180] 失败', () => {
+    expect(laneSchema.safeParse({ ...validBase, speedLimitKmh: -1 }).success).toBe(false);
+    expect(laneSchema.safeParse({ ...validBase, speedLimitKmh: 181 }).success).toBe(false);
   });
 
   it('未知 type 枚举失败', () => {

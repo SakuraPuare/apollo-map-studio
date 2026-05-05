@@ -39,6 +39,7 @@ export const laneSchema = z.object({
   turn: z.enum(laneTurnOptions),
   direction: z.enum(laneDirectionOptions),
   speedLimit: z.number().min(0).max(50),
+  speedLimitKmh: z.number().min(0).max(180),
   leftWidth: z.number().min(0.5).max(10).optional(),
   rightWidth: z.number().min(0.5).max(10).optional(),
   leftBoundaryType: z.enum(boundaryTypeOptions),

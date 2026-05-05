@@ -161,14 +161,15 @@ sectionOrder: ['Attributes', 'Boundaries', 'Topology'],
 `SchemaForm` renders sections in that order, with editable fields
 before read-only rows inside each section.
 
-### 4.2 Eight editable fields
+### 4.2 Nine editable fields
 
 | name              | kind   | section    | range          | derivation                                  |
 | ----------------- | ------ | ---------- | -------------- | ------------------------------------------- |
 | type              | enum   | Attributes | laneType       | —                                           |
 | turn              | enum   | Attributes | laneTurn       | —                                           |
 | direction         | enum   | Attributes | laneDirection  | —                                           |
-| speedLimit        | number | Attributes | 0..50, step .5 | —                                           |
+| speedLimit        | number | Attributes | 0..50, step .5 | stored value, m/s                           |
+| speedLimitKmh     | number | Attributes | 0..180, step 1 | two-way conversion with `speedLimit`, km/h  |
 | leftWidth         | number | Boundaries | 0.5..10        | broadcasts to every `leftSamples[*].width`  |
 | rightWidth        | number | Boundaries | 0.5..10        | broadcasts to every `rightSamples[*].width` |
 | leftBoundaryType  | enum   | Boundaries | boundaryType   | writes `leftBoundary.boundaryType[0]`       |

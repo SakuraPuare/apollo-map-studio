@@ -184,7 +184,7 @@ export const LaneInspectorSchema: EntitySchema<LaneEntity, LaneFormValues> = {
 };
 ```
 
-8 个编辑字段 + 12 个只读行（含 ID / Length / 7 个拓扑列表）。**完全等价于** 旧 `LaneForm.tsx` 的 JSX——意图是 behavior 平移，把"每实体一份 JSX"换成数据。
+9 个编辑字段 + 12 个只读行（含 ID / Length / 7 个拓扑列表）。**完全等价于** 旧 `LaneForm.tsx` 的 JSX，同时新增与 m/s 存储值联动的 km/h 可视化输入。
 
 #### Lane 适配器函数
 
