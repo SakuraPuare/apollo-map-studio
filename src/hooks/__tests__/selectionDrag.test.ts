@@ -68,7 +68,7 @@ function makeMap(lineHit: boolean) {
   const queryRenderedFeatures = vi.fn((_bbox, options?: { layers?: string[] }) => {
     if (options?.layers?.includes('hot-points')) return [];
     if (options?.layers?.includes('hot-fill')) return [];
-    if (options?.layers?.includes('hot-line') && lineHit) {
+    if (options?.layers?.includes('hot-line-hit') && lineHit) {
       return [{ type: 'Feature', properties: {}, geometry: { type: 'LineString' } }];
     }
     return [];
@@ -103,6 +103,9 @@ describe('handleSelectedMouseDown', () => {
     const result = handleSelectedMouseDown(map as never, actor as never, event as never);
 
     expect(result).toEqual({ handled: true, centerGrabOffset: [1, 1] });
+    expect(map.queryRenderedFeatures).toHaveBeenCalledWith(expect.anything(), {
+      layers: ['hot-line-hit', 'hot-line'],
+    });
     expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(actor.send).toHaveBeenCalledWith({

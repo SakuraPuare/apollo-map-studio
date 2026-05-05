@@ -45,7 +45,9 @@ function hitsSelectedLine(
   e: maplibregl.MapMouseEvent,
 ): boolean {
   if (!entity || !canCenterDragFromHotLine(entity)) return false;
-  const lineHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-line'] });
+  const lineHits = map.queryRenderedFeatures(hitBbox(e.point), {
+    layers: ['hot-line-hit', 'hot-line'],
+  });
   return lineHits.length > 0 || hitsSelectedLineGeometry(map, entity, e);
 }
 

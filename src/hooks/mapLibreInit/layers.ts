@@ -5,6 +5,8 @@ import { MAP_ICON_PX } from '@/lib/mapIcons';
 import { useSettingsStore } from '@/store/settingsStore';
 import { EMPTY_FC, registerRuntimeImages } from './assets';
 
+const HOT_LINE_HIT_WIDTH_PX = 24;
+
 function addGridLayer(map: maplibregl.Map) {
   map.addSource('grid', { type: 'geojson', data: EMPTY_FC });
   map.addLayer({
@@ -175,6 +177,20 @@ function addHotLayers(map: maplibregl.Map) {
         ['literal', [3, 2]],
         ['literal', [1, 0]],
       ],
+    },
+  });
+  map.addLayer({
+    id: 'hot-line-hit',
+    type: 'line',
+    source: 'hot',
+    filter: ['any', ['==', '$type', 'LineString'], ['==', '$type', 'Polygon']],
+    layout: {
+      'line-cap': 'round',
+      'line-join': 'round',
+    },
+    paint: {
+      'line-color': 'rgba(255, 68, 68, 0)',
+      'line-width': HOT_LINE_HIT_WIDTH_PX,
     },
   });
   map.addLayer({
