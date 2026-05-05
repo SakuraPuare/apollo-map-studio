@@ -6,9 +6,12 @@ import { getSource } from '@/types/apollo';
 import type { DragPointType } from '@/types/editor';
 import type { MapEntity } from '@/types/entities';
 import { getDragCenter, toggleSmooth, toggleSmoothApollo } from '@/components/map/entityMutations';
+import { pointToPolylineDistGeo } from '@/core/geometry/hitTest';
+import { entityRenderCoords } from '@/core/geometry/compile';
 import { useMapStore } from '@/store/mapStore';
+import { useSettingsStore } from '@/store/settingsStore';
 import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
-import { hitBbox, toLngLat } from './hitTest';
+import { hitBbox, pixelToRadius, toLngLat } from './hitTest';
 
 export interface SelectedMouseDownResult {
   handled: boolean;
@@ -20,6 +23,30 @@ function canCenterDragFromHotLine(entity: MapEntity | null | undefined): boolean
   const source = getSource(entity);
   if (source?.drawTool === 'drawBezier' || source?.drawTool === 'drawArc') return false;
   return getDragCenter(entity) !== null;
+}
+
+function hitsSelectedLineGeometry(
+  map: maplibregl.Map,
+  entity: MapEntity,
+  e: maplibregl.MapMouseEvent,
+): boolean {
+  const coords = entityRenderCoords(entity);
+  if (coords.length < 2) return false;
+
+  const point = toLngLat(e);
+  const radius = pixelToRadius(map, useSettingsStore.getState().hitTestRadius);
+  const cosLat = Math.max(Math.cos((point[1] * Math.PI) / 180), 1e-6);
+  return pointToPolylineDistGeo(point, coords, cosLat) <= Math.abs(radius);
+}
+
+function hitsSelectedLine(
+  map: maplibregl.Map,
+  entity: MapEntity | null,
+  e: maplibregl.MapMouseEvent,
+): boolean {
+  if (!entity || !canCenterDragFromHotLine(entity)) return false;
+  const lineHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-line'] });
+  return lineHits.length > 0 || hitsSelectedLineGeometry(map, entity, e);
 }
 
 function toggleEntitySmooth(entityId: string, idx: number) {
@@ -75,16 +102,15 @@ export function handleSelectedMouseDown(
     }
 
     map.dragPan.disable();
+    e.preventDefault();
     actorRef.send({ type: 'START_DRAG', index: idx, pointType: pType, altKey });
     return { handled: true };
   }
 
   const bbox = hitBbox(e.point);
   const fillHits = map.queryRenderedFeatures(bbox, { layers: ['hot-fill'] });
-  const lineHits = canCenterDragFromHotLine(selectedEntity)
-    ? map.queryRenderedFeatures(bbox, { layers: ['hot-line'] })
-    : [];
-  if (fillHits.length === 0 && lineHits.length === 0) return { handled: false };
+  const lineHit = hitsSelectedLine(map, selectedEntity, e);
+  if (fillHits.length === 0 && !lineHit) return { handled: false };
 
   let centerGrabOffset: [number, number] | null = null;
   if (selectedEntity) {
@@ -96,6 +122,7 @@ export function handleSelectedMouseDown(
   }
 
   map.dragPan.disable();
+  e.preventDefault();
   actorRef.send({
     type: 'START_DRAG',
     index: -2,

@@ -11,6 +11,13 @@ import type { MapEntity, PolylineEntity } from '@/types/entities';
 
 const initialUISnapshot = useUIStore.getState();
 
+interface TestMouseEvent {
+  point: { x: number; y: number };
+  lngLat: { lng: number; lat: number };
+  originalEvent: { altKey: boolean };
+  preventDefault: () => void;
+}
+
 function polyline(): PolylineEntity {
   return {
     id: 'pl',
@@ -47,11 +54,13 @@ function makeActor(entityId = 'pl') {
   };
 }
 
-function makeMouseEvent() {
+function makeMouseEvent(overrides: Partial<TestMouseEvent> = {}): TestMouseEvent {
   return {
     point: { x: 100, y: 120 },
     lngLat: { lng: 3, lat: 1 },
     originalEvent: { altKey: false },
+    preventDefault: vi.fn(),
+    ...overrides,
   };
 }
 
@@ -65,7 +74,7 @@ function makeMap(lineHit: boolean) {
     return [];
   });
   const dragPan = { disable: vi.fn() };
-  return { queryRenderedFeatures, dragPan };
+  return { queryRenderedFeatures, dragPan, getZoom: () => 18 };
 }
 
 function makeRouterMap(lineHit: boolean) {
@@ -89,11 +98,33 @@ describe('handleSelectedMouseDown', () => {
     useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
     const actor = makeActor();
     const map = makeMap(true);
+    const event = makeMouseEvent();
 
-    const result = handleSelectedMouseDown(map as never, actor as never, makeMouseEvent() as never);
+    const result = handleSelectedMouseDown(map as never, actor as never, event as never);
 
     expect(result).toEqual({ handled: true, centerGrabOffset: [1, 1] });
     expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(actor.send).toHaveBeenCalledWith({
+      type: 'START_DRAG',
+      index: -2,
+      pointType: 'center',
+      altKey: false,
+    });
+  });
+
+  it('starts center dragging from selected polyline geometry when the hot-line rendered hit misses', () => {
+    const entity = polyline();
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+    const actor = makeActor();
+    const map = makeMap(false);
+    const event = makeMouseEvent({ lngLat: { lng: 2, lat: 0 } });
+
+    const result = handleSelectedMouseDown(map as never, actor as never, event as never);
+
+    expect(result).toEqual({ handled: true, centerGrabOffset: [0, 0] });
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(actor.send).toHaveBeenCalledWith({
       type: 'START_DRAG',
       index: -2,
@@ -107,11 +138,13 @@ describe('handleSelectedMouseDown', () => {
     useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
     const actor = makeActor(entity.id);
     const map = makeMap(true);
+    const event = makeMouseEvent();
 
-    const result = handleSelectedMouseDown(map as never, actor as never, makeMouseEvent() as never);
+    const result = handleSelectedMouseDown(map as never, actor as never, event as never);
 
     expect(result).toEqual({ handled: true, centerGrabOffset: [1, 1] });
     expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
     expect(actor.send).toHaveBeenCalledWith({
       type: 'START_DRAG',
       index: -2,
@@ -125,11 +158,13 @@ describe('handleSelectedMouseDown', () => {
     useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
     const actor = makeActor();
     const map = makeMap(false);
+    const event = makeMouseEvent();
 
-    const result = handleSelectedMouseDown(map as never, actor as never, makeMouseEvent() as never);
+    const result = handleSelectedMouseDown(map as never, actor as never, event as never);
 
     expect(result).toEqual({ handled: false });
     expect(map.dragPan.disable).not.toHaveBeenCalled();
+    expect(event.preventDefault).not.toHaveBeenCalled();
     expect(actor.send).not.toHaveBeenCalled();
   });
 
