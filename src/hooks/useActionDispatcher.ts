@@ -26,6 +26,11 @@ import { getWorkspaceViewDefs, isWorkspaceViewActionId } from '@/core/workspaceV
 import { pickAndImportApollo, exportApolloBin, exportApolloText } from '@/io/mapIO';
 import { appBridge } from '@/lib/app-bridge';
 import { assertEditable } from '@/lib/editable-guard';
+import {
+  copySelectionToClipboard,
+  hasSelectionClipboard,
+  pasteSelectionFromClipboard,
+} from '@/lib/selectionClipboard';
 
 /**
  * Set of action ids that mutate map state — blocked when the license
@@ -33,6 +38,7 @@ import { assertEditable } from '@/lib/editable-guard';
  * are blocked wholesale; specific extras (`connectLanes`) blocked by id.
  */
 function actionRequiresEdit(id: ActionId): boolean {
+  if (id === 'copySelection') return false;
   if (id === 'connectLanes') return true;
   const def = getActionMap().get(id);
   if (!def) return false;
@@ -84,6 +90,31 @@ function registerHistoryHandlers(map: Map<ActionId, () => void>, options: Action
   map.set('delete', () => options.actorRef.send({ type: 'DELETE_ENTITY' }));
 }
 
+function registerClipboardHandlers(
+  map: Map<ActionId, () => void>,
+  options: ActionDispatcherOptions,
+) {
+  map.set('copySelection', () => {
+    copySelectionToClipboard(getSelectedClipboardEntity(options.actorRef));
+  });
+
+  map.set('pasteSelection', () => {
+    const snap = options.actorRef.getSnapshot();
+    if (snap.value !== 'idle' && snap.value !== 'selected') return;
+    const store = useMapStore.getState();
+    const pasted = pasteSelectionFromClipboard(store.entities);
+    if (!pasted) return;
+    store.addEntity(pasted);
+    options.actorRef.send({ type: 'SELECT_ENTITY', id: pasted.id });
+  });
+}
+
+function getSelectedClipboardEntity(actorRef: ActorRefFrom<typeof editorMachine>) {
+  const snap = actorRef.getSnapshot();
+  if (snap.value !== 'selected' || !snap.context.selectedEntityId) return null;
+  return useMapStore.getState().entities.get(snap.context.selectedEntityId) ?? null;
+}
+
 function registerViewHandlers(map: Map<ActionId, () => void>, options: ActionDispatcherOptions) {
   map.set('toggleGrid', () => useUIStore.getState().toggleGrid());
   map.set('toggleSnap', () => useUIStore.getState().toggleSnap());
@@ -131,6 +162,7 @@ function buildActionHandlers(options: ActionDispatcherOptions): Map<ActionId, ()
   const map = new Map<ActionId, () => void>();
   registerFileHandlers(map, options);
   registerHistoryHandlers(map, options);
+  registerClipboardHandlers(map, options);
   registerViewHandlers(map, options);
   registerHelpHandlers(map, options);
   registerModeHandlers(map, options);
@@ -168,14 +200,22 @@ function useActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () =
   );
 }
 
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement) return true;
+  if (typeof HTMLTextAreaElement !== 'undefined' && target instanceof HTMLTextAreaElement)
+    return true;
+  if (typeof HTMLSelectElement !== 'undefined' && target instanceof HTMLSelectElement) return true;
+  if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
+    return target.isContentEditable;
+  }
+  return false;
+}
+
 function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
   useEffect(() => {
     const kbActions = getKeyBindingActions();
     const handler = (e: KeyboardEvent) => {
-      const inInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement ||
-        e.target instanceof HTMLSelectElement;
+      const inInput = isTextEditingTarget(e.target);
 
       for (const action of kbActions) {
         if (!action.keybinding) continue;
@@ -190,6 +230,34 @@ function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [execute]);
+}
+
+function useClipboardEvents(
+  execute: (actionId: ActionId) => void,
+  actorRef: ActorRefFrom<typeof editorMachine>,
+) {
+  useEffect(() => {
+    const handleCopy = (e: ClipboardEvent) => {
+      if (isTextEditingTarget(e.target)) return;
+      if (!getSelectedClipboardEntity(actorRef)) return;
+      e.preventDefault();
+      execute('copySelection');
+    };
+
+    const handlePaste = (e: ClipboardEvent) => {
+      if (isTextEditingTarget(e.target)) return;
+      if (!hasSelectionClipboard()) return;
+      e.preventDefault();
+      execute('pasteSelection');
+    };
+
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [actorRef, execute]);
 }
 
 function useNativeMenuActions(execute: (actionId: ActionId) => void) {
@@ -255,6 +323,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
   const execute = useActionExecute(handlers);
   const getToggleState = useActionToggleState(options.getWorkspaceViewState);
   useKeyboardShortcuts(execute);
+  useClipboardEvents(execute, options.actorRef);
   useNativeMenuActions(execute);
 
   return {

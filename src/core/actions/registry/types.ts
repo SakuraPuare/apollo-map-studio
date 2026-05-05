@@ -11,6 +11,8 @@ export type ActionId =
   | 'settings'
   | 'undo'
   | 'redo'
+  | 'copySelection'
+  | 'pasteSelection'
   | 'delete'
   | 'toggleGrid'
   | 'toggleSnap'

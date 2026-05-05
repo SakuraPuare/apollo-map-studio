@@ -27,6 +27,12 @@ export {
   type ReparentResult,
 } from './entityOps/reparent';
 export {
+  canDuplicateEntity,
+  duplicateEntity,
+  DEFAULT_DUPLICATE_OFFSET_METERS,
+  type DuplicateEntityOptions,
+} from './entityOps/duplicate';
+export {
   isApolloEntityType,
   isAreaEntity,
   isDrawingEntity,

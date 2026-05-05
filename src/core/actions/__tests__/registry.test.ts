@@ -96,11 +96,13 @@ describe('Action Registry', () => {
     expect(ids).toContain('settings');
   });
 
-  it('Edit menu has undo, redo, and delete', () => {
+  it('Edit menu has undo, redo, copy, paste, and delete', () => {
     const editActions = getMenuActions('Edit');
     const ids = editActions.map((a) => a.id);
     expect(ids).toContain('undo');
     expect(ids).toContain('redo');
+    expect(ids).toContain('copySelection');
+    expect(ids).toContain('pasteSelection');
     expect(ids).toContain('delete');
     expect(ids).toContain('boundaryBrush');
   });
@@ -181,10 +183,12 @@ describe('Action Registry', () => {
     }
   });
 
-  it('command palette includes undo/redo/delete', () => {
+  it('command palette includes undo/redo/copy/paste/delete', () => {
     const cpIds = new Set(getCommandPaletteActions().map((a) => a.id));
     expect(cpIds.has('undo')).toBe(true);
     expect(cpIds.has('redo')).toBe(true);
+    expect(cpIds.has('copySelection')).toBe(true);
+    expect(cpIds.has('pasteSelection')).toBe(true);
     expect(cpIds.has('delete')).toBe(true);
   });
 
