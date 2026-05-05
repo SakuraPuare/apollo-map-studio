@@ -19,6 +19,7 @@ export {
   apolloMapToEntities,
   entitiesToApolloMap,
   entityToRawApolloElement,
+  isApolloMapEntity,
   rawApolloElementToEntity,
 } from './entityBridge/map';
 export type { ApolloMapEntityField, RawApolloMap } from './entityBridge/map';

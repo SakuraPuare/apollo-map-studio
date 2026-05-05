@@ -47,9 +47,9 @@ export async function exportApolloBin(): Promise<void>;
 export async function exportApolloText(): Promise<void>;
 ```
 
-Both share `currentExportContext()` — it asserts
-`apolloMapStore.info` exists (must have imported first), then pulls
-the entity array from `mapStore.entities` and calls
+Both share `currentExportContext()` — imported maps reuse the PROJ string in
+`apolloMapStore.info`; new maps request a projection first. It then pulls the
+entity array from `mapStore.entities` and calls
 `apolloIOBridge.exportBin/Text(entities, projString, onProgress)`.
 The result is a Uint8Array which `downloadBlob(blob, suggestedFilename(...))`
 hands to the browser.
@@ -91,13 +91,16 @@ double-allocation.
 ```ts
 // src/io/apolloIO.worker.ts:199-243
 async function runExport(requestId, entities, projString, format) {
-  if (!cachedRawLonLatMap) {
+  if (!cachedRawLonLatMap && baseMapSource === 'cached') {
     throw new Error('No imported Apollo map is cached in the IO worker.');
   }
   // 1. derive: full topology + overlap recompute
   const processed = applyImportTopology(entities);
   // 2. merge: overlay edited entities onto cached raw map
-  const merged = entitiesToApolloMap(cachedRawLonLatMap, processed.entities);
+  const merged = entitiesToApolloMap(
+    cachedRawLonLatMap ?? createBlankApolloMap(projString),
+    processed.entities,
+  );
   // 3. project: lon/lat → ENU
   const { map: enuMap } = await apolloMapFromLonLat(merged, projString);
   // 4. encode: bin or text
@@ -151,8 +154,9 @@ topology-consistent Apollo map.
   raw map;
 - header / hdmap_version / custom fields pass through untouched.
 
-This is why export requires a prior import — without the raw map,
-nothing is "preserved".
+This is why imported-map export still prefers a prior import — without the
+raw map, nothing is "preserved". New maps can still export through a blank
+base_map seed.
 
 ## 7. project: precision and units
 
@@ -202,11 +206,10 @@ diff-friendly.
 
 ## 9. Header retention
 
-`cachedRawLonLatMap.header` is passed through verbatim — this includes
-`projection.proj`, `vendor`, `hdmap_version`, `zone_id`, `max/min`
-bounding boxes. `apolloIO.worker.ts:75-79`'s `cloneHeader` only
-`structuredClone`s a copy for the store at import time; export still
-reads the cached raw header.
+For imported maps, `cachedRawLonLatMap.header` is passed through verbatim —
+this includes `projection.proj`, `vendor`, `hdmap_version`, `zone_id`,
+`max/min` bounding boxes. New maps write the chosen projection and computed
+export bounds into a minimal header.
 
 ## 10. ProjString parsing
 
@@ -268,9 +271,9 @@ CI's `scripts/bench-budgets.json` sets hard regression thresholds.
 
 ## 14. Pitfalls
 
-1. **Exporting before import** — `runExport` throws
-   `No imported Apollo map is cached`, the UI surfaces ERROR.
-   `pickAndImportApollo()` must run first.
+1. **Imported map cache lost while using the cached path** — `runExport`
+   throws `No imported Apollo map is cached`, and the UI surfaces ERROR.
+   This is a worker-cache loss, not the new-map export path.
 2. **`mode: 'full'` overlap is mandatory** — incremental overlap can
    miss "indirect" overlaps caused by lane-topology re-linking.
 3. **`{}` placeholders in PROJ strings** — without sanitisation proj4

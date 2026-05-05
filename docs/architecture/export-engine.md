@@ -47,9 +47,9 @@ export async function exportApolloBin(): Promise<void>;
 export async function exportApolloText(): Promise<void>;
 ```
 
-二者共享 `currentExportContext()` —— 校验 `apolloMapStore.info` 存在
-（必须先导入），从 `mapStore.entities` 取出全量实体数组，再调用
-`apolloIOBridge.exportBin/Text(entities, projString, onProgress)`。
+二者共享 `currentExportContext()` —— 导入地图时会复用 `apolloMapStore.info`
+里的 PROJ；新建地图则先请求投影。随后从 `mapStore.entities` 取出全量实体
+数组，再调用 `apolloIOBridge.exportBin/Text(entities, projString, onProgress)`。
 导出结果以 `downloadBlob(blob, suggestedFilename(...))` 触发浏览器下载。
 
 文件名规则：
@@ -88,13 +88,16 @@ function suggestedFilename(originalName: string, ext: 'bin' | 'txt'): string {
 ```ts
 // src/io/apolloIO.worker.ts:199-243
 async function runExport(requestId, entities, projString, format) {
-  if (!cachedRawLonLatMap) {
+  if (!cachedRawLonLatMap && baseMapSource === 'cached') {
     throw new Error('No imported Apollo map is cached in the IO worker.');
   }
   // 1. derive：拓扑 + overlap 全量重算
   const processed = applyImportTopology(entities);
   // 2. merge：把编辑实体覆盖到 cached raw map
-  const merged = entitiesToApolloMap(cachedRawLonLatMap, processed.entities);
+  const merged = entitiesToApolloMap(
+    cachedRawLonLatMap ?? createBlankApolloMap(projString),
+    processed.entities,
+  );
   // 3. project：lon/lat → ENU
   const { map: enuMap } = await apolloMapFromLonLat(merged, projString);
   // 4. encode：bin or text
@@ -145,7 +148,8 @@ function applyImportTopology(entities) {
   `link` 等）保留 raw map 中的原始值；
 - header / hdmap_version / 自定义字段都原封不动透传。
 
-这就是为什么导出必须先 import —— 没有 raw map 就没有"留住"的语义。
+这就是为什么导入地图时仍建议先 import —— 没有 raw map 就没有"留住"
+的语义；但新建地图现在可以用空白 base_map 直接导出。
 
 ## 7. project：精度与单位
 
@@ -192,8 +196,9 @@ export async function encodeMapBin(obj) {
 
 ## 9. Header 保留
 
-`cachedRawLonLatMap.header` 完整透传 —— 包括 `projection.proj`、
-`vendor`、`hdmap_version`、`zone_id`、`max/min` bbox 等字段。
+`cachedRawLonLatMap.header` 在导入地图时完整透传 —— 包括
+`projection.proj`、`vendor`、`hdmap_version`、`zone_id`、`max/min`
+bbox 等字段。新建地图则会写入 projection 与导出时计算的 bounds。
 `apolloIO.worker.ts:75-79` 的 `cloneHeader` 仅在 import 时 `structuredClone`
 一份给 store 做展示，导出仍读 `cachedRawLonLatMap.header` 原值。
 
@@ -256,8 +261,9 @@ CI bench 在 `scripts/bench-budgets.json` 设硬阈值，超出阻断合入。
 
 ## 14. 陷阱
 
-1. **导出前未 import** —— `runExport` throw `No imported Apollo map is cached`，
-   UI 拿到 ERROR；务必先调用 `pickAndImportApollo()`。
+1. **导入地图未缓存但仍走 cached 路径** —— `runExport` throw
+   `No imported Apollo map is cached`，UI 拿到 ERROR；这是 worker cache
+   丢失而不是新建地图导出。
 2. **mode: 'full' overlap 是必须的** —— 增量 overlap 会漏掉 lane 拓扑
    重连后产生的"间接" overlap。
 3. **PROJ 字符串末尾的 `{}`** —— 不 sanitize 会让 proj4 抛错。

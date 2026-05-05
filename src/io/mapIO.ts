@@ -1,13 +1,17 @@
 import { useApolloMapStore, type ApolloMapImportInfo } from '@/store/apolloMapStore';
 import { useMapStore } from '@/store/mapStore';
+import { useProjDialogStore } from '@/store/projDialogStore';
 import { useTaskProgressStore } from '@/store/taskProgressStore';
 import { pickFile, readFileAsBytes, downloadBlob } from './fileIO';
 import { apolloIOBridge, type ApolloImportWorkerResult } from './apolloIOBridge';
-import type { ApolloIOProgress } from './apolloIOProtocol';
+import type { ApolloExportBaseMapSource, ApolloIOProgress } from './apolloIOProtocol';
+import { createBlankApolloMap } from './proto/blankApolloMap';
+import { isApolloMapEntity } from './proto/entityBridge';
 import type { MapEntity } from '@/types/entities';
 
 const TASK_IMPORT = 'apollo-import';
 const TASK_EXPORT = 'apollo-export';
+const NEW_MAP_FILENAME = 'apollo-map';
 
 function reportProgress(taskId: string, progress: ApolloIOProgress): void {
   useTaskProgressStore.getState().updateTask(taskId, {
@@ -59,9 +63,10 @@ export async function pickAndImportApollo(): Promise<ApolloMapImportInfo | null>
   try {
     const isText = /\.(pb\.txt|txt)$/i.test(file.name);
     const result = isText ? await importApolloTextFile(file) : await importApolloBinFile(file);
-    useApolloMapStore.getState().setImported(result.info, result.bounds, result.header);
+    const info: ApolloMapImportInfo = { ...result.info, source: 'imported' };
+    useApolloMapStore.getState().setImported(info, result.bounds, result.header);
     useMapStore.getState().replaceImportedEntities(result.entities);
-    return result.info;
+    return info;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     useApolloMapStore.getState().setError(`Import failed: ${msg}`);
@@ -78,14 +83,60 @@ function suggestedFilename(originalName: string, ext: 'bin' | 'txt'): string {
   return `${base}-${stamp}.${ext}`;
 }
 
-function currentExportContext(): { info: ApolloMapImportInfo; entities: MapEntity[] } | null {
+interface ExportContext {
+  info: ApolloMapImportInfo;
+  entities: MapEntity[];
+  baseMapSource: ApolloExportBaseMapSource;
+  isCreatedMap: boolean;
+}
+
+function countEntitiesByType(entities: MapEntity[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const entity of entities) counts[entity.entityType] = (counts[entity.entityType] ?? 0) + 1;
+  return counts;
+}
+
+async function currentExportContext(): Promise<ExportContext | null> {
   const { info } = useApolloMapStore.getState();
-  if (!info) {
-    useApolloMapStore.getState().setError('Nothing to export - import a map first.');
+  const entities = Array.from(useMapStore.getState().entities.values());
+  const exportableEntities = entities.filter(isApolloMapEntity);
+
+  if (info) {
+    return {
+      info,
+      entities: exportableEntities,
+      baseMapSource: info.source === 'created' ? 'blank' : 'cached',
+      isCreatedMap: info.source === 'created',
+    };
+  }
+
+  if (exportableEntities.length === 0) {
+    useApolloMapStore
+      .getState()
+      .setError('Nothing to export - draw or import Apollo map elements first.');
     return null;
   }
-  const entities = Array.from(useMapStore.getState().entities.values());
-  return { info, entities };
+
+  const projString = await useProjDialogStore.getState().request();
+  if (!projString) return null;
+
+  return {
+    info: {
+      source: 'created',
+      filename: NEW_MAP_FILENAME,
+      counts: countEntitiesByType(exportableEntities),
+      projString,
+      importedAt: Date.now(),
+    },
+    entities: exportableEntities,
+    baseMapSource: 'blank',
+    isCreatedMap: true,
+  };
+}
+
+function rememberCreatedExport(info: ApolloMapImportInfo): void {
+  const header = createBlankApolloMap(info.projString).header as Record<string, unknown>;
+  useApolloMapStore.getState().setImported(info, null, header);
 }
 
 /**
@@ -93,18 +144,22 @@ function currentExportContext(): { info: ApolloMapImportInfo; entities: MapEntit
  * projection, overlap recompute and protobuf encode are worker-side.
  */
 export async function exportApolloBin(): Promise<void> {
-  const ctx = currentExportContext();
+  const ctx = await currentExportContext();
   if (!ctx) return;
 
   beginTask(TASK_EXPORT, 'Exporting Apollo map', ctx.info.filename);
   try {
-    const bytes = await apolloIOBridge.exportBin(ctx.entities, ctx.info.projString, (progress) =>
-      reportProgress(TASK_EXPORT, progress),
+    const bytes = await apolloIOBridge.exportBin(
+      ctx.entities,
+      ctx.info.projString,
+      (progress) => reportProgress(TASK_EXPORT, progress),
+      { baseMapSource: ctx.baseMapSource },
     );
     const copy = new Uint8Array(bytes.byteLength);
     copy.set(bytes);
     const blob = new Blob([copy.buffer], { type: 'application/octet-stream' });
     downloadBlob(blob, suggestedFilename(ctx.info.filename, 'bin'));
+    if (ctx.isCreatedMap) rememberCreatedExport(ctx.info);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     useApolloMapStore.getState().setError(`Export failed: ${msg}`);
@@ -119,18 +174,22 @@ export async function exportApolloBin(): Promise<void> {
  * human inspection; heavy serialization still stays off the main thread.
  */
 export async function exportApolloText(): Promise<void> {
-  const ctx = currentExportContext();
+  const ctx = await currentExportContext();
   if (!ctx) return;
 
   beginTask(TASK_EXPORT, 'Exporting Apollo map', ctx.info.filename);
   try {
-    const bytes = await apolloIOBridge.exportText(ctx.entities, ctx.info.projString, (progress) =>
-      reportProgress(TASK_EXPORT, progress),
+    const bytes = await apolloIOBridge.exportText(
+      ctx.entities,
+      ctx.info.projString,
+      (progress) => reportProgress(TASK_EXPORT, progress),
+      { baseMapSource: ctx.baseMapSource },
     );
     const copy = new Uint8Array(bytes.byteLength);
     copy.set(bytes);
     const blob = new Blob([copy.buffer], { type: 'text/plain' });
     downloadBlob(blob, suggestedFilename(ctx.info.filename, 'txt'));
+    if (ctx.isCreatedMap) rememberCreatedExport(ctx.info);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     useApolloMapStore.getState().setError(`Export failed: ${msg}`);

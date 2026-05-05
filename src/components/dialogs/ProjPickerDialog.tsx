@@ -19,8 +19,8 @@ const PRESETS: PresetEntry[] = [
 ];
 
 /**
- * Modal that opens whenever an Apollo .bin/.txt is imported without a
- * `Header.projection.proj` value. The user picks a region preset, a UTM
+ * Modal that opens whenever a map needs a `Header.projection.proj` value.
+ * The user picks a region preset, a UTM
  * zone number, or pastes a custom PROJ.4 string. Resolves the pending
  * promise in projDialogStore on OK or Cancel.
  */
@@ -111,7 +111,7 @@ function ProjectionHeader({ onCancel }: { onCancel: () => void }) {
       <h2 className="text-sm font-medium text-zinc-200">
         Choose Coordinate System
         <span className="ml-2 text-zinc-500 text-[11px] font-normal">
-          imported map has no Header.projection.proj
+          current map has no Header.projection.proj
         </span>
       </h2>
       <button

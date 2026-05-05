@@ -48,13 +48,13 @@ flowchart LR
 `exportApolloBin` calls `currentExportContext()`:
 
 ```ts
-const { info } = useApolloMapStore.getState(); // from Import
+const { info } = useApolloMapStore.getState(); // from Import or a new-map export context
 const entities = Array.from(useMapStore.getState().entities.values());
 ```
 
 `info.projString` is the PROJ.4 string; `entities` is a flat `MapEntity[]` (10⁵+ items possible).
 
-Export also depends on `cachedRawLonLatMap` inside `apolloIO.worker.ts`. Import fills that cache with the raw Apollo map converted to lon/lat; export calls `entitiesToApolloMap(cachedRawLonLatMap, processed.entities)` to merge edited entities back into that raw map before reprojection and encoding. Without that cache, the worker throws `"No imported Apollo map is cached in the IO worker."`.
+Imported-map export also depends on `cachedRawLonLatMap` inside `apolloIO.worker.ts`. Import fills that cache with the raw Apollo map converted to lon/lat; export calls `entitiesToApolloMap(cachedRawLonLatMap, processed.entities)` to merge edited entities back into that raw map before reprojection and encoding. For a new map, the main thread first asks for a projection and the worker uses a blank base_map as the merge target.
 
 ### 2. Worker bridge + chunking (`apolloIOBridge.ts:204-225`)
 
@@ -120,7 +120,7 @@ Header retention comes from merging into the imported raw map rather than constr
 const merged = entitiesToApolloMap(cachedRawLonLatMap, processed.entities);
 ```
 
-That preserves `header` and fields not bridged into `MapEntity`. It also means export is not a from-scratch complete `base_map` generator.
+That preserves `header` and fields not bridged into `MapEntity`. A new map exports from a projection-only blank base_map, which is enough for user-drawn Apollo entities but cannot preserve unknown raw fields because there is no raw cache yet.
 
 ### 7. protobuf encoding (`proto/binCodec.ts` / `proto/textCodec.ts`)
 

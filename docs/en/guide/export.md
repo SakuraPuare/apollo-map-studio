@@ -19,14 +19,14 @@ This is the **entry-level overview**: UI, output semantics, naming, and first-li
 | Progress        | `TaskProgressOverlay` (only surfaces after 1s)                                       |
 | File write      | `downloadBlob()` in `src/io/fileIO.ts` triggers a browser download                   |
 | Filename        | `<original stem>-<UTC YYYYMMDDHHMMSS>.<ext>`                                         |
-| Precondition    | An Apollo map must have been imported (we need `info.projString`)                    |
+| Precondition    | Exportable Apollo entities exist; new maps prompt for a projection first             |
 
-::: tip Why import first?
-Export needs the Apollo `Header.projection.proj` (a PROJ.4 string) to reproject WGS84 lng/lat back to UTM meters. AMS reuses `apolloMapStore.info.projString`, so you **must Import first**. `currentExportContext()` (`mapIO.ts:81-89`) raises `"Nothing to export - import a map first."` if the context is missing.
+::: tip Why projection is required
+Export needs the Apollo `Header.projection.proj` (a PROJ.4 string) to reproject WGS84 lng/lat back to UTM meters. If the current map came from Import, AMS reuses `apolloMapStore.info.projString`; if it is a new map, AMS opens the projection picker before continuing.
 :::
 
-::: warning Not a from-scratch Apollo map generator
-Current export depends on the raw Apollo map cached during import: `cachedRawLonLatMap` in `apolloIO.worker.ts`. The worker merges edited entities back into that raw map before encoding. This preserves fields that are not bridged into `MapEntity`, but it also means a blank new document cannot produce a complete Apollo `base_map` from scratch.
+::: warning Export behavior
+For imported maps, export still depends on the raw Apollo map cached during import: `cachedRawLonLatMap` in `apolloIO.worker.ts`. The worker merges edited entities back into that raw map before encoding, preserving fields that are not bridged into `MapEntity`. For a new map, the worker uses a projection-only blank base_map as the merge target, so drawn Apollo elements can be exported directly.
 :::
 
 ## Three Apollo map variants
@@ -130,15 +130,15 @@ Progress messages are pushed by `apolloIO.worker.ts` via `PROGRESS`, captured in
 
 ## Troubleshooting
 
-| Symptom                                                    | Cause                                                            | Fix                                                                                   |
-| ---------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Error "Nothing to export - import a map first."            | No prior import, missing `info.projString`                       | Import first — see [Import](./import.md)                                              |
-| Error "Export failed: …"                                   | Worker threw; caught at `mapIO.ts:108-111`                       | Open DevTools console for stack — most often an invalid PROJ string                   |
-| `.bin` downloads but Apollo refuses to load                | Field-type mismatch, often a new entity field missing from proto | Re-export `.txt` and diff to find the offending entity                                |
-| `.txt` lane lacks `successor_id` / `predecessor_id`        | Topology not reconciled                                          | Verify [Topology](./topology.md) before export                                        |
-| Overlap throws "Region polygon empty"                      | All lane corridors collapse during reconcile                     | `_userOverrides` may have pinned `regionOverlaps` for an entity that no longer exists |
-| Big map (>50k entities) export times out                   | Default 10-min timeout still not enough                          | Bump `DEFAULT_TIMEOUT_MS` in `apolloIOBridge.ts:14`, or split the map                 |
-| Error "No imported Apollo map is cached in the IO worker." | Worker lost its import-time `cachedRawLonLatMap`                 | Re-import the source base_map, then export again                                      |
+| Symptom                                                               | Cause                                                            | Fix                                                                                   |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Error "Nothing to export - draw or import Apollo map elements first." | No exportable Apollo entities are present                        | Draw Apollo elements, or import a map first                                           |
+| Error "Export failed: …"                                              | Worker threw; caught at `mapIO.ts:108-111`                       | Open DevTools console for stack — most often an invalid PROJ string                   |
+| `.bin` downloads but Apollo refuses to load                           | Field-type mismatch, often a new entity field missing from proto | Re-export `.txt` and diff to find the offending entity                                |
+| `.txt` lane lacks `successor_id` / `predecessor_id`                   | Topology not reconciled                                          | Verify [Topology](./topology.md) before export                                        |
+| Overlap throws "Region polygon empty"                                 | All lane corridors collapse during reconcile                     | `_userOverrides` may have pinned `regionOverlaps` for an entity that no longer exists |
+| Big map (>50k entities) export times out                              | Default 10-min timeout still not enough                          | Bump `DEFAULT_TIMEOUT_MS` in `apolloIOBridge.ts:14`, or split the map                 |
+| Error "No imported Apollo map is cached in the IO worker."            | Worker lost its import-time `cachedRawLonLatMap`                 | Re-import the source base_map, then export again                                      |
 
 ## Persistence
 

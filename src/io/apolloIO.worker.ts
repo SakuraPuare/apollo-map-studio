@@ -9,12 +9,14 @@ import {
 } from './proto/adapter';
 import { apolloMapToEntities, entitiesToApolloMap } from './proto/entityBridge';
 import { computeApolloMapBounds } from './proto/apolloGeoJson';
+import { createBlankApolloMap, setApolloMapBounds } from './proto/blankApolloMap';
 import { reconcileLaneTopology } from '@/core/geometry/laneTopology';
 import { reconcileOverlaps } from '@/core/elements/overlap';
 import { SpatialIndex } from '@/core/elements/overlap/spatialIndex';
 import type { ApolloMapBounds, ApolloMapHeader, ApolloMapImportInfo } from '@/store/apolloMapStore';
 import type { MapEntity } from '@/types/entities';
 import type {
+  ApolloExportBaseMapSource,
   ApolloExportFormat,
   ApolloIOProgress,
   ApolloIORequest,
@@ -25,12 +27,14 @@ import type {
 declare const self: DedicatedWorkerGlobalScope;
 
 let cachedRawLonLatMap: Record<string, unknown> | null = null;
+let cachedRawLonLatMapSource: ApolloExportBaseMapSource | null = null;
 const IMPORT_ENTITY_CHUNK_SIZE = 2_000;
 const TEXT_DECODER = new TextDecoder();
 const TEXT_ENCODER = new TextEncoder();
 
 interface PendingExport {
   format: ApolloExportFormat;
+  baseMapSource: ApolloExportBaseMapSource;
   projString: string;
   entities: MapEntity[];
   total: number;
@@ -148,6 +152,7 @@ async function runImport(
   const { map: lonLatMap, projString: usedProj } = await apolloMapToLonLat(decodedEnu, projString);
   const projectMs = elapsed(projectStart);
   cachedRawLonLatMap = lonLatMap;
+  cachedRawLonLatMapSource = 'cached';
 
   progress(requestId, {
     label: 'Importing Apollo map',
@@ -169,6 +174,7 @@ async function runImport(
   const processed = applyImportTopology(baseEntities);
 
   const info: ApolloMapImportInfo = {
+    source: 'imported',
     filename,
     counts: entityCounts(lonLatMap),
     projString: usedProj,
@@ -201,8 +207,9 @@ async function runExport(
   entities: MapEntity[],
   projString: string,
   format: 'bin' | 'txt',
+  baseMapSource: ApolloExportBaseMapSource,
 ): Promise<void> {
-  if (!cachedRawLonLatMap) {
+  if (!cachedRawLonLatMap && baseMapSource === 'cached') {
     throw new Error('No imported Apollo map is cached in the IO worker.');
   }
 
@@ -218,7 +225,15 @@ async function runExport(
     detail: 'Merging editor entities',
     progress: 0.35,
   });
-  const merged = entitiesToApolloMap(cachedRawLonLatMap, processed.entities);
+  const shouldCacheBlankMap = baseMapSource === 'blank';
+  const canUseCachedBlankMap =
+    shouldCacheBlankMap && cachedRawLonLatMap !== null && cachedRawLonLatMapSource === 'blank';
+  const baseMap = shouldCacheBlankMap
+    ? canUseCachedBlankMap
+      ? cachedRawLonLatMap!
+      : createBlankApolloMap(projString)
+    : cachedRawLonLatMap!;
+  const merged = entitiesToApolloMap(baseMap, processed.entities);
 
   progress(requestId, {
     label: 'Exporting Apollo map',
@@ -226,6 +241,13 @@ async function runExport(
     progress: 0.55,
   });
   const { map: enuMap } = await apolloMapFromLonLat(merged, projString);
+  if (shouldCacheBlankMap) {
+    const bounds = computeApolloMapBounds(
+      enuMap as Parameters<typeof computeApolloMapBounds>[0],
+    ) as ApolloMapBounds | null;
+    setApolloMapBounds(merged, bounds);
+    setApolloMapBounds(enuMap, bounds);
+  }
 
   progress(requestId, {
     label: 'Exporting Apollo map',
@@ -234,10 +256,18 @@ async function runExport(
   });
   if (format === 'bin') {
     const bytes = await encodeMapBin(enuMap);
+    if (shouldCacheBlankMap) {
+      cachedRawLonLatMap = merged;
+      cachedRawLonLatMapSource = 'blank';
+    }
     postWithTransfer({ type: 'EXPORT_BIN_RESULT', requestId, bytes }, [bytes.buffer]);
   } else {
     const text = await encodeMapText(enuMap);
     const bytes = TEXT_ENCODER.encode(text);
+    if (shouldCacheBlankMap) {
+      cachedRawLonLatMap = merged;
+      cachedRawLonLatMapSource = 'blank';
+    }
     postWithTransfer({ type: 'EXPORT_TEXT_RESULT', requestId, bytes }, [bytes.buffer]);
   }
 }
@@ -245,10 +275,11 @@ async function runExport(
 function beginExport(
   requestId: string,
   format: ApolloExportFormat,
+  baseMapSource: ApolloExportBaseMapSource,
   projString: string,
   total: number,
 ) {
-  pendingExports.set(requestId, { format, projString, total, entities: [] });
+  pendingExports.set(requestId, { format, baseMapSource, projString, total, entities: [] });
 }
 
 function addExportChunk(requestId: string, entities: MapEntity[], total: number): void {
@@ -272,7 +303,13 @@ async function finishExport(requestId: string): Promise<void> {
       `Apollo export received ${pending.entities.length} entities; expected ${pending.total}.`,
     );
   }
-  await runExport(requestId, pending.entities, pending.projString, pending.format);
+  await runExport(
+    requestId,
+    pending.entities,
+    pending.projString,
+    pending.format,
+    pending.baseMapSource,
+  );
 }
 
 self.onmessage = (event: MessageEvent<ApolloIORequest>) => {
@@ -289,7 +326,13 @@ self.onmessage = (event: MessageEvent<ApolloIORequest>) => {
           );
           break;
         case 'BEGIN_EXPORT':
-          beginExport(req.requestId, req.format, req.projString, req.total);
+          beginExport(
+            req.requestId,
+            req.format,
+            req.baseMapSource ?? 'cached',
+            req.projString,
+            req.total,
+          );
           break;
         case 'EXPORT_ENTITIES_CHUNK':
           addExportChunk(req.requestId, req.entities, req.total);
@@ -299,6 +342,7 @@ self.onmessage = (event: MessageEvent<ApolloIORequest>) => {
           break;
         case 'CLEAR':
           cachedRawLonLatMap = null;
+          cachedRawLonLatMapSource = null;
           pendingExports.clear();
           post({ type: 'CLEARED', requestId: req.requestId });
           break;

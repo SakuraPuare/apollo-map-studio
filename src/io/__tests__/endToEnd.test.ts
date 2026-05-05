@@ -3,12 +3,17 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { decodeMapBin, encodeMapBin } from '../proto/binCodec';
 import { encodeMapText, decodeMapText } from '../proto/textCodec';
+import { computeApolloMapBounds } from '../proto/apolloGeoJson';
+import { createBlankApolloMap, setApolloMapBounds } from '../proto/blankApolloMap';
+import { entitiesToApolloMap } from '../proto/entityBridge';
+import { UTM_PRESETS } from '../proto/projection';
 import {
   apolloMapToLonLat,
   apolloMapFromLonLat,
   readHeaderProjString,
   entityCounts,
 } from '../proto/adapter';
+import type { CrosswalkEntity } from '@/types/entities';
 
 const APOLLO_BIN = path.resolve(
   import.meta.dirname,
@@ -38,6 +43,47 @@ async function runFullRoundTrip(bytes: Uint8Array, format: 'bin' | 'txt') {
 }
 
 describe('end-to-end Apollo map IO pipeline', () => {
+  it('exports a new drawn map without an imported raw cache', async () => {
+    const crosswalk: CrosswalkEntity = {
+      id: 'cw_drawn_1',
+      entityType: 'crosswalk',
+      polygon: {
+        points: [
+          { x: -122.025, y: 37.37 },
+          { x: -122.024, y: 37.37 },
+          { x: -122.024, y: 37.371 },
+          { x: -122.025, y: 37.371 },
+        ],
+      },
+      overlapIds: [],
+    };
+
+    const merged = entitiesToApolloMap(createBlankApolloMap(UTM_PRESETS.sunnyvale), [crosswalk]);
+    const { map: enuMap } = await apolloMapFromLonLat(merged, UTM_PRESETS.sunnyvale);
+    const bounds = computeApolloMapBounds(enuMap as Parameters<typeof computeApolloMapBounds>[0]);
+    setApolloMapBounds(merged, bounds);
+    setApolloMapBounds(enuMap, bounds);
+
+    const output = await encodeMapBin(enuMap);
+    const decoded = (await decodeMapBin(output)) as {
+      header: {
+        projection: { proj: string };
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+      };
+      crosswalk: Array<{ id: { id: string } }>;
+    };
+
+    expect(decoded.header.projection.proj).toBe(UTM_PRESETS.sunnyvale);
+    expect(Number.isFinite(decoded.header.left)).toBe(true);
+    expect(Number.isFinite(decoded.header.right)).toBe(true);
+    expect(Number.isFinite(decoded.header.top)).toBe(true);
+    expect(Number.isFinite(decoded.header.bottom)).toBe(true);
+    expect(decoded.crosswalk.map((item) => item.id.id)).toEqual(['cw_drawn_1']);
+  });
+
   it.runIf(existsSync(APOLLO_BIN))(
     'borregas .bin import → lon/lat → UTM → re-encode preserves all entities',
     async () => {

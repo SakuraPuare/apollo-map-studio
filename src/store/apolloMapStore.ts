@@ -9,6 +9,8 @@ import { create } from 'zustand';
  * MapEntity records) so import context does not get mixed into undo history.
  */
 export interface ApolloMapImportInfo {
+  /** Whether this context came from a file import or a from-scratch export. */
+  source?: 'imported' | 'created';
   /** Source filename, used as the suggested name for re-export. */
   filename: string;
   /** Per-entity counts surfaced for the status bar / toast. */

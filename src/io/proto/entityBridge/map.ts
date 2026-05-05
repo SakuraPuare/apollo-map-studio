@@ -1,4 +1,5 @@
 import type {
+  ApolloEntity,
   AreaEntity,
   BarrierGateEntity,
   ClearAreaEntity,
@@ -208,6 +209,10 @@ export function rawApolloElementToEntity(
 
 export function entityToRawApolloElement(entity: MapEntity): unknown | null {
   return BRIDGE_BY_ENTITY_TYPE.get(entity.entityType)?.toProto(entity) ?? null;
+}
+
+export function isApolloMapEntity(entity: MapEntity): entity is ApolloEntity {
+  return BRIDGE_BY_ENTITY_TYPE.has(entity.entityType as EntityType);
 }
 
 export function apolloMapToEntities(map: RawApolloMap): MapEntity[] {

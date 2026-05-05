@@ -48,13 +48,13 @@ flowchart LR
 `exportApolloBin` 在 `currentExportContext()` 中读取：
 
 ```ts
-const { info } = useApolloMapStore.getState(); // 来自 Import
+const { info } = useApolloMapStore.getState(); // 来自 Import 或新建地图导出上下文
 const entities = Array.from(useMapStore.getState().entities.values());
 ```
 
 `info.projString` 是 PROJ.4 字符串；`entities` 是 `MapEntity[]` 扁平表，长度可达 10⁵+。
 
-导出还依赖 worker 内的 `cachedRawLonLatMap`。这份 raw Apollo map 由最近一次 Import 写入，导出时 `entitiesToApolloMap(cachedRawLonLatMap, processed.entities)` 会把编辑后的实体合并回 raw map，再做反投影和编码。没有导入缓存时，worker 会抛 `"No imported Apollo map is cached in the IO worker."`。
+导入地图导出时还依赖 worker 内的 `cachedRawLonLatMap`。这份 raw Apollo map 由最近一次 Import 写入，导出时 `entitiesToApolloMap(cachedRawLonLatMap, processed.entities)` 会把编辑后的实体合并回 raw map，再做反投影和编码。新建地图导出时，主线程会先请求投影，worker 使用空白 base_map 作为 merge 目标。
 
 ### 2. Worker 桥接 + 切片 (`apolloIOBridge.ts:204-225`)
 
@@ -120,7 +120,7 @@ PROJ 字符串先经 `sanitizeProjString` 去掉 `{37.413082}` 之类 Apollo 模
 const merged = entitiesToApolloMap(cachedRawLonLatMap, processed.entities);
 ```
 
-因此 `header` 以及未桥接字段会随 raw map 保留下来。当前不支持无导入缓存时从零合成完整 Header / base_map。
+因此 `header` 以及未桥接字段会随 raw map 保留下来。无导入缓存的新建地图会生成只含 projection 和导出 bounds 的基础 Header；它能导出用户绘制的 Apollo 图元，但没有原始 raw map 可供保留未桥接字段。
 
 ### 7. protobuf 编码 (`proto/binCodec.ts` / `proto/textCodec.ts`)
 

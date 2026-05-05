@@ -20,15 +20,17 @@ export function exportApolloText(): Promise<void>;
 
 > Source: `src/io/mapIO.ts:91-141`.
 
-The signatures are intentionally tiny — both functions read the
-current entity table and import context from the stores:
+The signatures are intentionally tiny — both functions read the current
+entity table and import/new-map context from stores; a new map opens the
+projection picker if no PROJ string exists yet:
 
 ```ts
-function currentExportContext(): { info: ApolloMapImportInfo; entities: MapEntity[] } | null;
+function currentExportContext(): Promise<ExportContext | null>;
 ```
 
-If `apolloMapStore.info` is null (no map imported), the helper sets a
-human-readable error and returns without prompting for a save dialog.
+If no import context exists and there are no exportable Apollo entities,
+the helper sets a human-readable error and returns without prompting for a
+save dialog.
 
 ## Sequence
 
@@ -45,12 +47,12 @@ sequenceDiagram
   UI->>mapIO: exportApolloBin()
   mapIO->>mapIO: currentExportContext()
   mapIO->>mapIO: beginTask('apollo-export')
-  mapIO->>Bridge: apolloIOBridge.exportBin(entities, projString, onProgress)
-  Bridge->>Worker: BEGIN_EXPORT { format: 'bin' }
+  mapIO->>Bridge: apolloIOBridge.exportBin(entities, projString, onProgress, options)
+  Bridge->>Worker: BEGIN_EXPORT { format: 'bin', baseMapSource }
   Bridge->>Worker: EXPORT_ENTITIES_CHUNK × N
   Bridge->>Worker: FINISH_EXPORT
   Worker->>Worker: applyImportTopology() (re-reconcile + overlap)
-  Worker->>Adapter: entitiesToApolloMap(rawCachedLonLat, processedEntities)
+  Worker->>Adapter: entitiesToApolloMap(cached or blank map, processedEntities)
   Worker->>Adapter: apolloMapFromLonLat(merged, projString)
   Worker->>Codec: encodeMapBin(enuMap)
   Codec-->>Worker: Uint8Array
@@ -85,13 +87,13 @@ do not flash a transient spinner.
 
 ## Errors
 
-| Cause                             | Surface                                                    |
-| --------------------------------- | ---------------------------------------------------------- |
-| `apolloMapStore.info` is null     | `setError('Nothing to export - import a map first.')`      |
-| Worker re-reconcile throws        | `Export failed: ${msg}` + `console.error`                  |
-| Worker has no cached lon/lat map  | `Error: No imported Apollo map is cached in the IO worker` |
-| `Map.verify` rejects entity shape | Forwarded as `ERROR` over `apolloIOProtocol`               |
-| Browser blocks anchor click       | Rare; Chromium retries per its download policy             |
+| Cause                             | Surface                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| No exportable Apollo entities     | `setError('Nothing to export - draw or import Apollo map elements first.')` |
+| Worker re-reconcile throws        | `Export failed: ${msg}` + `console.error`                                   |
+| Imported-map cache is unavailable | `Error: No imported Apollo map is cached in the IO worker`                  |
+| `Map.verify` rejects entity shape | Forwarded as `ERROR` over `apolloIOProtocol`                                |
+| Browser blocks anchor click       | Rare; Chromium retries per its download policy                              |
 
 ## Why no `buildBaseMap()`
 

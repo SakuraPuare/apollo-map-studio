@@ -20,16 +20,16 @@ export function exportApolloText(): Promise<void>;
 
 > Source: `src/io/mapIO.ts:91-141`
 
-签名极简 —— 当前实体表与导入上下文都从 `useMapStore` /
-`useApolloMapStore` 读取：
+签名极简 —— 当前实体表与导入/新建上下文都从 store 读取；新建地图缺少
+PROJ 时会先打开投影选择器：
 
 ```ts
-function currentExportContext(): { info: ApolloMapImportInfo; entities: MapEntity[] } | null;
+function currentExportContext(): Promise<ExportContext | null>;
 ```
 
-如果 `apolloMapStore.info` 为空（用户尚未导入），会调
-`setError('Nothing to export - import a map first.')` 并返回，
-不弹文件保存对话框。
+如果没有导入上下文且当前也没有可导出的 Apollo 图元，会调
+`setError('Nothing to export - draw or import Apollo map elements first.')`
+并返回，不弹文件保存对话框。
 
 ## 流程
 
@@ -46,12 +46,12 @@ sequenceDiagram
   UI->>mapIO: exportApolloBin()
   mapIO->>mapIO: currentExportContext()
   mapIO->>mapIO: beginTask('apollo-export')
-  mapIO->>Bridge: apolloIOBridge.exportBin(entities, projString, onProgress)
-  Bridge->>Worker: BEGIN_EXPORT { format: 'bin' }
+  mapIO->>Bridge: apolloIOBridge.exportBin(entities, projString, onProgress, options)
+  Bridge->>Worker: BEGIN_EXPORT { format: 'bin', baseMapSource }
   Bridge->>Worker: EXPORT_ENTITIES_CHUNK × N
   Bridge->>Worker: FINISH_EXPORT
   Worker->>Worker: applyImportTopology() (re-reconcile + overlap)
-  Worker->>Adapter: entitiesToApolloMap(rawCachedLonLat, processedEntities)
+  Worker->>Adapter: entitiesToApolloMap(cached or blank map, processedEntities)
   Worker->>Adapter: apolloMapFromLonLat(merged, projString)
   Worker->>Codec: encodeMapBin(enuMap)
   Codec-->>Worker: Uint8Array
@@ -86,8 +86,7 @@ sequenceDiagram
 
 - 导出前 `applyImportTopology` 抛错 → worker `ERROR` 消息 → `mapIO`
   catch → `setError('Export failed: ${msg}')` + `console.error`；
-- worker `cachedRawLonLatMap` 为空（未先导入即调用导出）→
-  `'No imported Apollo map is cached in the IO worker.'`；
+- 导入地图导出时 worker `cachedRawLonLatMap` 为空 → `'No imported Apollo map is cached in the IO worker.'`；
 - `Map.verify` 抛错（实体形状非法） → 走 ERROR 通道；
 - 浏览器拒绝下载 → 由 `downloadBlob` 内部的 `<a>` 触发，几乎不会失败，
   但 Chromium 多窗口同步下载策略可能延迟。

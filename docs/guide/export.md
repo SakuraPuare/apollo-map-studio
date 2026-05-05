@@ -19,14 +19,14 @@ description: 导出入口、base_map / sim_map / routing_map 三种产物、二�
 | 进度提示 | `TaskProgressOverlay`（任务超过 1s 才浮现）                       |
 | 文件写出 | `src/io/fileIO.ts` 的 `downloadBlob()` 触发浏览器下载             |
 | 文件命名 | `<原始 stem>-<UTC YYYYMMDDHHMMSS>.<ext>`                          |
-| 触发前提 | 必须先导入过一张 Apollo 地图（需要 `info.projString`）            |
+| 触发前提 | 已有 Apollo 图元可导出；若未导入地图，会先请求一次投影            |
 
-::: tip 为什么要先 Import
-导出需要 Apollo `Header.projection.proj`（PROJ.4 字符串），用于把内存中的 WGS84 经纬度反投影回 UTM 米。AMS 直接复用 `apolloMapStore.info.projString`，因此**必须先 Import 过**才有 export 上下文。`currentExportContext()` (`mapIO.ts:81-89`) 会在缺失时报 `"Nothing to export - import a map first."`。
+::: tip 为什么需要投影
+导出需要 Apollo `Header.projection.proj`（PROJ.4 字符串），用于把内存中的 WGS84 经纬度反投影回 UTM 米。若当前已有导入地图，AMS 直接复用 `apolloMapStore.info.projString`；若是新建地图，会先弹出投影选择器，再继续导出。
 :::
 
-::: warning 不是从零生成完整 Apollo map
-当前 worker 导出依赖导入阶段缓存的 raw Apollo map：`apolloIO.worker.ts` 中的 `cachedRawLonLatMap`。导出时先把编辑后的 entities merge 回这份 raw map，再编码为 `.bin` / `.txt`。这能保留尚未编辑或尚未桥接成 `MapEntity` 的字段，但也意味着空白新建工程不能直接产出完整 Apollo `base_map`。
+::: warning 导出行为
+导入地图时，worker 仍会把编辑后的 entities merge 回导入阶段缓存的 raw Apollo map：`apolloIO.worker.ts` 中的 `cachedRawLonLatMap`。这能保留尚未编辑或尚未桥接成 `MapEntity` 的字段。若当前是新建地图，worker 会用一个仅含 projection 的空白 base_map 作为底图，因此可以直接导出新图。
 :::
 
 ## 三种 Apollo 产物 / Three Map Variants
@@ -130,15 +130,15 @@ sunnyvale_with_two_offices-20260502142305.bin
 
 ## 常见问题 / Troubleshooting
 
-| 症状                                                      | 原因                                                | 处理                                                               |
-| --------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
-| 错误条 "Nothing to export - import a map first."          | 还没 Import，缺 `info.projString`                   | 先 Import，详见 [Import](./import.md)                              |
-| 错误条 "Export failed: ..."                               | worker 抛异常，已经被 `mapIO.ts:108-111` 捕获       | 打开 DevTools console 看堆栈；常见是 PROJ 字符串非法               |
-| `.bin` 文件可下载但 Apollo 加载失败                       | 字段类型不匹配，常见是新增 entity 字段没在 proto 中 | 用 `.txt` 重新导出做 diff，定位异常 entity                         |
-| `.txt` 内 Lane 没有 `successor_id`/`predecessor_id`       | 拓扑没 reconcile                                    | 检查导出前 [Topology](./topology.md) 是否健康                      |
-| Overlap 报 "Region polygon empty"                         | overlap 重算时所有 lane corridor 都被截掉           | 看 `_userOverrides` 是否误把 `regionOverlaps` 钉住但实体已删       |
-| 大地图（>50k entities）导出超时                           | 默认 timeout 10 分钟，仍可能不够                    | 把 `apolloIOBridge.ts:14` 的 `DEFAULT_TIMEOUT_MS` 调大重试，或拆图 |
-| 错误 "No imported Apollo map is cached in the IO worker." | worker 没有导入阶段缓存的 `cachedRawLonLatMap`      | 重新 Import 源 base_map 后再 Export                                |
+| 症状                                                                   | 原因                                                | 处理                                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
+| 错误条 "Nothing to export - draw or import Apollo map elements first." | 当前没有可导出的 Apollo 图元                        | 先画 Apollo 元素，或 Import 一张地图                               |
+| 错误条 "Export failed: ..."                                            | worker 抛异常，已经被 `mapIO.ts:108-111` 捕获       | 打开 DevTools console 看堆栈；常见是 PROJ 字符串非法               |
+| `.bin` 文件可下载但 Apollo 加载失败                                    | 字段类型不匹配，常见是新增 entity 字段没在 proto 中 | 用 `.txt` 重新导出做 diff，定位异常 entity                         |
+| `.txt` 内 Lane 没有 `successor_id`/`predecessor_id`                    | 拓扑没 reconcile                                    | 检查导出前 [Topology](./topology.md) 是否健康                      |
+| Overlap 报 "Region polygon empty"                                      | overlap 重算时所有 lane corridor 都被截掉           | 看 `_userOverrides` 是否误把 `regionOverlaps` 钉住但实体已删       |
+| 大地图（>50k entities）导出超时                                        | 默认 timeout 10 分钟，仍可能不够                    | 把 `apolloIOBridge.ts:14` 的 `DEFAULT_TIMEOUT_MS` 调大重试，或拆图 |
+| 错误 "No imported Apollo map is cached in the IO worker."              | worker 没有导入阶段缓存的 `cachedRawLonLatMap`      | 重新 Import 源 base_map 后再 Export                                |
 
 ## 配置存储位置 / Persistence
 

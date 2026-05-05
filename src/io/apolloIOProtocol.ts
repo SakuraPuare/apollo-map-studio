@@ -17,6 +17,7 @@ export interface ApolloImportStats {
 }
 
 export type ApolloExportFormat = 'bin' | 'txt';
+export type ApolloExportBaseMapSource = 'cached' | 'blank';
 
 export type ApolloIORequest =
   | {
@@ -38,6 +39,7 @@ export type ApolloIORequest =
       format: ApolloExportFormat;
       projString: string;
       total: number;
+      baseMapSource?: ApolloExportBaseMapSource;
     }
   | {
       type: 'EXPORT_ENTITIES_CHUNK';

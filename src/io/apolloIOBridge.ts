@@ -1,5 +1,6 @@
 import { UTM_PRESETS } from './proto/projection';
 import type {
+  ApolloExportBaseMapSource,
   ApolloExportFormat,
   ApolloIOProgress,
   ApolloIORequest,
@@ -14,6 +15,10 @@ import { chunkArray } from '@/lib/chunking';
 const FALLBACK_PROJ = UTM_PRESETS.beijing;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const EXPORT_ENTITY_CHUNK_SIZE = 2_000;
+
+export interface ApolloExportOptions {
+  baseMapSource?: ApolloExportBaseMapSource;
+}
 
 export interface ApolloImportWorkerResult {
   info: ApolloMapImportInfo;
@@ -90,16 +95,18 @@ class ApolloIOBridge {
     entities: MapEntity[],
     projString: string,
     onProgress?: (progress: ApolloIOProgress) => void,
+    options?: ApolloExportOptions,
   ): Promise<Uint8Array> {
-    return this.sendExport('bin', entities, projString, onProgress);
+    return this.sendExport('bin', entities, projString, onProgress, options);
   }
 
   exportText(
     entities: MapEntity[],
     projString: string,
     onProgress?: (progress: ApolloIOProgress) => void,
+    options?: ApolloExportOptions,
   ): Promise<Uint8Array> {
-    return this.sendExport('txt', entities, projString, onProgress);
+    return this.sendExport('txt', entities, projString, onProgress, options);
   }
 
   clear(): Promise<void> {
@@ -129,18 +136,21 @@ class ApolloIOBridge {
     entities: MapEntity[],
     projString: string,
     onProgress?: (progress: ApolloIOProgress) => void,
+    options?: ApolloExportOptions,
   ): Promise<Uint8Array>;
   private sendExport(
     format: 'txt',
     entities: MapEntity[],
     projString: string,
     onProgress?: (progress: ApolloIOProgress) => void,
+    options?: ApolloExportOptions,
   ): Promise<Uint8Array>;
   private async sendExport(
     format: ApolloExportFormat,
     entities: MapEntity[],
     projString: string,
     onProgress?: (progress: ApolloIOProgress) => void,
+    options: ApolloExportOptions = {},
   ): Promise<Uint8Array | string> {
     const requestId = this.nextRequestId('export');
     const result = new Promise<Uint8Array>((resolve, reject) => {
@@ -168,6 +178,7 @@ class ApolloIOBridge {
         format,
         projString,
         total: entities.length,
+        baseMapSource: options.baseMapSource,
       });
       await this.postEntityChunks(requestId, entities, onProgress);
       this.post({ type: 'FINISH_EXPORT', requestId });
