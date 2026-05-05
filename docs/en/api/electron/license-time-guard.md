@@ -24,7 +24,7 @@ export interface TimeGuardSnapshot {
   sessions: number;
   tampered: boolean;
   tamperedReason?: string;
-  /** True if heuristics suggest the wallclock has been moved. */
+  /** True if the wallclock is behind persisted time evidence. */
   suspiciousNow: boolean;
 }
 
@@ -58,16 +58,14 @@ export class TimeGuard {
    can layer with a soft cap (e.g. "expired-license soft-fail after
    N additional sessions even if the wallclock looks fresh").
 
-4. **Wallclock-vs-monotonic drift**. Each tick samples both
-   `Date.now()` and `performance.now()`. A step-change of ≥ 1 hour
-   on the wallclock while monotonic moved < 30 seconds is a clock
-   jump.
+4. **Forward jumps are tolerated**. A forward wallclock jump cannot
+   extend a trial or license window, and OS sleep/background
+   suspension can look identical because app timers pause. Rollback
+   remains fail-closed through the high-water-mark check.
 
 ```ts
 const GRACE_MS = 5 * 60 * 1000; // 5min for NTP/DST quirks
 const TICK_INTERVAL_MS = 60 * 1000;
-const DRIFT_WINDOW_MS = 30 * 1000;
-const DRIFT_THRESHOLD_MS = 60 * 60 * 1000;
 ```
 
 ### Persisted state shape
@@ -93,21 +91,11 @@ Stored at `<userData>/.lic-clock.dat`, AES-256-GCM encrypted with
 ```ts
 private tick(): void {
   const now = Date.now();
-  const mono = performance.now();
 
   // (1) Rollback check
   if (now + GRACE_MS < this.state.lastSeen) {
     this.markTampered(`wallclock rollback: now=${now} < lastSeen=${this.state.lastSeen}`);
   }
-
-  // (4) Drift check
-  const dWall = now - this.lastWall;
-  const dMono = mono - this.lastMono;
-  if (dWall < 0 || (Math.abs(dWall - dMono) > DRIFT_THRESHOLD_MS && dMono < DRIFT_WINDOW_MS)) {
-    this.markTampered(`wallclock drift: dWall=${dWall} dMono=${Math.round(dMono)}`);
-  }
-  this.lastWall = now;
-  this.lastMono = mono;
 
   if (now > this.state.lastSeen) this.state.lastSeen = now;
   this.state.ticks += 1;
@@ -185,7 +173,7 @@ sequenceDiagram
     App->>TG: start()
     TG->>TG: sessions += 1, tick()
     loop every 60s
-        TG->>TG: tick() — rollback + drift check
+        TG->>TG: tick() — rollback check
         TG->>Disk: persist()
     end
 

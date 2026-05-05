@@ -19,10 +19,9 @@
  *      app has been used regardless of clock state — license expiry can
  *      enforce both (now > expires) and (sessions > soft-cap-after-expiry).
  *
- *   4. Wallclock vs. monotonic clock drift. We sample `Date.now()` and
- *      `performance.now()` together; if a later sample shows `Date.now()`
- *      moved by ≥1 hour while `performance.now()` moved by <30s, that's
- *      a step-change in the system clock — log + flag.
+ * Forward wallclock jumps are not marked as tampering by themselves. They
+ * cannot extend a trial/license window, and OS sleep or background suspension
+ * can look identical to a forward clock step because app timers pause.
  *
  * The persisted state itself is encrypted with a per-machine key (so it
  * cannot be edited in plaintext) and HMAC-sealed (so swapping in an old
@@ -30,15 +29,12 @@
  */
 
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { performance } from 'node:perf_hooks';
 import path from 'node:path';
 
 import { aesDecrypt, aesEncrypt, getFileKey, hmacHex, getMacKey } from './crypto.cjs';
 
 const GRACE_MS = 5 * 60 * 1000; // forgive 5min clock skew (NTP, DST quirks)
 const TICK_INTERVAL_MS = 60 * 1000;
-const DRIFT_WINDOW_MS = 30 * 1000;
-const DRIFT_THRESHOLD_MS = 60 * 60 * 1000;
 
 interface TimeStateV1 {
   v: 1;
@@ -65,7 +61,7 @@ export interface TimeGuardSnapshot {
   sessions: number;
   tampered: boolean;
   tamperedReason?: string;
-  /** True if heuristics suggest the wallclock has been moved. */
+  /** True if the wallclock is behind persisted time evidence. */
   suspiciousNow: boolean;
 }
 
@@ -74,8 +70,6 @@ export class TimeGuard {
   private readonly statePath: string;
   private readonly machineCode: string;
   private tickHandle: NodeJS.Timeout | null = null;
-  private lastWall = Date.now();
-  private lastMono = performance.now();
 
   constructor(userDataDir: string, machineCode: string, anchorPaths: string[]) {
     this.statePath = path.join(userDataDir, '.lic-clock.dat');
@@ -139,21 +133,11 @@ export class TimeGuard {
 
   private tick(): void {
     const now = Date.now();
-    const mono = performance.now();
 
     // (1) Rollback check.
     if (now + GRACE_MS < this.state.lastSeen) {
       this.markTampered(`wallclock rollback: now=${now} < lastSeen=${this.state.lastSeen}`);
     }
-
-    // (4) Drift check.
-    const dWall = now - this.lastWall;
-    const dMono = mono - this.lastMono;
-    if (dWall < 0 || (Math.abs(dWall - dMono) > DRIFT_THRESHOLD_MS && dMono < DRIFT_WINDOW_MS)) {
-      this.markTampered(`wallclock drift: dWall=${dWall} dMono=${Math.round(dMono)}`);
-    }
-    this.lastWall = now;
-    this.lastMono = mono;
 
     if (now > this.state.lastSeen) this.state.lastSeen = now;
     this.state.ticks += 1;

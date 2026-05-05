@@ -173,7 +173,7 @@ Drift → status `tampered`.
 
 ## 6. TimeGuard — clock defense
 
-`time-guard.cts` implements four layers of defense:
+`time-guard.cts` implements three persisted defense signals:
 
 1. **Monotonic high-water-mark**: persisted `lastSeen`, ticked every
    60 s as `max(now, lastSeen)`. `now < lastSeen - GRACE(5min)`
@@ -183,8 +183,11 @@ Drift → status `tampered`.
 3. **Session counter**: decoupled from wallclock, partially limits
    the "delete userData to reset trial" abuse (recorded but not
    enforced today).
-4. **Mono-vs-wall drift**: `Math.abs(dWall - dMono) > 1h && dMono < 30s`
-   indicates a step-change in the system clock.
+
+Forward wallclock jumps do not directly mark `tampered`: they cannot
+extend a trial/license, and OS sleep or background suspension can
+produce the same timer-pause pattern. Real rollback is still blocked
+by the `lastSeen` high-water check.
 
 State file `userData/.lic-clock.dat` is AES-GCM encrypted with an
 HMAC header.

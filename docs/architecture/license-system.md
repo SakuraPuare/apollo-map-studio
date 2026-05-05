@@ -164,7 +164,7 @@ const machineDrift = persistedHint && persistedHint !== this.machine.code;
 
 ## 6. TimeGuard —— 时钟防御
 
-`time-guard.cts` 实现 4 层防御：
+`time-guard.cts` 实现 3 个持久化防御信号：
 
 1. **Monotonic high-water-mark**：persisted `lastSeen`，每 60s tick
    `max(now, lastSeen)`。`now < lastSeen - GRACE(5min)` → `tampered`。
@@ -172,8 +172,10 @@ const machineDrift = persistedHint && persistedHint !== this.machine.code;
    `now < anchorMtime` 不可能。
 3. **Session counter**：与 wallclock 解耦，一定程度上限制"删 userData
    重启获得新 trial"的滥用（目前只记录，未强制）。
-4. **Mono-vs-wall drift**：`Math.abs(dWall - dMono) > 1h && dMono < 30s`
-   → 时钟跳变。
+
+前向 wallclock 跳变不会直接标记 `tampered`：它不能延长 trial/license，
+而系统休眠或后台挂起会产生同样的计时器暂停现象。真正的回拨仍由
+`lastSeen` 高水位检查拦截。
 
 State 文件 `userData/.lic-clock.dat`：AES-GCM 加密 + HMAC 头。
 
