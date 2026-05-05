@@ -17,6 +17,7 @@ import type {
   ArcEntity,
   RectEntity,
 } from '@/types/entities';
+import { createApolloEntity } from '@/core/geometry/apolloCompile';
 
 // ── deleteVertex ────────────────────────────────────────────────
 
@@ -119,6 +120,21 @@ describe('deleteVertex (drawing entities)', () => {
     const next = deleteVertex(e, 1);
     expect(next).not.toBeNull();
     expect((next as CatmullRomEntity).points.length).toBe(2);
+  });
+
+  it('Apollo rotated-rect source entity 不支持删除单个角点', () => {
+    const e = createApolloEntity(
+      'area',
+      'drawRotatedRect',
+      [
+        [0, 0],
+        [2, 1],
+        [2, 2],
+      ],
+      [],
+    );
+
+    expect(deleteVertex(e, 1)).toBe(e);
   });
 });
 

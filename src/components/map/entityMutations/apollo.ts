@@ -52,6 +52,7 @@ export function getApolloDragCenter(entity: ApolloEntity): LngLat | null {
 }
 
 export function deleteApolloEntityVertex(entity: ApolloEntity, index: number): MapEntity | null {
+  if (getSourceRect(entity)) return entity;
   return deleteApolloVertex(entity, index);
 }
 
