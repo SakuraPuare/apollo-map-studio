@@ -126,6 +126,14 @@ function assertMainBootstrap() {
     source.includes('ams-integrity.cjs'),
     'dist-electron/main.cjs is missing the integrity verifier',
   );
+  assert(
+    source.includes("Module._extensions['.cjs'] || Module._extensions['.js']"),
+    'encrypted module loader must fall back to the .js CommonJS loader when .cjs has no native loader',
+  );
+  assert(
+    source.includes('No CommonJS loader available for Electron hardened modules'),
+    'encrypted module loader must fail clearly when no CommonJS loader is available',
+  );
   assert(licenseIndex >= 0, 'dist-electron/main.cjs is missing the license manager import');
   assert(
     loaderIndex < licenseIndex,

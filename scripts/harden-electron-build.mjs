@@ -106,7 +106,10 @@ function loaderBootstrap(protectedRelPaths, keyParts) {
   const masked = Buffer.from(${JSON.stringify(keyParts.masked)});
   const key = Buffer.alloc(mask.length);
   for (let i = 0; i < mask.length; i += 1) key[i] = mask[i] ^ masked[i];
-  const originalCjsLoader = Module._extensions['.cjs'];
+  const originalCjsLoader = Module._extensions['.cjs'] || Module._extensions['.js'];
+  if (typeof originalCjsLoader !== 'function') {
+    throw new Error('No CommonJS loader available for Electron hardened modules');
+  }
   Module._extensions['.cjs'] = function hardenedCjsLoader(mod, filename) {
     const rel = path.relative(__dirname, filename).split(path.sep).join('/');
     if (!protectedModules.has(rel)) return originalCjsLoader(mod, filename);
