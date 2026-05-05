@@ -43,6 +43,13 @@ describe('licenseDisplay', () => {
     expect(formatLicenseExpirySummary(state, now)).toBe(
       'Expires 2026-05-12 08:30:45 · 1d 02:03:04 remaining',
     );
-    expect(formatTrialShortLabel(state, now)).toBe('Trial 1d 02:03:04');
+  });
+
+  it('omits seconds from short trial labels', () => {
+    const now = new Date(2026, 4, 11, 6, 27, 41).getTime();
+    const expiresAt = new Date(2026, 4, 12, 8, 30, 45).getTime();
+    const state = trialState(expiresAt);
+
+    expect(formatTrialShortLabel(state, now)).toBe('Trial 1d 02:04');
   });
 });
