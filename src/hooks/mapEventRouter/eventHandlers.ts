@@ -170,6 +170,12 @@ function onMouseMove(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
     return;
   }
 
+  if (useUIStore.getState().boundaryBrush.active) {
+    ctx.map.getCanvas().style.cursor = 'crosshair';
+    clearSnapTargetIfAny();
+    return;
+  }
+
   if (state === 'selected') {
     const hotHits = ctx.map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
     ctx.map.getCanvas().style.cursor = hotHits.length > 0 ? 'grab' : '';
@@ -193,7 +199,12 @@ function onMouseUp(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
     handleBoundaryBrushInput(ctx, e);
     ctx.mutable.boundaryBrushDragging = false;
     ctx.mutable.lastBoundaryBrushHit = null;
-    ctx.map.dragPan.enable();
+    if (useUIStore.getState().boundaryBrush.active) {
+      ctx.map.getCanvas().style.cursor = 'crosshair';
+      ctx.map.dragPan.disable();
+    } else {
+      ctx.map.dragPan.enable();
+    }
     return;
   }
 

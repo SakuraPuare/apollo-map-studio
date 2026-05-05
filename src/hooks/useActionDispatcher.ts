@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ActorRefFrom } from 'xstate';
-import { useSelector } from '@xstate/react';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
@@ -200,20 +199,13 @@ function useNativeMenuActions(execute: (actionId: ActionId) => void) {
 }
 
 function useActionToggleState(
-  actorRef: ActorRefFrom<typeof editorMachine>,
   getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean,
 ) {
   const gridEnabled = useUIStore((s) => s.gridEnabled);
   const snapEnabled = useUIStore((s) => s.snapEnabled);
   const connectModeActive = useUIStore((s) => s.connectMode.active);
   const boundaryBrushActive = useUIStore((s) => s.boundaryBrush.active);
-  const fsmStateValue = useSelector(actorRef, (s) => s.value);
-  const fsmActiveElement = useSelector(actorRef, (s) => s.context.activeElement);
-  const inDefaultMode =
-    fsmStateValue === 'idle' &&
-    fsmActiveElement === null &&
-    !connectModeActive &&
-    !boundaryBrushActive;
+  const mapElementToolActive = !connectModeActive && !boundaryBrushActive;
 
   return useCallback(
     (actionId: ActionId): boolean => {
@@ -227,7 +219,7 @@ function useActionToggleState(
         case 'boundaryBrush':
           return boundaryBrushActive;
         case 'defaultMode':
-          return inDefaultMode;
+          return mapElementToolActive;
         default:
           if (isWorkspaceViewActionId(actionId)) {
             return getWorkspaceViewState?.(actionId) ?? false;
@@ -240,7 +232,7 @@ function useActionToggleState(
       snapEnabled,
       connectModeActive,
       boundaryBrushActive,
-      inDefaultMode,
+      mapElementToolActive,
       getWorkspaceViewState,
     ],
   );
@@ -261,7 +253,7 @@ function useActionExecute(handlers: Map<ActionId, () => void>) {
 export function useActionDispatcher(options: ActionDispatcherOptions): ActionDispatcher {
   const handlers = useActionHandlers(options);
   const execute = useActionExecute(handlers);
-  const getToggleState = useActionToggleState(options.actorRef, options.getWorkspaceViewState);
+  const getToggleState = useActionToggleState(options.getWorkspaceViewState);
   useKeyboardShortcuts(execute);
   useNativeMenuActions(execute);
 

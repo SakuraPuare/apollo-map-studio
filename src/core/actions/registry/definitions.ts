@@ -12,13 +12,13 @@ import {
   FaPencil,
   FaPaintbrush,
   FaRegCircle,
-  FaRegHand,
   FaRegSquare,
   FaTableCells,
   FaTableColumns,
   FaTerminal,
   FaTrash,
   FaUpload,
+  FaArrowPointer,
 } from 'react-icons/fa6';
 import type { ActionDef } from './types';
 import { getWorkspaceViewDefs } from '@/core/workspaceViews';
@@ -163,11 +163,11 @@ export const BASE_ACTION_DEFS: ActionDef[] = [
   },
   {
     id: 'defaultMode',
-    label: 'Default (Pan)',
+    label: 'Map Elements',
     category: 'selection',
     shortcut: 'H',
     keybinding: { key: 'h' },
-    icon: FaRegHand,
+    icon: FaArrowPointer,
     inCommandPalette: true,
     isToggle: true,
     uiSlot: 'selection',

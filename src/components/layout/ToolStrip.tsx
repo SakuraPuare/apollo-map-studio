@@ -77,10 +77,8 @@ function boundarySwatchStyle(type: BoundaryLineType): React.CSSProperties {
 }
 
 function BoundaryBrushPalette() {
-  const active = useUIStore((s) => s.boundaryBrush.active);
   const selectedType = useUIStore((s) => s.boundaryBrush.type);
   const setType = useUIStore((s) => s.setBoundaryBrushType);
-  if (!active) return null;
 
   return (
     <div className="flex items-center gap-0.5 shrink-0">
@@ -152,25 +150,27 @@ export function ToolStrip({
   getToggleState,
 }: ToolStripProps) {
   const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
+  const connectModeActive = useUIStore((s) => s.connectMode.active);
+  const boundaryBrushActive = useUIStore((s) => s.boundaryBrush.active);
+  const elementSubtoolsVisible = !connectModeActive && !boundaryBrushActive;
 
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
       <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
 
-      <ElementBar
-        currentElement={currentElement}
-        onSelect={(type) => onSelectTool(ELEMENT_MAP.get(type)!.defaultTool, type)}
-      />
+      <Divider />
 
-      <BoundaryBrushPalette />
+      {elementSubtoolsVisible && (
+        <MapElementSubtools
+          currentTool={currentTool}
+          currentElement={currentElement}
+          elementLabel={elementDef?.label ?? ''}
+          tools={elementDef ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool)) : []}
+          onSelectTool={onSelectTool}
+        />
+      )}
 
-      <DrawToolButtons
-        currentTool={currentTool}
-        currentElement={currentElement}
-        elementLabel={elementDef?.label ?? ''}
-        tools={elementDef ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool)) : []}
-        onSelectTool={onSelectTool}
-      />
+      {boundaryBrushActive && <BoundaryBrushPalette />}
 
       <div className="flex-1" />
 
@@ -202,7 +202,39 @@ function ModeActionButtons({ getToggleState, onExecuteAction }: ActionButtonGrou
           onClick={() => onExecuteAction(action.id)}
         />
       ))}
-      <Divider />
+    </>
+  );
+}
+
+interface MapElementSubtoolsProps {
+  currentTool: string;
+  currentElement: MapElementType | null;
+  elementLabel: string;
+  tools: typeof ALL_DRAW_TOOLS;
+  onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
+}
+
+function MapElementSubtools({
+  currentTool,
+  currentElement,
+  elementLabel,
+  tools,
+  onSelectTool,
+}: MapElementSubtoolsProps) {
+  return (
+    <>
+      <ElementBar
+        currentElement={currentElement}
+        onSelect={(type) => onSelectTool(ELEMENT_MAP.get(type)!.defaultTool, type)}
+      />
+
+      <DrawToolButtons
+        currentTool={currentTool}
+        currentElement={currentElement}
+        elementLabel={elementLabel}
+        tools={tools}
+        onSelectTool={onSelectTool}
+      />
     </>
   );
 }
