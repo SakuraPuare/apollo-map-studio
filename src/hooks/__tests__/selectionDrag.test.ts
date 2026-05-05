@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createActor } from 'xstate';
+import { editorMachine } from '@/core/fsm/editorMachine';
 import { handleSelectedMouseDown } from '../mapEventRouter/selectionDrag';
+import { createMapEventHandlers } from '../mapEventRouter/eventHandlers';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import { createEntity } from '@/lib/entityOps';
@@ -65,6 +68,15 @@ function makeMap(lineHit: boolean) {
   return { queryRenderedFeatures, dragPan };
 }
 
+function makeRouterMap(lineHit: boolean) {
+  return {
+    ...makeMap(lineHit),
+    dragPan: { disable: vi.fn(), enable: vi.fn() },
+    getZoom: () => 18,
+    getCanvas: () => ({ style: { cursor: '' } }),
+  };
+}
+
 beforeEach(() => {
   useMapStore.setState({ entities: new Map() });
   useMapStore.temporal.getState().clear();
@@ -119,5 +131,46 @@ describe('handleSelectedMouseDown', () => {
     expect(result).toEqual({ handled: false });
     expect(map.dragPan.disable).not.toHaveBeenCalled();
     expect(actor.send).not.toHaveBeenCalled();
+  });
+
+  it('moves all selected polyline vertices through the map event router line drag path', () => {
+    const entity = polyline();
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+
+    const actor = createActor(editorMachine).start();
+    actor.send({ type: 'SELECT_ENTITY', id: entity.id });
+    const map = makeRouterMap(true);
+    const handlers = createMapEventHandlers({
+      map,
+      actorRef: actor,
+      bridgeRef: { current: null },
+      mutable: {
+        mouseDownScreenPos: null,
+        centerGrabOffset: null,
+        lastDrawInput: null,
+        boundaryBrushDragging: false,
+        lastBoundaryBrushHit: null,
+      },
+      cursorScheduler: { schedule: vi.fn(), dispose: vi.fn() },
+    } as never);
+
+    handlers.onMouseDown(makeMouseEvent() as never);
+    handlers.onMouseMove({
+      ...makeMouseEvent(),
+      lngLat: { lng: 4, lat: 2 },
+    } as never);
+    handlers.onMouseUp({
+      ...makeMouseEvent(),
+      lngLat: { lng: 4, lat: 2 },
+    } as never);
+
+    const moved = useMapStore.getState().entities.get(entity.id) as PolylineEntity;
+    expect(moved.points).toEqual([
+      { x: 1, y: 1 },
+      { x: 3, y: 1 },
+      { x: 5, y: 1 },
+    ]);
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(map.dragPan.enable).toHaveBeenCalledTimes(1);
   });
 });
