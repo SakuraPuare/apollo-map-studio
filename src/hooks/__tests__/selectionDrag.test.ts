@@ -205,7 +205,7 @@ describe('handleSelectedMouseDown', () => {
       { x: 3, y: 1 },
       { x: 5, y: 1 },
     ]);
-    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
-    expect(map.dragPan.enable).toHaveBeenCalledTimes(1);
+    expect(map.dragPan.disable).toHaveBeenCalled();
+    expect(map.dragPan.enable).not.toHaveBeenCalled();
   });
 });

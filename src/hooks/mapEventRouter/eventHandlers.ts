@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import type { LaneEntity } from '@/types/apollo';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
+import { shouldDisableDragPanForSnapshot } from '@/hooks/useDragPan';
 import { createCursorScheduler } from './cursorScheduler';
 import { hitBbox, toLngLat, workerHitTest } from './hitTest';
 import { isDuplicateInput, sampleInput, type InputSample } from './inputDedup';
@@ -209,8 +210,11 @@ function onMouseMove(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   }
 
   if (state === 'selected') {
+    const shouldDisable = shouldDisableDragPanForSnapshot(snap);
+    if (shouldDisable) ctx.map.dragPan.disable();
+    else ctx.map.dragPan.enable();
     const hotHits = ctx.map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
-    ctx.map.getCanvas().style.cursor = hotHits.length > 0 ? 'grab' : '';
+    ctx.map.getCanvas().style.cursor = shouldDisable || hotHits.length > 0 ? 'grab' : '';
     clearSnapTargetIfAny();
     return;
   }
@@ -258,7 +262,6 @@ function handleEditingMouseUp(
   e: maplibregl.MapMouseEvent,
   snap: ReturnType<RouterContext['actorRef']['getSnapshot']>,
 ): void {
-  ctx.map.dragPan.enable();
   const entityId = snap.context.selectedEntityId;
   const pt = snapEditingDragPoint(ctx, snap, toLngLat(e));
   const idx = snap.context.dragPointIndex;
@@ -274,6 +277,9 @@ function handleEditingMouseUp(
   ctx.actorRef.send({ type: 'DRAG_END', point: pt });
   useUIStore.getState().setSnapTarget(null);
   ctx.mutable.centerGrabOffset = null;
+  const nextSnap = ctx.actorRef.getSnapshot();
+  if (shouldDisableDragPanForSnapshot(nextSnap)) ctx.map.dragPan.disable();
+  else ctx.map.dragPan.enable();
 }
 
 function onDblClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {

@@ -4,7 +4,8 @@
  * The hook's only responsibility is managing map.dragPan.disable/enable
  * as a function of FSM snapshot. The decision:
  *
- *   shouldDisable = isDraggingHandle  ||  state === 'editingPoint'  ||  state === 'drawBezier'
+ *   shouldDisable = boundaryBrush || selectedLine || isDraggingHandle
+ *                   || state === 'editingPoint' || state === 'drawBezier'
  *
  * We test the `shouldDisable` predicate and the idempotency guard
  * (dragPanDisabledRef — avoid redundant enable/disable calls).
@@ -70,8 +71,12 @@ describe('shouldDisable (useDragPan)', () => {
       expect(shouldDisable('idle', false)).toBe(false);
     });
 
-    it('selected does not disable', () => {
+    it('selected does not disable by itself', () => {
       expect(shouldDisable('selected', false)).toBe(false);
+    });
+
+    it('selected line drag guard disables pan before mousedown', () => {
+      expect(shouldDisable('selected', false, false, true)).toBe(true);
     });
   });
 });
