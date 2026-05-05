@@ -23,6 +23,7 @@ import {
   setAllApolloEditPoints,
 } from '../apolloCompile/editPoints';
 import type { Curve, LaneEntity, RoadEntity, SignalEntity } from '@/types/apollo';
+import type { BezierAnchor } from '@/core/geometry/interpolate';
 
 const pt = (x: number, y: number) => ({ x, y });
 
@@ -418,6 +419,27 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(12);
+  });
+
+  it('folded Bezier lane fill does not use the outer envelope', () => {
+    const anchors: BezierAnchor[] = [
+      { point: [0, 0], handleIn: null, handleOut: [3, 0] },
+      { point: [8, 0], handleIn: [5, 0], handleOut: [8, -2] },
+      { point: [8, -5], handleIn: [8, -3], handleOut: [5, -5] },
+      { point: [2, -5], handleIn: [5, -5], handleOut: [2, -3] },
+      { point: [2, -1], handleIn: [2, -3], handleOut: null },
+    ];
+    const lane = createApolloEntity('lane', 'drawBezier', [], anchors, {
+      laneHalfWidth: 0.2,
+    }) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const fill = features.find((feature) => feature.properties?.noStroke === true) as
+      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+      | undefined;
+
+    expect(fill).toBeDefined();
+    expect(geometryArea(fill!.geometry)).toBeLessThan(8);
   });
 
   it('orients reversed imported boundaries to the central curve direction', () => {
