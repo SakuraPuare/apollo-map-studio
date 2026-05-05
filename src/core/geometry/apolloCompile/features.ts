@@ -131,7 +131,14 @@ function renderLane(
   const explicitEdges = explicitLaneBoundaryEdges(entity);
   const leftEdge = explicitEdges?.left ?? offsetPolylineDeg(centerPts, leftW, 'left');
   const rightEdge = explicitEdges?.right ?? offsetPolylineDeg(centerPts, rightW, 'right');
-  const fillGeometry = laneFillGeometry(centerPts, leftEdge, rightEdge, leftW, rightW);
+  const fillGeometry = laneFillGeometry({
+    centerPts,
+    leftEdge,
+    rightEdge,
+    leftWidthMeters: leftW,
+    rightWidthMeters: rightW,
+    syntheticEdges: explicitEdges == null,
+  });
   if (fillGeometry) {
     features.push(
       mkPolygonGeometry(fillGeometry, {
