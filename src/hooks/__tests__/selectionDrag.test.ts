@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleSelectedMouseDown } from '../mapEventRouter/selectionDrag';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
+import { createEntity } from '@/lib/entityOps';
+import type { LaneEntity } from '@/types/apollo';
 import type { MapEntity, PolylineEntity } from '@/types/entities';
 
 const initialUISnapshot = useUIStore.getState();
@@ -16,6 +18,19 @@ function polyline(): PolylineEntity {
       { x: 4, y: 0 },
     ],
   };
+}
+
+function lane(): LaneEntity {
+  return createEntity(
+    'lane',
+    'drawPolyline',
+    [
+      [0, 0],
+      [2, 0],
+      [4, 0],
+    ],
+    [],
+  ) as LaneEntity;
 }
 
 function makeActor(entityId = 'pl') {
@@ -61,6 +76,24 @@ describe('handleSelectedMouseDown', () => {
     const entity = polyline();
     useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
     const actor = makeActor();
+    const map = makeMap(true);
+
+    const result = handleSelectedMouseDown(map as never, actor as never, makeMouseEvent() as never);
+
+    expect(result).toEqual({ handled: true, centerGrabOffset: [1, 1] });
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(actor.send).toHaveBeenCalledWith({
+      type: 'START_DRAG',
+      index: -2,
+      pointType: 'center',
+      altKey: false,
+    });
+  });
+
+  it('starts center dragging from a selected Apollo line hot line', () => {
+    const entity = lane();
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+    const actor = makeActor(entity.id);
     const map = makeMap(true);
 
     const result = handleSelectedMouseDown(map as never, actor as never, makeMouseEvent() as never);

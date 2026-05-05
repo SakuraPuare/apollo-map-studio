@@ -4,9 +4,10 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import type { ApolloEntity } from '@/types/apollo';
 import { getSource } from '@/types/apollo';
 import type { DragPointType } from '@/types/editor';
+import type { MapEntity } from '@/types/entities';
 import { getDragCenter, toggleSmooth, toggleSmoothApollo } from '@/components/map/entityMutations';
 import { useMapStore } from '@/store/mapStore';
-import { useUIStore } from '@/store/uiStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import { hitBbox, toLngLat } from './hitTest';
 
 export interface SelectedMouseDownResult {
@@ -14,8 +15,11 @@ export interface SelectedMouseDownResult {
   centerGrabOffset?: [number, number] | null;
 }
 
-function isLineCenterDragEntity(entity: { entityType: string } | null | undefined): boolean {
-  return entity?.entityType === 'polyline' || entity?.entityType === 'catmullRom';
+function canCenterDragFromHotLine(entity: MapEntity | null | undefined): boolean {
+  if (!entity) return false;
+  const source = getSource(entity);
+  if (source?.drawTool === 'drawBezier' || source?.drawTool === 'drawArc') return false;
+  return getDragCenter(entity) !== null;
 }
 
 function toggleEntitySmooth(entityId: string, idx: number) {
@@ -45,6 +49,14 @@ export function handleSelectedMouseDown(
   const selectedEntity = selectedEntityId
     ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
     : null;
+  if (selectedEntityId) {
+    if (
+      selectedEntity &&
+      !isEntityTypeInteractive(useUIStore.getState().layerStates, selectedEntity.entityType)
+    ) {
+      return { handled: false };
+    }
+  }
 
   const altKey = e.originalEvent.altKey;
   const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
@@ -69,7 +81,7 @@ export function handleSelectedMouseDown(
 
   const bbox = hitBbox(e.point);
   const fillHits = map.queryRenderedFeatures(bbox, { layers: ['hot-fill'] });
-  const lineHits = isLineCenterDragEntity(selectedEntity)
+  const lineHits = canCenterDragFromHotLine(selectedEntity)
     ? map.queryRenderedFeatures(bbox, { layers: ['hot-line'] })
     : [];
   if (fillHits.length === 0 && lineHits.length === 0) return { handled: false };
