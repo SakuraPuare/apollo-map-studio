@@ -22,6 +22,8 @@ import { isDrawingState } from '@/core/fsm/editorMachine';
 import { hasGeometryForState as hasGeometry } from '../useDrawCommit';
 
 const P: LngLat = [0, 0]; // placeholder point
+const P1: LngLat = [0.00001, 0];
+const P2: LngLat = [0.00002, 0];
 const A: BezierAnchor = { point: P, handleIn: null, handleOut: null }; // placeholder anchor
 
 // ---------------------------------------------------------------------------
@@ -32,17 +34,19 @@ describe('hasGeometry — drawPolyline', () => {
   it('false with 0 points', () => expect(hasGeometry('drawPolyline', [], [])).toBe(false));
   it('false with 1 point', () => expect(hasGeometry('drawPolyline', [P], [])).toBe(false));
   it('true with 2 points (minimum)', () =>
-    expect(hasGeometry('drawPolyline', [P, P], [])).toBe(true));
+    expect(hasGeometry('drawPolyline', [P, P1], [])).toBe(true));
+  it('false with near-duplicate 2 points', () =>
+    expect(hasGeometry('drawPolyline', [P, [0.000001, 0]], [])).toBe(false));
   it('true with 5 points', () =>
-    expect(hasGeometry('drawPolyline', [P, P, P, P, P], [])).toBe(true));
+    expect(hasGeometry('drawPolyline', [P, P1, P2, [0.00003, 0], [0.00004, 0]], [])).toBe(true));
 });
 
 describe('hasGeometry — drawCatmullRom', () => {
   it('false with 0 points', () => expect(hasGeometry('drawCatmullRom', [], [])).toBe(false));
   it('false with 1 point', () => expect(hasGeometry('drawCatmullRom', [P], [])).toBe(false));
   it('true with 2 points (minimum)', () =>
-    expect(hasGeometry('drawCatmullRom', [P, P], [])).toBe(true));
-  it('true with 3 points', () => expect(hasGeometry('drawCatmullRom', [P, P, P], [])).toBe(true));
+    expect(hasGeometry('drawCatmullRom', [P, P1], [])).toBe(true));
+  it('true with 3 points', () => expect(hasGeometry('drawCatmullRom', [P, P1, P2], [])).toBe(true));
 });
 
 describe('hasGeometry — drawBezier', () => {

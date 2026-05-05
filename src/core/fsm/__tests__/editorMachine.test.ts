@@ -432,6 +432,15 @@ describe.each([['drawPolyline' as const], ['drawCatmullRom' as const]])(
       expect(ctx.drawPoints).toEqual([PT(1, 1), PT(2, 2), PT(3, 3)]);
     });
 
+    it('ignores near-duplicate consecutive points', () => {
+      const actor = gotoDrawState(tool);
+      actor.send({ type: 'MOUSE_DOWN', point: PT(0, 0) });
+      actor.send({ type: 'MOUSE_DOWN', point: PT(0.000001, 0) });
+      actor.send({ type: 'MOUSE_DOWN', point: PT(0.00001, 0) });
+      const ctx = actor.getSnapshot().context as EditorContext;
+      expect(ctx.drawPoints).toEqual([PT(0, 0), PT(0.00001, 0)]);
+    });
+
     it('MOUSE_MOVE updates previewPoint', () => {
       const actor = gotoDrawState(tool);
       actor.send({ type: 'MOUSE_MOVE', point: PT(7, 8) });

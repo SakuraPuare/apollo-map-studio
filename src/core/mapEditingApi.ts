@@ -8,6 +8,7 @@ import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
+import { normalizePolylineDrawPoints } from '@/core/geometry/drawPoints';
 import { createEntity as createApolloEntity } from '@/lib/entityOps';
 import { nextEntityId } from '@/lib/idGenerator';
 import type {
@@ -36,12 +37,13 @@ export function hasDrawableGeometry(
   points: LngLat[],
   anchors: BezierAnchor[],
 ): boolean {
+  const drawPoints = normalizePolylineDrawPoints(state, points);
   return (
     (state === 'drawBezier' && anchors.length >= 2) ||
-    (state === 'drawArc' && points.length >= 3) ||
-    (state === 'drawRotatedRect' && points.length >= 3) ||
-    (state === 'drawPolygon' && points.length >= 3) ||
-    ((state === 'drawPolyline' || state === 'drawCatmullRom') && points.length >= 2)
+    (state === 'drawArc' && drawPoints.length >= 3) ||
+    (state === 'drawRotatedRect' && drawPoints.length >= 3) ||
+    (state === 'drawPolygon' && drawPoints.length >= 3) ||
+    ((state === 'drawPolyline' || state === 'drawCatmullRom') && drawPoints.length >= 2)
   );
 }
 
@@ -57,10 +59,11 @@ export function createDrawnEntity(
     entities?: ReadonlyMap<string, MapEntity>;
   },
 ): MapEntity | null {
-  if (!hasDrawableGeometry(state, points, anchors)) return null;
+  const drawPoints = normalizePolylineDrawPoints(state, points);
+  if (!hasDrawableGeometry(state, drawPoints, anchors)) return null;
 
   if (element) {
-    return createApolloEntity(element, state, points, anchors, {
+    return createApolloEntity(element, state, drawPoints, anchors, {
       laneHalfWidth: options?.laneHalfWidth,
       laneSpeedLimit: options?.laneSpeedLimit,
       laneBoundaryType: options?.laneBoundaryType,
@@ -74,7 +77,7 @@ export function createDrawnEntity(
     return {
       id: nextEntityId(entityType, entities),
       entityType,
-      points: coordsToPoints(points),
+      points: coordsToPoints(drawPoints),
     } as PolylineEntity | CatmullRomEntity;
   }
 
@@ -90,14 +93,14 @@ export function createDrawnEntity(
     return {
       id: nextEntityId('arc', entities),
       entityType: 'arc',
-      start: toGeoPoint(points[0]!),
-      mid: toGeoPoint(points[1]!),
-      end: toGeoPoint(points[2]!),
+      start: toGeoPoint(drawPoints[0]!),
+      mid: toGeoPoint(drawPoints[1]!),
+      end: toGeoPoint(drawPoints[2]!),
     } as ArcEntity;
   }
 
   if (state === 'drawRotatedRect') {
-    const rect = rotatedRectFromPoints(points[0]!, points[1]!, points[2]!);
+    const rect = rotatedRectFromPoints(drawPoints[0]!, drawPoints[1]!, drawPoints[2]!);
     return {
       id: nextEntityId('rect', entities),
       entityType: 'rect',
@@ -111,7 +114,7 @@ export function createDrawnEntity(
     return {
       id: nextEntityId('polygon', entities),
       entityType: 'polygon',
-      points: coordsToPoints(points),
+      points: coordsToPoints(drawPoints),
     } as PolygonEntity;
   }
 

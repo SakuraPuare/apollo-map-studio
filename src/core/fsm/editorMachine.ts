@@ -1,6 +1,7 @@
 import { setup, assign } from 'xstate';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { mirrorPoint } from '@/core/geometry/interpolate';
+import { appendDistinctPolylineDrawPoint } from '@/core/geometry/drawPoints';
 import { wouldSelfIntersect, polygonSelfIntersects } from '@/core/geometry/validation';
 import type { DragPointType } from '@/types/editor';
 import type { MapElementType } from '@/core/elements';
@@ -82,13 +83,12 @@ const selectToolFromSelected = selectToolTransitions.map((t) => ({
 
 // 历史上这里有 `removeLastPoint`：双击会触发两次 mousedown，FSM 多收一个点，
 // 所以 DOUBLE_CLICK 时削掉一个。但 useMapEventRouter 的 isDuplicateInput
-// 已经在输入层把 dblclick 的第二次 click 吞掉了——FSM 只会收到一次 MOUSE_DOWN。
-// 再 slice(-1) 就是双重补偿，把用户真正的最后一个点削没了（多段线"少最后一个点"）。
-// 单一事实来源：dedup 在输入层；FSM 直接信任 drawPoints。
+// 已经在输入层把标准 dblclick 的第二次 click 吞掉了——DOUBLE_CLICK 不能再 slice。
+// 慢双击会退化成普通 click 序列，因此 addPolylinePoint 再按地理距离吞掉连续近点。
 
 const sharedDrawEvents = {
   SELECT_TOOL: selectToolTransitions,
-  MOUSE_DOWN: { actions: 'addPoint' as const },
+  MOUSE_DOWN: { actions: 'addPolylinePoint' as const },
   MOUSE_MOVE: { actions: 'updatePreview' as const },
   DOUBLE_CLICK: {
     guard: 'minPointsReached' as const,
@@ -166,6 +166,12 @@ export const editorMachine = setup({
       drawPoints: ({ context, event }) => {
         if (event.type !== 'MOUSE_DOWN') return context.drawPoints;
         return [...context.drawPoints, event.point];
+      },
+    }),
+    addPolylinePoint: assign({
+      drawPoints: ({ context, event }) => {
+        if (event.type !== 'MOUSE_DOWN') return context.drawPoints;
+        return appendDistinctPolylineDrawPoint(context.drawPoints, event.point);
       },
     }),
     updatePreview: assign({
