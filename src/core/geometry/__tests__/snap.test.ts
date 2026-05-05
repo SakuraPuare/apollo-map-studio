@@ -6,9 +6,10 @@
  * so the projection round-trip stays sub-cm.
  */
 import { describe, it, expect } from 'vitest';
-import { findSnapTarget, pixelsToMeters, collectCandidates } from '../snap';
+import { collectCandidates, collectSnapGuidePoints, findSnapTarget, pixelsToMeters } from '../snap';
 import type { MapEntity } from '@/types/entities';
 import type { JunctionEntity, LaneEntity } from '@/types/apollo';
+import type { PolygonEntity, RectEntity } from '@/types/entities';
 
 const ORIGIN_LNG = 116.4;
 const ORIGIN_LAT = 39.9;
@@ -101,6 +102,55 @@ describe('collectCandidates', () => {
     expect(vertices[0]!.endpointRole).toBe('start');
     expect(vertices[1]!.endpointRole).toBe('end');
     expect(edges).toHaveLength(2); // segments preserved for edge snapping
+  });
+
+  it('emits closed corners/edges for drawing polygons', () => {
+    const polygon: PolygonEntity = {
+      id: 'poly-1',
+      entityType: 'polygon',
+      points: [
+        { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+        { x: ORIGIN_LNG, y: ORIGIN_LAT + 0.0001 },
+      ],
+    };
+    const { vertices, edges } = collectCandidates([polygon], null);
+    expect(vertices).toHaveLength(4);
+    expect(edges).toHaveLength(4);
+    expect(edges[3]!.a).toEqual(polygon.points[3]);
+    expect(edges[3]!.b).toEqual(polygon.points[0]);
+  });
+
+  it('emits rotated rectangle corners and edges', () => {
+    const rect: RectEntity = {
+      id: 'rect-1',
+      entityType: 'rect',
+      p1: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      p2: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.00005 },
+      rotation: Math.PI / 6,
+    };
+    const { vertices, edges } = collectCandidates([rect], null);
+    expect(vertices).toHaveLength(4);
+    expect(edges).toHaveLength(4);
+  });
+
+  it('exposes guide midpoints for object snapping', () => {
+    const rect: RectEntity = {
+      id: 'rect-2',
+      entityType: 'rect',
+      p1: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      p2: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+      rotation: 0,
+    };
+    const guides = collectSnapGuidePoints(rect);
+    const rightEdgeMidpoint = guides.find(
+      (p) =>
+        Math.abs(p.x - (ORIGIN_LNG + 0.0001)) < 1e-12 &&
+        Math.abs(p.y - (ORIGIN_LAT + 0.00005)) < 1e-12,
+    );
+    expect(guides).toHaveLength(8);
+    expect(rightEdgeMidpoint).toBeDefined();
   });
 
   it('closes polygon edges (wraps last → first)', () => {
@@ -283,6 +333,25 @@ describe('findSnapTarget', () => {
     expect(target!.kind).toBe('vertex');
     expect(target!.entityType).toBe('junction');
     expect(target!.endpointRole).toBeUndefined();
+  });
+
+  it('snaps to a rectangle corner', () => {
+    const rect: RectEntity = {
+      id: 'rect-1',
+      entityType: 'rect',
+      p1: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      p2: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+      rotation: 0,
+    };
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT + FIVE_M_LNG },
+      [rect],
+      12,
+      null,
+    );
+    expect(target).not.toBeNull();
+    expect(target!.entityType).toBe('rect');
+    expect(target!.kind).toBe('vertex');
   });
 });
 

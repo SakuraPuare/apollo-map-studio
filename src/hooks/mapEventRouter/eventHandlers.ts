@@ -6,18 +6,19 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import { findLaneBoundaryPaintHit, setLaneBoundaryType } from '@/core/geometry/laneBoundaryPaint';
 import { useMapStore } from '@/store/mapStore';
 import { useSettingsStore } from '@/store/settingsStore';
-import { useUIStore } from '@/store/uiStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import type { LaneEntity } from '@/types/apollo';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 import { createCursorScheduler } from './cursorScheduler';
 import { hitBbox, toLngLat, workerHitTest } from './hitTest';
 import { isDuplicateInput, sampleInput, type InputSample } from './inputDedup';
 import { handleConnectModeClick } from './connectMode';
+import { entityTypeForDrawState } from './drawLayer';
 import { handleMapKeyDown } from './keyboard';
 import { handleSelectedMouseDown } from './selectionDrag';
-import { applySnap as applySnapToPoint } from './snap';
+import { applyMoveSnap, applySnap as applySnapToPoint } from './snap';
 
-interface RouterMutableState {
+export interface RouterMutableState {
   mouseDownScreenPos: { x: number; y: number } | null;
   centerGrabOffset: [number, number] | null;
   lastDrawInput: InputSample | null;
@@ -25,7 +26,7 @@ interface RouterMutableState {
   lastBoundaryBrushHit: string | null;
 }
 
-interface RouterContext {
+export interface RouterContext {
   map: maplibregl.Map;
   actorRef: ActorRefFrom<typeof editorMachine>;
   bridgeRef: RefObject<SpatialWorkerBridge | null>;
@@ -42,11 +43,42 @@ function applySnap(ctx: RouterContext, lngLat: [number, number], excludeId: stri
   return applySnapToPoint(ctx.map, ctx.actorRef, lngLat, excludeId);
 }
 
+export function snapEditingDragPoint(
+  ctx: RouterContext,
+  snap: ReturnType<RouterContext['actorRef']['getSnapshot']>,
+  rawPoint: [number, number],
+): [number, number] {
+  const entityId = snap.context.selectedEntityId ?? null;
+  if (snap.context.dragPointType !== 'center') return applySnap(ctx, rawPoint, entityId);
+
+  const centerPoint = ctx.mutable.centerGrabOffset
+    ? ([
+        rawPoint[0] - ctx.mutable.centerGrabOffset[0],
+        rawPoint[1] - ctx.mutable.centerGrabOffset[1],
+      ] as [number, number])
+    : rawPoint;
+  return applyMoveSnap(ctx.map, ctx.actorRef, centerPoint, entityId);
+}
+
 function hitTest(ctx: RouterContext): HitTest {
   return (e, filter) => workerHitTest(ctx.map, ctx.bridgeRef.current, e, filter);
 }
 
+function canDrawInCurrentLayer(ctx: RouterContext): boolean {
+  const snap = ctx.actorRef.getSnapshot();
+  const entityType = entityTypeForDrawState(
+    snap.value as string,
+    snap.context.activeElement ?? null,
+  );
+  if (!entityType) return true;
+  return isEntityTypeInteractive(useUIStore.getState().layerStates, entityType);
+}
+
 function handleDrawInput(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  if (!canDrawInCurrentLayer(ctx)) {
+    clearSnapTargetIfAny();
+    return;
+  }
   const sample = sampleInput(e);
   if (isDuplicateInput(ctx.mutable.lastDrawInput, sample)) {
     ctx.mutable.lastDrawInput = sample;
@@ -64,7 +96,11 @@ function handleBoundaryBrushInput(ctx: RouterContext, e: maplibregl.MapMouseEven
   const brush = useUIStore.getState().boundaryBrush;
   if (!brush.active) return false;
 
-  const lanes = Array.from(useMapStore.getState().entities.values()).filter(isLaneEntity);
+  const layerStates = useUIStore.getState().layerStates;
+  const lanes = Array.from(useMapStore.getState().entities.values()).filter(
+    (entity): entity is LaneEntity =>
+      isLaneEntity(entity) && isEntityTypeInteractive(layerStates, entity.entityType),
+  );
   const hit = findLaneBoundaryPaintHit(lanes, toLngLat(e));
   if (!hit) return true;
   const hitKey = `${hit.laneId}:${hit.side}:${brush.type}`;
@@ -156,11 +192,7 @@ function onMouseMove(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   const state = snap.value as string;
 
   if (state === 'editingPoint') {
-    const excludeId = snap.context.selectedEntityId ?? null;
-    let pt = applySnap(ctx, toLngLat(e), excludeId);
-    if (snap.context.dragPointType === 'center' && ctx.mutable.centerGrabOffset) {
-      pt = [pt[0] - ctx.mutable.centerGrabOffset[0], pt[1] - ctx.mutable.centerGrabOffset[1]];
-    }
+    const pt = snapEditingDragPoint(ctx, snap, toLngLat(e));
     ctx.actorRef.send({ type: 'DRAG_MOVE', point: pt });
     return;
   }
@@ -188,7 +220,11 @@ function onMouseMove(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
     return;
   }
 
-  ctx.actorRef.send({ type: 'MOUSE_MOVE', point: applySnap(ctx, toLngLat(e)) });
+  if (canDrawInCurrentLayer(ctx)) {
+    ctx.actorRef.send({ type: 'MOUSE_MOVE', point: applySnap(ctx, toLngLat(e)) });
+  } else {
+    clearSnapTargetIfAny();
+  }
 }
 
 function onMouseUp(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
@@ -224,17 +260,13 @@ function handleEditingMouseUp(
 ): void {
   ctx.map.dragPan.enable();
   const entityId = snap.context.selectedEntityId;
-  let pt = applySnap(ctx, toLngLat(e), entityId ?? null);
+  const pt = snapEditingDragPoint(ctx, snap, toLngLat(e));
   const idx = snap.context.dragPointIndex;
   const pType = snap.context.dragPointType;
   const alt = snap.context.dragAltKey;
-
-  if (pType === 'center' && ctx.mutable.centerGrabOffset) {
-    pt = [pt[0] - ctx.mutable.centerGrabOffset[0], pt[1] - ctx.mutable.centerGrabOffset[1]];
-  }
   if (entityId) {
     const entity = useMapStore.getState().entities.get(entityId);
-    if (entity) {
+    if (entity && isEntityTypeInteractive(useUIStore.getState().layerStates, entity.entityType)) {
       useMapStore.getState().updateEntity(entityId, applyDrag(entity, idx, pType, pt, alt));
     }
   }
@@ -247,6 +279,7 @@ function handleEditingMouseUp(
 function onDblClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   e.preventDefault();
   ctx.mutable.lastDrawInput = null;
+  if (!canDrawInCurrentLayer(ctx)) return;
   ctx.actorRef.send({ type: 'DOUBLE_CLICK', point: applySnap(ctx, toLngLat(e)) });
 }
 

@@ -13,7 +13,7 @@
  *   - 不维护空间索引；每次扫描全部实体（地图实体量级 10^3 内可接受，
  *     mousemove 60 fps 下耗时 < 1ms）。
  */
-import type { GeoPoint } from '@/types/entities';
+import type { ArcEntity, GeoPoint, PolygonEntity, RectEntity } from '@/types/entities';
 import type { MapEntity } from '@/types/entities';
 import type {
   LaneEntity,
@@ -22,9 +22,9 @@ import type {
   ParkingSpaceEntity,
   CrosswalkEntity,
   SignalEntity,
-  RoadEntity,
 } from '@/types/apollo';
 import { curvePoints } from './apolloCompile/laneBoundaryGeometry';
+import { rectCorners } from './interpolate';
 
 const DEG_TO_M = 111320;
 
@@ -58,7 +58,7 @@ export interface SnapTarget {
   endpointRole?: LaneEndpointRole;
 }
 
-interface VertexCandidate {
+export interface VertexCandidate {
   point: GeoPoint;
   entityId: string;
   entityType: string;
@@ -66,12 +66,22 @@ interface VertexCandidate {
   endpointRole?: LaneEndpointRole;
 }
 
-interface EdgeCandidate {
+export interface EdgeCandidate {
   /** Two endpoints of a single polyline segment */
   a: GeoPoint;
   b: GeoPoint;
   entityId: string;
   entityType: string;
+}
+
+export interface SnapCandidates {
+  vertices: VertexCandidate[];
+  edges: EdgeCandidate[];
+}
+
+export interface SnapMatch {
+  target: SnapTarget;
+  distanceMeters: number;
 }
 
 // ─── Pixel ↔ meters at current zoom ────────────────────────────────────────
@@ -127,8 +137,114 @@ function pushPolygonVertices(
   }
 }
 
+function rectPoints(rect: RectEntity): GeoPoint[] {
+  return rectCorners([rect.p1.x, rect.p1.y], [rect.p2.x, rect.p2.y], rect.rotation)
+    .slice(0, 4)
+    .map(([x, y]) => ({ x, y }));
+}
+
 function laneCenterPoints(lane: LaneEntity): GeoPoint[] {
   return curvePoints(lane.centralCurve);
+}
+
+type CandidateCollector = (
+  entity: MapEntity,
+  vertices: VertexCandidate[],
+  edges: EdgeCandidate[],
+) => void;
+
+const SNAP_COLLECTORS: Partial<Record<MapEntity['entityType'], CandidateCollector>> = {
+  lane: (entity, vertices, edges) => {
+    pushLaneEndpointVertices(vertices, edges, laneCenterPoints(entity as LaneEntity), entity.id);
+  },
+  junction: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as JunctionEntity).polygon.points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  pncJunction: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as PNCJunctionEntity).polygon.points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  parkingSpace: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as ParkingSpaceEntity).polygon.points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  crosswalk: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as CrosswalkEntity).polygon.points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  signal: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as SignalEntity).boundary.points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  polygon: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      (entity as PolygonEntity).points,
+      entity.id,
+      entity.entityType,
+    );
+  },
+  rect: (entity, vertices, edges) => {
+    pushPolygonVertices(
+      vertices,
+      edges,
+      rectPoints(entity as RectEntity),
+      entity.id,
+      entity.entityType,
+    );
+  },
+  arc: (entity, vertices, edges) => {
+    const arc = entity as ArcEntity;
+    pushPolylineVertices(
+      vertices,
+      edges,
+      [arc.start, arc.mid, arc.end],
+      entity.id,
+      entity.entityType,
+    );
+  },
+};
+
+function collectGenericCandidates(
+  entity: MapEntity,
+  vertices: VertexCandidate[],
+  edges: EdgeCandidate[],
+): void {
+  if ('points' in entity && Array.isArray(entity.points)) {
+    pushPolylineVertices(vertices, edges, entity.points, entity.id, entity.entityType);
+    return;
+  }
+  if ('anchors' in entity && Array.isArray(entity.anchors)) {
+    const anchorPts = entity.anchors.map((a) => a.point);
+    pushPolylineVertices(vertices, edges, anchorPts, entity.id, entity.entityType);
+  }
 }
 
 /**
@@ -185,67 +301,32 @@ function pushLaneEndpointVertices(
 export function collectCandidates(
   entities: Iterable<MapEntity>,
   excludeId: string | null,
-): { vertices: VertexCandidate[]; edges: EdgeCandidate[] } {
+): SnapCandidates {
   const vertices: VertexCandidate[] = [];
   const edges: EdgeCandidate[] = [];
 
   for (const e of entities) {
     if (excludeId && e.id === excludeId) continue;
-    switch (e.entityType) {
-      case 'lane': {
-        const pts = laneCenterPoints(e as LaneEntity);
-        pushLaneEndpointVertices(vertices, edges, pts, e.id);
-        break;
-      }
-      case 'junction': {
-        const pts = (e as JunctionEntity).polygon.points;
-        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
-        break;
-      }
-      case 'pncJunction': {
-        const pts = (e as PNCJunctionEntity).polygon.points;
-        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
-        break;
-      }
-      case 'parkingSpace': {
-        const pts = (e as ParkingSpaceEntity).polygon.points;
-        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
-        break;
-      }
-      case 'crosswalk': {
-        const pts = (e as CrosswalkEntity).polygon.points;
-        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
-        break;
-      }
-      case 'signal': {
-        const pts = (e as SignalEntity).boundary.points;
-        pushPolygonVertices(vertices, edges, pts, e.id, e.entityType);
-        break;
-      }
-      case 'road': {
-        // Roads carry only references; their geometry comes from their
-        // sections' lanes which are already harvested above. Skip to
-        // avoid double-counting.
-        void (e as RoadEntity);
-        break;
-      }
-      default: {
-        // Generic geometry entities (polyline / bezier / polygon / rect / arc).
-        // Best-effort: anything with a `points: GeoPoint[]` exposes vertices,
-        // bezier exposes `anchors`. Use `in` narrowing rather than a blanket
-        // unknown cast so the property types come from the union, not a fiction.
-        if ('points' in e && Array.isArray(e.points)) {
-          pushPolylineVertices(vertices, edges, e.points, e.id, e.entityType);
-        } else if ('anchors' in e && Array.isArray(e.anchors)) {
-          const anchorPts = e.anchors.map((a) => a.point);
-          pushPolylineVertices(vertices, edges, anchorPts, e.id, e.entityType);
-        }
-        break;
-      }
+    const collector = SNAP_COLLECTORS[e.entityType as keyof typeof SNAP_COLLECTORS];
+    if (collector) {
+      collector(e, vertices, edges);
+      continue;
     }
+    collectGenericCandidates(e, vertices, edges);
   }
 
   return { vertices, edges };
+}
+
+export function collectSnapGuidePoints(entity: MapEntity): GeoPoint[] {
+  const { vertices, edges } = collectCandidates([entity], null);
+  return [
+    ...vertices.map((candidate) => candidate.point),
+    ...edges.map((edge) => ({
+      x: (edge.a.x + edge.b.x) / 2,
+      y: (edge.a.y + edge.b.y) / 2,
+    })),
+  ];
 }
 
 // ─── Distance / projection in local ENU ────────────────────────────────────
@@ -312,16 +393,25 @@ export function findSnapTarget(
   radiusMeters: number,
   excludeId: string | null = null,
 ): SnapTarget | null {
+  return (
+    findSnapMatchFromCandidates(point, collectCandidates(entities, excludeId), radiusMeters)
+      ?.target ?? null
+  );
+}
+
+export function findSnapMatchFromCandidates(
+  point: GeoPoint,
+  candidates: SnapCandidates,
+  radiusMeters: number,
+): SnapMatch | null {
   if (radiusMeters <= 0) return null;
   const cosLat = Math.cos((point.y * Math.PI) / 180);
   const pp = project(point, cosLat);
   const radiusSq = radiusMeters * radiusMeters;
 
-  const { vertices, edges } = collectCandidates(entities, excludeId);
-
   // Pass 1 — vertices.
   let bestVertex: { cand: VertexCandidate; distSq: number } | null = null;
-  for (const cand of vertices) {
+  for (const cand of candidates.vertices) {
     const cp = project(cand.point, cosLat);
     const dx = pp.x - cp.x;
     const dy = pp.y - cp.y;
@@ -332,12 +422,15 @@ export function findSnapTarget(
   }
   if (bestVertex) {
     return {
-      kind: 'vertex',
-      point: bestVertex.cand.point,
-      entityId: bestVertex.cand.entityId,
-      entityType: bestVertex.cand.entityType,
-      vertexIndex: bestVertex.cand.vertexIndex,
-      ...(bestVertex.cand.endpointRole ? { endpointRole: bestVertex.cand.endpointRole } : {}),
+      target: {
+        kind: 'vertex',
+        point: bestVertex.cand.point,
+        entityId: bestVertex.cand.entityId,
+        entityType: bestVertex.cand.entityType,
+        vertexIndex: bestVertex.cand.vertexIndex,
+        ...(bestVertex.cand.endpointRole ? { endpointRole: bestVertex.cand.endpointRole } : {}),
+      },
+      distanceMeters: Math.sqrt(bestVertex.distSq),
     };
   }
 
@@ -347,7 +440,7 @@ export function findSnapTarget(
     projected: { x: number; y: number };
     distSq: number;
   } | null = null;
-  for (const cand of edges) {
+  for (const cand of candidates.edges) {
     const a = project(cand.a, cosLat);
     const b = project(cand.b, cosLat);
     const projection = closestOnSegment(pp, a, b);
@@ -357,10 +450,13 @@ export function findSnapTarget(
   }
   if (bestEdge) {
     return {
-      kind: 'edge',
-      point: unproject(bestEdge.projected, cosLat),
-      entityId: bestEdge.cand.entityId,
-      entityType: bestEdge.cand.entityType,
+      target: {
+        kind: 'edge',
+        point: unproject(bestEdge.projected, cosLat),
+        entityId: bestEdge.cand.entityId,
+        entityType: bestEdge.cand.entityType,
+      },
+      distanceMeters: Math.sqrt(bestEdge.distSq),
     };
   }
 
