@@ -83,6 +83,19 @@ function segmentItem(coords: readonly LngLat[], index: number): SegmentItem | nu
   };
 }
 
+function openSegmentItem(coords: readonly LngLat[], index: number): SegmentItem | null {
+  const a = coords[index]!;
+  const b = coords[index + 1]!;
+  if (samePoint(a, b)) return null;
+  return {
+    minX: Math.min(a[0], b[0]),
+    minY: Math.min(a[1], b[1]),
+    maxX: Math.max(a[0], b[0]),
+    maxY: Math.max(a[1], b[1]),
+    index,
+  };
+}
+
 function adjacentSegments(a: number, b: number, segmentCount: number): boolean {
   const diff = Math.abs(a - b);
   return diff === 1 || diff === segmentCount - 1;
@@ -96,6 +109,15 @@ function buildSegmentItems(coords: readonly LngLat[]): SegmentItem[] {
   const items: SegmentItem[] = [];
   for (let i = 0; i < coords.length; i++) {
     const item = segmentItem(coords, i);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
+function buildOpenSegmentItems(coords: readonly LngLat[]): SegmentItem[] {
+  const items: SegmentItem[] = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const item = openSegmentItem(coords, i);
     if (item) items.push(item);
   }
   return items;
@@ -156,6 +178,59 @@ function needsPolygonNormalization(coords: readonly LngLat[]): boolean {
   return needsPolygonNormalizationIndexed(coords, items);
 }
 
+function nonAdjacentOpenSegmentsTouchOrCross(
+  coords: readonly LngLat[],
+  a: SegmentItem,
+  b: SegmentItem,
+): boolean {
+  if (Math.abs(a.index - b.index) === 1) return false;
+  const a1 = coords[a.index]!;
+  const a2 = coords[a.index + 1]!;
+  const b1 = coords[b.index]!;
+  const b2 = coords[b.index + 1]!;
+  return segmentsTouchOrCross(a1, a2, b1, b2);
+}
+
+function polylineSelfIntersectsBruteForce(
+  coords: readonly LngLat[],
+  items: readonly SegmentItem[],
+): boolean {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    for (let j = i + 1; j < items.length; j++) {
+      const other = items[j]!;
+      if (!segmentBoundsOverlap(item, other)) continue;
+      if (nonAdjacentOpenSegmentsTouchOrCross(coords, item, other)) return true;
+    }
+  }
+  return false;
+}
+
+function polylineSelfIntersectsIndexed(
+  coords: readonly LngLat[],
+  items: readonly SegmentItem[],
+): boolean {
+  const tree = new RBush<SegmentItem>();
+  tree.load([...items]);
+  for (const item of items) {
+    for (const other of tree.search(item)) {
+      if (other.index <= item.index) continue;
+      if (nonAdjacentOpenSegmentsTouchOrCross(coords, item, other)) return true;
+    }
+  }
+  return false;
+}
+
+export function polylineSelfIntersects(coords: readonly LngLat[]): boolean {
+  if (coords.length < 4) return false;
+  const items = buildOpenSegmentItems(coords);
+  if (items.length < 3) return false;
+  if (items.length < INDEXED_SEGMENT_THRESHOLD) {
+    return polylineSelfIntersectsBruteForce(coords, items);
+  }
+  return polylineSelfIntersectsIndexed(coords, items);
+}
+
 function toClippingPolygon(coords: readonly LngLat[]): PCPolygon {
   const ring = closeRing(coords).map(([x, y]) => [x, y] as [number, number]) as Ring;
   return ring.length >= 4 ? [ring] : [];
@@ -190,13 +265,7 @@ function clippingToGeoJson(result: PCMultiPolygon): GeoJSON.Polygon | GeoJSON.Mu
 function normalizeSelfIntersectingPolygon(
   coords: readonly LngLat[],
 ): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
-  const polygon = toClippingPolygon(coords);
-  if (polygon.length === 0) return null;
-  try {
-    return clippingToGeoJson(polygonClipping.union(polygon));
-  } catch {
-    return null;
-  }
+  return unionPolygonGeometry([coords]);
 }
 
 export function polygonGeometry(coords: readonly LngLat[]): GeoJSON.Polygon | GeoJSON.MultiPolygon {
@@ -205,4 +274,19 @@ export function polygonGeometry(coords: readonly LngLat[]): GeoJSON.Polygon | Ge
   const fallback: GeoJSON.Polygon = { type: 'Polygon', coordinates: [ring] };
   if (ring.length < 4 || !needsPolygonNormalization(openRing)) return fallback;
   return normalizeSelfIntersectingPolygon(openRing) ?? fallback;
+}
+
+export function unionPolygonGeometry(
+  rings: readonly (readonly LngLat[])[],
+): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
+  const polygons = rings
+    .map((ring) => toClippingPolygon(dedupeClosingPoint(ring)))
+    .filter((polygon) => polygon.length > 0);
+  if (polygons.length === 0) return null;
+  try {
+    const [first, ...rest] = polygons;
+    return first ? clippingToGeoJson(polygonClipping.union(first, ...rest)) : null;
+  } catch {
+    return null;
+  }
 }

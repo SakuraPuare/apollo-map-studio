@@ -5,6 +5,7 @@ import { polygonGeometry } from '@/core/geometry/polygonGeometry';
 import { elementColor, laneTypeColor } from '@/core/elements';
 import type { ApolloEntity, ApolloPolygon, Curve } from '@/types/apollo';
 import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
+import { laneFillGeometry } from './laneFillGeometry';
 import { offsetPolylineDeg } from './offsetPolyline';
 import { computeSignalHeading, headingToIconRotate } from './signalHeading';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -77,6 +78,18 @@ function mkPolygon(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Fe
   };
 }
 
+function mkPolygonGeometry(
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  props: Record<string, unknown>,
+): GeoJSON.Feature {
+  return {
+    type: 'Feature',
+    id: featureId(props),
+    properties: props,
+    geometry,
+  };
+}
+
 function mkPoint(coord: LngLat, props: Record<string, unknown>): GeoJSON.Feature {
   return {
     type: 'Feature',
@@ -118,10 +131,14 @@ function renderLane(
   const explicitEdges = explicitLaneBoundaryEdges(entity);
   const leftEdge = explicitEdges?.left ?? offsetPolylineDeg(centerPts, leftW, 'left');
   const rightEdge = explicitEdges?.right ?? offsetPolylineDeg(centerPts, rightW, 'right');
-  const polyCoords = [...leftEdge, ...[...rightEdge].reverse()].map(toLngLat);
-  if (polyCoords.length >= 4) {
+  const fillGeometry = laneFillGeometry(centerPts, leftEdge, rightEdge, leftW, rightW);
+  if (fillGeometry) {
     features.push(
-      mkPolygon(polyCoords, { ...laneBase, fillOpacity: settings.laneFillOpacity, noStroke: true }),
+      mkPolygonGeometry(fillGeometry, {
+        ...laneBase,
+        fillOpacity: settings.laneFillOpacity,
+        noStroke: true,
+      }),
     );
   }
   features.push(

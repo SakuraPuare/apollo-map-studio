@@ -321,6 +321,29 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     expect(features.some((feature) => feature.geometry.type === 'Polygon')).toBe(false);
   });
 
+  it('self-crossing drawn lane fill stays near the lane strip instead of the outer envelope', () => {
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [6, 0],
+        [1, -5],
+        [5, -5],
+      ],
+      [],
+      { laneHalfWidth: 0.2 },
+    ) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const fill = features.find((feature) => feature.properties?.noStroke === true) as
+      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+      | undefined;
+
+    expect(fill).toBeDefined();
+    expect(geometryArea(fill!.geometry)).toBeLessThan(6);
+  });
+
   it('orients reversed imported boundaries to the central curve direction', () => {
     const center = [pt(116, 39.9), pt(116.001, 39.9)];
     const leftBoundary = [pt(116.001, 39.901), pt(116, 39.901)];
@@ -432,3 +455,24 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     ]);
   });
 });
+
+function geometryArea(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): number {
+  if (geometry.type === 'Polygon') return polygonArea(geometry.coordinates);
+  return geometry.coordinates.reduce((sum, polygon) => sum + polygonArea(polygon), 0);
+}
+
+function polygonArea(polygon: GeoJSON.Position[][]): number {
+  const outer = ringArea(polygon[0] ?? []);
+  const holes = polygon.slice(1).reduce((sum, ring) => sum + ringArea(ring), 0);
+  return Math.max(0, outer - holes);
+}
+
+function ringArea(ring: GeoJSON.Position[]): number {
+  let area2 = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[j]!;
+    const b = ring[i]!;
+    area2 += (a[0] ?? 0) * (b[1] ?? 0) - (b[0] ?? 0) * (a[1] ?? 0);
+  }
+  return Math.abs(area2 / 2);
+}
