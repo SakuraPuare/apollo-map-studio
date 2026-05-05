@@ -45,13 +45,13 @@ const MAP_ELEMENT_CONFIG = [
   },
   {
     type: 'junction',
-    tools: ['drawPolygon'],
+    tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawPolygon',
     geometry: 'polygon',
   },
   {
     type: 'pncJunction',
-    tools: ['drawPolygon'],
+    tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawPolygon',
     geometry: 'polygon',
   },
@@ -105,7 +105,7 @@ const MAP_ELEMENT_CONFIG = [
   },
   {
     type: 'area',
-    tools: ['drawPolygon'],
+    tools: ['drawRotatedRect', 'drawPolygon'],
     defaultTool: 'drawPolygon',
     geometry: 'polygon',
   },
