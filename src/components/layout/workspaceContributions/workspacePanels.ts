@@ -44,6 +44,18 @@ export function registerWorkspaceContribution(): void {
 
   registerWorkspacePanel(
     {
+      id: 'toolbox',
+      component: 'toolbox',
+      defaultTitle: 'Toolbox',
+      zone: 'secondarySidebar',
+      order: 35,
+      defaultSize: { width: 320 },
+    },
+    duplicate,
+  );
+
+  registerWorkspacePanel(
+    {
       id: 'timeline',
       component: 'timeline',
       defaultTitle: 'Timeline',

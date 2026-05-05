@@ -33,6 +33,11 @@ interface MapState {
 interface MapActions {
   addEntity(entity: MapEntity): void;
   updateEntity(id: string, entity: MapEntity): void;
+  /**
+   * Batch update existing entities in a single store transaction. Intended for
+   * toolbox-style operations that touch many lanes/roads at once.
+   */
+  updateEntities(changes: Iterable<readonly [string, MapEntity]>): number;
   removeEntity(id: string): void;
   /**
    * Move a child entity under a new parent by updating the appropriate
@@ -133,10 +138,48 @@ function applyFullImport(
   return next;
 }
 
+function updateEntitiesBatch(
+  set: MapSet,
+  get: MapGet,
+  changes: Iterable<readonly [string, MapEntity]>,
+): number {
+  if (!assertEditable('updateEntities')) return 0;
+  const current = get().entities;
+  const entities = new Map(current);
+  const dirty = new Set<string>();
+  const previousEntities = new Map<string, MapEntity>();
+  const changedLaneIds = new Set<string>();
+  let topologyDirty = false;
+  let changedCount = 0;
+
+  for (const [id, entity] of changes) {
+    const previous = current.get(id);
+    if (!previous || previous === entity) continue;
+    entities.set(id, entity);
+    dirty.add(id);
+    changedCount++;
+
+    if (previous.entityType === 'lane' || entity.entityType === 'lane') {
+      changedLaneIds.add(id);
+    }
+    if (topologyAffectingType(previous.entityType) || topologyAffectingType(entity.entityType)) {
+      previousEntities.set(id, previous);
+      topologyDirty = true;
+    }
+  }
+
+  if (changedCount === 0) return 0;
+  if (topologyDirty) reconcileTopologyPatch(entities, dirty, previousEntities);
+  applyOverlapPatch(entities, dirty);
+  set({ entities });
+  if (changedLaneIds.size > 0) invalidateLaneCaches(changedLaneIds);
+  return changedCount;
+}
+
 function createEntityActions(
   set: MapSet,
   get: MapGet,
-): Pick<MapActions, 'addEntity' | 'updateEntity' | 'removeEntity'> {
+): Pick<MapActions, 'addEntity' | 'updateEntity' | 'updateEntities' | 'removeEntity'> {
   return {
     addEntity(entity) {
       if (!assertEditable('addEntity')) return;
@@ -164,6 +207,10 @@ function createEntityActions(
       }
       applyOverlapPatch(entities, dirty);
       set({ entities });
+    },
+
+    updateEntities(changes) {
+      return updateEntitiesBatch(set, get, changes);
     },
 
     removeEntity(id) {

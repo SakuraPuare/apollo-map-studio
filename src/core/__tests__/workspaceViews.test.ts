@@ -48,8 +48,8 @@ describe('workspace view contributions', () => {
   it('contributes dock panels by mode', () => {
     const drawingIds = getWorkspacePanelDefs('drawing').map((panel) => panel.id);
     const sceneIds = getWorkspacePanelDefs('scene').map((panel) => panel.id);
-    expect(drawingIds).toEqual(['map', 'sidebar', 'inspector']);
-    expect(sceneIds).toEqual(['map', 'sidebar', 'inspector', 'timeline']);
+    expect(drawingIds).toEqual(['map', 'sidebar', 'inspector', 'toolbox']);
+    expect(sceneIds).toEqual(['map', 'sidebar', 'inspector', 'toolbox', 'timeline']);
     expect(isWorkspacePanelAvailable('timeline', 'drawing')).toBe(false);
     expect(isWorkspacePanelAvailable('timeline', 'scene')).toBe(true);
   });
@@ -64,6 +64,7 @@ describe('workspace view contributions', () => {
       'search',
       'inspector',
       'timelinePanel',
+      'toolbox',
     ]);
   });
 });

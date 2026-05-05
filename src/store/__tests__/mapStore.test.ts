@@ -1,7 +1,7 @@
 /**
  * mapStore — comprehensive unit tests.
  *
- * Coverage targets: addEntity / updateEntity / removeEntity / reparentEntity,
+ * Coverage targets: addEntity / updateEntity / updateEntities / removeEntity / reparentEntity,
  * undo/redo via zundo temporal, cascade FK cleanup, lane topology reconciliation.
  *
  * Reset pattern: capture actions once at module load (they survive setState replace),
@@ -19,7 +19,8 @@ import type { PolylineEntity, JunctionEntity as _JE } from '@/types/entities';
 
 // ─── Capture action functions once (survive replace-setState) ────────────────
 
-const { addEntity, updateEntity, removeEntity, reparentEntity } = useMapStore.getState();
+const { addEntity, updateEntity, updateEntities, removeEntity, reparentEntity } =
+  useMapStore.getState();
 
 // ─── Reset helpers ────────────────────────────────────────────────────────────
 
@@ -155,10 +156,11 @@ describe('mapStore — initial state', () => {
     expect(entities().size).toBe(0);
   });
 
-  it('exposes all four action methods', () => {
+  it('exposes all entity action methods', () => {
     const s = useMapStore.getState();
     expect(typeof s.addEntity).toBe('function');
     expect(typeof s.updateEntity).toBe('function');
+    expect(typeof s.updateEntities).toBe('function');
     expect(typeof s.removeEntity).toBe('function');
     expect(typeof s.reparentEntity).toBe('function');
   });
@@ -287,7 +289,50 @@ describe('mapStore — updateEntity', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. removeEntity
+// 4. updateEntities
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('mapStore — updateEntities', () => {
+  it('updates multiple existing entities in one undoable transaction', () => {
+    const p1 = makePolyline('p1');
+    const p2 = makePolyline('p2');
+    addEntity(p1);
+    addEntity(p2);
+    useMapStore.temporal.getState().clear();
+
+    const nextP1: PolylineEntity = { ...p1, points: [{ x: 10, y: 10 }] };
+    const nextP2: PolylineEntity = { ...p2, points: [{ x: 20, y: 20 }] };
+
+    expect(
+      updateEntities([
+        ['p1', nextP1],
+        ['p2', nextP2],
+      ]),
+    ).toBe(2);
+    expect((entities().get('p1') as PolylineEntity).points[0]).toEqual({ x: 10, y: 10 });
+    expect((entities().get('p2') as PolylineEntity).points[0]).toEqual({ x: 20, y: 20 });
+
+    useMapStore.temporal.getState().undo();
+    expect((entities().get('p1') as PolylineEntity).points[0]).toEqual({ x: 0, y: 0 });
+    expect((entities().get('p2') as PolylineEntity).points[0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it('ignores missing ids and unchanged entity references', () => {
+    const p1 = makePolyline('p1');
+    addEntity(p1);
+
+    expect(
+      updateEntities([
+        ['p1', p1],
+        ['ghost', makePolyline('ghost')],
+      ]),
+    ).toBe(0);
+    expect(entities().size).toBe(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5. removeEntity
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — removeEntity', () => {
@@ -373,7 +418,7 @@ describe('mapStore — removeEntity', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5. reparentEntity
+// 6. reparentEntity
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — reparentEntity', () => {
@@ -506,7 +551,7 @@ describe('mapStore — reparentEntity', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6. Undo / Redo via zundo temporal
+// 7. Undo / Redo via zundo temporal
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — undo/redo', () => {
@@ -595,7 +640,7 @@ describe('mapStore — undo/redo', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 7. Lane topology reconciliation in isolation
+// 8. Lane topology reconciliation in isolation
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — lane topology reconciliation', () => {
@@ -650,7 +695,7 @@ describe('mapStore — lane topology reconciliation', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 8. Cascade delete edge cases
+// 9. Cascade delete edge cases
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — cascade delete edge cases', () => {
@@ -704,7 +749,7 @@ describe('mapStore — cascade delete edge cases', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 9. State isolation between tests
+// 10. State isolation between tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — state isolation', () => {
@@ -727,7 +772,7 @@ describe('mapStore — state isolation', () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 10. Non-lane entity CRUD (drawing primitives)
+// 11. Non-lane entity CRUD (drawing primitives)
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mapStore — drawing entity CRUD', () => {

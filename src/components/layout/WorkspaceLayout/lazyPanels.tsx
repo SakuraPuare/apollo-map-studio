@@ -19,6 +19,11 @@ const LazyTimelinePanel = lazy(async () => {
   return { default: module.TimelinePanel };
 });
 
+const LazyToolboxPanel = lazy(async () => {
+  const module = await import('../panels/ToolboxPanel');
+  return { default: module.ToolboxPanel };
+});
+
 export const LazyCommandPalette = lazy(async () => {
   const module = await import('../panels/CommandPalette');
   return { default: module.CommandPalette };
@@ -112,6 +117,14 @@ export function TimelinePanelContent() {
   return (
     <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
       <LazyTimelinePanel />
+    </Suspense>
+  );
+}
+
+export function ToolboxPanelContent() {
+  return (
+    <Suspense fallback={<PanelFallback label="Loading toolbox..." />}>
+      <LazyToolboxPanel />
     </Suspense>
   );
 }

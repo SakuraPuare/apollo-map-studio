@@ -42,6 +42,7 @@ import {
   MapPanelContent,
   OverlayFallback,
   TimelinePanelContent,
+  ToolboxPanelContent,
   makeSidebarPanel,
 } from './WorkspaceLayout/lazyPanels';
 import type { WorkspaceViewActionId } from '@/core/actions/registry';
@@ -305,6 +306,7 @@ function useDockviewComponents(openSettings: () => void) {
     sidebar: makeSidebarPanel(openSettings),
     inspector: InspectorPanelContent,
     timeline: TimelinePanelContent,
+    toolbox: ToolboxPanelContent,
   }).current;
 }
 
