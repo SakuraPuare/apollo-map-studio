@@ -14,6 +14,10 @@ export interface SelectedMouseDownResult {
   centerGrabOffset?: [number, number] | null;
 }
 
+function isLineCenterDragEntity(entity: { entityType: string } | null | undefined): boolean {
+  return entity?.entityType === 'polyline' || entity?.entityType === 'catmullRom';
+}
+
 function toggleEntitySmooth(entityId: string, idx: number) {
   const entity = useMapStore.getState().entities.get(entityId);
   if (!entity) return;
@@ -37,6 +41,10 @@ export function handleSelectedMouseDown(
   const snap = actorRef.getSnapshot();
   if ((snap.value as string) !== 'selected') return { handled: false };
   if (useUIStore.getState().connectMode.active) return { handled: false };
+  const selectedEntityId = snap.context.selectedEntityId;
+  const selectedEntity = selectedEntityId
+    ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
+    : null;
 
   const altKey = e.originalEvent.altKey;
   const hotHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-points'] });
@@ -59,19 +67,19 @@ export function handleSelectedMouseDown(
     return { handled: true };
   }
 
-  const fillHits = map.queryRenderedFeatures(hitBbox(e.point), { layers: ['hot-fill'] });
-  if (fillHits.length === 0) return { handled: false };
+  const bbox = hitBbox(e.point);
+  const fillHits = map.queryRenderedFeatures(bbox, { layers: ['hot-fill'] });
+  const lineHits = isLineCenterDragEntity(selectedEntity)
+    ? map.queryRenderedFeatures(bbox, { layers: ['hot-line'] })
+    : [];
+  if (fillHits.length === 0 && lineHits.length === 0) return { handled: false };
 
   let centerGrabOffset: [number, number] | null = null;
-  const entityId = snap.context.selectedEntityId;
-  if (entityId) {
-    const entity = useMapStore.getState().entities.get(entityId);
-    if (entity) {
-      const center = getDragCenter(entity);
-      if (center) {
-        const m = toLngLat(e);
-        centerGrabOffset = [m[0] - center[0], m[1] - center[1]];
-      }
+  if (selectedEntity) {
+    const center = getDragCenter(selectedEntity);
+    if (center) {
+      const m = toLngLat(e);
+      centerGrabOffset = [m[0] - center[0], m[1] - center[1]];
     }
   }
 

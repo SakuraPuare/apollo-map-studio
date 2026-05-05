@@ -21,7 +21,11 @@ export function isDrawingEntity(entity: { entityType: string }): entity is Drawi
 export function getDrawingDragCenter(entity: DrawingEntity): LngLat | null {
   if (entity.entityType === 'rect') return rectCenter(entity);
 
-  if (entity.entityType === 'polygon') {
+  if (
+    entity.entityType === 'polyline' ||
+    entity.entityType === 'catmullRom' ||
+    entity.entityType === 'polygon'
+  ) {
     if (entity.points.length === 0) return null;
     const cx = entity.points.reduce((s, p) => s + p.x, 0) / entity.points.length;
     const cy = entity.points.reduce((s, p) => s + p.y, 0) / entity.points.length;
@@ -100,7 +104,7 @@ export function applyDrawingDrag(
   altKey = false,
 ): DrawingEntity {
   if (entity.entityType === 'polyline' || entity.entityType === 'catmullRom') {
-    return dragPolylinePoint(entity, index, newPoint);
+    return dragPolylinePoint(entity, index, pointType, newPoint);
   }
 
   if (entity.entityType === 'bezier') {
@@ -125,8 +129,17 @@ export function applyDrawingDrag(
 function dragPolylinePoint(
   entity: PolylineEntity | Extract<DrawingEntity, { entityType: 'catmullRom' }>,
   index: number,
+  pointType: DragPointType,
   newPoint: LngLat,
 ) {
+  if (pointType === 'center') {
+    const center = getDrawingDragCenter(entity);
+    if (!center) return entity;
+    const dx = newPoint[0] - center[0];
+    const dy = newPoint[1] - center[1];
+    return { ...entity, points: entity.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+  }
+
   const points = [...entity.points];
   points[index] = { ...points[index]!, ...toGeoPoint(newPoint) };
   return { ...entity, points };

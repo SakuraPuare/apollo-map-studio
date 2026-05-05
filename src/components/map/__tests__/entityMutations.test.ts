@@ -209,6 +209,26 @@ describe('applyDrag (drawing entities)', () => {
     expect(next.points[2]).toEqual({ x: 2, y: 0 });
   });
 
+  it.each(['polyline', 'catmullRom'] as const)('%s center 拖拽：整体平移所有顶点', (entityType) => {
+    const e: PolylineEntity | CatmullRomEntity = {
+      id: 'pl',
+      entityType,
+      points: [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 4, y: 0 },
+      ],
+    };
+
+    const next = applyDrag(e, -2, 'center', [5, 7]) as PolylineEntity | CatmullRomEntity;
+
+    expect(next.points).toEqual([
+      { x: 3, y: 7 },
+      { x: 5, y: 7 },
+      { x: 7, y: 7 },
+    ]);
+  });
+
   it('arc start/mid/end：按 index 0/1/2 写入对应字段', () => {
     const e: ArcEntity = {
       id: 'ar',
