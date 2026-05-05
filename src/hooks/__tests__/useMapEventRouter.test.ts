@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isDuplicateInput } from '../useMapEventRouter';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 import { HIT_BBOX_PADDING_PX } from '@/config/mapConstants';
+import { createMapEventHandlers, createRouterContext } from '../mapEventRouter/eventHandlers';
 
 // ---------------------------------------------------------------------------
 // 1. isDuplicateInput smoke (full suite in clickDedup.test.ts)
@@ -116,6 +117,114 @@ describe('pixelToRadius', () => {
 
   it('returns 0 for 0 pixels', () => {
     expect(pixelToRadius(0, 15)).toBe(0);
+  });
+});
+
+describe('drawing mouse button routing', () => {
+  function actorStub(state = 'drawPolyline') {
+    return {
+      getSnapshot: vi.fn(() => ({
+        value: state,
+        context: {
+          drawPoints: [],
+          previewPoint: null,
+          bezierAnchors: [],
+          isDraggingHandle: false,
+          selectedEntityId: null,
+          dragPointIndex: -1,
+          dragPointType: 'vertex',
+          dragCurrentPoint: null,
+          dragAltKey: false,
+          activeElement: null,
+        },
+      })),
+      send: vi.fn(),
+    };
+  }
+
+  function mapStub() {
+    const canvas = { style: { cursor: '' } };
+    const dragPan = { disable: vi.fn(), enable: vi.fn() };
+    const map = {
+      dragPan,
+      panBy: vi.fn(),
+      getCanvas: vi.fn(() => canvas),
+      getZoom: vi.fn(() => 18),
+      queryRenderedFeatures: vi.fn(() => []),
+    };
+    return { map, canvas, dragPan };
+  }
+
+  let timeStamp = 0;
+  function mouseEvent({
+    button = 0,
+    buttons = 0,
+    x = 10,
+    y = 20,
+  }: {
+    button?: number;
+    buttons?: number;
+    x?: number;
+    y?: number;
+  } = {}) {
+    return {
+      point: { x, y },
+      lngLat: { lng: x, lat: y },
+      originalEvent: {
+        altKey: false,
+        button,
+        buttons,
+        timeStamp: ++timeStamp,
+      },
+      preventDefault: vi.fn(),
+    };
+  }
+
+  function setup(state = 'drawPolyline') {
+    const actorRef = actorStub(state);
+    const { map, canvas, dragPan } = mapStub();
+    const ctx = createRouterContext(map as never, actorRef as never, { current: null });
+    return {
+      actorRef,
+      canvas,
+      dragPan,
+      handlers: createMapEventHandlers(ctx),
+      map,
+    };
+  }
+
+  it('only primary click places drawPolyline points', () => {
+    const { actorRef, handlers } = setup();
+
+    handlers.onClick(mouseEvent({ button: 2 }) as never);
+    handlers.onClick(mouseEvent({ button: 1 }) as never);
+    expect(actorRef.send).not.toHaveBeenCalled();
+
+    handlers.onClick(mouseEvent({ button: 0 }) as never);
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'MOUSE_DOWN', point: [10, 20] });
+  });
+
+  it('middle-button drag pans during drawPolyline without placing a point', () => {
+    const { actorRef, canvas, dragPan, handlers, map } = setup();
+    const down = mouseEvent({ button: 1, buttons: 4, x: 10, y: 10 });
+    const move = mouseEvent({ button: 0, buttons: 4, x: 14, y: 16 });
+    const up = mouseEvent({ button: 1, buttons: 0, x: 14, y: 16 });
+
+    handlers.onMouseDown(down as never);
+    expect(down.preventDefault).toHaveBeenCalled();
+    expect(dragPan.disable).toHaveBeenCalledTimes(1);
+    expect(canvas.style.cursor).toBe('grabbing');
+    expect(actorRef.send).not.toHaveBeenCalled();
+
+    handlers.onMouseMove(move as never);
+    expect(move.preventDefault).toHaveBeenCalled();
+    expect(map.panBy).toHaveBeenCalledWith([-4, -6], { duration: 0, noMoveStart: true });
+
+    handlers.onMouseUp(up as never);
+    expect(up.preventDefault).toHaveBeenCalled();
+    expect(dragPan.enable).toHaveBeenCalledTimes(1);
+    expect(canvas.style.cursor).toBe('crosshair');
+    expect(actorRef.send).not.toHaveBeenCalled();
   });
 });
 

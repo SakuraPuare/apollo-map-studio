@@ -2,7 +2,7 @@ import type maplibregl from 'maplibre-gl';
 import type { RefObject } from 'react';
 import type { ActorRefFrom } from 'xstate';
 import { applyDrag } from '@/components/map/entityMutations';
-import type { editorMachine } from '@/core/fsm/editorMachine';
+import { isDrawingState, type editorMachine } from '@/core/fsm/editorMachine';
 import { findLaneBoundaryPaintHit, setLaneBoundaryType } from '@/core/geometry/laneBoundaryPaint';
 import { useMapStore } from '@/store/mapStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -22,6 +22,7 @@ import { applyMoveSnap, applySnap as applySnapToPoint } from './snap';
 export interface RouterMutableState {
   mouseDownScreenPos: { x: number; y: number } | null;
   centerGrabOffset: [number, number] | null;
+  middlePanLastScreenPos: { x: number; y: number } | null;
   lastDrawInput: InputSample | null;
   boundaryBrushDragging: boolean;
   lastBoundaryBrushHit: string | null;
@@ -40,8 +41,82 @@ type HitTest = (
   filter?: (entityType: string) => boolean,
 ) => Promise<string | null>;
 
+const PRIMARY_MOUSE_BUTTON = 0;
+const MIDDLE_MOUSE_BUTTON = 1;
+const MIDDLE_MOUSE_BUTTON_MASK = 4;
+
 function applySnap(ctx: RouterContext, lngLat: [number, number], excludeId: string | null = null) {
   return applySnapToPoint(ctx.map, ctx.actorRef, lngLat, excludeId);
+}
+
+function isPrimaryMouseButton(e: maplibregl.MapMouseEvent): boolean {
+  return e.originalEvent.button === PRIMARY_MOUSE_BUTTON;
+}
+
+function isMiddleMouseButton(e: maplibregl.MapMouseEvent): boolean {
+  return e.originalEvent.button === MIDDLE_MOUSE_BUTTON;
+}
+
+function isMiddleMouseDragging(e: maplibregl.MapMouseEvent): boolean {
+  return (e.originalEvent.buttons & MIDDLE_MOUSE_BUTTON_MASK) !== 0;
+}
+
+function restoreDragPan(ctx: RouterContext): void {
+  if (shouldDisableDragPanForSnapshot(ctx.actorRef.getSnapshot())) {
+    ctx.map.dragPan.disable();
+  } else {
+    ctx.map.dragPan.enable();
+  }
+}
+
+function restoreCursor(ctx: RouterContext): void {
+  const snapshot = ctx.actorRef.getSnapshot();
+  const state = snapshot.value as string;
+  const ui = useUIStore.getState();
+
+  if (ui.boundaryBrush.active) {
+    ctx.map.getCanvas().style.cursor = 'crosshair';
+    return;
+  }
+
+  if (state === 'editingPoint') {
+    ctx.map.getCanvas().style.cursor = 'grabbing';
+    return;
+  }
+
+  if (isDrawingState(state)) {
+    ctx.map.getCanvas().style.cursor = 'crosshair';
+    return;
+  }
+
+  ctx.map.getCanvas().style.cursor = '';
+}
+
+function startMiddlePan(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  ctx.mutable.middlePanLastScreenPos = { x: e.point.x, y: e.point.y };
+  ctx.map.dragPan.disable();
+  ctx.map.getCanvas().style.cursor = 'grabbing';
+  e.preventDefault();
+}
+
+function updateMiddlePan(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  const last = ctx.mutable.middlePanLastScreenPos;
+  if (!last) return;
+  const dx = e.point.x - last.x;
+  const dy = e.point.y - last.y;
+  if (dx !== 0 || dy !== 0) {
+    ctx.map.panBy([-dx, -dy], { duration: 0, noMoveStart: true });
+  }
+  ctx.mutable.middlePanLastScreenPos = { x: e.point.x, y: e.point.y };
+  e.preventDefault();
+}
+
+function endMiddlePan(ctx: RouterContext, e?: maplibregl.MapMouseEvent): void {
+  if (!ctx.mutable.middlePanLastScreenPos) return;
+  ctx.mutable.middlePanLastScreenPos = null;
+  restoreDragPan(ctx);
+  restoreCursor(ctx);
+  if (e) e.preventDefault();
 }
 
 export function snapEditingDragPoint(
@@ -76,6 +151,7 @@ function canDrawInCurrentLayer(ctx: RouterContext): boolean {
 }
 
 function handleDrawInput(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  if (!isPrimaryMouseButton(e)) return;
   if (!canDrawInCurrentLayer(ctx)) {
     clearSnapTargetIfAny();
     return;
@@ -163,6 +239,11 @@ function onMouseDown(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
     return;
   }
 
+  if (isDrawingState(state) && isMiddleMouseButton(e)) {
+    startMiddlePan(ctx, e);
+    return;
+  }
+
   const selectedDrag = handleSelectedMouseDown(ctx.map, ctx.actorRef, e);
   if (selectedDrag.handled) {
     if ('centerGrabOffset' in selectedDrag) {
@@ -176,6 +257,8 @@ function onMouseDown(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
 }
 
 function onClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  if (!isPrimaryMouseButton(e) && isDrawingState(ctx.actorRef.getSnapshot().value as string))
+    return;
   if (isClickAfterDrag(ctx, e)) return;
   if (handleBoundaryBrushInput(ctx, e)) return;
   if (handleConnectModeClick(ctx.actorRef, hitTest(ctx), e)) return;
@@ -188,6 +271,12 @@ function onClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
 }
 
 function onMouseMove(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
+  if (ctx.mutable.middlePanLastScreenPos) {
+    if (isMiddleMouseDragging(e)) updateMiddlePan(ctx, e);
+    else endMiddlePan(ctx, e);
+    return;
+  }
+
   ctx.cursorScheduler.schedule([e.lngLat.lng, e.lngLat.lat]);
   const snap = ctx.actorRef.getSnapshot();
   const state = snap.value as string;
@@ -235,6 +324,11 @@ function onMouseUp(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   const snap = ctx.actorRef.getSnapshot();
   const state = snap.value as string;
 
+  if (ctx.mutable.middlePanLastScreenPos) {
+    endMiddlePan(ctx, e);
+    return;
+  }
+
   if (ctx.mutable.boundaryBrushDragging) {
     handleBoundaryBrushInput(ctx, e);
     ctx.mutable.boundaryBrushDragging = false;
@@ -254,6 +348,7 @@ function onMouseUp(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   }
 
   ctx.mutable.centerGrabOffset = null;
+  if (!isPrimaryMouseButton(e) && isDrawingState(state)) return;
   ctx.actorRef.send({ type: 'MOUSE_UP', point: applySnap(ctx, toLngLat(e)) });
 }
 
@@ -284,6 +379,7 @@ function handleEditingMouseUp(
 
 function onDblClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   e.preventDefault();
+  if (!isPrimaryMouseButton(e)) return;
   ctx.mutable.lastDrawInput = null;
   if (!canDrawInCurrentLayer(ctx)) return;
   ctx.actorRef.send({ type: 'DOUBLE_CLICK', point: applySnap(ctx, toLngLat(e)) });
@@ -324,6 +420,7 @@ export function createRouterContext(
     mutable: {
       mouseDownScreenPos: null,
       centerGrabOffset: null,
+      middlePanLastScreenPos: null,
       lastDrawInput: null,
       boundaryBrushDragging: false,
       lastBoundaryBrushHit: null,
