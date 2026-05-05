@@ -1,10 +1,6 @@
 import { toLngLat } from '@/core/geometry/coords';
 import type { LngLat } from '@/core/geometry/interpolate';
-import {
-  polygonGeometry,
-  polylineSelfIntersects,
-  unionPolygonGeometry,
-} from '@/core/geometry/polygonGeometry';
+import { polygonGeometry, unionPolygonGeometry } from '@/core/geometry/polygonGeometry';
 import type { GeoPoint } from '@/types/entities';
 import { offsetPolylineDeg } from './offsetPolyline';
 
@@ -29,27 +25,14 @@ export function laneFillGeometry({
   const leftCoords = leftEdge.map(toLngLat);
   const rightCoords = rightEdge.map(toLngLat);
   const wholeRing = [...leftCoords, ...[...rightCoords].reverse()];
+  if (!syntheticEdges) return polygonGeometry(wholeRing);
+
   const rings =
     leftEdge.length === rightEdge.length
       ? laneSegmentRingsFromEdges(leftCoords, rightCoords)
       : laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
-  const wholeGeometry = polygonGeometry(wholeRing);
-  if (!shouldSegmentLaneFill(centerPts, wholeGeometry, rings, syntheticEdges)) return wholeGeometry;
   if (rings.length === 0) return polygonGeometry(wholeRing);
   return unionPolygonGeometry(rings) ?? polygonGeometry(wholeRing);
-}
-
-function shouldSegmentLaneFill(
-  centerPts: readonly GeoPoint[],
-  wholeGeometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
-  rings: readonly LngLat[][],
-  syntheticEdges: boolean,
-): boolean {
-  if (polylineSelfIntersects(centerPts.map(toLngLat))) return true;
-  if (!syntheticEdges) return false;
-  const segmentedArea = rings.reduce((sum, ring) => sum + ringAreaAbs(ring), 0);
-  if (segmentedArea <= 1e-18) return false;
-  return geometryArea(wholeGeometry) > segmentedArea * 2.5;
 }
 
 function laneSegmentRingsFromEdges(
@@ -95,27 +78,6 @@ function ringAreaAbs(ring: readonly LngLat[]): number {
     const a = ring[j]!;
     const b = ring[i]!;
     area2 += a[0] * b[1] - b[0] * a[1];
-  }
-  return Math.abs(area2 / 2);
-}
-
-function geometryArea(geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon): number {
-  if (geometry.type === 'Polygon') return polygonArea(geometry.coordinates);
-  return geometry.coordinates.reduce((sum, polygon) => sum + polygonArea(polygon), 0);
-}
-
-function polygonArea(polygon: GeoJSON.Position[][]): number {
-  const outer = positionRingArea(polygon[0] ?? []);
-  const holes = polygon.slice(1).reduce((sum, ring) => sum + positionRingArea(ring), 0);
-  return Math.max(0, outer - holes);
-}
-
-function positionRingArea(ring: GeoJSON.Position[]): number {
-  let area2 = 0;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[j]!;
-    const b = ring[i]!;
-    area2 += (a[0] ?? 0) * (b[1] ?? 0) - (b[0] ?? 0) * (a[1] ?? 0);
   }
   return Math.abs(area2 / 2);
 }

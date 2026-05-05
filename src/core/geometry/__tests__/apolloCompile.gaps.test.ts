@@ -368,6 +368,30 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     expect(geometryArea(fill!.geometry)).toBeLessThan(5);
   });
 
+  it('folded drawn lane fill remains the union of segment strips', () => {
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [7, 1],
+        [7, -4],
+        [5, -1],
+        [1, 3],
+      ],
+      [],
+      { laneHalfWidth: 0.25 },
+    ) as LaneEntity;
+
+    const features = compileApolloFeatures(lane);
+    const fill = features.find((feature) => feature.properties?.noStroke === true) as
+      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+      | undefined;
+
+    expect(fill).toBeDefined();
+    expect(geometryArea(fill!.geometry)).toBeLessThan(12);
+  });
+
   it('orients reversed imported boundaries to the central curve direction', () => {
     const center = [pt(116, 39.9), pt(116.001, 39.9)];
     const leftBoundary = [pt(116.001, 39.901), pt(116, 39.901)];
