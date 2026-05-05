@@ -8,7 +8,11 @@ import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
-import { normalizePolylineDrawPoints } from '@/core/geometry/drawPoints';
+import {
+  DRAW_FINISH_CLUSTER_METERS,
+  normalizePolylineDrawPoints,
+} from '@/core/geometry/drawPoints';
+import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import { createEntity as createApolloEntity } from '@/lib/entityOps';
 import { nextEntityId } from '@/lib/idGenerator';
 import type {
@@ -32,6 +36,13 @@ export interface MapEditingSession {
   exportApolloRawElement(entity: MapEntity): unknown | null;
 }
 
+interface CreateDrawnEntityOptions {
+  laneHalfWidth?: number;
+  laneSpeedLimit?: number;
+  laneBoundaryType?: BoundaryLineType;
+  entities?: ReadonlyMap<string, MapEntity>;
+}
+
 export function hasDrawableGeometry(
   state: string,
   points: LngLat[],
@@ -47,31 +58,23 @@ export function hasDrawableGeometry(
   );
 }
 
-export function createDrawnEntity(
-  state: string,
-  points: LngLat[],
-  anchors: BezierAnchor[],
+function finishClusterMetersForElement(
   element: MapElementType | null,
-  options?: {
-    laneHalfWidth?: number;
-    laneSpeedLimit?: number;
-    laneBoundaryType?: BoundaryLineType;
-    entities?: ReadonlyMap<string, MapEntity>;
-  },
+  options: CreateDrawnEntityOptions | undefined,
+): number {
+  if (element !== 'lane') return DRAW_FINISH_CLUSTER_METERS;
+  return Math.max(
+    DRAW_FINISH_CLUSTER_METERS,
+    (options?.laneHalfWidth ?? DEFAULT_LANE_HALF_WIDTH) * 2,
+  );
+}
+
+function createPrimitiveDrawnEntity(
+  state: string,
+  drawPoints: LngLat[],
+  anchors: BezierAnchor[],
+  entities: ReadonlyMap<string, MapEntity> | undefined,
 ): MapEntity | null {
-  const drawPoints = normalizePolylineDrawPoints(state, points);
-  if (!hasDrawableGeometry(state, drawPoints, anchors)) return null;
-
-  if (element) {
-    return createApolloEntity(element, state, drawPoints, anchors, {
-      laneHalfWidth: options?.laneHalfWidth,
-      laneSpeedLimit: options?.laneSpeedLimit,
-      laneBoundaryType: options?.laneBoundaryType,
-      entities: options?.entities,
-    });
-  }
-
-  const entities = options?.entities;
   if (state === 'drawPolyline' || state === 'drawCatmullRom') {
     const entityType = state === 'drawPolyline' ? 'polyline' : 'catmullRom';
     return {
@@ -119,6 +122,30 @@ export function createDrawnEntity(
   }
 
   return null;
+}
+
+export function createDrawnEntity(
+  state: string,
+  points: LngLat[],
+  anchors: BezierAnchor[],
+  element: MapElementType | null,
+  options?: CreateDrawnEntityOptions,
+): MapEntity | null {
+  const drawPoints = normalizePolylineDrawPoints(state, points, {
+    finishClusterMeters: finishClusterMetersForElement(element, options),
+  });
+  if (!hasDrawableGeometry(state, drawPoints, anchors)) return null;
+
+  if (element) {
+    return createApolloEntity(element, state, drawPoints, anchors, {
+      laneHalfWidth: options?.laneHalfWidth,
+      laneSpeedLimit: options?.laneSpeedLimit,
+      laneBoundaryType: options?.laneBoundaryType,
+      entities: options?.entities,
+    });
+  }
+
+  return createPrimitiveDrawnEntity(state, drawPoints, anchors, options?.entities);
 }
 
 export function createMapEditingSession(seed?: Iterable<MapEntity>): MapEditingSession {
