@@ -15,6 +15,8 @@ import { useApolloMapStore } from '@/store/apolloMapStore';
 import { useLicenseStore } from '@/store/licenseStore';
 import type { ApolloMapImportInfo } from '@/store/apolloMapStore';
 import type { LicenseState } from '@/lib/license-bridge';
+import { formatLicenseExpirySummary, formatTrialShortLabel } from '@/lib/licenseDisplay';
+import { useNow } from '@/hooks/useNow';
 import type { LngLat } from '@/core/geometry/interpolate';
 
 interface StatusBarProps {
@@ -184,17 +186,21 @@ function StatusRight({
 }
 
 function LicenseStatusPill({ state }: { state: LicenseState }) {
+  const now = useNow();
   const ok = state.canEdit;
   const Icon = ok ? FaShield : FaTriangleExclamation;
+  const summary = formatLicenseExpirySummary(state, now);
+  const label = state.status === 'trial' ? formatTrialShortLabel(state, now) : state.status;
+
   return (
     <div
       className={`flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] ${
         ok ? 'border-emerald-500/20 text-emerald-300' : 'border-amber-500/30 text-amber-200'
       }`}
-      title={state.reason}
+      title={state.reason ? `${summary} · ${state.reason}` : summary}
     >
       <Icon className="w-3 h-3" />
-      <span>{state.status}</span>
+      <span>{label}</span>
     </div>
   );
 }

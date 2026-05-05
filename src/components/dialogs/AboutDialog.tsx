@@ -10,6 +10,8 @@ import {
 } from 'react-icons/fa6';
 import { appBridge, type AppRuntimeInfo } from '@/lib/app-bridge';
 import type { LicenseState } from '@/lib/license-bridge';
+import { formatLicenseExpirySummary, formatLocalDateTime } from '@/lib/licenseDisplay';
+import { useNow } from '@/hooks/useNow';
 import { useLicenseStore } from '@/store/licenseStore';
 
 interface AboutDialogProps {
@@ -55,11 +57,6 @@ function VersionDetails({ runtimeInfo }: { runtimeInfo: AppRuntimeInfo }) {
   );
 }
 
-function formatDate(value: number): string {
-  if (!value) return 'Never';
-  return new Date(value).toLocaleString();
-}
-
 function licenseStatusLabel(state: LicenseState): string {
   switch (state.status) {
     case 'activated':
@@ -83,28 +80,19 @@ function licenseStatusLabel(state: LicenseState): string {
   }
 }
 
-function trialSummary(state: LicenseState): string {
-  if (state.status === 'activated' && state.license) {
-    return state.license.expires === 0
-      ? 'Perpetual license'
-      : `Expires ${formatDate(state.license.expires)}`;
-  }
-  if (state.hoursRemaining !== null && state.hoursRemaining <= 24) {
-    return `${state.hoursRemaining} hours remaining`;
-  }
-  if (state.daysRemaining !== null) {
-    return `${state.daysRemaining} days remaining`;
-  }
-  return state.reason || 'No trial window reported';
+function trialSummary(state: LicenseState, now: number): string {
+  return formatLicenseExpirySummary(state, now);
 }
 
 function LicenseDetails() {
   const state = useLicenseStore((s) => s.state);
   const initialized = useLicenseStore((s) => s.initialized);
   const promptActivation = useLicenseStore((s) => s.promptActivation);
+  const now = useNow();
   const [copied, setCopied] = useState(false);
   const blocked = !state.canEdit;
   const StatusIcon = blocked ? FaTriangleExclamation : FaShield;
+  const summary = trialSummary(state, now);
 
   const copyMachineCode = async () => {
     try {
@@ -127,7 +115,7 @@ function LicenseDetails() {
             <div className="min-w-0">
               <h3 className="text-xs font-medium text-zinc-200">License & Activation</h3>
               <p className="truncate text-[11px] text-zinc-500">
-                {initialized ? state.reason || trialSummary(state) : 'Checking license state...'}
+                {initialized ? summary : 'Checking license state...'}
               </p>
             </div>
           </div>
@@ -144,12 +132,12 @@ function LicenseDetails() {
         <dl className="divide-y divide-white/10">
           <LicenseRow label="Status" value={licenseStatusLabel(state)} />
           <LicenseRow label="Access" value={state.canEdit ? 'Editing enabled' : 'Read-only'} />
-          <LicenseRow label="Trial / Expiry" value={trialSummary(state)} />
+          <LicenseRow label="Trial / Expiry" value={summary} />
           {state.license ? (
             <>
               <LicenseRow label="License name" value={state.license.name || 'Unnamed license'} />
               <LicenseRow label="License ID" value={state.license.id} mono />
-              <LicenseRow label="Issued" value={formatDate(state.license.issued)} />
+              <LicenseRow label="Issued" value={formatLocalDateTime(state.license.issued)} />
             </>
           ) : null}
           <div className="grid grid-cols-[8rem_minmax(0,1fr)_max-content] items-center gap-3 px-3 py-2">

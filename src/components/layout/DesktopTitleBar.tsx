@@ -11,6 +11,8 @@ import {
 import logoUrl from '@/assets/logo.svg';
 import { appBridge, isDesktopRuntime, type DesktopWindowState } from '@/lib/app-bridge';
 import type { LicenseState } from '@/lib/license-bridge';
+import { formatLicenseExpirySummary, formatTrialShortLabel } from '@/lib/licenseDisplay';
+import { useNow } from '@/hooks/useNow';
 import { useLicenseStore } from '@/store/licenseStore';
 
 interface DesktopTitleBarProps {
@@ -25,17 +27,19 @@ function platformLabel(platform: string | undefined): string {
   return platform;
 }
 
-function licenseLabel(state: LicenseState) {
+function licenseLabel(state: LicenseState, now: number) {
+  if (state.status === 'trial') return formatTrialShortLabel(state, now);
   if (state.status === 'activated') return 'Licensed';
-  if (state.status === 'trial') return `Trial ${state.daysRemaining ?? 0}d`;
   return 'Read-only';
 }
 
 function LicenseChip() {
   const state = useLicenseStore((s) => s.state);
   const promptActivation = useLicenseStore((s) => s.promptActivation);
+  const now = useNow();
   const ok = state.canEdit;
   const Icon = ok ? FaShield : FaTriangleExclamation;
+  const summary = formatLicenseExpirySummary(state, now);
 
   return (
     <button
@@ -46,10 +50,10 @@ function LicenseChip() {
           ? 'border-white/10 text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
           : 'border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
       }`}
-      title={state.reason}
+      title={state.reason ? `${summary} · ${state.reason}` : summary}
     >
       <Icon className="h-3 w-3" />
-      {licenseLabel(state)}
+      {licenseLabel(state, now)}
     </button>
   );
 }
