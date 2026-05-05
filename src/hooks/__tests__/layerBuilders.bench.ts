@@ -66,6 +66,7 @@ function overlayState(currentState: string, count: number): OverlayRenderState {
     drawPoints: points(count),
     previewPoint: [116.5, 39.91],
     bezierAnchors: anchors(count),
+    canRenderOverlay: true,
   };
 }
 

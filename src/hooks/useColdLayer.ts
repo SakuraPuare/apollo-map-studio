@@ -6,6 +6,8 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
 import { useSettingsStore, type SettingsState } from '@/store/settingsStore';
 import { useTaskProgressStore } from '@/store/taskProgressStore';
+import { useUIStore } from '@/store/uiStore';
+import { filterVisibleEntities, selectedInteractiveEntityId } from '@/lib/layerState';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 import type { EntityFeatureGroup, SerializedEntity } from '@/core/workers/protocol';
 import { COLD_LAYER_IDS, buildColdLayerFilter } from '@/components/map/coldLayerConfig';
@@ -189,6 +191,7 @@ interface ColdLayerSyncContext {
 interface ColdLayerSubscriptions {
   actorSubscription: { unsubscribe(): void };
   unsubscribeStore: () => void;
+  unsubscribeUI: () => void;
   unsubscribeSettings: () => void;
 }
 
@@ -279,7 +282,10 @@ function syncColdLayer(context: ColdLayerSyncContext) {
   const src = map.getSource('cold') as maplibregl.GeoJSONSource | undefined;
   if (!src) return;
 
-  const entities = useMapStore.getState().entities;
+  const entities = filterVisibleEntities(
+    useMapStore.getState().entities,
+    useUIStore.getState().layerStates,
+  );
   const snapshot = cloneEntities(entities);
   const previousSnapshot = refs.prevEntitiesRef.current;
   const requestVersion = ++refs.syncVersionRef.current;
@@ -311,6 +317,7 @@ function cancelScheduledSync(syncFrameRef: React.MutableRefObject<number | null>
 function unsubscribeColdLayer(subscriptions: ColdLayerSubscriptions) {
   subscriptions.actorSubscription.unsubscribe();
   subscriptions.unsubscribeStore();
+  subscriptions.unsubscribeUI();
   subscriptions.unsubscribeSettings();
 }
 
@@ -347,7 +354,14 @@ function setupColdLayerSync({
 
   const applySelection = () => {
     if (!mapLoadedRef.current) return;
-    applyColdSelectionFilter(map, refs.selectedEntityIdRef.current);
+    applyColdSelectionFilter(
+      map,
+      selectedInteractiveEntityId(
+        refs.selectedEntityIdRef.current,
+        useMapStore.getState().entities,
+        useUIStore.getState().layerStates,
+      ),
+    );
   };
 
   const onActorChange = () => {
@@ -363,6 +377,12 @@ function setupColdLayerSync({
       scheduleSync();
     }
   });
+  const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
+    if (state.layerStates !== prevState.layerStates) {
+      scheduleSync();
+      applySelection();
+    }
+  });
   const unsubscribeSettings = useSettingsStore.subscribe((state, prevState) => {
     if (!hasColdRenderSettingsChanged(state, prevState)) return;
     refs.prevEntitiesRef.current = null;
@@ -372,6 +392,7 @@ function setupColdLayerSync({
   const subscriptions: ColdLayerSubscriptions = {
     actorSubscription,
     unsubscribeStore,
+    unsubscribeUI,
     unsubscribeSettings,
   };
 

@@ -3,6 +3,7 @@ import type maplibregl from 'maplibre-gl';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { useMapStore } from '@/store/mapStore';
+import { isEntityTypeInteractive, useUIStore, type LayerStates } from '@/store/uiStore';
 import { entityToHotFeatures } from '@/lib/geoJsonHelpers';
 import { applyDrag } from '@/components/map/entityMutations';
 import type { DragPointType } from '@/types/editor';
@@ -19,6 +20,7 @@ export type HotRenderState = {
   dragPointType: DragPointType;
   dragCurrentPoint: LngLat | null;
   dragAltKey: boolean;
+  canRenderEntity: boolean;
 };
 
 export function samePoint(a: LngLat | null, b: LngLat | null) {
@@ -36,8 +38,13 @@ export function sameHotRenderState(a: HotRenderState | null, b: HotRenderState) 
     a.dragPointIndex === b.dragPointIndex &&
     a.dragPointType === b.dragPointType &&
     a.dragAltKey === b.dragAltKey &&
+    a.canRenderEntity === b.canRenderEntity &&
     samePoint(a.dragCurrentPoint, b.dragCurrentPoint)
   );
+}
+
+export function canRenderHotEntity(entity: MapEntity, layerStates: LayerStates): boolean {
+  return isEntityTypeInteractive(layerStates, entity.entityType);
 }
 
 export function useHotLayer(
@@ -64,6 +71,7 @@ export function useHotLayer(
       const entity = selectedEntityId
         ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
         : null;
+      const layerStates = useUIStore.getState().layerStates;
       const nextState: HotRenderState = {
         selectedEntityId,
         entity,
@@ -72,12 +80,13 @@ export function useHotLayer(
         dragPointType: snapshot.context.dragPointType,
         dragCurrentPoint: snapshot.context.dragCurrentPoint,
         dragAltKey: snapshot.context.dragAltKey,
+        canRenderEntity: entity ? canRenderHotEntity(entity, layerStates) : false,
       };
 
       if (sameHotRenderState(lastRenderState, nextState)) return;
       lastRenderState = nextState;
 
-      if (!selectedEntityId || !entity) {
+      if (!selectedEntityId || !entity || !nextState.canRenderEntity) {
         src.setData(EMPTY_FC);
         return;
       }
@@ -111,6 +120,11 @@ export function useHotLayer(
         scheduleRender();
       }
     });
+    const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
+      if (state.layerStates !== prevState.layerStates) {
+        scheduleRender();
+      }
+    });
 
     if (mapLoadedRef.current) {
       scheduleRender();
@@ -121,6 +135,7 @@ export function useHotLayer(
     return () => {
       actorSubscription.unsubscribe();
       unsubscribeStore();
+      unsubscribeUI();
       map.off('load', scheduleRender);
       if (frameId !== null) {
         cancelAnimationFrame(frameId);

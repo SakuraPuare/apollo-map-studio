@@ -6,13 +6,23 @@ import { readGridEnabled, readSnapEnabled, useSettingsStore } from './settingsSt
 // ─── Entity type visibility / lock state ────────────────────
 
 const ENTITY_TYPES = [
+  'road',
   'lane',
   'junction',
   'parkingSpace',
+  'parkingLot',
   'signal',
   'crosswalk',
   'stopSign',
+  'yieldSign',
   'speedBump',
+  'clearArea',
+  'pncJunction',
+  'rsu',
+  'area',
+  'barrierGate',
+  'overlap',
+  'speedControl',
   'polyline',
   'catmullRom',
   'bezier',
@@ -21,9 +31,23 @@ const ENTITY_TYPES = [
   'polygon',
 ] as const;
 
-interface LayerState {
+export interface LayerState {
   visible: boolean;
   locked: boolean;
+}
+
+export type LayerStates = Record<string, LayerState>;
+
+export function isEntityTypeVisible(layerStates: LayerStates, type: string): boolean {
+  return layerStates[type]?.visible ?? true;
+}
+
+export function isEntityTypeLocked(layerStates: LayerStates, type: string): boolean {
+  return layerStates[type]?.locked ?? false;
+}
+
+export function isEntityTypeInteractive(layerStates: LayerStates, type: string): boolean {
+  return isEntityTypeVisible(layerStates, type) && !isEntityTypeLocked(layerStates, type);
 }
 
 // ─── UI State ───────────────────────────────────────────────
@@ -39,7 +63,7 @@ interface UIState {
   snapEnabled: boolean;
 
   // Layer visibility/lock
-  layerStates: Record<string, LayerState>;
+  layerStates: LayerStates;
 
   // Viewport info (from MapLibre)
   cursorLngLat: [number, number] | null;
@@ -110,13 +134,13 @@ type UIGet = Parameters<StateCreator<UIStore>>[1];
 const DEFAULT_LAYER_STATE: LayerState = { visible: true, locked: false };
 
 // Initialize all entity types as visible and unlocked
-const defaultLayerStates: Record<string, LayerState> = {};
+const defaultLayerStates: LayerStates = {};
 for (const type of ENTITY_TYPES) {
   defaultLayerStates[type] = { ...DEFAULT_LAYER_STATE };
 }
 
 function patchLayer(
-  layerStates: Record<string, LayerState>,
+  layerStates: LayerStates,
   type: string,
   patch: Partial<LayerState>,
 ): Record<string, LayerState> {
@@ -196,10 +220,10 @@ function createUIActions(set: UISet, get: UIGet): CoreUIActions {
       }));
     },
     isLayerVisible(type) {
-      return get().layerStates[type]?.visible ?? true;
+      return isEntityTypeVisible(get().layerStates, type);
     },
     isLayerLocked(type) {
-      return get().layerStates[type]?.locked ?? false;
+      return isEntityTypeLocked(get().layerStates, type);
     },
 
     setCursorLngLat(pos) {

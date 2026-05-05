@@ -2,6 +2,7 @@ import type maplibregl from 'maplibre-gl';
 import type { LngLat } from '@/core/geometry/interpolate';
 import type { SpatialWorkerBridge } from '@/core/workers/spatialBridge';
 import { useSettingsStore } from '@/store/settingsStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 
 export type HitFilter = (entityType: string) => boolean;
 
@@ -39,7 +40,11 @@ export function workerHitTest(
     })
     .then((result) => {
       if (result.type !== 'HIT_RESULT' || result.hits.length === 0) return null;
-      const hit = filter ? result.hits.find((h) => filter(h.entityType)) : result.hits[0];
+      const layerStates = useUIStore.getState().layerStates;
+      const hit = result.hits.find((h) => {
+        if (!isEntityTypeInteractive(layerStates, h.entityType)) return false;
+        return filter ? filter(h.entityType) : true;
+      });
       return hit?.id ?? null;
     })
     .catch(() => null);

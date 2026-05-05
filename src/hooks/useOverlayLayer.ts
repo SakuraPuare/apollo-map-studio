@@ -13,8 +13,9 @@ import {
 } from '@/core/geometry/interpolate';
 import { lineFeature, pointFeature, handleLineFeature, polygonFeature } from '@/lib/geoJsonHelpers';
 import type { LngLat } from '@/core/geometry/interpolate';
-import { useUIStore } from '@/store/uiStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import type { SnapTarget } from '@/core/geometry/snap';
+import { entityTypeForDrawState } from './mapEventRouter/drawLayer';
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
@@ -23,6 +24,7 @@ export type OverlayRenderState = {
   drawPoints: LngLat[];
   previewPoint: LngLat | null;
   bezierAnchors: BezierAnchor[];
+  canRenderOverlay: boolean;
 };
 
 export function samePoint(a: LngLat | null, b: LngLat | null) {
@@ -37,6 +39,7 @@ export function sameOverlayRenderState(a: OverlayRenderState | null, b: OverlayR
     a.currentState === b.currentState &&
     a.drawPoints === b.drawPoints &&
     a.bezierAnchors === b.bezierAnchors &&
+    a.canRenderOverlay === b.canRenderOverlay &&
     samePoint(a.previewPoint, b.previewPoint)
   );
 }
@@ -235,17 +238,24 @@ export function useOverlayLayer(
       if (!src) return;
 
       const snapshot = actorRef.getSnapshot();
+      const activeEntityType = entityTypeForDrawState(
+        snapshot.value as string,
+        snapshot.context.activeElement ?? null,
+      );
       const nextState: OverlayRenderState = {
         currentState: snapshot.value as string,
         drawPoints: snapshot.context.drawPoints,
         previewPoint: snapshot.context.previewPoint,
         bezierAnchors: snapshot.context.bezierAnchors,
+        canRenderOverlay: activeEntityType
+          ? isEntityTypeInteractive(useUIStore.getState().layerStates, activeEntityType)
+          : true,
       };
 
       if (sameOverlayRenderState(lastRenderState, nextState)) return;
       lastRenderState = nextState;
 
-      if (!isDrawingState(nextState.currentState)) {
+      if (!isDrawingState(nextState.currentState) || !nextState.canRenderOverlay) {
         src.setData(EMPTY_FC);
         return;
       }
@@ -262,6 +272,11 @@ export function useOverlayLayer(
     };
 
     const actorSubscription = actorRef.subscribe(scheduleRender);
+    const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
+      if (state.layerStates !== prevState.layerStates) {
+        scheduleRender();
+      }
+    });
 
     if (mapLoadedRef.current) {
       scheduleRender();
@@ -271,6 +286,7 @@ export function useOverlayLayer(
 
     return () => {
       actorSubscription.unsubscribe();
+      unsubscribeUI();
       map.off('load', scheduleRender);
       if (frameId !== null) {
         cancelAnimationFrame(frameId);

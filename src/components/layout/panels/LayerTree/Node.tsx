@@ -21,8 +21,9 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
   const toggleLayerVisible = useUIStore((s) => s.toggleLayerVisible);
   const toggleLayerLocked = useUIStore((s) => s.toggleLayerLocked);
   const groupKey = data.kind === 'group' ? (data.entityType ?? '') : '';
-  const isVisible = useUIStore((s) => s.layerStates[groupKey]?.visible ?? true);
-  const isLocked = useUIStore((s) => s.layerStates[groupKey]?.locked ?? false);
+  const layerKey = data.entityType ?? '';
+  const isVisible = useUIStore((s) => s.layerStates[layerKey]?.visible ?? true);
+  const isLocked = useUIStore((s) => s.layerStates[layerKey]?.locked ?? false);
   const removeEntity = useMapStore((s) => s.removeEntity);
   const reparentEntity = useMapStore((s) => s.reparentEntity);
 
@@ -51,11 +52,13 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
 
   const handleDelete = (e: MouseEvent) => {
     e.stopPropagation();
+    if (isLocked) return;
     if (isEntity && data.entityId) removeEntity(data.entityId);
   };
 
   const handleUnparent = (e: MouseEvent) => {
     e.stopPropagation();
+    if (isLocked) return;
     if (isEntity && data.entityId) reparentEntity(data.entityId, { kind: 'none' });
   };
 
@@ -188,7 +191,13 @@ function NodeActions(props: NodeActionsProps) {
           onLockToggle={props.onLockToggle}
         />
       )}
-      {props.isEntity && <EntityActions onUnparent={props.onUnparent} onDelete={props.onDelete} />}
+      {props.isEntity && (
+        <EntityActions
+          disabled={props.isLocked}
+          onUnparent={props.onUnparent}
+          onDelete={props.onDelete}
+        />
+      )}
     </div>
   );
 }
@@ -233,27 +242,41 @@ function GroupActions({
 }
 
 function EntityActions({
+  disabled,
   onUnparent,
   onDelete,
 }: {
+  disabled: boolean;
   onUnparent: (e: MouseEvent) => void;
   onDelete: (e: MouseEvent) => void;
 }) {
   return (
     <>
       <button
+        disabled={disabled}
         onClick={onUnparent}
-        className="p-0.5 hover:bg-white/10 rounded"
-        title="Detach from parent"
+        className={clsx('p-0.5 rounded', disabled ? 'cursor-not-allowed' : 'hover:bg-white/10')}
+        title={disabled ? 'Layer is locked' : 'Detach from parent'}
       >
-        <FaLink className="w-3 h-3 text-zinc-600 hover:text-amber-400" />
+        <FaLink
+          className={clsx(
+            'w-3 h-3',
+            disabled ? 'text-zinc-700' : 'text-zinc-600 hover:text-amber-400',
+          )}
+        />
       </button>
       <button
+        disabled={disabled}
         onClick={onDelete}
-        className="p-0.5 hover:bg-red-500/20 rounded"
-        title="Delete entity"
+        className={clsx('p-0.5 rounded', disabled ? 'cursor-not-allowed' : 'hover:bg-red-500/20')}
+        title={disabled ? 'Layer is locked' : 'Delete entity'}
       >
-        <FaTrash className="w-3 h-3 text-zinc-600 hover:text-red-400" />
+        <FaTrash
+          className={clsx(
+            'w-3 h-3',
+            disabled ? 'text-zinc-700' : 'text-zinc-600 hover:text-red-400',
+          )}
+        />
       </button>
     </>
   );

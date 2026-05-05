@@ -4,6 +4,7 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { useMapStore } from '@/store/mapStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 import type { MapElementType } from '@/core/elements';
 import { useSettingsStore } from '@/store/settingsStore';
 import { createDrawnEntity, hasDrawableGeometry } from '@/core/mapEditingApi';
@@ -31,7 +32,9 @@ function commitEntity(
     laneBoundaryType,
     entities,
   });
-  if (entity) addEntity(entity);
+  if (entity && isEntityTypeInteractive(useUIStore.getState().layerStates, entity.entityType)) {
+    addEntity(entity);
+  }
 }
 
 export function useDrawCommit(actorRef: ActorRefFrom<typeof editorMachine>) {

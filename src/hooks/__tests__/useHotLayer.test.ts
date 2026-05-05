@@ -74,6 +74,7 @@ const makeState = (overrides: Partial<HotRenderState> = {}): HotRenderState => (
   dragPointType: 'vertex' as DragPointType,
   dragCurrentPoint: null,
   dragAltKey: false,
+  canRenderEntity: true,
   ...overrides,
 });
 
@@ -130,6 +131,13 @@ describe('sameHotRenderState', () => {
   it('returns false when dragAltKey differs', () => {
     const a = makeState({ dragAltKey: true });
     const b = makeState({ dragAltKey: false });
+    expect(sameHotRenderState(a, b)).toBe(false);
+  });
+
+  it('returns false when layer render guard differs', () => {
+    const entity = asEntity({});
+    const a = makeState({ entity, canRenderEntity: true });
+    const b = makeState({ entity, canRenderEntity: false });
     expect(sameHotRenderState(a, b)).toBe(false);
   });
 

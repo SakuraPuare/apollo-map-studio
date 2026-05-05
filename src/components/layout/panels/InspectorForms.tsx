@@ -1,4 +1,6 @@
 import type { ReactElement } from 'react';
+import { clsx } from 'clsx';
+import { isEntityTypeLocked, useUIStore } from '@/store/uiStore';
 import type {
   AreaEntity,
   BarrierGateEntity,
@@ -63,6 +65,16 @@ const FORM_RENDERERS: Partial<Record<MapEntity['entityType'], FormRenderer>> = {
 };
 
 export function EntityForm({ entity }: { entity: MapEntity }) {
+  const locked = useUIStore((s) => isEntityTypeLocked(s.layerStates, entity.entityType));
   const renderForm = FORM_RENDERERS[entity.entityType];
-  return renderForm ? renderForm(entity) : <DrawingForm entity={entity} />;
+  return (
+    <fieldset
+      disabled={locked}
+      aria-disabled={locked}
+      className={clsx('m-0 min-w-0 border-0 p-0', locked && 'opacity-60')}
+      title={locked ? 'Layer is locked' : undefined}
+    >
+      {renderForm ? renderForm(entity) : <DrawingForm entity={entity} />}
+    </fieldset>
+  );
 }

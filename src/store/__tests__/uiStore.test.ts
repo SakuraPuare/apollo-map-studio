@@ -33,15 +33,25 @@ describe('uiStore — 默认 state', () => {
     expect(useUIStore.getState().sidebarVisible).toBe(true);
   });
 
-  it('所有 13 种 entity 类型默认 visible / unlocked', () => {
+  it('所有默认 entity 类型默认 visible / unlocked', () => {
     const types = [
+      'road',
       'lane',
       'junction',
       'parkingSpace',
+      'parkingLot',
       'signal',
       'crosswalk',
       'stopSign',
+      'yieldSign',
       'speedBump',
+      'clearArea',
+      'pncJunction',
+      'rsu',
+      'area',
+      'barrierGate',
+      'overlap',
+      'speedControl',
       'polyline',
       'catmullRom',
       'bezier',
@@ -50,6 +60,7 @@ describe('uiStore — 默认 state', () => {
       'polygon',
     ];
     const s = useUIStore.getState();
+    expect(Object.keys(s.layerStates)).toEqual(types);
     for (const t of types) {
       expect(s.isLayerVisible(t)).toBe(true);
       expect(s.isLayerLocked(t)).toBe(false);

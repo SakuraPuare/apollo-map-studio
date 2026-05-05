@@ -4,7 +4,7 @@ import type { editorMachine } from '@/core/fsm/editorMachine';
 import type { LaneEntity } from '@/types/apollo';
 import { applyLaneConnection, planConnection } from '@/core/geometry/connectLanes';
 import { useMapStore } from '@/store/mapStore';
-import { useUIStore } from '@/store/uiStore';
+import { isEntityTypeInteractive, useUIStore } from '@/store/uiStore';
 
 type HitTest = (
   e: maplibregl.MapMouseEvent,
@@ -25,6 +25,7 @@ export function handleConnectModeClick(
 
     const entity = useMapStore.getState().entities.get(hitId);
     if (!entity || entity.entityType !== 'lane') return;
+    if (!isEntityTypeInteractive(current.layerStates, entity.entityType)) return;
 
     if (!current.connectMode.firstLaneId) {
       useUIStore.getState().setConnectFirstLane(hitId);
@@ -35,6 +36,10 @@ export function handleConnectModeClick(
     if (current.connectMode.firstLaneId === hitId) return;
     const source = useMapStore.getState().entities.get(current.connectMode.firstLaneId);
     if (!source || source.entityType !== 'lane') {
+      useUIStore.getState().exitConnectMode();
+      return;
+    }
+    if (!isEntityTypeInteractive(current.layerStates, source.entityType)) {
       useUIStore.getState().exitConnectMode();
       return;
     }

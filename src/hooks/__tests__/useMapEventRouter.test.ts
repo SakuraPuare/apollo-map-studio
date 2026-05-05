@@ -17,7 +17,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isDuplicateInput } from '../useMapEventRouter';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 import { HIT_BBOX_PADDING_PX } from '@/config/mapConstants';
+import { useUIStore } from '@/store/uiStore';
+import { workerHitTest } from '../mapEventRouter/hitTest';
 import { createMapEventHandlers, createRouterContext } from '../mapEventRouter/eventHandlers';
+
+const initialUISnapshot = useUIStore.getState();
+
+beforeEach(() => {
+  useUIStore.setState(initialUISnapshot, true);
+});
 
 // ---------------------------------------------------------------------------
 // 1. isDuplicateInput smoke (full suite in clickDedup.test.ts)
@@ -117,6 +125,36 @@ describe('pixelToRadius', () => {
 
   it('returns 0 for 0 pixels', () => {
     expect(pixelToRadius(0, 15)).toBe(0);
+  });
+});
+
+describe('workerHitTest layer state filtering', () => {
+  function mapStub() {
+    return { getZoom: () => 18 } as never;
+  }
+
+  function mouseEventStub() {
+    return { lngLat: { lng: 116.4, lat: 39.9 } } as never;
+  }
+
+  it('skips hidden and locked layer hits before selecting the first result', async () => {
+    const bridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [
+          { id: 'lane-1', entityType: 'lane', distance: 0 },
+          { id: 'signal-1', entityType: 'signal', distance: 1 },
+        ],
+      }),
+    };
+
+    useUIStore.getState().setLayerVisible('lane', false);
+    await expect(workerHitTest(mapStub(), bridge as never, mouseEventStub())).resolves.toBe(
+      'signal-1',
+    );
+
+    useUIStore.getState().setLayerLocked('signal', true);
+    await expect(workerHitTest(mapStub(), bridge as never, mouseEventStub())).resolves.toBeNull();
   });
 });
 

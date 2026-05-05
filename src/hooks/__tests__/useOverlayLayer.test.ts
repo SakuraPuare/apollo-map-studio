@@ -56,6 +56,7 @@ const makeOverlayState = (overrides: Partial<OverlayRenderState> = {}): OverlayR
   drawPoints: [],
   previewPoint: null,
   bezierAnchors: [],
+  canRenderOverlay: true,
   ...overrides,
 });
 
@@ -115,6 +116,17 @@ describe('sameOverlayRenderState', () => {
         makeOverlayState({ drawPoints: pts, bezierAnchors: anchors, previewPoint: [5, 6] }),
       ),
     ).toBe(true);
+  });
+
+  it('returns false when layer render guard differs', () => {
+    const pts: LngLat[] = [];
+    const anchors: BezierAnchor[] = [];
+    expect(
+      sameOverlayRenderState(
+        makeOverlayState({ drawPoints: pts, bezierAnchors: anchors, canRenderOverlay: true }),
+        makeOverlayState({ drawPoints: pts, bezierAnchors: anchors, canRenderOverlay: false }),
+      ),
+    ).toBe(false);
   });
 });
 

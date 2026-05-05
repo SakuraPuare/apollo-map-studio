@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Tree, type NodeApi, type TreeApi } from 'react-arborist';
 import { FaPlus } from 'react-icons/fa6';
+import { clsx } from 'clsx';
 import { scrollAreaClassName } from '@/components/ui/scroll-area-classes';
-import { canReparent } from '@/lib/entityOps';
+import { canReparent, type ParentTarget } from '@/lib/entityOps';
 import { nextEntityId, nextSubId, SUB_PREFIX } from '@/lib/idGenerator';
 import { useMapStore } from '@/store/mapStore';
-import type { RoadEntity, RSUEntity } from '@/types/apollo';
+import { isEntityTypeLocked, useUIStore, type LayerStates } from '@/store/uiStore';
+import type { LaneEntity, RoadEntity, RSUEntity } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 import { Node } from './LayerTree/Node';
 import { buildTree } from './LayerTree/treeBuilder';
@@ -20,21 +22,24 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   const entities = useMapStore((s) => s.entities);
   const reparentEntity = useMapStore((s) => s.reparentEntity);
   const addEntity = useMapStore((s) => s.addEntity);
+  const layerStates = useUIStore((s) => s.layerStates);
   const treeRef = useRef<TreeApi<TreeNode>>(null);
 
   const treeData = useMemo(() => buildTree(entities), [entities]);
 
   const createRoad = useCallback(() => {
+    if (isEntityTypeLocked(layerStates, 'road')) return;
     const road = makeRoad(entities);
     addEntity(road);
     onSelect?.(road.id);
-  }, [addEntity, entities, onSelect]);
+  }, [addEntity, entities, layerStates, onSelect]);
 
   const createRSU = useCallback(() => {
+    if (isEntityTypeLocked(layerStates, 'rsu')) return;
     const rsu = makeRSU(entities);
     addEntity(rsu);
     onSelect?.(rsu.id);
-  }, [addEntity, entities, onSelect]);
+  }, [addEntity, entities, layerStates, onSelect]);
 
   const handleSelect = useCallback(
     (nodes: NodeApi<TreeNode>[]) => {
@@ -60,9 +65,10 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
 
       const child = entities.get(drag.entityId);
       if (!child) return true;
+      if (isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return true;
       return !canReparent(child, target, entities);
     },
-    [entities],
+    [entities, layerStates],
   );
 
   const handleMove = useCallback(
@@ -77,17 +83,24 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
       if (!drag || drag.kind !== 'entity' || !drag.entityId) return;
       const target = parent?.parentTarget;
       if (!target) return;
+      const child = entities.get(drag.entityId);
+      if (!child || isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return;
       const result = reparentEntity(drag.entityId, target);
       if (result.rejected) {
         console.warn('[LayerTree] reparent rejected:', result.rejected);
       }
     },
-    [reparentEntity],
+    [entities, layerStates, reparentEntity],
   );
 
   return (
     <div className="h-full min-h-0 flex flex-col">
-      <LayerTreeActions onCreateRoad={createRoad} onCreateRSU={createRSU} />
+      <LayerTreeActions
+        roadLocked={isEntityTypeLocked(layerStates, 'road')}
+        rsuLocked={isEntityTypeLocked(layerStates, 'rsu')}
+        onCreateRoad={createRoad}
+        onCreateRSU={createRSU}
+      />
       {treeData.length === 0 ? (
         <LayerTreeEmpty />
       ) : (
@@ -97,6 +110,9 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
           selectedId={selectedId}
           onSelect={handleSelect}
           onMove={handleMove}
+          disableDrag={(node) =>
+            node.kind !== 'entity' || isEntityTypeLocked(layerStates, node.entityType ?? '')
+          }
           disableDrop={checkDisableDrop}
         />
       )}
@@ -123,30 +139,107 @@ function makeRSU(entities: ReadonlyMap<string, MapEntity>): RSUEntity {
   };
 }
 
+function isReparentBlockedByLayerLocks(
+  child: MapEntity,
+  target: ParentTarget,
+  layerStates: LayerStates,
+  entities: ReadonlyMap<string, MapEntity>,
+): boolean {
+  if (isEntityTypeLocked(layerStates, child.entityType)) return true;
+  if (targetLayerIsLocked(target, layerStates)) return true;
+  if (child.entityType === 'lane') {
+    return laneReparentTouchesLockedLayer(child, target, layerStates, entities);
+  }
+  return parentJunctionIsLocked(child, layerStates);
+}
+
+function targetLayerIsLocked(target: ParentTarget, layerStates: LayerStates): boolean {
+  if (target.kind === 'junction') return isEntityTypeLocked(layerStates, 'junction');
+  if (target.kind === 'road' || target.kind === 'roadSection') {
+    return isEntityTypeLocked(layerStates, 'road');
+  }
+  return false;
+}
+
+function laneReparentTouchesLockedLayer(
+  lane: LaneEntity,
+  target: ParentTarget,
+  layerStates: LayerStates,
+  entities: ReadonlyMap<string, MapEntity>,
+): boolean {
+  if (laneTouchesLockedRoad(lane.id, target, layerStates, entities)) return true;
+  return Boolean(lane.junctionId && isEntityTypeLocked(layerStates, 'junction'));
+}
+
+function laneTouchesLockedRoad(
+  laneId: string,
+  target: ParentTarget,
+  layerStates: LayerStates,
+  entities: ReadonlyMap<string, MapEntity>,
+): boolean {
+  if (!isEntityTypeLocked(layerStates, 'road')) return false;
+  if (target.kind === 'road' || target.kind === 'roadSection') return true;
+  return laneIsAssignedToRoad(laneId, entities);
+}
+
+function parentJunctionIsLocked(child: MapEntity, layerStates: LayerStates): boolean {
+  if (!isEntityTypeLocked(layerStates, 'junction')) return false;
+  if (child.entityType === 'road') return Boolean(child.junctionId);
+  if (child.entityType === 'rsu') return Boolean(child.junctionId);
+  return false;
+}
+
+function laneIsAssignedToRoad(laneId: string, entities: ReadonlyMap<string, MapEntity>): boolean {
+  for (const entity of entities.values()) {
+    if (entity.entityType !== 'road') continue;
+    if (entity.sections.some((section) => section.laneIds.includes(laneId))) return true;
+  }
+  return false;
+}
+
 function LayerTreeActions({
+  roadLocked,
+  rsuLocked,
   onCreateRoad,
   onCreateRSU,
 }: {
+  roadLocked: boolean;
+  rsuLocked: boolean;
   onCreateRoad: () => void;
   onCreateRSU: () => void;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
       <button
+        disabled={roadLocked}
         onClick={onCreateRoad}
-        className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
-        title="新建 Road（之后拖 lane 进 Section 完成 assign）"
+        className={createButtonClass(roadLocked)}
+        title={
+          roadLocked ? 'Road layer is locked' : '新建 Road（之后拖 lane 进 Section 完成 assign）'
+        }
       >
         <FaPlus className="w-2.5 h-2.5" /> Road
       </button>
       <button
+        disabled={rsuLocked}
         onClick={onCreateRSU}
-        className="flex items-center gap-1 text-[11px] text-zinc-300 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
-        title="新建 RSU（之后拖到某个 Junction 下完成 assign）"
+        className={createButtonClass(rsuLocked)}
+        title={
+          rsuLocked ? 'RSU layer is locked' : '新建 RSU（之后拖到某个 Junction 下完成 assign）'
+        }
       >
         <FaPlus className="w-2.5 h-2.5" /> RSU
       </button>
     </div>
+  );
+}
+
+function createButtonClass(disabled: boolean) {
+  return clsx(
+    'flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded',
+    disabled
+      ? 'cursor-not-allowed text-zinc-600'
+      : 'text-zinc-300 hover:text-white hover:bg-white/5',
   );
 }
 
@@ -169,6 +262,7 @@ interface LayerTreeViewProps {
     parentId: string | null;
     parentNode: NodeApi<TreeNode> | null;
   }) => void;
+  disableDrag: (node: TreeNode) => boolean;
   disableDrop: (args: {
     parentNode: NodeApi<TreeNode> | null;
     dragNodes: NodeApi<TreeNode>[];
@@ -181,6 +275,7 @@ function LayerTreeView({
   selectedId,
   onSelect,
   onMove,
+  disableDrag,
   disableDrop,
 }: LayerTreeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -202,7 +297,7 @@ function LayerTreeView({
           selection={selectedId ? `entity:${selectedId}` : undefined}
           onSelect={onSelect}
           onMove={onMove}
-          disableDrag={(node) => node.kind !== 'entity'}
+          disableDrag={disableDrag}
           disableDrop={disableDrop}
         >
           {Node}

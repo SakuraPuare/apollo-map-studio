@@ -21,6 +21,7 @@ import {
   hasEntityChanges,
   hasColdRenderSettingsChanged,
 } from '../useColdLayer';
+import { filterVisibleEntities, selectedInteractiveEntityId } from '@/lib/layerState';
 import { useSettingsStore } from '@/store/settingsStore';
 
 type _EntitySnapshot = Map<string, SerializedEntity>;
@@ -39,8 +40,8 @@ function makeFeature(id: string, idx = 0): GeoJSON.Feature {
 // ---------------------------------------------------------------------------
 // Helper: make a minimal SerializedEntity stub
 // ---------------------------------------------------------------------------
-function makeEntity(id: string): SerializedEntity {
-  return { id, entityType: 'polyline', points: [] };
+function makeEntity(id: string, entityType = 'polyline'): SerializedEntity {
+  return { id, entityType, points: [] } as SerializedEntity;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,45 @@ describe('flattenEntityFeatures', () => {
     const fc = flattenEntityFeatures(cache);
     // Order may differ between groups, but total count matches.
     expect(fc.features).toHaveLength(origFeatures.length);
+  });
+});
+
+describe('layer visibility helpers', () => {
+  it('filters hidden entity types out of the cold sync snapshot', () => {
+    const lane = makeEntity('lane-1', 'lane');
+    const signal = makeEntity('signal-1', 'signal');
+    const entities = new Map([
+      [lane.id, lane],
+      [signal.id, signal],
+    ]);
+
+    const visible = filterVisibleEntities(entities, {
+      lane: { visible: false, locked: false },
+      signal: { visible: true, locked: false },
+    });
+
+    expect([...visible.keys()]).toEqual(['signal-1']);
+  });
+
+  it('only excludes selected entities from cold layers when the hot layer can render them', () => {
+    const lane = makeEntity('lane-1', 'lane');
+    const entities = new Map([[lane.id, lane]]);
+
+    expect(
+      selectedInteractiveEntityId('lane-1', entities, {
+        lane: { visible: true, locked: false },
+      }),
+    ).toBe('lane-1');
+    expect(
+      selectedInteractiveEntityId('lane-1', entities, {
+        lane: { visible: false, locked: false },
+      }),
+    ).toBeNull();
+    expect(
+      selectedInteractiveEntityId('lane-1', entities, {
+        lane: { visible: true, locked: true },
+      }),
+    ).toBeNull();
   });
 });
 

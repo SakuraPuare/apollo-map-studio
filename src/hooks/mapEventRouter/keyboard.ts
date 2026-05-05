@@ -2,7 +2,7 @@ import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 import { deleteVertex } from '@/components/map/entityMutations';
 import { useMapStore } from '@/store/mapStore';
-import { useUIStore } from '@/store/uiStore';
+import { isEntityTypeLocked, useUIStore } from '@/store/uiStore';
 
 export function handleMapKeyDown(
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -27,6 +27,7 @@ export function handleMapKeyDown(
   const store = useMapStore.getState();
   const entity = store.entities.get(id);
   if (!entity) return;
+  if (isEntityTypeLocked(useUIStore.getState().layerStates, entity.entityType)) return;
 
   const idx = snap.context.dragPointIndex;
   const pType = snap.context.dragPointType;
