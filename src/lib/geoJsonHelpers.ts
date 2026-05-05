@@ -11,6 +11,7 @@ import {
 } from '@/core/geometry/interpolate';
 import { anchorToRuntime } from '@/core/geometry/anchorConvert';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
+import { polygonGeometry } from '@/core/geometry/polygonGeometry';
 import { getEditPoints, isPolygonEditEntity } from '@/lib/entityOps';
 import type {
   ArcEntity,
@@ -56,14 +57,10 @@ export function polygonFeature(
   coords: LngLat[],
   props: Record<string, unknown> = {},
 ): GeoJSON.Feature {
-  const first = coords[0];
-  const last = coords[coords.length - 1];
-  const ring =
-    first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return {
     type: 'Feature',
     properties: { ...props },
-    geometry: { type: 'Polygon', coordinates: [ring] },
+    geometry: polygonGeometry(coords),
   };
 }
 

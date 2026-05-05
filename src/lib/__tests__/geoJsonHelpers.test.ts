@@ -87,6 +87,18 @@ describe('lineFeature / pointFeature / polygonFeature / handleLineFeature', () =
     const coords = (f.geometry as GeoJSON.Polygon).coordinates[0]!;
     expect(coords.length).toBe(closed.length);
   });
+
+  it('polygonFeature 遇到自交环时输出 MultiPolygon，避免 fill 三角剖分乱连', () => {
+    const f = polygonFeature([
+      [0, 0],
+      [3, 3],
+      [2, 0],
+      [0, 2],
+    ]);
+
+    expect(f.geometry.type).toBe('MultiPolygon');
+    expect((f.geometry as GeoJSON.MultiPolygon).coordinates).toHaveLength(2);
+  });
 });
 
 // ── entityToHotFeatures ────────────────────────────────────────

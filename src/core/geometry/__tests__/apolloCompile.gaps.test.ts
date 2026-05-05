@@ -297,6 +297,30 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     ]);
   });
 
+  it('normalizes a self-intersecting imported lane corridor before fill rendering', () => {
+    const lane = createApolloEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [2, 0],
+      ],
+      [],
+    ) as LaneEntity;
+    lane.leftBoundary.curve = pointsToCurve([pt(0, 0), pt(3, 3)]);
+    lane.rightBoundary.curve = pointsToCurve([pt(0, 2), pt(2, 0)]);
+
+    const features = compileApolloFeatures(lane);
+    const fill = features.find(
+      (feature) =>
+        feature.properties?.noStroke === true && feature.geometry.type === 'MultiPolygon',
+    ) as GeoJSON.Feature<GeoJSON.MultiPolygon> | undefined;
+
+    expect(fill).toBeDefined();
+    expect(fill!.geometry.coordinates).toHaveLength(2);
+    expect(features.some((feature) => feature.geometry.type === 'Polygon')).toBe(false);
+  });
+
   it('orients reversed imported boundaries to the central curve direction', () => {
     const center = [pt(116, 39.9), pt(116.001, 39.9)];
     const leftBoundary = [pt(116.001, 39.901), pt(116, 39.901)];

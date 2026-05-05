@@ -1,6 +1,7 @@
 import { DEFAULT_LANE_HALF_WIDTH } from '@/config/mapConstants';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { pointsToCoords, toLngLat } from '@/core/geometry/coords';
+import { polygonGeometry } from '@/core/geometry/polygonGeometry';
 import { elementColor, laneTypeColor } from '@/core/elements';
 import type { ApolloEntity, ApolloPolygon, Curve } from '@/types/apollo';
 import { curvePoints, explicitLaneBoundaryEdges } from './laneBoundaryGeometry';
@@ -68,15 +69,11 @@ function mkLine(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Featu
 }
 
 function mkPolygon(coords: LngLat[], props: Record<string, unknown>): GeoJSON.Feature {
-  const first = coords[0];
-  const last = coords[coords.length - 1];
-  const ring =
-    first && last && (first[0] !== last[0] || first[1] !== last[1]) ? [...coords, first] : coords;
   return {
     type: 'Feature',
     id: featureId(props),
     properties: props,
-    geometry: { type: 'Polygon', coordinates: [ring] },
+    geometry: polygonGeometry(coords),
   };
 }
 
