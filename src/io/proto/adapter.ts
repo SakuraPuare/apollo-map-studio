@@ -24,6 +24,10 @@ export function transformPointsInMessage(
     field.resolve();
     const v = src[field.name];
     if (v === undefined || v === null) continue;
+    if (field.map) {
+      out[field.name] = transformMapField(field, v, transform);
+      continue;
+    }
     if (field.resolvedType instanceof protobuf.Type) {
       const sub = field.resolvedType;
       if (field.repeated && Array.isArray(v)) {
@@ -34,6 +38,21 @@ export function transformPointsInMessage(
     } else {
       out[field.name] = v;
     }
+  }
+  return out;
+}
+
+function transformMapField(
+  field: protobuf.Field,
+  value: unknown,
+  transform: (p: PointXY) => PointXY,
+): unknown {
+  if (!(field.resolvedType instanceof protobuf.Type)) return value;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    out[key] = transformPointsInMessage(field.resolvedType, item, transform);
   }
   return out;
 }

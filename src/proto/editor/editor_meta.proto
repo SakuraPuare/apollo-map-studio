@@ -2,6 +2,8 @@ syntax = "proto2";
 
 package apollo.hdmap.editor;
 
+import "basic_msgs/geometry.proto";
+
 // Apollo Map Studio editor-only metadata. Serialized inside the standard
 // Apollo `.bin` under `Map.editor_meta` (field 1000). Apollo runtime
 // tooling treats this field as unknown and (per proto2 default) preserves
@@ -35,4 +37,16 @@ message EntityMeta {
     POLYGON = 2;
   }
   optional GeometryKind geometry_kind = 1;
+
+  // Original rotated-rectangle edit parameters for polygon-backed Apollo
+  // entities. Apollo-native map protos only persist polygon points, while the
+  // editor needs these parameters to restore rotate/resize handles after
+  // `.bin` import.
+  optional SourceRect source_rect = 2;
+}
+
+message SourceRect {
+  optional apollo.common.PointENU p1 = 1;
+  optional apollo.common.PointENU p2 = 2;
+  optional double rotation = 3;
 }

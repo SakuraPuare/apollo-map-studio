@@ -5,7 +5,11 @@ import { decodeMapBin, encodeMapBin } from '../proto/binCodec';
 import { encodeMapText, decodeMapText } from '../proto/textCodec';
 import { computeApolloMapBounds } from '../proto/apolloGeoJson';
 import { createBlankApolloMap, setApolloMapBounds } from '../proto/blankApolloMap';
-import { entitiesToApolloMap } from '../proto/entityBridge';
+import { apolloMapToEntities, entitiesToApolloMap } from '../proto/entityBridge';
+import {
+  hydrateSourceRectsFromEditorMeta,
+  writeSourceRectsToEditorMeta,
+} from '../proto/editorMeta';
 import { UTM_PRESETS } from '../proto/projection';
 import {
   apolloMapToLonLat,
@@ -13,6 +17,10 @@ import {
   readHeaderProjString,
   entityCounts,
 } from '../proto/adapter';
+import { createApolloEntity } from '@/core/geometry/apolloCompile';
+import type { MapElementType } from '@/core/elements';
+import { entityToHotFeatures } from '@/lib/geoJsonHelpers';
+import { getSourceRect, type ApolloEntity, type SourceRectInfo } from '@/types/apollo';
 import type { CrosswalkEntity } from '@/types/entities';
 
 const APOLLO_BIN = path.resolve(
@@ -40,6 +48,33 @@ async function runFullRoundTrip(bytes: Uint8Array, format: 'bin' | 'txt') {
     const out = await encodeMapText(enuBack);
     return { counts, output: out, decoded };
   }
+}
+
+const ROTATED_RECT_ELEMENTS = [
+  'parkingSpace',
+  'crosswalk',
+  'clearArea',
+  'junction',
+  'pncJunction',
+  'area',
+] as const satisfies readonly MapElementType[];
+
+function expectPointClose(actual: { x: number; y: number }, expected: { x: number; y: number }) {
+  expect(actual.x).toBeCloseTo(expected.x, 7);
+  expect(actual.y).toBeCloseTo(expected.y, 7);
+}
+
+function expectSourceRectClose(actual: SourceRectInfo, expected: SourceRectInfo) {
+  expectPointClose(actual.p1, expected.p1);
+  expectPointClose(actual.p2, expected.p2);
+  expect(actual.rotation).toBeCloseTo(expected.rotation, 12);
+}
+
+function hasRotateHandle(entity: ApolloEntity): boolean {
+  return entityToHotFeatures(entity).some(
+    (feature) =>
+      feature.properties?.role === 'handle' && feature.properties?.handleType === 'rotate',
+  );
 }
 
 describe('end-to-end Apollo map IO pipeline', () => {
@@ -84,6 +119,50 @@ describe('end-to-end Apollo map IO pipeline', () => {
     expect(decoded.crosswalk.map((item) => item.id.id)).toEqual(['cw_drawn_1']);
   });
 
+  it('preserves drawRotatedRect source rectangles through Apollo .bin export/import', async () => {
+    const entities = ROTATED_RECT_ELEMENTS.map((elementType) =>
+      createApolloEntity(
+        elementType,
+        'drawRotatedRect',
+        [
+          [-122.025, 37.37],
+          [-122.0244, 37.37025],
+          [-122.02465, 37.37065],
+        ],
+        [],
+      ),
+    );
+    for (const entity of entities) {
+      expect(getSourceRect(entity)).toBeDefined();
+      expect(hasRotateHandle(entity)).toBe(true);
+    }
+
+    const merged = entitiesToApolloMap(createBlankApolloMap(UTM_PRESETS.sunnyvale), entities);
+    writeSourceRectsToEditorMeta(merged, entities);
+    const { map: enuMap } = await apolloMapFromLonLat(merged, UTM_PRESETS.sunnyvale);
+    const bytes = await encodeMapBin(enuMap);
+
+    const decoded = await decodeMapBin(bytes);
+    const { map: lonLatMap } = await apolloMapToLonLat(decoded, UTM_PRESETS.sunnyvale);
+    const imported = hydrateSourceRectsFromEditorMeta(
+      lonLatMap,
+      apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
+    );
+
+    for (const original of entities) {
+      const restored = imported.find(
+        (entity) => entity.entityType === original.entityType && entity.id === original.id,
+      );
+      expect(restored).toBeDefined();
+      const originalRect = getSourceRect(original);
+      const restoredRect = getSourceRect(restored!);
+      expect(originalRect).toBeDefined();
+      expect(restoredRect).toBeDefined();
+      expectSourceRectClose(restoredRect!, originalRect!);
+      expect(hasRotateHandle(restored as ApolloEntity)).toBe(true);
+    }
+  });
+
   it.runIf(existsSync(APOLLO_BIN))(
     'borregas .bin import → lon/lat → UTM → re-encode preserves all entities',
     async () => {
@@ -106,6 +185,22 @@ describe('end-to-end Apollo map IO pipeline', () => {
       };
       expect(reDecoded.lane.length).toBe(decoded.lane.length);
       expect(reDecoded.lane.map((l) => l.id.id)).toEqual(decoded.lane.map((l) => l.id.id));
+    },
+  );
+
+  it.runIf(existsSync(APOLLO_BIN))(
+    'borregas .bin without editor_meta still imports without _sourceRect',
+    async () => {
+      const original = new Uint8Array(readFileSync(APOLLO_BIN));
+      const decoded = await decodeMapBin(original);
+      const projString = readHeaderProjString(decoded);
+      expect(projString).toBeTruthy();
+      const { map: lonLatMap } = await apolloMapToLonLat(decoded, projString!);
+      const imported = hydrateSourceRectsFromEditorMeta(
+        lonLatMap,
+        apolloMapToEntities(lonLatMap as Parameters<typeof apolloMapToEntities>[0]),
+      );
+      expect(imported.some((entity) => getSourceRect(entity) !== undefined)).toBe(false);
     },
   );
 
