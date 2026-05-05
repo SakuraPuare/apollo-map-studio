@@ -31,6 +31,7 @@ interface ApolloMapStudioApi {
   toggleMaximizeWindow?: () => Promise<void>;
   closeWindow?: () => Promise<void>;
   onWindowStateChange?: (handler: (state: DesktopWindowState) => void) => () => void;
+  onNativeMenuAction?: (handler: (actionId: string) => void) => () => void;
 }
 
 declare global {
@@ -113,6 +114,10 @@ export const appBridge = {
 
   onWindowStateChange(handler: (state: DesktopWindowState) => void): () => void {
     return window.apolloMapStudio?.onWindowStateChange?.(handler) ?? (() => undefined);
+  },
+
+  onNativeMenuAction(handler: (actionId: string) => void): () => void {
+    return window.apolloMapStudio?.onNativeMenuAction?.(handler) ?? (() => undefined);
   },
 };
 

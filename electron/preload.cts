@@ -17,6 +17,7 @@ const APP_IPC = {
   WINDOW_MINIMIZE: 'app:window-minimize',
   WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
   WINDOW_CLOSE: 'app:window-close',
+  NATIVE_MENU_ACTION: 'app:native-menu-action',
 } as const;
 
 interface DesktopWindowState {
@@ -55,6 +56,13 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     const listener = (_evt: Electron.IpcRendererEvent, state: DesktopWindowState) => handler(state);
     ipcRenderer.on('app:window-state', listener);
     return () => ipcRenderer.off('app:window-state', listener);
+  },
+  onNativeMenuAction(handler: (actionId: string) => void): () => void {
+    const listener = (_evt: Electron.IpcRendererEvent, actionId: unknown) => {
+      if (typeof actionId === 'string') handler(actionId);
+    };
+    ipcRenderer.on(APP_IPC.NATIVE_MENU_ACTION, listener);
+    return () => ipcRenderer.off(APP_IPC.NATIVE_MENU_ACTION, listener);
   },
 });
 contextBridge.exposeInMainWorld(

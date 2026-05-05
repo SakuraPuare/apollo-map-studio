@@ -1,12 +1,24 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  net,
+  protocol,
+  shell,
+} from 'electron';
+import type { MenuItemConstructorOptions } from 'electron';
 
 import { checkAccessGuardAccess, getAccessGuardIdentity } from './access-guard-runtime.cjs';
 import { LicenseManager } from './license/manager.cjs';
 
 const APP_PROTOCOL = 'apollo-map-studio';
+const APP_ICON_FILENAME = 'icon.png';
 const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
@@ -15,7 +27,32 @@ const APP_IPC = {
   WINDOW_MINIMIZE: 'app:window-minimize',
   WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
   WINDOW_CLOSE: 'app:window-close',
+  NATIVE_MENU_ACTION: 'app:native-menu-action',
 } as const;
+
+type NativeRendererActionId =
+  | 'importApollo'
+  | 'exportApolloBin'
+  | 'exportApolloText'
+  | 'settings'
+  | 'undo'
+  | 'redo'
+  | 'delete'
+  | 'toggleGrid'
+  | 'toggleSnap'
+  | 'resetLayout'
+  | `view:${string}`
+  | 'commandPalette'
+  | 'about'
+  | 'defaultMode'
+  | 'connectLanes'
+  | 'boundaryBrush';
+
+interface NativeMenuActionItem {
+  label: string;
+  actionId: NativeRendererActionId;
+  accelerator?: string;
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -30,7 +67,37 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let licenseManager: LicenseManager | null = null;
+let mainWindow: BrowserWindow | null = null;
 let helpWindow: BrowserWindow | null = null;
+
+function getFirstExistingPath(candidates: string[]) {
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function getAppIconPath() {
+  return getFirstExistingPath([
+    path.join(process.resourcesPath, APP_ICON_FILENAME),
+    path.join(__dirname, '..', 'build', APP_ICON_FILENAME),
+    path.join(app.getAppPath(), 'build', APP_ICON_FILENAME),
+    path.join(process.cwd(), 'build', APP_ICON_FILENAME),
+  ]);
+}
+
+function getWindowIconOptions() {
+  const icon = getAppIconPath();
+  return icon ? { icon } : {};
+}
+
+function installDockIcon() {
+  if (process.platform !== 'darwin') return;
+  const iconPath = getAppIconPath();
+  if (!iconPath) return;
+
+  const icon = nativeImage.createFromPath(iconPath);
+  if (!icon.isEmpty()) {
+    app.dock?.setIcon(icon);
+  }
+}
 
 function getWindowState(window: BrowserWindow) {
   return {
@@ -150,6 +217,210 @@ function registerAppProtocol() {
   });
 }
 
+function getNativeMenuActionWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+
+  return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null;
+}
+
+function sendNativeMenuAction(actionId: NativeRendererActionId) {
+  const targetWindow = getNativeMenuActionWindow();
+  if (!targetWindow) return;
+
+  targetWindow.webContents.send(APP_IPC.NATIVE_MENU_ACTION, actionId);
+}
+
+function rendererActionMenuItem(item: NativeMenuActionItem): MenuItemConstructorOptions {
+  return {
+    label: item.label,
+    accelerator: item.accelerator,
+    click: () => sendNativeMenuAction(item.actionId),
+  };
+}
+
+function separator(): MenuItemConstructorOptions {
+  return { type: 'separator' };
+}
+
+function buildFileMenu(): MenuItemConstructorOptions {
+  const submenu: MenuItemConstructorOptions[] = [
+    rendererActionMenuItem({
+      label: 'Import Apollo Map...',
+      actionId: 'importApollo',
+      accelerator: 'CmdOrCtrl+O',
+    }),
+    rendererActionMenuItem({
+      label: 'Export Apollo Map (.bin)',
+      actionId: 'exportApolloBin',
+      accelerator: 'CmdOrCtrl+S',
+    }),
+    rendererActionMenuItem({
+      label: 'Export Apollo Map (.txt)',
+      actionId: 'exportApolloText',
+      accelerator: 'Shift+CmdOrCtrl+S',
+    }),
+  ];
+
+  if (process.platform !== 'darwin') {
+    submenu.push(separator(), rendererActionMenuItem({ label: 'Settings', actionId: 'settings' }));
+  }
+
+  submenu.push(separator(), { role: 'close' });
+
+  return {
+    label: 'File',
+    submenu,
+  };
+}
+
+function buildEditMenu(): MenuItemConstructorOptions {
+  return {
+    label: 'Edit',
+    submenu: [
+      rendererActionMenuItem({
+        label: 'Undo',
+        actionId: 'undo',
+        accelerator: 'CmdOrCtrl+Z',
+      }),
+      rendererActionMenuItem({
+        label: 'Redo',
+        actionId: 'redo',
+        accelerator: 'Shift+CmdOrCtrl+Z',
+      }),
+      separator(),
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { role: 'selectAll' },
+      separator(),
+      rendererActionMenuItem({ label: 'Delete Selection', actionId: 'delete' }),
+      rendererActionMenuItem({ label: 'Default (Pan)', actionId: 'defaultMode' }),
+      rendererActionMenuItem({ label: 'Connect Lanes', actionId: 'connectLanes' }),
+      rendererActionMenuItem({ label: 'Boundary Brush', actionId: 'boundaryBrush' }),
+    ],
+  };
+}
+
+function buildViewMenu(): MenuItemConstructorOptions {
+  const submenu: MenuItemConstructorOptions[] = [
+    rendererActionMenuItem({ label: 'Reset Layout', actionId: 'resetLayout' }),
+    rendererActionMenuItem({ label: 'Map Editor', actionId: 'view:mapEditor' }),
+    rendererActionMenuItem({ label: 'Outline', actionId: 'view:outline' }),
+    rendererActionMenuItem({ label: 'Layers', actionId: 'view:layers' }),
+    rendererActionMenuItem({ label: 'Search', actionId: 'view:search' }),
+    rendererActionMenuItem({ label: 'Inspector', actionId: 'view:inspector' }),
+    rendererActionMenuItem({ label: 'Timeline', actionId: 'view:timeline' }),
+    separator(),
+    rendererActionMenuItem({
+      label: 'Toggle Grid',
+      actionId: 'toggleGrid',
+      accelerator: 'CmdOrCtrl+G',
+    }),
+    rendererActionMenuItem({ label: 'Toggle Snap', actionId: 'toggleSnap' }),
+    separator(),
+    rendererActionMenuItem({
+      label: 'Command Palette',
+      actionId: 'commandPalette',
+      accelerator: 'CmdOrCtrl+K',
+    }),
+  ];
+
+  if (!app.isPackaged) {
+    submenu.push(
+      separator(),
+      { role: 'reload' },
+      { role: 'forceReload' },
+      { role: 'toggleDevTools' },
+    );
+  }
+
+  return {
+    label: 'View',
+    submenu,
+  };
+}
+
+function buildWindowMenu(): MenuItemConstructorOptions {
+  if (process.platform === 'darwin') {
+    return {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        separator(),
+        { role: 'front' },
+        separator(),
+        { role: 'window' },
+      ],
+    };
+  }
+
+  return {
+    label: 'Window',
+    submenu: [{ role: 'minimize' }, { role: 'close' }],
+  };
+}
+
+function buildHelpMenu(): MenuItemConstructorOptions {
+  const submenu: MenuItemConstructorOptions[] = [
+    {
+      label: 'Help Documentation',
+      click: () => {
+        void openHelpWindow();
+      },
+    },
+  ];
+
+  if (process.platform !== 'darwin') {
+    submenu.push(
+      separator(),
+      rendererActionMenuItem({ label: 'About Apollo Map Studio', actionId: 'about' }),
+    );
+  }
+
+  return {
+    label: 'Help',
+    submenu,
+  };
+}
+
+function installApplicationMenu() {
+  const template: MenuItemConstructorOptions[] = [];
+
+  if (process.platform === 'darwin') {
+    template.push({
+      label: app.name,
+      submenu: [
+        rendererActionMenuItem({ label: 'About Apollo Map Studio', actionId: 'about' }),
+        rendererActionMenuItem({
+          label: 'Settings...',
+          actionId: 'settings',
+          accelerator: 'CmdOrCtrl+,',
+        }),
+        separator(),
+        { role: 'services' },
+        separator(),
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        separator(),
+        { role: 'quit' },
+      ],
+    });
+  }
+
+  template.push(
+    buildFileMenu(),
+    buildEditMenu(),
+    buildViewMenu(),
+    buildWindowMenu(),
+    buildHelpMenu(),
+  );
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function isHttpNavigationUrl(url: string) {
   try {
     const parsedUrl = new URL(url);
@@ -220,6 +491,7 @@ async function openHelpWindow() {
     title: 'Apollo Map Studio Help',
     backgroundColor: '#ffffff',
     show: false,
+    ...getWindowIconOptions(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -252,6 +524,7 @@ async function openDeniedWindow(denialHtml: string) {
     title: 'Access Denied',
     backgroundColor: '#1e1e1e',
     show: false,
+    ...getWindowIconOptions(),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -324,7 +597,7 @@ async function createMainWindow() {
           autoHideMenuBar: true,
         };
 
-  const mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1024,
@@ -332,6 +605,7 @@ async function createMainWindow() {
     title: 'Apollo Map Studio',
     backgroundColor: '#101318',
     show: false,
+    ...getWindowIconOptions(),
     ...customChromeOptions,
     webPreferences: {
       preload: getPreloadPath(),
@@ -340,23 +614,30 @@ async function createMainWindow() {
       sandbox: true,
     },
   });
+  mainWindow = window;
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    broadcastWindowState(mainWindow);
+  window.once('ready-to-show', () => {
+    window.show();
+    broadcastWindowState(window);
   });
 
-  wireWindowStateEvents(mainWindow);
-  configureExternalNavigation(mainWindow);
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
+
+  wireWindowStateEvents(window);
+  configureExternalNavigation(window);
 
   const developmentRendererUrl = getDevelopmentRendererUrl();
   if (developmentRendererUrl) {
-    await mainWindow.loadURL(developmentRendererUrl);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    await window.loadURL(developmentRendererUrl);
+    window.webContents.openDevTools({ mode: 'detach' });
     return;
   }
 
-  await mainWindow.loadFile(getRendererIndexPath());
+  await window.loadFile(getRendererIndexPath());
 }
 
 app.setName('Apollo Map Studio');
@@ -371,20 +652,24 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    const [mainWindow] = BrowserWindow.getAllWindows();
+    const targetWindow = getNativeMenuActionWindow();
 
-    if (!mainWindow) {
+    if (!targetWindow) {
       return;
     }
 
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
+    if (targetWindow.isMinimized()) {
+      targetWindow.restore();
     }
 
-    mainWindow.focus();
+    targetWindow.focus();
   });
 
   app.whenReady().then(() => {
+    installDockIcon();
+    registerAppProtocol();
+    installApplicationMenu();
+
     const access = checkAccessGuardAccess();
 
     if (!access.allowed) {
@@ -396,13 +681,12 @@ if (!gotSingleInstanceLock) {
     // can request state from a fully-initialised IPC surface.
     licenseManager = new LicenseManager();
     licenseManager.start();
-    registerAppProtocol();
     registerAppIpc();
 
     void createMainWindow();
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      if (!mainWindow || mainWindow.isDestroyed()) {
         void createMainWindow();
       }
     });

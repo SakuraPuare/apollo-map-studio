@@ -2,9 +2,11 @@ appId: com.apollo-map-studio.app
 productName: Apollo Map Studio
 directories:
   output: release
+  buildResources: build
 files:
   - dist/**/*
   - dist-electron/**/*
+  - build/icon.png
   - package.json
   - '!dist-electron/**/__tests__/**'
   - '!dist-electron/**/*.test.cjs'
@@ -15,11 +17,15 @@ files:
 asar: true
 npmRebuild: false
 compression: normal
+extraResources:
+  - from: build/icon.png
+    to: icon.png
 extraMetadata:
   main: dist-electron/main.cjs
   dependencies: {}
 publish: null
 mac:
+  icon: build/icon.icns
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -32,6 +38,7 @@ mac:
         - arm64
   hardenedRuntime: false
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
@@ -45,6 +52,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
 linux:
+  icon: build/icon.png
   category: Development
   maintainer: Apollo Map Studio <maintainers@apollo-map-studio.local>
   target:

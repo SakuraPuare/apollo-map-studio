@@ -193,6 +193,12 @@ function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
   }, [execute]);
 }
 
+function useNativeMenuActions(execute: (actionId: ActionId) => void) {
+  useEffect(() => {
+    return appBridge.onNativeMenuAction((actionId) => execute(actionId as ActionId));
+  }, [execute]);
+}
+
 function useActionToggleState(
   actorRef: ActorRefFrom<typeof editorMachine>,
   getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean,
@@ -257,6 +263,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
   const execute = useActionExecute(handlers);
   const getToggleState = useActionToggleState(options.actorRef, options.getWorkspaceViewState);
   useKeyboardShortcuts(execute);
+  useNativeMenuActions(execute);
 
   return {
     execute,
