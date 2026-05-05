@@ -294,7 +294,7 @@ function ResolvedProjection({ value }: { value: string }) {
   return (
     <div className="pt-2 border-t border-white/5">
       <div className="text-zinc-500 text-[10px] uppercase tracking-widest mb-1">Resolved</div>
-      <div className="px-2 py-1.5 rounded bg-zinc-800/50 border border-white/5 text-zinc-300 text-[11px] font-mono break-all">
+      <div className="px-2 py-1.5 rounded bg-zinc-800/50 border border-white/5 text-zinc-300 text-[11px] font-mono break-all select-text">
         {value || '— enter a PROJ string above —'}
       </div>
     </div>

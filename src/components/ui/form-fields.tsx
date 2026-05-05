@@ -137,7 +137,7 @@ export function Value({ label, value }: ValueProps) {
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="text-[11px] text-zinc-500 w-24 shrink-0">{label}</span>
-      <span className="text-[11px] font-mono text-zinc-400">{value}</span>
+      <span className="text-[11px] font-mono text-zinc-400 select-text">{value}</span>
     </div>
   );
 }

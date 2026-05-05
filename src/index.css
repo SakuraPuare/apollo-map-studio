@@ -56,6 +56,29 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Keep chrome, labels, map surface, and panel whitespace from being selected while dragging.
+   Re-enable selection only for actual edit/copy surfaces. */
+:where(
+  input,
+  textarea,
+  [contenteditable=''],
+  [contenteditable='true'],
+  [contenteditable='plaintext-only'],
+  [role='textbox'],
+  .select-text,
+  [data-selectable='text']
+) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+:where(.select-all, [data-selectable='all']) {
+  -webkit-user-select: all;
+  user-select: all;
 }
 
 .drag {
