@@ -54,36 +54,40 @@ function laneAt(id: string, start: [number, number], end: [number, number]): Lan
 }
 
 describe('planConnection', () => {
-  it('A.end → B.start when A points toward B (continuous A→B)', () => {
+  it('always plans click-order connection: A.end -> B.start', () => {
     const a = laneAt('a', [0, 0], [0.001, 0]); // east
     const b = laneAt('b', [0.001, 0.0001], [0.002, 0.0001]); // east, north of A.end
     const plan = planConnection(a, b);
     expect(plan!.mode).toBe('AendToBstart');
     expect(plan!.isContinuous).toBe(true);
+    expect(plan!.indexToMove).toBe(1);
+    expect(plan!.target).toEqual({ x: 0.001, y: 0.0001 });
   });
 
-  it('A.start → B.end when B feeds into A (continuous B→A)', () => {
+  it('does not pick the nearest endpoint pair when click order says A -> B', () => {
     const a = laneAt('a', [0.001, 0], [0.002, 0]);
-    const b = laneAt('b', [0, 0.0001], [0.001, 0.0001]); // ends near A.start
+    const b = laneAt('b', [0, 0.0001], [0.001, 0.0001]); // B.end is nearest A.start
     const plan = planConnection(a, b);
-    expect(plan!.mode).toBe('AstartToBend');
+    expect(plan!.mode).toBe('AendToBstart');
     expect(plan!.isContinuous).toBe(true);
+    expect(plan!.indexToMove).toBe(1);
+    expect(plan!.target).toEqual({ x: 0, y: 0.0001 });
   });
 
-  it('flags fork (A.start ↔ B.start) as non-continuous', () => {
+  it('does not treat same-start geometry as fork in connect mode', () => {
     const a = laneAt('a', [0, 0], [0.001, 0]);
     const b = laneAt('b', [0.0001, 0.0001], [-0.001, 0.0001]); // both start near (0,0)
     const plan = planConnection(a, b);
-    expect(plan!.mode).toBe('AstartToBstart');
-    expect(plan!.isContinuous).toBe(false);
+    expect(plan!.mode).toBe('AendToBstart');
+    expect(plan!.isContinuous).toBe(true);
   });
 
-  it('flags merge (A.end ↔ B.end) as non-continuous', () => {
+  it('does not treat same-end geometry as merge in connect mode', () => {
     const a = laneAt('a', [0, 0], [0.001, 0]);
     const b = laneAt('b', [0.002, 0.0001], [0.001, 0.0001]); // both end near (0.001, 0)
     const plan = planConnection(a, b);
-    expect(plan!.mode).toBe('AendToBend');
-    expect(plan!.isContinuous).toBe(false);
+    expect(plan!.mode).toBe('AendToBstart');
+    expect(plan!.isContinuous).toBe(true);
   });
 
   it('reports distance in meters (≈ 11m for 0.0001° at equator)', () => {
@@ -97,9 +101,7 @@ describe('planConnection', () => {
 
 describe('planConnection — indexToMove / target details', () => {
   // The plan tells the caller WHICH endpoint of A to move and WHERE.
-  // Applying the move is delegated to `applyDrag` so curve sources
-  // (bezier anchors / arc tri-points) are kept in sync — verifying the
-  // index/target alone is enough at this layer.
+  // Connect mode is click-order driven, so this is always A.last -> B.start.
 
   it('AendToBstart picks A.last + B.start as target', () => {
     const a = laneAt('a', [0, 0], [0.001, 0]);
@@ -111,14 +113,14 @@ describe('planConnection — indexToMove / target details', () => {
     expect(plan.target.y).toBe(0.00005);
   });
 
-  it('AstartToBend picks A.0 + B.end as target', () => {
+  it('still picks A.last + B.start when A.start is closer to B.end', () => {
     const a = laneAt('a', [0.001, 0], [0.002, 0]);
     const b = laneAt('b', [0, 0], [0.0009, 0.00005]);
     const plan = planConnection(a, b)!;
-    expect(plan.mode).toBe('AstartToBend');
-    expect(plan.indexToMove).toBe(0);
-    expect(plan.target.x).toBe(0.0009);
-    expect(plan.target.y).toBe(0.00005);
+    expect(plan.mode).toBe('AendToBstart');
+    expect(plan.indexToMove).toBe(1);
+    expect(plan.target.x).toBe(0);
+    expect(plan.target.y).toBe(0);
   });
 });
 

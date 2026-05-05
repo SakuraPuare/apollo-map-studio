@@ -2,18 +2,13 @@
  * Lane connection — pure function.
  *
  * 底层逻辑：
- *   两条 lane 的 4 个端点对组合 (Astart-Bstart, Astart-Bend, Aend-Bstart,
- *   Aend-Bend) 中找几何距离最小的一对，把第一条 lane 的对应端点平移到
- *   第二条 lane 的对应端点位置（保留第二条 lane 不动）。reconcile 在
- *   addEntity/updateEntity 时自动派生 pred/succ。
+ *   Connect mode is click-order driven: click lane A, then lane B. The first
+ *   lane's forward end (driving-direction head) moves to the second lane's
+ *   forward start (driving-direction tail). The second lane stays fixed, and
+ *   reconcile derives pred/succ when `updateEntity` writes the changed lane.
  *
  * 方向语义：
- *   - mode 'AendToBstart'  → A.end ≡ B.start → A.successor += B
- *   - mode 'AstartToBend'  → A.start ≡ B.end → A.predecessor += B
- *   - mode 'AstartToBstart' / 'AendToBend' → fork / merge → reconcile 不写入 pred/succ
- *
- * 决策权交给调用方：返回最佳匹配 + 距离 + mode，由调用方决定执行还是
- * 提示用户（例如对 fork/merge 弹确认对话框）。
+ *   - mode 'AendToBstart' → A.end ≡ B.start → A.successor += B
  */
 import type { LaneEntity, SourceDrawInfo } from '@/types/apollo';
 import { getSource } from '@/types/apollo';
@@ -34,15 +29,12 @@ export interface ConnectionPlan {
   mode: ConnectionMode;
   /** Distance in meters between the two chosen endpoints. */
   distanceMeters: number;
-  /** Whether this connection establishes pred/succ (vs fork/merge). */
+  /** Whether this connection establishes pred/succ. Connect mode plans always do. */
   isContinuous: boolean;
   /**
    * Index within A's centerline polyline of the endpoint that moves.
-   * The caller feeds this into `applyDrag(a, indexToMove, 'vertex', target)`
-   * so the existing source-aware drag pipeline (bezier `_source.anchors`,
-   * arc `_source.arcPoints`, polyline) handles all the bookkeeping —
-   * including syncing anchors when the underlying lane was drawn with
-   * a curve tool.
+   * `applyLaneConnection` uses this endpoint index to preserve source-aware
+   * geometry bookkeeping for bezier anchors, arc points, and polylines.
    */
   indexToMove: number;
   /** Target coordinate (lng/lat) the moving endpoint snaps to. */
@@ -67,45 +59,27 @@ function distMeters(p1: GeoPoint, p2: GeoPoint): number {
 }
 
 /**
- * Pick the best of 4 endpoint-pair combinations by minimum distance.
- * Returns null when either lane lacks both endpoints (degenerate).
+ * Build the deterministic click-order connection plan.
+ * Returns null when either lane lacks the needed endpoint (degenerate).
  *
  * The plan tells the caller WHICH of A's endpoints to move and WHERE
- * to move it. Applying the move is delegated to the source-aware
- * `applyDrag` helper so curves drawn with bezier / arc keep their
- * source anchors in sync (otherwise the worker would re-sample the
- * curve from stale anchors and overwrite the endpoint move).
+ * to move it. Applying the move is delegated to `applyLaneConnection`
+ * so curves drawn with bezier / arc keep their source anchors in sync.
  */
 export function planConnection(a: LaneEntity, b: LaneEntity): ConnectionPlan | null {
-  const aS = laneStart(a);
   const aE = laneEnd(a);
   const bS = laneStart(b);
-  const bE = laneEnd(b);
-  if (!aS || !aE || !bS || !bE) return null;
+  if (!aE || !bS) return null;
 
   const aPts = curvePoints(a.centralCurve);
   const aLast = aPts.length - 1;
 
-  const candidates: Array<{
-    mode: ConnectionMode;
-    distance: number;
-    indexToMove: number;
-    target: GeoPoint;
-  }> = [
-    { mode: 'AendToBstart', distance: distMeters(aE, bS), indexToMove: aLast, target: bS },
-    { mode: 'AstartToBend', distance: distMeters(aS, bE), indexToMove: 0, target: bE },
-    { mode: 'AstartToBstart', distance: distMeters(aS, bS), indexToMove: 0, target: bS },
-    { mode: 'AendToBend', distance: distMeters(aE, bE), indexToMove: aLast, target: bE },
-  ];
-  candidates.sort((x, y) => x.distance - y.distance);
-  const best = candidates[0]!;
-
   return {
-    mode: best.mode,
-    distanceMeters: best.distance,
-    isContinuous: best.mode === 'AendToBstart' || best.mode === 'AstartToBend',
-    indexToMove: best.indexToMove,
-    target: best.target,
+    mode: 'AendToBstart',
+    distanceMeters: distMeters(aE, bS),
+    isContinuous: true,
+    indexToMove: aLast,
+    target: bS,
   };
 }
 
