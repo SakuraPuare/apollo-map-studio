@@ -319,14 +319,10 @@ export function collectCandidates(
 }
 
 export function collectSnapGuidePoints(entity: MapEntity): GeoPoint[] {
-  const { vertices, edges } = collectCandidates([entity], null);
-  return [
-    ...vertices.map((candidate) => candidate.point),
-    ...edges.map((edge) => ({
-      x: (edge.a.x + edge.b.x) / 2,
-      y: (edge.a.y + edge.b.y) / 2,
-    })),
-  ];
+  // Move snapping should only use editable control points, not edge midpoints.
+  // Edge projections stay available in the generic draw snap path.
+  const { vertices } = collectCandidates([entity], null);
+  return vertices.map((candidate) => candidate.point);
 }
 
 // ─── Distance / projection in local ENU ────────────────────────────────────

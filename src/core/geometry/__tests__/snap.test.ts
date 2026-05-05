@@ -135,7 +135,7 @@ describe('collectCandidates', () => {
     expect(edges).toHaveLength(4);
   });
 
-  it('exposes guide midpoints for object snapping', () => {
+  it('exposes only control points for object move snapping', () => {
     const rect: RectEntity = {
       id: 'rect-2',
       entityType: 'rect',
@@ -149,8 +149,16 @@ describe('collectCandidates', () => {
         Math.abs(p.x - (ORIGIN_LNG + 0.0001)) < 1e-12 &&
         Math.abs(p.y - (ORIGIN_LAT + 0.00005)) < 1e-12,
     );
-    expect(guides).toHaveLength(8);
-    expect(rightEdgeMidpoint).toBeDefined();
+    expect(guides).toHaveLength(4);
+    expect(guides).toEqual(
+      expect.arrayContaining([
+        { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+        { x: ORIGIN_LNG, y: ORIGIN_LAT + 0.0001 },
+      ]),
+    );
+    expect(rightEdgeMidpoint).toBeUndefined();
   });
 
   it('closes polygon edges (wraps last → first)', () => {

@@ -55,7 +55,7 @@ beforeEach(() => {
 });
 
 describe('selected entity move snapping', () => {
-  it('snaps a dragged box so its edge touches another box', () => {
+  it('snaps a dragged box by matching control points', () => {
     const fixed = rect('fixed', 0, 0);
     const moving = rect('moving', 30, 0);
     useMapStore.setState({
@@ -69,7 +69,7 @@ describe('selected entity move snapping', () => {
 
     const actor = makeActor();
     const grabOffset: [number, number] = [2 * METER, -1 * METER];
-    const desiredCenter: [number, number] = [15.5 * METER, 5 * METER];
+    const desiredCenter: [number, number] = [15.5 * METER, 15.5 * METER];
     const cursorPoint: [number, number] = [
       desiredCenter[0] + grabOffset[0],
       desiredCenter[1] + grabOffset[1],
@@ -82,7 +82,12 @@ describe('selected entity move snapping', () => {
     );
 
     expect(snapped[0]).toBeCloseTo(15 * METER, 12);
-    expect(snapped[1]).toBeCloseTo(5 * METER, 12);
+    expect(snapped[1]).toBeCloseTo(15 * METER, 12);
     expect(useUIStore.getState().currentSnapTarget?.entityId).toBe('fixed');
+    expect(useUIStore.getState().currentSnapTarget?.kind).toBe('vertex');
+    expect(useUIStore.getState().currentSnapTarget?.point).toEqual({
+      x: 10 * METER,
+      y: 10 * METER,
+    });
   });
 });

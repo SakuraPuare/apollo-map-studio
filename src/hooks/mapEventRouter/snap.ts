@@ -9,6 +9,7 @@ import {
   findSnapMatchFromCandidates,
   findSnapTarget,
   pixelsToMeters,
+  type SnapCandidates,
   type SnapTarget,
 } from '@/core/geometry/snap';
 import { useMapStore } from '@/store/mapStore';
@@ -65,13 +66,17 @@ function findMoveSnapTarget(
 
   const dx = desiredCenter[0] - entityCenter[0];
   const dy = desiredCenter[1] - entityCenter[1];
-  const guidePoints = collectSnapGuidePoints(entity);
-  if (guidePoints.length === 0) return null;
+  const controlPoints = collectSnapGuidePoints(entity);
+  if (controlPoints.length === 0) return null;
+
+  // Selected-entity movement should snap control point to control point.
+  // The generic edge snap path is still used for drawing and point placement.
+  const pointCandidates: SnapCandidates = { vertices: candidates.vertices, edges: [] };
 
   let best: MoveSnapResult | null = null;
-  for (const guide of guidePoints) {
+  for (const guide of controlPoints) {
     const movedGuide = { x: guide.x + dx, y: guide.y + dy };
-    const match = findSnapMatchFromCandidates(movedGuide, candidates, radiusMeters);
+    const match = findSnapMatchFromCandidates(movedGuide, pointCandidates, radiusMeters);
     if (!match) continue;
 
     const snappedPoint: LngLat = [
