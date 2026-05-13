@@ -113,6 +113,13 @@
     "onlyBuiltDependencies": [
       "electron",
       "electron-winstaller"
-    ]
+    ],
+    "overrides": {
+      "fast-uri": ">=3.1.2",
+      "hono": ">=4.12.18",
+      "ip-address": ">=10.1.1",
+      "vite": ">=6.4.2",
+      "esbuild": ">=0.25.0"
+    }
   }
 }
