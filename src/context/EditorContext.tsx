@@ -1,10 +1,10 @@
-import { createContext, useContext } from 'react';
+import { createContext, use } from 'react';
 import type { ActorRefFrom } from 'xstate';
 import type { editorMachine } from '@/core/fsm/editorMachine';
 
 type EditorActorRef = ActorRefFrom<typeof editorMachine>;
 
-export const EditorContext = createContext<EditorActorRef | null>(null);
+const EditorContext = createContext<EditorActorRef | null>(null);
 
 export function EditorProvider({
   actorRef,
@@ -17,7 +17,7 @@ export function EditorProvider({
 }
 
 export function useEditorActor(): EditorActorRef {
-  const actorRef = useContext(EditorContext);
+  const actorRef = use(EditorContext);
   if (!actorRef) {
     throw new Error('useEditorActor must be used within EditorProvider');
   }

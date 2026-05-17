@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, use, useState, useCallback } from 'react';
 import { getDefaultSidebarViewId, type SidebarViewId } from '@/core/workspaceViews';
 
 interface SidebarContextValue {
@@ -9,10 +9,10 @@ interface SidebarContextValue {
   setSearchQuery(q: string): void;
 }
 
-export const SidebarContext = createContext<SidebarContextValue | null>(null);
+const SidebarContext = createContext<SidebarContextValue | null>(null);
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [activeTab, setActiveTab] = useState<SidebarViewId>(getDefaultSidebarViewId());
+  const [activeTab, setActiveTab] = useState<SidebarViewId>(() => getDefaultSidebarViewId());
   const [searchQuery, setSearchQuery] = useState('');
 
   const setTab = useCallback((tab: SidebarViewId) => setActiveTab(tab), []);
@@ -33,7 +33,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useSidebar(): SidebarContextValue {
-  const ctx = useContext(SidebarContext);
+  const ctx = use(SidebarContext);
   if (!ctx) throw new Error('useSidebar must be used within SidebarProvider');
   return ctx;
 }
