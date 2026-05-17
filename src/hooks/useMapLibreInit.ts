@@ -19,13 +19,16 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       doubleClickZoom: false,
     });
 
-    map.on('load', () => {
+    const onLoad = () => {
       mapLoadedRef.current = true;
       addEditorLayers(map);
-    });
+    };
+
+    map.on('load', onLoad);
 
     mapRef.current = map;
     return () => {
+      map.off('load', onLoad);
       map.remove();
       mapRef.current = null;
       mapLoadedRef.current = false;
