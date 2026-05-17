@@ -107,36 +107,29 @@ function derivePredSucc(
   startsByKey: ReadonlyMap<string, Endpoint[]>,
   endsByKey: ReadonlyMap<string, Endpoint[]>,
 ): { pred: string[]; succ: string[] } {
-  const predHits = (endsByKey.get(endpointKey(s.x, s.y)) ?? []).filter(
-    (ep) => ep.laneId !== lane.id,
-  );
-  const succHits = (startsByKey.get(endpointKey(t.x, t.y)) ?? []).filter(
-    (ep) => ep.laneId !== lane.id,
-  );
-  return {
-    pred: Array.from(new Set(predHits.map((ep) => ep.laneId))),
-    succ: Array.from(new Set(succHits.map((ep) => ep.laneId))),
-  };
+  const predIds = new Set<string>();
+  for (const ep of endsByKey.get(endpointKey(s.x, s.y)) ?? []) {
+    if (ep.laneId !== lane.id) predIds.add(ep.laneId);
+  }
+  const succIds = new Set<string>();
+  for (const ep of startsByKey.get(endpointKey(t.x, t.y)) ?? []) {
+    if (ep.laneId !== lane.id) succIds.add(ep.laneId);
+  }
+  return { pred: Array.from(predIds), succ: Array.from(succIds) };
 }
 
 function deriveSelfReverse(lane: LaneEntity, s: GeoPoint, t: GeoPoint, indices: TopologyIndices) {
   const sKey = endpointKey(s.x, s.y);
   const tKey = endpointKey(t.x, t.y);
-  const reverseCandidates = (indices.endsByKey.get(sKey) ?? []).filter(
-    (ep) => ep.laneId !== lane.id,
-  );
-  return Array.from(
-    new Set(
-      reverseCandidates
-        .filter((ep) => {
-          const other = indices.lanesById.get(ep.laneId);
-          if (!other) return false;
-          const os = indices.laneGeometry.get(other.id)?.start;
-          return !!os && endpointKey(os.x, os.y) === tKey;
-        })
-        .map((ep) => ep.laneId),
-    ),
-  );
+  const result = new Set<string>();
+  for (const ep of indices.endsByKey.get(sKey) ?? []) {
+    if (ep.laneId === lane.id) continue;
+    const other = indices.lanesById.get(ep.laneId);
+    if (!other) continue;
+    const os = indices.laneGeometry.get(other.id)?.start;
+    if (os && endpointKey(os.x, os.y) === tKey) result.add(ep.laneId);
+  }
+  return Array.from(result);
 }
 
 function deriveJunctionId(
@@ -230,11 +223,12 @@ function deriveNeighbors(
 function candidateJunctions(indices: TopologyIndices, geom: LaneGeometry): JunctionPolygon[] {
   const laneBBox = bboxOfPoints(geom.centerline);
   if (!laneBBox || indices.junctionPolygons.length === 0) return [];
-  return indices.junctionIndex
-    .queryBBox(laneBBox)
-    .map((n) => indices.junctionById.get(n.id))
-    .filter((j): j is JunctionPolygon => !!j)
-    .sort((a, b) => a.order - b.order);
+  const results: JunctionPolygon[] = [];
+  for (const n of indices.junctionIndex.queryBBox(laneBBox)) {
+    const j = indices.junctionById.get(n.id);
+    if (j) results.push(j);
+  }
+  return results.sort((a, b) => a.order - b.order);
 }
 
 function neighborCandidates(
@@ -246,10 +240,12 @@ function neighborCandidates(
   const laneBBox = bboxOfPoints(geom.centerline);
   if (!frameA || !laneBBox) return [];
   const bbox = paddedLaneBBoxFromBBox(laneBBox, geom.start.y, NEIGHBOR_QUERY_PADDING_M);
-  return indices.laneIndex
-    .queryBBox(bbox)
-    .map((n) => indices.lanesById.get(n.id))
-    .filter((e): e is LaneEntity => !!e && e.id !== lane.id);
+  const results: LaneEntity[] = [];
+  for (const n of indices.laneIndex.queryBBox(bbox)) {
+    const e = indices.lanesById.get(n.id);
+    if (e && e.id !== lane.id) results.push(e);
+  }
+  return results;
 }
 
 function deriveLaneTopology(

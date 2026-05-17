@@ -49,7 +49,7 @@ export function MapOutline() {
 
   return (
     <ScrollArea className="h-full text-xs text-zinc-300">
-      <div className="px-3 py-3 border-b border-white/[0.07]">
+      <div className="p-3 border-b border-white/[0.07]">
         <div className="grid grid-cols-3 gap-1.5">
           <SummaryMetric label="地图" value={apolloTotal} />
           <SummaryMetric label="草图" value={stats.drawingCount} />
@@ -57,7 +57,7 @@ export function MapOutline() {
         </div>
       </div>
 
-      <div className="px-3 py-3">
+      <div className="p-3">
         {!hasAnything ? (
           <EmptyState />
         ) : (
@@ -143,9 +143,11 @@ function EntitySection({
   types: readonly string[];
   counts: ReadonlyMap<string, number>;
 }) {
-  const rows = types
-    .map((type) => ({ type, count: counts.get(type) ?? 0 }))
-    .filter((row) => row.count > 0);
+  const rows: { type: string; count: number }[] = [];
+  for (const type of types) {
+    const count = counts.get(type) ?? 0;
+    if (count > 0) rows.push({ type, count });
+  }
 
   if (rows.length === 0) return null;
 
@@ -164,7 +166,7 @@ function EntityRow({ type, value }: { type: string; value: number }) {
 
   return (
     <div className="group flex items-center gap-2 rounded px-1.5 py-1 hover:bg-white/[0.04]">
-      <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" style={{ color }} />
+      <Icon className="size-3.5 shrink-0 opacity-90" style={{ color }} />
       <span className="min-w-0 flex-1 truncate text-zinc-400 group-hover:text-zinc-200">
         {getEntityLabel(type)}
       </span>

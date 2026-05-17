@@ -108,7 +108,11 @@ export async function applyColdDeltaToSource(
   previousFeatures: GeoJSON.Feature[],
   changed: EntityFeatureGroup[],
 ) {
-  const remove = previousFeatures.map(featureId).filter((id): id is GeoJSONFeatureId => id != null);
+  const remove: GeoJSONFeatureId[] = [];
+  for (const f of previousFeatures) {
+    const id = featureId(f);
+    if (id != null) remove.push(id);
+  }
   if (remove.length > 0) await updateColdSourceChunk(src, { remove });
 
   let add: GeoJSON.Feature[] = [];

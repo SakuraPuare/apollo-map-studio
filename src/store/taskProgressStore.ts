@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export interface TaskProgress {
+interface TaskProgress {
   id: string;
   label: string;
   detail?: string;

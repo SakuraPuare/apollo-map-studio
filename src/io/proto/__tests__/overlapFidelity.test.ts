@@ -65,13 +65,14 @@ describe('overlap fidelity — sunnyvale_loop', () => {
 
       for (const input of inputOverlaps) {
         const out = outById.get(input.id);
+        const inputObjLen = input.objectIds.length;
         expect(out, `missing overlap ${input.id} on round-trip`).toBeDefined();
         expect(
           out!.objectIds.length,
-          `overlap ${input.id} object count drift: in=${input.objectIds.length} out=${out!.objectIds.length}`,
-        ).toBe(input.objectIds.length);
+          `overlap ${input.id} object count drift: in=${inputObjLen} out=${out!.objectIds.length}`,
+        ).toBe(inputObjLen);
         // Id-list equality (in order — bridge preserves order).
-        for (let j = 0; j < input.objectIds.length; j++) {
+        for (let j = 0; j < inputObjLen; j++) {
           expect(
             out!.objectIds[j],
             `overlap ${input.id} object[${j}] id drift: in=${input.objectIds[j]} out=${out!.objectIds[j]}`,

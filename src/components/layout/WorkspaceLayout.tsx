@@ -79,7 +79,14 @@ function WorkspaceLayoutInner() {
   const components = useDockviewComponents(openSettings);
   useCommandPaletteKeys(setCommandPaletteOpen);
   const refreshOpenPanels = useCallback((api: DockviewApi) => {
-    setOpenPanelIds(new Set(api.panels.map((panel) => panel.id).filter(isWorkspacePanelId)));
+    setOpenPanelIds(
+      new Set(
+        api.panels.reduce<string[]>((acc, panel) => {
+          if (isWorkspacePanelId(panel.id)) acc.push(panel.id);
+          return acc;
+        }, []),
+      ),
+    );
   }, []);
 
   // Reset layout handler (needs apiRef + current mode)

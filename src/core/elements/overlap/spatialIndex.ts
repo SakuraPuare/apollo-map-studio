@@ -45,15 +45,21 @@ export function bboxForEntity(entity: MapEntity): BBox | null {
 
   const stopLines = getStopLines(entity);
   if (stopLines.length > 0) {
-    const boxes = stopLines
-      .map((p) => bboxOfPoints(p, OVERLAP_STOPLINE_PROBE_DEG))
-      .filter((b): b is BBox => b !== null);
+    const boxes: BBox[] = [];
+    for (const p of stopLines) {
+      const b = bboxOfPoints(p, OVERLAP_STOPLINE_PROBE_DEG);
+      if (b !== null) boxes.push(b);
+    }
     return bboxUnion(boxes);
   }
 
   const polylines = getPolylines(entity);
   if (polylines.length > 0) {
-    const boxes = polylines.map((p) => bboxOfPoints(p)).filter((b): b is BBox => b !== null);
+    const boxes: BBox[] = [];
+    for (const p of polylines) {
+      const b = bboxOfPoints(p);
+      if (b !== null) boxes.push(b);
+    }
     return bboxUnion(boxes);
   }
   return null;

@@ -93,16 +93,22 @@ export class SpatialWorkerBridge {
       excludeId: request.excludeId,
     } satisfies Extract<WorkerRequest, { type: 'SYNC_BEGIN' }>);
 
-    for (const chunk of chunkArray(request.entities, SYNC_ENTITY_CHUNK_SIZE)) {
-      this.worker.postMessage({
-        type: 'SYNC_CHUNK',
-        requestId,
-        entities: chunk.items,
-        offset: chunk.offset,
-        total,
-      } satisfies Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>);
-      await this.yieldToMain();
-    }
+    const chunks = Array.from(chunkArray(request.entities, SYNC_ENTITY_CHUNK_SIZE));
+    // Sequential: each chunk must be posted in order with a yield between them.
+    await chunks.reduce(
+      (chain, chunk) =>
+        chain.then(() => {
+          this.worker.postMessage({
+            type: 'SYNC_CHUNK',
+            requestId,
+            entities: chunk.items,
+            offset: chunk.offset,
+            total,
+          } satisfies Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>);
+          return this.yieldToMain();
+        }),
+      Promise.resolve(),
+    );
 
     this.worker.postMessage({
       type: 'SYNC_FINISH',
@@ -124,7 +130,7 @@ export class SpatialWorkerBridge {
 
   private mergeChunks(entry: PendingEntry, msg: WorkerResponse): WorkerResponse {
     if (msg.type !== 'COLD_READY' || !entry.chunks?.length) return msg;
-    const chunks = [...entry.chunks].sort((a, b) => a.offset - b.offset);
+    const chunks = entry.chunks.toSorted((a, b) => a.offset - b.offset);
     return {
       ...msg,
       groups: chunks.flatMap((chunk) => chunk.groups),

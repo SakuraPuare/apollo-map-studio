@@ -113,10 +113,12 @@ export function closeWorkspacePanel(api: DockviewApi, panelId: WorkspacePanelId)
 function getReferencePanel(api: DockviewApi, panelId: WorkspacePanelId) {
   const def = getWorkspacePanelDef(panelId);
   if (def.zone === 'editor') return api.activePanel;
-  return getWorkspacePanelDefs()
-    .filter((candidate) => candidate.id !== panelId)
-    .map((candidate) => api.getPanel(candidate.id))
-    .find(Boolean);
+  for (const candidate of getWorkspacePanelDefs()) {
+    if (candidate.id === panelId) continue;
+    const panel = api.getPanel(candidate.id);
+    if (panel) return panel;
+  }
+  return undefined;
 }
 
 function getPanelDirection(panel: ReturnType<typeof getWorkspacePanelDef>) {

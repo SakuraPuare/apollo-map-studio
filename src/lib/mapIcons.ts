@@ -78,15 +78,18 @@ async function rasterize(Icon: ComponentType<IconProps>): Promise<ImageData> {
  * 失败的图标不阻塞其他图标注册（错误打到 console）。
  */
 export async function registerMapIcons(map: MapIconRegistry): Promise<void> {
-  const tasks = Object.entries(REGISTRY).map(async ([id, Icon]) => {
-    if (map.hasImage(id)) return;
-    try {
-      const data = await rasterize(Icon);
-      // hasImage 二次检查：异步期间可能已注册（HMR / 重复 load）
-      if (!map.hasImage(id)) map.addImage(id, data);
-    } catch (err) {
-      console.error(`[mapIcons] failed to register ${id}`, err);
-    }
-  });
-  await Promise.all(tasks);
+  const entries = Object.entries(REGISTRY).filter(([id]) => !map.hasImage(id));
+  const results = await Promise.all(
+    entries.map(([id, Icon]) =>
+      rasterize(Icon).catch((err) => {
+        console.error(`[mapIcons] failed to rasterize "${id}":`, err);
+        return null;
+      }),
+    ),
+  );
+  for (let i = 0; i < entries.length; i++) {
+    const [id] = entries[i]!;
+    const data = results[i];
+    if (data && !map.hasImage(id)) map.addImage(id, data);
+  }
 }

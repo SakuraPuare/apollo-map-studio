@@ -19,16 +19,16 @@ import type {
 import { getSource, getSourceRect } from '@/types/apollo';
 import type { BezierAnchorData, GeoPoint, MapEntity } from '@/types/entities';
 
-export type EditorGeometryKind = 'LINESTRING' | 'POLYGON';
+type EditorGeometryKind = 'LINESTRING' | 'POLYGON';
 
-export type EditorGeometrySource =
+type EditorGeometrySource =
   | SourceDrawInfo
   | {
       drawTool: 'drawRotatedRect';
       rect: SourceRectInfo;
     };
 
-export interface EditorEntityMeta {
+interface EditorEntityMeta {
   /** Forces editor to render points as polyline vs closed polygon. */
   geometryKind?: EditorGeometryKind;
   /** Restores editor-only geometry source semantics for Apollo entities. */
@@ -153,9 +153,13 @@ export function writeEditorMeta(rawMap: Record<string, unknown>, meta: EditorMet
   const wire: EditorMetaWire = {
     version: meta.version,
     entity: Object.fromEntries(
-      Object.entries(meta.entity)
-        .filter(([, v]) => !isEmptyEntityMeta(v))
-        .map(([k, v]) => [k, encodeEntity(v)]),
+      Object.entries(meta.entity).reduce<[string, ReturnType<typeof encodeEntity>][]>(
+        (acc, [k, v]) => {
+          if (!isEmptyEntityMeta(v)) acc.push([k, encodeEntity(v)]);
+          return acc;
+        },
+        [],
+      ),
     ),
   };
   rawMap.editor_meta = wire;
@@ -203,9 +207,6 @@ export function hydrateEntitySourcesFromEditorMeta(
     return { ...entity, _source: cloneSourceDraw(geometrySource) } as MapEntity;
   });
 }
-
-export const writeSourceRectsToEditorMeta = writeEntitySourcesToEditorMeta;
-export const hydrateSourceRectsFromEditorMeta = hydrateEntitySourcesFromEditorMeta;
 
 function collectGeometrySource(entity: MapEntity): EditorGeometrySource | undefined {
   const sourceRect = getSourceRect(entity);

@@ -28,7 +28,7 @@ import { applyDerive } from '@/core/elements/derive';
 
 const DEG_TO_M = 111320;
 
-export type ConnectionMode = 'AendToBstart' | 'AstartToBend' | 'AstartToBstart' | 'AendToBend';
+type ConnectionMode = 'AendToBstart' | 'AstartToBend' | 'AstartToBstart' | 'AendToBend';
 
 export interface ConnectionPlan {
   /** Which lane's endpoint moves; the other is the anchor. */

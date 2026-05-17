@@ -213,158 +213,168 @@ describe('Apollo map_data fidelity audit (TEMP)', () => {
       const populationCount = new Map<string, number>(); // count of maps in which a path appears
       const populationTotal = new Map<string, number>(); // total occurrences across all maps
 
-      for (const m of maps) {
-        console.log(`[fidelity] auditing ${m.name} ...`);
-        const bytes = new Uint8Array(readFileSync(m.binPath));
-        const original = (await decodeMapBin(bytes)) as Record<string, unknown>;
+      const auditResults = await Promise.all(
+        maps.map(async (m) => {
+          console.log(`[fidelity] auditing ${m.name} ...`);
+          const bytes = new Uint8Array(readFileSync(m.binPath));
+          const original = (await decodeMapBin(bytes)) as Record<string, unknown>;
 
-        const originalPaths = new Set<string>();
-        const perMapCount = new Map<string, number>();
-        collectSetPaths(MapType, original, '', originalPaths, perMapCount);
+          const originalPaths = new Set<string>();
+          const perMapCount = new Map<string, number>();
+          collectSetPaths(MapType, original, '', originalPaths, perMapCount);
+
+          const totals: Record<string, number> = {};
+          for (const [k, v] of Object.entries(original)) {
+            if (Array.isArray(v)) totals[k] = v.length;
+          }
+
+          // Roundtrip via the bridge:
+          let bridgeImportFailures = 0;
+          const entities = apolloMapToEntities(original as never);
+          // Count "fromProto returned null" by comparing input array length vs entity count per type.
+          const inputCounts: Record<string, number> = {};
+          for (const k of [
+            'crosswalk',
+            'junction',
+            'lane',
+            'stop_sign',
+            'signal',
+            'yield',
+            'overlap',
+            'clear_area',
+            'speed_bump',
+            'road',
+            'parking_space',
+            'pnc_junction',
+            'rsu',
+            'ad_area',
+            'barrier_gate',
+          ]) {
+            const arr = (original[k] as unknown[]) ?? [];
+            inputCounts[k] = Array.isArray(arr) ? arr.length : 0;
+          }
+          const outputCountsByEntityType: Record<string, number> = {};
+          for (const e of entities) {
+            outputCountsByEntityType[e.entityType] =
+              (outputCountsByEntityType[e.entityType] ?? 0) + 1;
+          }
+          const fieldToEntityType: Record<string, string> = {
+            crosswalk: 'crosswalk',
+            junction: 'junction',
+            lane: 'lane',
+            stop_sign: 'stopSign',
+            signal: 'signal',
+            yield: 'yieldSign',
+            overlap: 'overlap',
+            clear_area: 'clearArea',
+            speed_bump: 'speedBump',
+            road: 'road',
+            parking_space: 'parkingSpace',
+            pnc_junction: 'pncJunction',
+            rsu: 'rsu',
+            ad_area: 'area',
+            barrier_gate: 'barrierGate',
+          };
+          for (const [field, etype] of Object.entries(fieldToEntityType)) {
+            const lost = (inputCounts[field] ?? 0) - (outputCountsByEntityType[etype] ?? 0);
+            if (lost > 0) bridgeImportFailures += lost;
+          }
+
+          const roundtripped = entitiesToApolloMap(original, entities);
+          const roundtripPaths = new Set<string>();
+          collectSetPaths(MapType, roundtripped, '', roundtripPaths);
+
+          const lost = [...originalPaths].filter((p) => !roundtripPaths.has(p)).toSorted();
+          const added = [...roundtripPaths].filter((p) => !originalPaths.has(p)).toSorted();
+
+          // ── Value-level diff per entity bucket ──────────────────────────────
+          const valueMismatches: ValueMismatchSummary[] = [];
+          for (const [field, _etype] of Object.entries(fieldToEntityType)) {
+            void _etype;
+            const srcArr = (original[field] as unknown[]) ?? [];
+            const dstArr = (roundtripped[field] as unknown[]) ?? [];
+            if (!Array.isArray(srcArr) || srcArr.length === 0) continue;
+            const subFieldName = field;
+            const mapField = MapType.fields[subFieldName];
+            if (!mapField) continue;
+            mapField.resolve();
+            const subType = mapField.resolvedType;
+            if (!(subType instanceof protobuf.Type)) continue;
+            const pathHits: Record<string, number> = {};
+            const sampleMismatches: ValueMismatchSummary['sampleMismatches'] = [];
+            const len = Math.min(srcArr.length, dstArr.length);
+            for (let i = 0; i < len; i++) {
+              const diffs: Array<{ path: string; expected: unknown; actual: unknown }> = [];
+              diffValues(subType, srcArr[i], dstArr[i], '', diffs);
+              if (diffs.length > 0) {
+                const id =
+                  ((srcArr[i] as { id?: { id?: string } })?.id?.id as string | undefined) ??
+                  `idx#${i}`;
+                for (const d of diffs) {
+                  pathHits[d.path] = (pathHits[d.path] ?? 0) + 1;
+                  if (sampleMismatches.length < SAMPLE_LIMIT_PER_BUCKET) {
+                    sampleMismatches.push({
+                      entityId: id,
+                      path: d.path,
+                      expected: d.expected,
+                      actual: d.actual,
+                    });
+                  }
+                }
+              }
+            }
+            if (Object.keys(pathHits).length > 0 || srcArr.length !== dstArr.length) {
+              valueMismatches.push({
+                bucket: field,
+                totalEntities: srcArr.length,
+                pathHits,
+                sampleMismatches,
+              });
+            }
+          }
+
+          // ── Bin-level byte roundtrip ────────────────────────────────────────
+          let reEncoded: Uint8Array;
+          try {
+            reEncoded = await encodeMapBin(roundtripped as Record<string, unknown>);
+          } catch (err) {
+            // capture failure as 0 bytes; surface in JSON via deltaBytes=NaN sentinel
+
+            console.warn(`[fidelity] encode failed for ${m.name}: ${(err as Error).message}`);
+            reEncoded = new Uint8Array();
+          }
+
+          return {
+            audit: {
+              name: m.name,
+              size: m.size,
+              totals,
+              originalPathCount: originalPaths.size,
+              roundtripPathCount: roundtripPaths.size,
+              valueMismatches,
+              binRoundtrip: {
+                originalBytes: bytes.byteLength,
+                reEncodedBytes: reEncoded.byteLength,
+                deltaBytes: reEncoded.byteLength - bytes.byteLength,
+              },
+              pathsLostOnRoundtrip: lost,
+              pathsAddedByRoundtrip: added,
+              bridgeImportFailures,
+            },
+            originalPaths,
+            perMapCount,
+          };
+        }),
+      );
+
+      for (const { audit, originalPaths, perMapCount } of auditResults) {
+        audits.push(audit);
         for (const p of originalPaths) {
           populationCount.set(p, (populationCount.get(p) ?? 0) + 1);
         }
         for (const [k, v] of perMapCount) {
           populationTotal.set(k, (populationTotal.get(k) ?? 0) + v);
         }
-
-        const totals: Record<string, number> = {};
-        for (const [k, v] of Object.entries(original)) {
-          if (Array.isArray(v)) totals[k] = v.length;
-        }
-
-        // Roundtrip via the bridge:
-        let bridgeImportFailures = 0;
-        const entities = apolloMapToEntities(original as never);
-        // Count "fromProto returned null" by comparing input array length vs entity count per type.
-        const inputCounts: Record<string, number> = {};
-        for (const k of [
-          'crosswalk',
-          'junction',
-          'lane',
-          'stop_sign',
-          'signal',
-          'yield',
-          'overlap',
-          'clear_area',
-          'speed_bump',
-          'road',
-          'parking_space',
-          'pnc_junction',
-          'rsu',
-          'ad_area',
-          'barrier_gate',
-        ]) {
-          const arr = (original[k] as unknown[]) ?? [];
-          inputCounts[k] = Array.isArray(arr) ? arr.length : 0;
-        }
-        const outputCountsByEntityType: Record<string, number> = {};
-        for (const e of entities) {
-          outputCountsByEntityType[e.entityType] =
-            (outputCountsByEntityType[e.entityType] ?? 0) + 1;
-        }
-        const fieldToEntityType: Record<string, string> = {
-          crosswalk: 'crosswalk',
-          junction: 'junction',
-          lane: 'lane',
-          stop_sign: 'stopSign',
-          signal: 'signal',
-          yield: 'yieldSign',
-          overlap: 'overlap',
-          clear_area: 'clearArea',
-          speed_bump: 'speedBump',
-          road: 'road',
-          parking_space: 'parkingSpace',
-          pnc_junction: 'pncJunction',
-          rsu: 'rsu',
-          ad_area: 'area',
-          barrier_gate: 'barrierGate',
-        };
-        for (const [field, etype] of Object.entries(fieldToEntityType)) {
-          const lost = (inputCounts[field] ?? 0) - (outputCountsByEntityType[etype] ?? 0);
-          if (lost > 0) bridgeImportFailures += lost;
-        }
-
-        const roundtripped = entitiesToApolloMap(original, entities);
-        const roundtripPaths = new Set<string>();
-        collectSetPaths(MapType, roundtripped, '', roundtripPaths);
-
-        const lost = [...originalPaths].filter((p) => !roundtripPaths.has(p)).sort();
-        const added = [...roundtripPaths].filter((p) => !originalPaths.has(p)).sort();
-
-        // ── Value-level diff per entity bucket ──────────────────────────────
-        const valueMismatches: ValueMismatchSummary[] = [];
-        for (const [field, _etype] of Object.entries(fieldToEntityType)) {
-          void _etype;
-          const srcArr = (original[field] as unknown[]) ?? [];
-          const dstArr = (roundtripped[field] as unknown[]) ?? [];
-          if (!Array.isArray(srcArr) || srcArr.length === 0) continue;
-          const subFieldName = field;
-          const mapField = MapType.fields[subFieldName];
-          if (!mapField) continue;
-          mapField.resolve();
-          const subType = mapField.resolvedType;
-          if (!(subType instanceof protobuf.Type)) continue;
-          const pathHits: Record<string, number> = {};
-          const sampleMismatches: ValueMismatchSummary['sampleMismatches'] = [];
-          const len = Math.min(srcArr.length, dstArr.length);
-          for (let i = 0; i < len; i++) {
-            const diffs: Array<{ path: string; expected: unknown; actual: unknown }> = [];
-            diffValues(subType, srcArr[i], dstArr[i], '', diffs);
-            if (diffs.length > 0) {
-              const id =
-                ((srcArr[i] as { id?: { id?: string } })?.id?.id as string | undefined) ??
-                `idx#${i}`;
-              for (const d of diffs) {
-                pathHits[d.path] = (pathHits[d.path] ?? 0) + 1;
-                if (sampleMismatches.length < SAMPLE_LIMIT_PER_BUCKET) {
-                  sampleMismatches.push({
-                    entityId: id,
-                    path: d.path,
-                    expected: d.expected,
-                    actual: d.actual,
-                  });
-                }
-              }
-            }
-          }
-          if (Object.keys(pathHits).length > 0 || srcArr.length !== dstArr.length) {
-            valueMismatches.push({
-              bucket: field,
-              totalEntities: srcArr.length,
-              pathHits,
-              sampleMismatches,
-            });
-          }
-        }
-
-        // ── Bin-level byte roundtrip ────────────────────────────────────────
-        let reEncoded: Uint8Array;
-        try {
-          reEncoded = await encodeMapBin(roundtripped as Record<string, unknown>);
-        } catch (err) {
-          // capture failure as 0 bytes; surface in JSON via deltaBytes=NaN sentinel
-
-          console.warn(`[fidelity] encode failed for ${m.name}: ${(err as Error).message}`);
-          reEncoded = new Uint8Array();
-        }
-
-        audits.push({
-          name: m.name,
-          size: m.size,
-          totals,
-          originalPathCount: originalPaths.size,
-          roundtripPathCount: roundtripPaths.size,
-          valueMismatches,
-          binRoundtrip: {
-            originalBytes: bytes.byteLength,
-            reEncodedBytes: reEncoded.byteLength,
-            deltaBytes: reEncoded.byteLength - bytes.byteLength,
-          },
-          pathsLostOnRoundtrip: lost,
-          pathsAddedByRoundtrip: added,
-          bridgeImportFailures,
-        });
       }
 
       const allLostUnion = new Set<string>();
@@ -377,7 +387,7 @@ describe('Apollo map_data fidelity audit (TEMP)', () => {
       }
 
       const populated = [...populationCount.entries()]
-        .sort((a, b) => b[1] - a[1])
+        .toSorted((a, b) => b[1] - a[1])
         .map(([path, mapCount]) => ({
           path,
           mapsWithField: mapCount,

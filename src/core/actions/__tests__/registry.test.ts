@@ -13,6 +13,7 @@ import {
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
+import type { DrawTool } from '@/core/fsm/editorMachine';
 import { getSidebarViewsByPlacement, getWorkspaceViewDefs } from '@/core/workspaceViews';
 import type { KeyBindingEvent } from '../registry';
 
@@ -249,7 +250,7 @@ describe('Action Registry', () => {
     // drawRect was unified into drawRotatedRect (legacy project only had the
     // rotatable rect tool); the axis-aligned FSM state still exists but is
     // no longer user-reachable via action registry.
-    const drawTools = [
+    const drawTools: DrawTool[] = [
       'drawPolyline',
       'drawCatmullRom',
       'drawBezier',
@@ -258,8 +259,14 @@ describe('Action Registry', () => {
       'drawPolygon',
     ];
 
+    const actionsByDrawTool = new Map(
+      getActionDefs()
+        .filter((a) => a.drawTool)
+        .map((a) => [a.drawTool, a]),
+    );
+
     for (const tool of drawTools) {
-      const action = getActionDefs().find((a) => a.drawTool === tool);
+      const action = actionsByDrawTool.get(tool);
       expect(action, `No action registered for DrawTool "${tool}"`).toBeDefined();
     }
   });

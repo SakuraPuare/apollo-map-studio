@@ -30,7 +30,8 @@ function stripLaneFromAllSections(
     const road = e;
     let dirty = false;
     const sections: RoadSection[] = road.sections.map((s) => {
-      if (s.laneIds.includes(laneId)) {
+      const laneSet = new Set(s.laneIds);
+      if (laneSet.has(laneId)) {
         dirty = true;
         return { ...s, laneIds: s.laneIds.filter((id) => id !== laneId) };
       }
@@ -98,15 +99,16 @@ function handleLaneToRoadSection(
   let alreadyThere = false;
   let mutatedSections = false;
   let sections: RoadSection[] = road.sections.map((s) => {
+    const laneSet = new Set(s.laneIds);
     if (s.id === t.sectionId) {
-      if (s.laneIds.includes(lane.id)) {
+      if (laneSet.has(lane.id)) {
         alreadyThere = true;
         return s;
       }
       mutatedSections = true;
       return { ...s, laneIds: [...s.laneIds, lane.id] };
     }
-    if (s.laneIds.includes(lane.id)) {
+    if (laneSet.has(lane.id)) {
       mutatedSections = true;
       return { ...s, laneIds: s.laneIds.filter((id) => id !== lane.id) };
     }

@@ -3,24 +3,24 @@ import type { IconType } from 'react-icons';
 
 export type WorkspaceMode = 'drawing' | 'scene';
 export type WorkspacePanelId = string;
-export type WorkspacePanelComponent = string;
-export type WorkbenchPanelZone = 'editor' | 'primarySidebar' | 'secondarySidebar' | 'bottomPanel';
-export type WorkspaceViewId = string;
+type WorkspacePanelComponent = string;
+type WorkbenchPanelZone = 'editor' | 'primarySidebar' | 'secondarySidebar' | 'bottomPanel';
+type WorkspaceViewId = string;
 export type SidebarViewId = string;
 export type WorkspaceViewActionId = `view:${string}`;
 
-export interface WorkspaceContext {
+interface WorkspaceContext {
   appMode: WorkspaceMode;
 }
 
-export type WorkspaceWhenClause = (context: WorkspaceContext) => boolean;
+type WorkspaceWhenClause = (context: WorkspaceContext) => boolean;
 
 export interface SidebarViewRenderProps {
   onSelect: (id: string | null) => void;
   selectedId: string | null;
 }
 
-export type SidebarViewRenderer = (props: SidebarViewRenderProps) => ReactNode;
+type SidebarViewRenderer = (props: SidebarViewRenderProps) => ReactNode;
 
 export interface WorkspacePanelDef {
   id: WorkspacePanelId;
@@ -46,7 +46,7 @@ export interface WorkspacePanelViewDef extends WorkspaceViewActionBase {
   panelId: WorkspacePanelId;
 }
 
-export interface SidebarWorkspaceViewDef extends WorkspaceViewActionBase {
+interface SidebarWorkspaceViewDef extends WorkspaceViewActionBase {
   kind: 'sidebar';
   panelId: 'sidebar';
   sidebarViewId: SidebarViewId;
@@ -54,7 +54,7 @@ export interface SidebarWorkspaceViewDef extends WorkspaceViewActionBase {
 
 export type WorkspaceViewDef = WorkspacePanelViewDef | SidebarWorkspaceViewDef;
 
-export interface SidebarViewActionDef {
+interface SidebarViewActionDef {
   actionId: WorkspaceViewActionId;
   menuOrder: number;
 }
@@ -124,37 +124,37 @@ export function registerSidebarView(view: SidebarViewDef, options: RegisterOptio
 export function getWorkspacePanelDefs(mode?: WorkspaceMode): WorkspacePanelDef[] {
   return [...workspacePanels.values()]
     .filter((panel) => isWorkspacePanelAvailable(panel, mode))
-    .sort((a, b) => a.order - b.order);
+    .toSorted((a, b) => a.order - b.order);
 }
 
 export function getWorkspaceViewDefs(): WorkspaceViewDef[] {
-  return [...getSidebarWorkspaceViewDefs(), ...workspacePanelViews.values()].sort(
+  return [...getSidebarWorkspaceViewDefs(), ...workspacePanelViews.values()].toSorted(
     (a, b) => a.menuOrder - b.menuOrder,
   );
 }
 
-export function getWorkspacePanelViewDefs(): WorkspacePanelViewDef[] {
-  return [...workspacePanelViews.values()].sort((a, b) => a.menuOrder - b.menuOrder);
+function getSidebarWorkspaceViewDefs(): SidebarWorkspaceViewDef[] {
+  const result: SidebarWorkspaceViewDef[] = [];
+  for (const view of getSidebarViewDefs()) {
+    if (view.kind === 'panel' && view.action) {
+      result.push({
+        id: view.id,
+        actionId: view.action.actionId,
+        label: view.label,
+        icon: view.icon,
+        menuOrder: view.action.menuOrder,
+        kind: 'sidebar',
+        panelId: 'sidebar',
+        sidebarViewId: view.id,
+        when: view.when,
+      });
+    }
+  }
+  return result;
 }
 
-export function getSidebarWorkspaceViewDefs(): SidebarWorkspaceViewDef[] {
-  return getSidebarViewDefs()
-    .filter((view) => view.kind === 'panel' && Boolean(view.action))
-    .map((view) => ({
-      id: view.id,
-      actionId: view.action!.actionId,
-      label: view.label,
-      icon: view.icon,
-      menuOrder: view.action!.menuOrder,
-      kind: 'sidebar',
-      panelId: 'sidebar',
-      sidebarViewId: view.id,
-      when: view.when,
-    }));
-}
-
-export function getSidebarViewDefs(): SidebarViewDef[] {
-  return [...sidebarViews.values()].sort((a, b) => a.order - b.order);
+function getSidebarViewDefs(): SidebarViewDef[] {
+  return [...sidebarViews.values()].toSorted((a, b) => a.order - b.order);
 }
 
 export function isWorkspaceViewActionId(actionId: string): actionId is WorkspaceViewActionId {
@@ -213,7 +213,7 @@ export function isSidebarViewAvailable(
   return isWhenClauseEnabled(def.when, mode);
 }
 
-export function isWorkspaceViewAvailable(view: WorkspaceViewDef, mode?: WorkspaceMode): boolean {
+function isWorkspaceViewAvailable(view: WorkspaceViewDef, mode?: WorkspaceMode): boolean {
   return isWhenClauseEnabled(view.when, mode);
 }
 

@@ -20,7 +20,7 @@ export function makeOverlapId(participantIds: readonly string[]): string {
   if (participantIds.length === 0) {
     throw new Error('[overlapId] participantIds must be non-empty');
   }
-  const sorted = [...new Set(participantIds)].sort();
+  const sorted = Array.from(new Set(participantIds)).toSorted();
   return `overlap_${sorted.join('_')}`;
 }
 

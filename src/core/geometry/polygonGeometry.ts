@@ -312,9 +312,11 @@ export function polygonGeometry(coords: readonly LngLat[]): GeoJSON.Polygon | Ge
 export function unionPolygonGeometry(
   rings: readonly (readonly LngLat[])[],
 ): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
-  const polygons = rings
-    .map((ring) => toClippingPolygon(dedupeClosingPoint(ring)))
-    .filter((polygon) => polygon.length > 0);
+  const polygons: ReturnType<typeof toClippingPolygon>[] = [];
+  for (const ring of rings) {
+    const polygon = toClippingPolygon(dedupeClosingPoint(ring));
+    if (polygon.length > 0) polygons.push(polygon);
+  }
   if (polygons.length === 0) return null;
   try {
     const [first, ...rest] = polygons;

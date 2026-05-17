@@ -19,9 +19,7 @@ import type { DeriveContext, DeriveCause, DeriveRule } from './types';
 import { laneRules } from './rules/lane';
 import { parkingSpaceRules } from './rules/parkingSpace';
 
-export type { DeriveCause, DeriveContext, DeriveRule } from './types';
-
-const DEFAULT_TRIGGERS: readonly DeriveCause[] = ['create', 'editGeometry'];
+const DEFAULT_TRIGGERS: ReadonlySet<DeriveCause> = new Set<DeriveCause>(['create', 'editGeometry']);
 
 const REGISTRY: Partial<Record<MapEntity['entityType'], readonly DeriveRule<MapEntity>[]>> = {
   lane: laneRules,
@@ -47,8 +45,8 @@ export function applyDerive<E extends MapEntity>(entity: E, ctx: DeriveContext<E
   let next: MapEntity = entity;
 
   for (const rule of rules) {
-    const triggers = rule.on ?? DEFAULT_TRIGGERS;
-    if (!triggers.includes(ctx.cause)) continue;
+    const triggers: ReadonlySet<DeriveCause> = rule.on ? new Set(rule.on) : DEFAULT_TRIGGERS;
+    if (!triggers.has(ctx.cause)) continue;
     if (rule.owns.some((path) => overrides.has(path))) continue;
     next = rule.apply(next, ctx);
   }

@@ -19,7 +19,7 @@ export function makeRegionId(participantIds: readonly string[], slot: number = 0
   if (!Number.isInteger(slot) || slot < 0) {
     throw new Error('[regionId] slot must be a non-negative integer');
   }
-  const sorted = [...new Set(participantIds)].sort();
+  const sorted = Array.from(new Set(participantIds)).toSorted();
   const base = `region_${sorted.join('_')}`;
   return slot === 0 ? base : `${base}__${slot}`;
 }

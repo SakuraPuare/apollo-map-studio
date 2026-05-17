@@ -3,14 +3,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { decodeMapBin } from '../binCodec';
 import { apolloMapToLonLat, readHeaderProjString } from '../adapter';
-import {
-  rawCrosswalkToEntity,
-  entityToRawCrosswalk,
-  apolloMapToEntities,
-  entitiesToApolloMap,
-  unwrapId,
-  unwrapIdArray,
-} from '../entityBridge';
+import { apolloMapToEntities, entitiesToApolloMap } from '../entityBridge';
+import { rawCrosswalkToEntity, entityToRawCrosswalk } from '../entityBridge/simpleEntities';
+import { unwrapId, unwrapIdArray } from '../entityBridge/common';
 import type { CrosswalkEntity, LaneEntity } from '@/types/apollo';
 
 const APOLLO_BIN = path.resolve(
@@ -221,8 +216,10 @@ describe('entityBridge — borregas integration (full coverage)', () => {
   it.runIf(existsSync(APOLLO_BIN))(
     'borregas raw → entities → raw → re-encode bytes preserves lane/road/overlap ids',
     async () => {
-      const { encodeMapBin } = await import('../binCodec');
-      const { apolloMapFromLonLat } = await import('../adapter');
+      const [{ encodeMapBin }, { apolloMapFromLonLat }] = await Promise.all([
+        import('../binCodec'),
+        import('../adapter'),
+      ]);
 
       const bytes = new Uint8Array(readFileSync(APOLLO_BIN));
       const decoded = await decodeMapBin(bytes);
