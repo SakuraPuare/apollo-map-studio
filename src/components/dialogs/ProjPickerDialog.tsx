@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 import { FaXmark } from 'react-icons/fa6';
 import { useProjDialogStore } from '@/store/projDialogStore';
 import { UTM_PRESETS, utmProjString, sanitizeProjString } from '@/io/proto/projection';
@@ -24,26 +24,59 @@ const PRESETS: PresetEntry[] = [
  * zone number, or pastes a custom PROJ.4 string. Resolves the pending
  * promise in projDialogStore on OK or Cancel.
  */
+interface State {
+  mode: Mode;
+  preset: PresetEntry['id'];
+  zone: number;
+  hemisphere: 'N' | 'S';
+  custom: string;
+}
+
+type Action =
+  | { type: 'reset' }
+  | { type: 'setMode'; mode: Mode }
+  | { type: 'setPreset'; preset: PresetEntry['id'] }
+  | { type: 'setZone'; zone: number }
+  | { type: 'setHemisphere'; hemisphere: 'N' | 'S' }
+  | { type: 'setCustom'; custom: string };
+
+const initialState: State = {
+  mode: 'preset',
+  preset: 'beijing',
+  zone: 50,
+  hemisphere: 'N',
+  custom: '',
+};
+
+function reducer(state: State, action: Action): State {
+  switch (action.type) {
+    case 'reset':
+      return initialState;
+    case 'setMode':
+      return { ...state, mode: action.mode };
+    case 'setPreset':
+      return { ...state, preset: action.preset };
+    case 'setZone':
+      return { ...state, zone: action.zone };
+    case 'setHemisphere':
+      return { ...state, hemisphere: action.hemisphere };
+    case 'setCustom':
+      return { ...state, custom: action.custom };
+  }
+}
+
 export function ProjPickerDialog() {
   const pending = useProjDialogStore((s) => s.pending);
   const resolve = useProjDialogStore((s) => s.resolve);
 
-  const [mode, setMode] = useState<Mode>('preset');
-  const [preset, setPreset] = useState<PresetEntry['id']>('beijing');
-  const [zone, setZone] = useState<number>(50);
-  const [hemisphere, setHemisphere] = useState<'N' | 'S'>('N');
-  const [custom, setCustom] = useState<string>('');
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const prevPendingRef = useRef(false);
 
-  // Reset to defaults whenever the dialog re-opens.
-  useEffect(() => {
-    if (pending) {
-      setMode('preset');
-      setPreset('beijing');
-      setZone(50);
-      setHemisphere('N');
-      setCustom('');
-    }
-  }, [pending]);
+  // Reset state when dialog opens (pending transitions false -> true)
+  if (pending && !prevPendingRef.current) {
+    dispatch({ type: 'reset' });
+  }
+  prevPendingRef.current = pending;
 
   // ESC dismisses
   useEffect(() => {
@@ -59,6 +92,8 @@ export function ProjPickerDialog() {
   }, [pending, resolve]);
 
   if (!pending) return null;
+
+  const { mode, preset, zone, hemisphere, custom } = state;
 
   const computed = (() => {
     if (mode === 'preset') return UTM_PRESETS[preset];
@@ -83,11 +118,11 @@ export function ProjPickerDialog() {
         hemisphere={hemisphere}
         custom={custom}
         computed={computed}
-        onModeChange={setMode}
-        onPresetChange={setPreset}
-        onZoneChange={setZone}
-        onHemisphereChange={setHemisphere}
-        onCustomChange={setCustom}
+        onModeChange={(m) => dispatch({ type: 'setMode', mode: m })}
+        onPresetChange={(p) => dispatch({ type: 'setPreset', preset: p })}
+        onZoneChange={(z) => dispatch({ type: 'setZone', zone: z })}
+        onHemisphereChange={(h) => dispatch({ type: 'setHemisphere', hemisphere: h })}
+        onCustomChange={(c) => dispatch({ type: 'setCustom', custom: c })}
       />
       <ProjectionFooter canSubmit={canSubmit} onCancel={() => resolve(null)} onSubmit={submit} />
     </DialogShell>
@@ -97,7 +132,16 @@ export function ProjPickerDialog() {
 function DialogShell({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div
+        role="button"
+        tabIndex={-1}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onCancel}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onCancel();
+        }}
+        aria-label="Close dialog"
+      />
       <div className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
         {children}
       </div>
@@ -119,7 +163,7 @@ function ProjectionHeader({ onCancel }: { onCancel: () => void }) {
         onClick={onCancel}
         className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
       >
-        <FaXmark className="w-4 h-4" />
+        <FaXmark className="size-4" />
       </button>
     </div>
   );
@@ -232,8 +276,11 @@ function UtmPicker({
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-zinc-400 text-xs mb-1">UTM zone (1–60)</label>
+        <label htmlFor="utm-zone" className="block text-zinc-400 text-xs mb-1">
+          UTM zone (1–60)
+        </label>
         <input
+          id="utm-zone"
           type="number"
           min={1}
           max={60}
@@ -243,7 +290,7 @@ function UtmPicker({
         />
       </div>
       <div>
-        <label className="block text-zinc-400 text-xs mb-1">Hemisphere</label>
+        <span className="block text-zinc-400 text-xs mb-1">Hemisphere</span>
         <div className="flex gap-2">
           {(['N', 'S'] as const).map((h) => (
             <button
@@ -274,8 +321,11 @@ function CustomProjInput({
 }) {
   return (
     <div>
-      <label className="block text-zinc-400 text-xs mb-1">PROJ.4 string</label>
+      <label htmlFor="custom-proj" className="block text-zinc-400 text-xs mb-1">
+        PROJ.4 string
+      </label>
       <textarea
+        id="custom-proj"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="+proj=utm +zone=50 +ellps=WGS84 +datum=WGS84 +units=m +no_defs"

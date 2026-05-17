@@ -139,10 +139,13 @@ export function MapMetadataForm() {
   if (!info) return <NoMetadataNotice />;
 
   return (
-    <div className="px-3 py-3">
+    <div className="p-3">
       <Section title="来源信息">
         <Value label="文件" value={info.filename} />
-        <Value label="导入时间" value={new Date(info.importedAt).toLocaleString()} />
+        <Value
+          label="导入时间"
+          value={<span suppressHydrationWarning>{new Date(info.importedAt).toLocaleString()}</span>}
+        />
         <Value label="坐标投影" value={info.projString} />
       </Section>
       <MetadataSection title="头部信息" rows={headerRows(header)} />

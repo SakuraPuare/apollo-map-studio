@@ -51,6 +51,7 @@ function buildInitialDrafts(
 }
 
 function NumInput({
+  id,
   value,
   onChange,
   min,
@@ -59,6 +60,7 @@ function NumInput({
   onCommit,
   onReset,
 }: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   min: number;
@@ -75,6 +77,7 @@ function NumInput({
 
   return (
     <input
+      id={id}
       type="number"
       min={min}
       max={max}
@@ -111,7 +114,7 @@ function TabButton({
           : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-200',
       )}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <Icon className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{tab.label}</span>
     </button>
   );
@@ -179,9 +182,12 @@ function NumberSetting({
 
   return (
     <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-start gap-3">
-      <label className="pt-1.5 text-xs text-zinc-400">{entry.label}</label>
+      <label htmlFor={`setting-${entry.id}`} className="pt-1.5 text-xs text-zinc-400">
+        {entry.label}
+      </label>
       <div>
         <NumInput
+          id={`setting-${entry.id}`}
           value={draftValue}
           onChange={(value) => setDraft(draftKey, value)}
           min={entry.min}
@@ -210,12 +216,15 @@ function BooleanSetting({
   const checked = entry.value(settings);
   return (
     <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-center gap-3">
-      <label className="text-xs text-zinc-400">{entry.label}</label>
+      <label htmlFor={`setting-${entry.id}`} className="text-xs text-zinc-400">
+        {entry.label}
+      </label>
       <input
+        id={`setting-${entry.id}`}
         type="checkbox"
         checked={checked}
         onChange={(event) => entry.commit(settings, event.target.checked)}
-        className="h-4 w-4 accent-cyan-500"
+        className="size-4 accent-cyan-500"
       />
     </div>
   );
@@ -230,8 +239,11 @@ function SelectSetting({
 }) {
   return (
     <div className="grid grid-cols-[minmax(7rem,0.9fr)_minmax(8rem,1fr)] items-start gap-3">
-      <label className="pt-1.5 text-xs text-zinc-400">{entry.label}</label>
+      <label htmlFor={`setting-${entry.id}`} className="pt-1.5 text-xs text-zinc-400">
+        {entry.label}
+      </label>
       <select
+        id={`setting-${entry.id}`}
         value={entry.value(settings)}
         onChange={(event) => entry.commit(settings, event.target.value)}
         className="h-7 w-full rounded border border-white/10 bg-zinc-800/50 px-2 text-xs text-zinc-200 outline-none transition-colors focus:border-cyan-500/50"
@@ -295,7 +307,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        role="button"
+        tabIndex={-1}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onClose();
+        }}
+        aria-label="Close settings"
+      />
       <div className="relative grid h-[min(34rem,82vh)] w-[min(44rem,calc(100vw-2rem))] grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-2xl">
         <aside className="border-r border-white/10 bg-zinc-950/40 px-2 py-3">
           <div className="mb-3 px-2 text-sm font-medium text-zinc-200">Settings</div>
@@ -322,7 +343,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               className="rounded p-1 text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-300"
               aria-label="Close settings"
             >
-              <FaXmark className="h-4 w-4" />
+              <FaXmark className="size-4" />
             </button>
           </div>
 

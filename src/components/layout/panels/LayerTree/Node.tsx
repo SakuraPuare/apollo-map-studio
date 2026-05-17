@@ -31,7 +31,7 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
   const isSection = data.kind === 'section';
   const isEntity = data.kind === 'entity';
 
-  const handleClick = () => {
+  const selectOrToggle = () => {
     if (isEntity) {
       node.select();
       if (node.isInternal) node.toggle();
@@ -66,7 +66,15 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
     <div
       ref={dragHandle}
       style={style}
-      onClick={handleClick}
+      role="treeitem"
+      tabIndex={0}
+      onClick={selectOrToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          selectOrToggle();
+        }
+      }}
       className={nodeRowClass({
         selected: node.isSelected && isEntity,
         dimmed: isGroup && !isVisible,
@@ -115,7 +123,7 @@ function NodeChevron({ isInternal, isOpen }: { isInternal: boolean; isOpen: bool
   return (
     <FaChevronRight
       className={clsx(
-        'w-3.5 h-3.5 text-zinc-600 transition-transform shrink-0',
+        'size-3.5 text-zinc-600 transition-transform shrink-0',
         isOpen && 'rotate-90',
       )}
     />
@@ -128,11 +136,11 @@ function NodeIcon({ data }: { data: TreeNode }) {
   return (
     <span className="text-xs shrink-0 w-4 text-center">
       {data.kind === 'group' && EntityIcon && (
-        <EntityIcon className="w-3.5 h-3.5 text-zinc-500 inline" />
+        <EntityIcon className="size-3.5 text-zinc-500 inline" />
       )}
       {data.kind === 'section' && <span className="text-zinc-500">§</span>}
       {data.kind === 'entity' && EntityIcon && (
-        <EntityIcon className="w-3.5 h-3.5 text-zinc-500 inline" />
+        <EntityIcon className="size-3.5 text-zinc-500 inline" />
       )}
     </span>
   );
@@ -221,9 +229,9 @@ function GroupActions({
         title={isVisible ? 'Hide layer' : 'Show layer'}
       >
         {isVisible ? (
-          <FaEye className="w-3 h-3 text-zinc-500" />
+          <FaEye className="size-3 text-zinc-500" />
         ) : (
-          <FaEyeSlash className="w-3 h-3 text-zinc-600" />
+          <FaEyeSlash className="size-3 text-zinc-600" />
         )}
       </button>
       <button
@@ -232,9 +240,9 @@ function GroupActions({
         title={isLocked ? 'Unlock layer' : 'Lock layer'}
       >
         {isLocked ? (
-          <FaLock className="w-3 h-3 text-amber-500" />
+          <FaLock className="size-3 text-amber-500" />
         ) : (
-          <FaLockOpen className="w-3 h-3 text-zinc-600" />
+          <FaLockOpen className="size-3 text-zinc-600" />
         )}
       </button>
     </>
@@ -260,7 +268,7 @@ function EntityActions({
       >
         <FaLink
           className={clsx(
-            'w-3 h-3',
+            'size-3',
             disabled ? 'text-zinc-700' : 'text-zinc-600 hover:text-amber-400',
           )}
         />
@@ -273,7 +281,7 @@ function EntityActions({
       >
         <FaTrash
           className={clsx(
-            'w-3 h-3',
+            'size-3',
             disabled ? 'text-zinc-700' : 'text-zinc-600 hover:text-red-400',
           )}
         />

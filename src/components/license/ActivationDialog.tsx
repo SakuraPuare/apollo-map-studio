@@ -1,9 +1,50 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, type RefObject } from 'react';
 import { FaXmark, FaCopy, FaCheck, FaCircleExclamation } from 'react-icons/fa6';
 import { licenseBridge, type LicenseState } from '@/lib/license-bridge';
 import { useLicenseStore } from '@/store/licenseStore';
 
 type LicenseInfo = NonNullable<LicenseState['license']>;
+
+interface DialogState {
+  open: boolean;
+  code: string;
+  busy: boolean;
+  copied: boolean;
+  error: string | null;
+}
+
+type DialogAction =
+  | { type: 'SET_OPEN'; value: boolean }
+  | { type: 'SET_CODE'; value: string }
+  | { type: 'SET_BUSY'; value: boolean }
+  | { type: 'SET_COPIED'; value: boolean }
+  | { type: 'SET_ERROR'; value: string | null }
+  | { type: 'RESET' };
+
+function dialogReducer(state: DialogState, action: DialogAction): DialogState {
+  switch (action.type) {
+    case 'SET_OPEN':
+      return { ...state, open: action.value };
+    case 'SET_CODE':
+      return { ...state, code: action.value };
+    case 'SET_BUSY':
+      return { ...state, busy: action.value };
+    case 'SET_COPIED':
+      return { ...state, copied: action.value };
+    case 'SET_ERROR':
+      return { ...state, error: action.value };
+    case 'RESET':
+      return { ...state, open: false, error: null, code: '' };
+  }
+}
+
+const INITIAL_DIALOG_STATE: DialogState = {
+  open: false,
+  code: '',
+  busy: false,
+  copied: false,
+  error: null,
+};
 
 interface ActivationActionsConfig {
   code: string;
@@ -98,11 +139,13 @@ function useActivationActions(config: ActivationActionsConfig) {
  * Submission round-trips to the main process for verification.
  */
 export function ActivationDialog() {
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [dlg, dispatch] = useReducer(dialogReducer, INITIAL_DIALOG_STATE);
+  const { open, code, busy, copied, error } = dlg;
+  const setOpen = useCallback((v: boolean) => dispatch({ type: 'SET_OPEN', value: v }), []);
+  const setCode = useCallback((v: string) => dispatch({ type: 'SET_CODE', value: v }), []);
+  const setBusy = useCallback((v: boolean) => dispatch({ type: 'SET_BUSY', value: v }), []);
+  const setCopied = useCallback((v: boolean) => dispatch({ type: 'SET_COPIED', value: v }), []);
+  const setError = useCallback((v: string | null) => dispatch({ type: 'SET_ERROR', value: v }), []);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const state = useLicenseStore((s) => s.state);
@@ -111,9 +154,7 @@ export function ActivationDialog() {
 
   const handleClose = useCallback(() => {
     if (busy) return;
-    setOpen(false);
-    setError(null);
-    setCode('');
+    dispatch({ type: 'RESET' });
   }, [busy]);
 
   usePromptRegistration(registerPromptActivation, setOpen, setError);
@@ -163,7 +204,16 @@ export function ActivationDialog() {
 function DialogFrame({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        role="button"
+        tabIndex={0}
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onClose();
+        }}
+        aria-label="Close dialog"
+      />
       <div className="relative w-full max-w-xl bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
         {children}
       </div>
@@ -194,7 +244,7 @@ function ActivationHeader({
         className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
         disabled={busy}
       >
-        <FaXmark className="w-4 h-4" />
+        <FaXmark className="size-4" />
       </button>
     </div>
   );
@@ -211,9 +261,9 @@ function MachineCodeSection({
 }) {
   return (
     <section className="space-y-2">
-      <label className="block text-xs uppercase tracking-wider text-zinc-500">
+      <span className="block text-xs uppercase tracking-wider text-zinc-500">
         This machine&apos;s code
-      </label>
+      </span>
       <div className="flex items-center gap-2">
         <code className="flex-1 px-3 py-2 bg-zinc-950 border border-white/10 rounded font-mono text-sm text-cyan-300 select-all">
           {machineCode || '...'}
@@ -223,7 +273,7 @@ function MachineCodeSection({
           onClick={onCopy}
           className="px-3 py-2 text-xs rounded border border-white/10 text-zinc-300 hover:bg-white/10 inline-flex items-center gap-1"
         >
-          {copied ? <FaCheck className="w-3 h-3" /> : <FaCopy className="w-3 h-3" />}
+          {copied ? <FaCheck className="size-3" /> : <FaCopy className="size-3" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
@@ -239,7 +289,7 @@ function ActivatedLicenseSection({ license }: { license: LicenseInfo }) {
   return (
     <section className="space-y-1 px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded">
       <p className="text-xs text-emerald-300">Activated · {license.name || 'unnamed license'}</p>
-      <p className="text-[11px] text-emerald-300/70 font-mono">
+      <p className="text-[11px] text-emerald-300/70 font-mono" suppressHydrationWarning>
         id: {license.id} · expires:{' '}
         {license.expires === 0 ? 'never' : new Date(license.expires).toLocaleString()}
       </p>
@@ -262,10 +312,14 @@ function ActivationCodeSection({
 }) {
   return (
     <section className="space-y-2">
-      <label className="block text-xs uppercase tracking-wider text-zinc-500">
+      <label
+        htmlFor="activation-code-input"
+        className="block text-xs uppercase tracking-wider text-zinc-500"
+      >
         Paste activation code
       </label>
       <textarea
+        id="activation-code-input"
         ref={textareaRef}
         value={code}
         onChange={(e) => onCodeChange(e.target.value)}
@@ -285,7 +339,7 @@ function ActivationCodeSection({
 function ActivationError({ error }: { error: string }) {
   return (
     <div className="flex items-start gap-2 px-3 py-2 bg-rose-500/10 border border-rose-500/30 rounded text-xs text-rose-300">
-      <FaCircleExclamation className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <FaCircleExclamation className="size-3.5 mt-0.5 shrink-0" />
       <span>{error}</span>
     </div>
   );

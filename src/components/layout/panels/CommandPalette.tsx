@@ -63,7 +63,13 @@ export function CommandPalette({
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        role="button"
+        tabIndex={0}
         onClick={() => onOpenChange(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onOpenChange(false);
+        }}
+        aria-label="Close command palette"
       />
 
       <Command
@@ -71,7 +77,7 @@ export function CommandPalette({
         loop
       >
         <div className="flex items-center border-b border-white/10 px-4">
-          <FaMagnifyingGlass className="w-4 h-4 text-zinc-500 mr-3" />
+          <FaMagnifyingGlass className="size-4 text-zinc-500 mr-3" />
           <Command.Input
             value={search}
             onValueChange={setSearch}
@@ -163,13 +169,13 @@ function CommandActionItem({
     <Command.Item
       value={`${action.label} ${group}`}
       onSelect={() => onRun(action)}
-      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-cyan-400"
+      className="group flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-300 cursor-pointer aria-selected:bg-cyan-500/20 aria-selected:text-white"
     >
-      <Icon className="w-4 h-4 text-zinc-500" />
+      <Icon className="size-4 text-zinc-500 group-aria-selected:text-white" />
       <span className="flex-1">{action.label}</span>
       {isChecked && <span className="text-cyan-400 text-xs">✓</span>}
       {action.shortcut && (
-        <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 bg-zinc-800 rounded">
+        <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-zinc-500 group-aria-selected:text-white bg-zinc-800 rounded">
           {formatShortcut(action.shortcut)}
         </kbd>
       )}

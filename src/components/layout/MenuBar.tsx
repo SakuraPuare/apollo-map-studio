@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useEffectEvent } from 'react';
 import {
   formatShortcut,
   getMenuActionsForMode,
@@ -31,16 +31,18 @@ function Menu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
+  const onCloseEvent = useEffectEvent(onClose);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
+        onCloseEvent();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const itemsWithDividers = withMenuDividers(actions);
 
@@ -60,7 +62,10 @@ function Menu({
         <div className="absolute top-full left-0 mt-1 py-1 min-w-[180px] w-max bg-zinc-900 border border-white/10 rounded-md shadow-xl z-50">
           {itemsWithDividers.map((item, i) =>
             item === 'divider' ? (
-              <div key={`div-${i}`} className="my-1 border-t border-white/10" />
+              <div
+                key={`div-before-${(itemsWithDividers[i + 1] as ActionDef)?.id ?? i}`}
+                className="my-1 border-t border-white/10"
+              />
             ) : (
               <button
                 key={item.id}
@@ -68,7 +73,7 @@ function Menu({
                   onExecute(item.id);
                   onClose();
                 }}
-                className="grid w-full grid-cols-[10px_minmax(0,1fr)_max-content] items-center gap-x-1 px-1.5 py-1.5 text-left text-xs whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
+                className="grid w-full grid-cols-[10px_minmax(0,1fr)_max-content] items-center gap-x-1 p-1.5 text-left text-xs whitespace-nowrap text-zinc-400 hover:text-zinc-200 hover:bg-white/10"
               >
                 <span className="text-center text-[11px] leading-none text-zinc-300">
                   {item.isToggle && getToggleState(item.id) ? '✓' : ''}
@@ -97,8 +102,8 @@ function MenuShortcut({ shortcut }: { shortcut?: string }) {
         aria-label={display}
         className="grid min-w-[3.9rem] grid-cols-[0.65rem_0.65rem_0.65rem_0.65rem_0.9rem] items-center justify-end pl-5 text-right text-[12px] leading-none text-zinc-500/85"
       >
-        {modifiers.map((modifier, index) => (
-          <span key={MAC_MODIFIER_ORDER[index]}>{modifier}</span>
+        {MAC_MODIFIER_ORDER.map((mod, idx) => (
+          <span key={mod}>{modifiers[idx]}</span>
         ))}
         <span>{key}</span>
       </span>
@@ -192,7 +197,7 @@ export function MenuBar({ onExecute, getToggleState, showBrand = true }: MenuBar
     <div className="h-8 bg-zinc-950 border-b border-white/[0.07] flex items-center px-2 shrink-0">
       {showBrand ? (
         <div className="flex items-center gap-2 mr-4">
-          <img src={logoUrl} alt="" className="w-4 h-4 rounded-[3px] shrink-0" aria-hidden="true" />
+          <img src={logoUrl} alt="" className="size-4 rounded-[3px] shrink-0" aria-hidden="true" />
           <span className="text-xs font-medium text-zinc-300 tracking-wide">Apollo Map Studio</span>
         </div>
       ) : null}

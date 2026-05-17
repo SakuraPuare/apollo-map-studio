@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useSelector } from '@xstate/react';
 import { useEditorActor } from '@/context/EditorContext';
 import { useSidebar } from '@/context/SidebarContext';
@@ -21,6 +21,9 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
   const requestFocusEntity = useUIStore((s) => s.requestFocusEntity);
 
+  const onOpenSettingsRef = useRef(onOpenSettings);
+  onOpenSettingsRef.current = onOpenSettings;
+
   const handleSelect = useCallback(
     (id: string | null) => {
       if (!id) return;
@@ -34,10 +37,10 @@ export function SidebarPanelContent({ onOpenSettings }: SidebarPanelContentProps
   // so the Dockview sidebar title/content never remains on a non-panel entry.
   useEffect(() => {
     if (activeView?.kind === 'modal') {
-      onOpenSettings();
+      onOpenSettingsRef.current();
       setActiveTab(getDefaultSidebarViewId());
     }
-  }, [activeView, onOpenSettings, setActiveTab]);
+  }, [activeView, setActiveTab]);
 
   return (
     <div className="h-full bg-zinc-900/50 overflow-hidden flex flex-col">

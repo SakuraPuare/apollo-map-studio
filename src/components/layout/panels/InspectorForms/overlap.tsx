@@ -57,12 +57,11 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
     updateEntity(entity.id, clearOverride(entity, overridePathFor(i)));
   };
 
-  const laneObjects = entity.objects
-    .map((o, i) => ({ o, i }))
-    .filter(
-      (p): p is { o: Extract<ObjectOverlapInfo, { objectType: 'lane' }>; i: number } =>
-        p.o.objectType === 'lane',
-    );
+  const laneObjects: { o: Extract<ObjectOverlapInfo, { objectType: 'lane' }>; i: number }[] = [];
+  for (let i = 0; i < entity.objects.length; i++) {
+    const o = entity.objects[i]!;
+    if (o.objectType === 'lane') laneObjects.push({ o, i });
+  }
   return (
     <form>
       <Section title="Overlap">
@@ -100,11 +99,7 @@ function ParticipantsSection({ objects }: { objects: ObjectOverlapInfo[] }) {
         <div className="text-[10px] text-zinc-600 italic py-1">no objects</div>
       )}
       {objects.map((o, i) => (
-        <Value
-          key={`${o.objectType}:${o.objectId}:${i}`}
-          label={`#${i}`}
-          value={describeObject(o)}
-        />
+        <Value key={`${o.objectType}:${o.objectId}`} label={`#${i}`} value={describeObject(o)} />
       ))}
     </Section>
   );
@@ -128,7 +123,7 @@ function LaneSemanticsSection({
   return (
     <Section title="Lane × Lane Semantics">
       {laneObjects.map(({ o, i }) => (
-        <div key={`merge-${i}`} className="flex items-center gap-2 py-1">
+        <div key={`merge-${o.objectId}`} className="flex items-center gap-2 py-1">
           <span className="text-[11px] text-zinc-500 w-24 shrink-0">Lane #{i} merge</span>
           <label className="flex items-center gap-1 text-[11px] text-zinc-300 cursor-pointer">
             <input
@@ -201,7 +196,7 @@ function RegionOverlapsSection({ entity, onPin, onUnpin }: RegionOverlapsSection
         const pointCount = r.polygons.reduce((acc, p) => acc + p.points.length, 0);
         return (
           <Value
-            key={`region-${r.id}-${i}`}
+            key={`region-${r.id}`}
             label={`#${i}`}
             value={`${shortId(r.id)} · ${r.polygons.length} ring · ${pointCount} pt`}
           />

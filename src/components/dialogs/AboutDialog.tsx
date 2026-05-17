@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
   FaBookOpen,
   FaCheck,
@@ -109,9 +109,7 @@ function LicenseDetails() {
       <div className="rounded border border-white/10 bg-zinc-950/50">
         <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <StatusIcon
-              className={`h-3.5 w-3.5 ${blocked ? 'text-amber-300' : 'text-emerald-300'}`}
-            />
+            <StatusIcon className={`size-3.5 ${blocked ? 'text-amber-300' : 'text-emerald-300'}`} />
             <div className="min-w-0">
               <h3 className="text-xs font-medium text-zinc-200">License & Activation</h3>
               <p className="truncate text-[11px] text-zinc-500">
@@ -124,7 +122,7 @@ function LicenseDetails() {
             onClick={promptActivation}
             className="inline-flex shrink-0 items-center gap-1.5 rounded border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-500/20"
           >
-            <FaKey className="h-3 w-3" />
+            <FaKey className="size-3" />
             {state.status === 'activated' ? 'Manage License' : 'Activate'}
           </button>
         </div>
@@ -151,7 +149,7 @@ function LicenseDetails() {
               disabled={!state.machineCode}
               className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {copied ? <FaCheck className="h-3 w-3" /> : <FaCopy className="h-3 w-3" />}
+              {copied ? <FaCheck className="size-3" /> : <FaCopy className="size-3" />}
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
@@ -186,7 +184,7 @@ function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
         onClick={() => void appBridge.openHelp()}
         className="px-3 py-1.5 text-xs rounded border border-white/10 text-zinc-300 hover:bg-white/10 inline-flex items-center gap-2"
       >
-        <FaBookOpen className="w-3 h-3" />
+        <FaBookOpen className="size-3" />
         Help Documentation
       </button>
       <button
@@ -203,6 +201,8 @@ function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
 export function AboutDialog({ open, onClose }: AboutDialogProps) {
   const [info, setInfo] = useState<AppRuntimeInfo | null>(null);
 
+  const onCloseEvent = useEffectEvent(onClose);
+
   useEffect(() => {
     if (!open) return;
     void appBridge.getAppInfo().then(setInfo);
@@ -214,13 +214,13 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
     const handler = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseEvent();
       }
     };
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, open]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -228,7 +228,16 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        role="button"
+        tabIndex={0}
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') onClose();
+        }}
+        aria-label="Close dialog"
+      />
       <div className="relative w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-lg shadow-2xl overflow-hidden">
         <header className="flex items-center justify-between px-5 py-3 border-b border-white/10">
           <div>
@@ -241,7 +250,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
             className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
             aria-label="Close"
           >
-            <FaXmark className="w-4 h-4" />
+            <FaXmark className="size-4" />
           </button>
         </header>
 
