@@ -52,7 +52,7 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
           : 'text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover',
       )}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="size-4" />
     </button>
   );
 }
@@ -89,7 +89,7 @@ function BoundaryBrushPalette() {
           title={type}
           onClick={() => setType(type)}
           className={clsx(
-            'h-7 w-7 rounded flex items-center justify-center transition-all',
+            'size-7 rounded flex items-center justify-center transition-all',
             selectedType === type
               ? 'bg-ams-surface-active text-ams-text-primary'
               : 'text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover',
@@ -124,14 +124,14 @@ function ElementBar({ currentElement, onSelect }: ElementBarProps) {
             onClick={() => onSelect(el.type)}
             title={el.label}
             className={clsx(
-              'h-7 w-7 flex items-center justify-center rounded text-xs transition-all shrink-0',
+              'size-7 flex items-center justify-center rounded text-xs transition-all shrink-0',
               active
                 ? 'bg-ams-surface-active'
                 : 'text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover',
             )}
             style={active ? { color: el.color } : undefined}
           >
-            <Icon className="w-4 h-4" />
+            <Icon className="size-4" />
           </button>
         );
       })}
@@ -285,7 +285,7 @@ function CommandPaletteButton({ onOpen }: { onOpen?: () => void }) {
       onClick={onOpen}
       className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
     >
-      <FaTerminal className="w-3.5 h-3.5" />
+      <FaTerminal className="size-3.5" />
       <kbd className="text-[10px] font-mono text-ams-text-disabled">⌘K</kbd>
     </button>
   );

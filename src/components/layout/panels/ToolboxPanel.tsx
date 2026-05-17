@@ -40,9 +40,9 @@ export function ToolboxPanel() {
 
   return (
     <ScrollArea className="h-full bg-zinc-950/60 text-xs text-zinc-300">
-      <div className="border-b border-white/[0.07] px-3 py-3">
+      <div className="border-b border-white/[0.07] p-3">
         <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
-          <FaChartSimple className="h-3.5 w-3.5" />
+          <FaChartSimple className="size-3.5" />
           <span>工具箱</span>
         </div>
         <div className="grid grid-cols-3 gap-1.5">
@@ -79,7 +79,7 @@ export function ToolboxPanel() {
           />
         </div>
         <ToolButton
-          icon={<FaCompress className="h-3.5 w-3.5" />}
+          icon={<FaCompress className="size-3.5" />}
           label={busyTool === 'simplify' ? '处理中' : '应用下采样'}
           disabled={disabled || !toleranceValid}
           onClick={() => void runSimplify(parsedTolerance, setBusyTool, setResult)}
@@ -89,13 +89,13 @@ export function ToolboxPanel() {
       <ToolSection title="几何维护">
         <div className="grid grid-cols-1 gap-2">
           <ToolButton
-            icon={<FaRotate className="h-3.5 w-3.5" />}
+            icon={<FaRotate className="size-3.5" />}
             label={busyTool === 'derive' ? '处理中' : '重算派生字段'}
             disabled={disabled}
             onClick={() => void runRederive(setBusyTool, setResult)}
           />
           <ToolButton
-            icon={<FaArrowsRotate className="h-3.5 w-3.5" />}
+            icon={<FaArrowsRotate className="size-3.5" />}
             label={busyTool === 'overlap' ? '处理中' : '重算 Overlap'}
             disabled={disabled}
             onClick={() => void runOverlap(setBusyTool, setResult)}
@@ -104,7 +104,7 @@ export function ToolboxPanel() {
       </ToolSection>
 
       {result && (
-        <div className="px-3 py-3">
+        <div className="p-3">
           <ResultStrip message={result} />
         </div>
       )}
@@ -125,7 +125,7 @@ function Metric({ label, value }: { label: string; value: number }) {
 
 function ToolSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-b border-white/[0.07] px-3 py-3">
+    <section className="border-b border-white/[0.07] p-3">
       <div className="mb-2 text-[10px] font-mono uppercase tracking-widest text-zinc-500">
         {title}
       </div>
@@ -169,7 +169,7 @@ function ResultStrip({ message }: { message: ToolResultMessage }) {
   return (
     <div className={`rounded border px-3 py-2 ${toneClass}`}>
       <div className="flex items-center gap-2 text-[11px] font-medium">
-        {message.tone !== 'ok' && <FaTriangleExclamation className="h-3.5 w-3.5" />}
+        {message.tone !== 'ok' && <FaTriangleExclamation className="size-3.5" />}
         <span>{message.title}</span>
       </div>
       <div className="mt-1 text-[11px] leading-4 text-zinc-400">{message.detail}</div>

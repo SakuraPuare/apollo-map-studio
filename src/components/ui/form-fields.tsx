@@ -10,7 +10,7 @@ interface FieldProps {
   children: React.ReactNode;
 }
 
-export function Field({ name, label, children }: FieldProps) {
+function Field({ name, label, children }: FieldProps) {
   const {
     formState: { errors },
   } = useFormContext();

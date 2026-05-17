@@ -120,7 +120,7 @@ export function LicenseBanner() {
       className={`flex items-center justify-between px-4 py-1.5 border-b ${tone.bg} ${tone.border} ${tone.text}`}
     >
       <div className="flex items-center gap-2 text-xs">
-        <Icon className="w-3.5 h-3.5" />
+        <Icon className="size-3.5" />
         <span>{message}</span>
       </div>
       {shouldShowAction(state) ? (
@@ -129,7 +129,7 @@ export function LicenseBanner() {
           onClick={() => promptActivation()}
           className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-white/20 hover:bg-white/10"
         >
-          <FaKey className="w-3 h-3" />
+          <FaKey className="size-3" />
           {state.status === 'activated' ? 'Manage license' : 'Activate'}
         </button>
       ) : null}

@@ -96,7 +96,7 @@ function Playhead({ time, zoom }: { time: number; zoom: number }) {
       className="absolute top-0 bottom-0 w-px bg-cyan-400 z-20 pointer-events-none"
       style={{ left: `${left}px` }}
     >
-      <div className="absolute -top-1 -translate-x-1/2 w-3 h-3 bg-cyan-400 rounded-full" />
+      <div className="absolute -top-1 -translate-x-1/2 size-3 bg-cyan-400 rounded-full" />
     </div>
   );
 }
@@ -234,16 +234,16 @@ function TransportControls({
   return (
     <div className="h-9 flex items-center gap-2 px-3 border-b border-white/[0.07] shrink-0">
       <IconButton onClick={onSkipBack}>
-        <FaBackwardStep className="w-4 h-4" />
+        <FaBackwardStep className="size-4" />
       </IconButton>
       <IconButton onClick={onTogglePlay} prominent>
-        {isPlaying ? <FaPause className="w-4 h-4" /> : <FaPlay className="w-4 h-4" />}
+        {isPlaying ? <FaPause className="size-4" /> : <FaPlay className="size-4" />}
       </IconButton>
       <IconButton onClick={onStop}>
-        <FaStop className="w-4 h-4" />
+        <FaStop className="size-4" />
       </IconButton>
       <IconButton onClick={onSkipForward}>
-        <FaForwardStep className="w-4 h-4" />
+        <FaForwardStep className="size-4" />
       </IconButton>
 
       <div className="w-px h-4 bg-white/10 mx-1" />
@@ -253,7 +253,7 @@ function TransportControls({
 
       <div className="flex-1" />
       <button className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/10 rounded">
-        <FaPlus className="w-3 h-3" />
+        <FaPlus className="size-3" />
         Add Track
       </button>
     </div>
@@ -308,12 +308,12 @@ function TrackHeader({ track, onToggle }: { track: Track; onToggle: () => void }
       <button onClick={onToggle} className="p-0.5">
         <FaChevronRight
           className={clsx(
-            'w-3 h-3 text-zinc-600 transition-transform',
+            'size-3 text-zinc-600 transition-transform',
             track.expanded && 'rotate-90',
           )}
         />
       </button>
-      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
+      <div className="size-2 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
       <span className="text-[11px] text-zinc-400 truncate">{track.name}</span>
     </div>
   );
@@ -353,7 +353,7 @@ function KeyframeTrack({ track, zoom }: { track: Track; zoom: number }) {
       {track.keyframes.map((kf, i) => (
         <div
           key={i}
-          className="absolute top-1/2 w-3 h-3 rounded-sm cursor-pointer hover:scale-125 transition-transform"
+          className="absolute top-1/2 size-3 rounded-sm cursor-pointer hover:scale-125 transition-transform"
           style={{
             left: `${kf.time * zoom}px`,
             backgroundColor: track.color,

@@ -44,7 +44,7 @@ function ActivityBarGroup({
           onClick={() => onTabChange(id)}
           title={label}
           className={clsx(
-            'relative w-10 h-10 flex items-center justify-center rounded transition-colors',
+            'relative size-10 flex items-center justify-center rounded transition-colors',
             activeTab === id
               ? 'text-ams-text-primary bg-ams-surface-active'
               : 'text-ams-text-muted hover:text-ams-text-primary hover:bg-ams-surface-hover',
@@ -53,7 +53,7 @@ function ActivityBarGroup({
           {activeTab === id && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-5 bg-ams-accent rounded-r" />
           )}
-          <Icon className="w-5 h-5" />
+          <Icon className="size-5" />
         </button>
       ))}
     </div>

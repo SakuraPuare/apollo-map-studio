@@ -48,7 +48,7 @@ function LicenseChip() {
       }`}
       title={state.reason}
     >
-      <Icon className="h-3 w-3" />
+      <Icon className="size-3" />
       {licenseLabel(state)}
     </button>
   );
@@ -68,7 +68,7 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         title="Minimize"
         onClick={() => void appBridge.minimizeWindow()}
       >
-        <FaMinus className="h-3 w-3" />
+        <FaMinus className="size-3" />
       </button>
       <button
         type="button"
@@ -76,7 +76,7 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         title={state.isMaximized ? 'Restore' : 'Maximize'}
         onClick={() => void appBridge.toggleMaximizeWindow()}
       >
-        {state.isMaximized ? <FaSquare className="h-3 w-3" /> : <FaRegSquare className="h-3 w-3" />}
+        {state.isMaximized ? <FaSquare className="size-3" /> : <FaRegSquare className="size-3" />}
       </button>
       <button
         type="button"
@@ -84,7 +84,7 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         title="Close"
         onClick={() => void appBridge.closeWindow()}
       >
-        <FaXmark className="h-3.5 w-3.5" />
+        <FaXmark className="size-3.5" />
       </button>
     </div>
   );
@@ -106,7 +106,7 @@ export function DesktopTitleBar({ windowState }: DesktopTitleBarProps) {
       <div className="flex h-full items-center gap-3 pl-3 pr-0">
         {platform === 'darwin' ? <div className="w-[68px] shrink-0" /> : null}
         <div className="flex min-w-0 items-center gap-2">
-          <img src={logoUrl} alt="" className="h-4 w-4 rounded-[3px]" aria-hidden="true" />
+          <img src={logoUrl} alt="" className="size-4 rounded-[3px]" aria-hidden="true" />
           <span className="truncate text-xs font-medium tracking-wide text-zinc-200">
             Apollo Map Studio
           </span>
@@ -114,7 +114,7 @@ export function DesktopTitleBar({ windowState }: DesktopTitleBarProps) {
 
         <div className="flex min-w-0 flex-1 items-center gap-2 text-[11px]">
           <span className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-0.5 text-zinc-500">
-            <PlatformIcon className="h-3 w-3" />
+            <PlatformIcon className="size-3" />
             {platformLabel(desktop ? platform : undefined)}
           </span>
           {windowState?.isFullscreen ? (

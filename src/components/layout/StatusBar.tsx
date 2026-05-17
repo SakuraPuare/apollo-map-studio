@@ -100,7 +100,7 @@ function StatusLeft({
       <div className="w-px h-3 bg-ams-border-strong" />
       <div className="flex items-center gap-1.5">
         <div
-          className={`w-1.5 h-1.5 rounded-full ${
+          className={`size-1.5 rounded-full ${
             isDrawing ? 'bg-ams-accent animate-pulse' : 'bg-ams-text-disabled'
           }`}
         />
@@ -126,7 +126,7 @@ function ApolloMapStatus({ info }: { info: ApolloMapImportInfo }) {
     <>
       <div className="w-px h-3 bg-ams-border-strong" />
       <div className="flex items-center gap-1.5" title={`PROJ: ${info.projString}`}>
-        <FaMap className="w-3 h-3 text-ams-accent" />
+        <FaMap className="size-3 text-ams-accent" />
         <span className="text-ams-text-secondary">{info.filename}</span>
         <span className="text-ams-text-disabled font-mono">
           lane={info.counts.lane ?? 0} road={info.counts.road ?? 0}
@@ -155,7 +155,7 @@ function StatusRight({
     <div className="flex items-center gap-4">
       {isDesktopRuntime() && windowState ? (
         <div className="flex items-center gap-1 text-ams-text-secondary">
-          <FaDesktop className="w-3 h-3" />
+          <FaDesktop className="size-3" />
           <span className="font-mono">{windowState.platform}</span>
           {windowState.isMaximized ? <span className="text-ams-text-disabled">max</span> : null}
         </div>
@@ -168,7 +168,7 @@ function StatusRight({
 
       {cursorLngLat && (
         <div className="flex items-center gap-1">
-          <FaMapPin className="w-3 h-3 text-ams-text-disabled" />
+          <FaMapPin className="size-3 text-ams-text-disabled" />
           <span className="font-mono">
             {cursorLngLat[0].toFixed(6)}, {cursorLngLat[1].toFixed(6)}
           </span>
@@ -176,7 +176,7 @@ function StatusRight({
       )}
 
       <div className="flex items-center gap-1">
-        <FaMagnifyingGlassPlus className="w-3 h-3 text-ams-text-disabled" />
+        <FaMagnifyingGlassPlus className="size-3 text-ams-text-disabled" />
         <span className="font-mono text-ams-text-secondary">{currentZoom.toFixed(1)}x</span>
       </div>
     </div>
@@ -193,7 +193,7 @@ function LicenseStatusPill({ state }: { state: LicenseState }) {
       }`}
       title={state.reason}
     >
-      <Icon className="w-3 h-3" />
+      <Icon className="size-3" />
       <span>{state.status}</span>
     </div>
   );
@@ -212,7 +212,7 @@ function StatusToggle({
     <div
       className={`flex items-center gap-1 ${enabled ? 'text-ams-accent' : 'text-ams-text-disabled'}`}
     >
-      <Icon className="w-3 h-3" />
+      <Icon className="size-3" />
       <span>{label}</span>
     </div>
   );

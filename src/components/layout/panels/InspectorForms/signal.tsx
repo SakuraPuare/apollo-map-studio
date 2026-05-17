@@ -18,9 +18,12 @@ import { zodResolverZ4 } from './resolver';
 type SignInfoFlag = (typeof signInfoTypeOptions)[number];
 
 function signInfoFlags(entity: SignalEntity): SignInfoFlag[] {
-  return entity.signInfo
-    .map((s) => s.type)
-    .filter((t): t is SignInfoFlag => (signInfoTypeOptions as readonly string[]).includes(t));
+  const result: SignInfoFlag[] = [];
+  for (const s of entity.signInfo) {
+    if ((signInfoTypeOptions as readonly string[]).includes(s.type))
+      result.push(s.type as SignInfoFlag);
+  }
+  return result;
 }
 
 function formValuesFromSignal(entity: SignalEntity): SignalFormValues {
@@ -115,7 +118,7 @@ function SubsignalsSection({ entity, onRegenerate, onTypeChange }: SubsignalsSec
     <Section title={`Subsignals (${entity.subsignals.length})`}>
       {entity.subsignals.length === 0 ? (
         <div className="text-[11px] text-zinc-500 py-1">
-          No bulbs — draw a stop line or click Regenerate below.
+          No bulbs: draw a stop line or click Regenerate below.
         </div>
       ) : (
         entity.subsignals.map((sub, i) => (

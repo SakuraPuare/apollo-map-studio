@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 
 export type ScrollAreaOrientation = 'vertical' | 'horizontal' | 'both';
 
-export const scrollbarClassName = 'ams-scrollbar';
+const scrollbarClassName = 'ams-scrollbar';
 
 const orientationClassName: Record<ScrollAreaOrientation, string> = {
   vertical: 'overflow-y-auto overflow-x-hidden',

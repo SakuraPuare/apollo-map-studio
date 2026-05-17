@@ -21,7 +21,7 @@ export function LaneRefList({ ids, short = true }: LaneRefListProps) {
   const actorRef = useEditorActor();
 
   if (!ids || ids.length === 0) {
-    return <span className="text-zinc-500">—</span>;
+    return <span className="text-zinc-500">none</span>;
   }
 
   const handleClick = (id: string) => {
@@ -63,6 +63,6 @@ export function LaneRefList({ ids, short = true }: LaneRefListProps) {
  * `junctionId`.
  */
 export function LaneRef({ id }: { id: string | null | undefined }) {
-  if (!id) return <span className="text-zinc-500">—</span>;
+  if (!id) return <span className="text-zinc-500">none</span>;
   return <LaneRefList ids={[id]} />;
 }

@@ -218,7 +218,7 @@ function LayerTreeActions({
           roadLocked ? 'Road layer is locked' : '新建 Road（之后拖 lane 进 Section 完成 assign）'
         }
       >
-        <FaPlus className="w-2.5 h-2.5" /> Road
+        <FaPlus className="size-2.5" /> Road
       </button>
       <button
         disabled={rsuLocked}
@@ -228,7 +228,7 @@ function LayerTreeActions({
           rsuLocked ? 'RSU layer is locked' : '新建 RSU（之后拖到某个 Junction 下完成 assign）'
         }
       >
-        <FaPlus className="w-2.5 h-2.5" /> RSU
+        <FaPlus className="size-2.5" /> RSU
       </button>
     </div>
   );
