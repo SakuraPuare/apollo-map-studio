@@ -35,6 +35,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "react-doctor": "react-doctor .",
     "prepare": "husky"
   },
   "dependencies": {

@@ -28,6 +28,8 @@ jobs:
             command: pnpm format:check
           - task: Unit tests
             command: pnpm test
+          - task: React Doctor
+            command: npx react-doctor@latest . --ci --fail-on error
 
     steps:
       - name: Checkout repository
