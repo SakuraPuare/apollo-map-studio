@@ -31,7 +31,7 @@
     "bench": "vitest bench --run --maxWorkers=1",
     "bench:fast": "vitest bench --run --maxWorkers=100%",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . && npx react-doctor@latest . --fail-on error",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
