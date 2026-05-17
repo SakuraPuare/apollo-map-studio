@@ -50,9 +50,6 @@ export const LANE_CENTER_LINE_OPACITY = 0.4;
 
 // ─── 方向箭头 ──────────────────────────────────────────────────────────────────
 
-/** 方向箭头字符 */
-export const LANE_ARROW_CHAR = '▶';
-
 /** 方向箭头字号（像素） */
 export const LANE_ARROW_TEXT_SIZE = 10;
 
@@ -93,9 +90,3 @@ export const OVERLAP_STOPLINE_PROBE_DEG = 100 / METERS_PER_DEGREE;
 
 /** 吸附触发阈值（像素），按当前 zoom 实时换算为米 */
 export const SNAP_RADIUS_PX = 12;
-
-/** 顶点吸附指示器颜色（青） */
-export const SNAP_VERTEX_COLOR = '#00d4ff';
-
-/** 边缘吸附指示器颜色（暗青，与顶点区分） */
-export const SNAP_EDGE_COLOR = '#00a8cc';

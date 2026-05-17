@@ -23,7 +23,7 @@ const PROTO_SOURCES = import.meta.glob('/src/proto/**/*.proto', {
 
 type NullableFetchCallback = (error: Error | null, contents?: string) => void;
 
-export function loadApolloProtoRoot(): Promise<protobuf.Root> {
+function loadApolloProtoRoot(): Promise<protobuf.Root> {
   if (cached) return cached;
   const root = new protobuf.Root();
   // Apollo proto imports are written relative to src/proto/ root

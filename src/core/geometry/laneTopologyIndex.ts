@@ -6,7 +6,7 @@ import { SpatialIndex } from '@/core/elements/overlap/spatialIndex';
 import { bboxOfPoints } from '@/core/elements/overlap/intersect';
 import type { BBox } from '@/core/elements/overlap/types';
 
-export const COORD_KEY_PRECISION = 6;
+const COORD_KEY_PRECISION = 6;
 export const NEIGHBOR_QUERY_PADDING_M = 12;
 
 export interface Endpoint {
@@ -54,7 +54,7 @@ export function endpointKey(x: number, y: number): string {
   return `${x.toFixed(COORD_KEY_PRECISION)},${y.toFixed(COORD_KEY_PRECISION)}`;
 }
 
-export function buildLocalFrame(start: GeoPoint, end: GeoPoint): LocalFrame | null {
+function buildLocalFrame(start: GeoPoint, end: GeoPoint): LocalFrame | null {
   const cosLat = Math.cos((start.y * Math.PI) / 180);
   const mPerLng = METERS_PER_DEGREE * cosLat;
   const ex = (end.x - start.x) * mPerLng;
@@ -80,7 +80,7 @@ export function paddedLaneBBoxFromBBox(bbox: BBox, refLat: number, paddingM: num
   };
 }
 
-export function geometryForLane(lane: LaneEntity): LaneGeometry | null {
+function geometryForLane(lane: LaneEntity): LaneGeometry | null {
   const centerline = curvePoints(lane.centralCurve);
   const start = centerline[0] ?? null;
   const end = centerline[centerline.length - 1] ?? null;

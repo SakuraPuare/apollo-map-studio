@@ -31,7 +31,7 @@ const ENTITY_TYPES = [
   'polygon',
 ] as const;
 
-export interface LayerState {
+interface LayerState {
   visible: boolean;
   locked: boolean;
 }

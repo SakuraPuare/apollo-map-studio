@@ -35,7 +35,7 @@ const DEG_TO_M = 111320;
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-export type SnapKind = 'vertex' | 'edge';
+type SnapKind = 'vertex' | 'edge';
 
 /**
  * For lane vertex hits, role within the centerline polyline. This is
@@ -43,7 +43,7 @@ export type SnapKind = 'vertex' | 'edge';
  * successor — only START / END snaps establish topology; INTERIOR
  * snaps would create coincident geometry without a topological link.
  */
-export type LaneEndpointRole = 'start' | 'end';
+type LaneEndpointRole = 'start' | 'end';
 
 export interface SnapTarget {
   kind: SnapKind;
@@ -63,7 +63,7 @@ export interface SnapTarget {
   endpointRole?: LaneEndpointRole;
 }
 
-export interface VertexCandidate {
+interface VertexCandidate {
   point: GeoPoint;
   entityId: string;
   entityType: string;
@@ -71,7 +71,7 @@ export interface VertexCandidate {
   endpointRole?: LaneEndpointRole;
 }
 
-export interface EdgeCandidate {
+interface EdgeCandidate {
   /** Two endpoints of a single polyline segment */
   a: GeoPoint;
   b: GeoPoint;

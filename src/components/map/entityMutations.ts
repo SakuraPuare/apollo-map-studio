@@ -1,6 +1,6 @@
 import type { DragPointType } from '@/types/editor';
 import type { ApolloEntity } from '@/types/apollo';
-import type { BezierEntity, MapEntity } from '@/types/entities';
+import type { MapEntity } from '@/types/entities';
 import type { LngLat } from '@/core/geometry/interpolate';
 import { applyDerive } from '@/core/elements/derive';
 import {
@@ -59,5 +59,3 @@ export function applyDrag(
   if (next === entity) return entity;
   return applyDerive(next, { cause: 'editGeometry', prev: entity });
 }
-
-export type { BezierEntity };

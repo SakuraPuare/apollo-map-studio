@@ -141,7 +141,7 @@ export function clampSettingNumber(value: number, min: number, max: number): num
   return Math.max(min, Math.min(max, value));
 }
 
-export function isLaneBoundaryTypeOption(value: BoundaryLineType): value is LaneBoundaryTypeOption {
+function isLaneBoundaryTypeOption(value: BoundaryLineType): value is LaneBoundaryTypeOption {
   return (LANE_BOUNDARY_TYPE_OPTIONS as readonly BoundaryLineType[]).includes(value);
 }
 

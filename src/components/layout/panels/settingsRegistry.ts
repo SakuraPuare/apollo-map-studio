@@ -53,7 +53,7 @@ export interface SelectSettingEntryDef {
   commit: (settings: SettingsStoreSnapshot, value: string) => void;
 }
 
-export interface SelectOptionDef {
+interface SelectOptionDef {
   value: string;
   label: string;
 }

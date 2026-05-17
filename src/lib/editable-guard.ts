@@ -34,11 +34,3 @@ export function assertEditable(action = 'edit'): boolean {
   }
   return false;
 }
-
-/**
- * Synchronous read of `canEdit` without side effects — used by component
- * render paths that need to disable buttons.
- */
-export function isEditable(): boolean {
-  return useLicenseStore.getState().state.canEdit;
-}

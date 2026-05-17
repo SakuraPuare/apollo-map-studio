@@ -1,13 +1,5 @@
 import { z } from 'zod';
 
-// ─── Common Schemas ────────────────────────────────────────
-
-export const pointSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  z: z.number().optional(),
-});
-
 // ─── Lane Schemas ──────────────────────────────────────────
 
 export const laneTypeOptions = [

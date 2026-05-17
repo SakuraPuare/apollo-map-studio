@@ -25,7 +25,7 @@ import {
 import type { ActionDef } from './types';
 import { getWorkspaceViewDefs } from '@/core/workspaceViews';
 
-export const BASE_ACTION_DEFS: ActionDef[] = [
+const BASE_ACTION_DEFS: ActionDef[] = [
   {
     id: 'importApollo',
     label: 'Import Apollo Map...',
@@ -285,7 +285,7 @@ export const BASE_ACTION_DEFS: ActionDef[] = [
   },
 ];
 
-export function getWorkspaceViewActionDefs(): ActionDef[] {
+function getWorkspaceViewActionDefs(): ActionDef[] {
   return getWorkspaceViewDefs().map((view) => ({
     id: view.actionId,
     label: view.label,

@@ -60,11 +60,7 @@ import { LaneRef, LaneRefList } from '@/components/layout/panels/LaneRefList';
 // ─── FieldDef ──────────────────────────────────────────────
 
 /** Numeric input rendered as `<Input type="number">`. */
-export interface NumberFieldDef<
-  TEntity extends MapEntity,
-  TFormValues,
-  TKey extends keyof TFormValues,
-> {
+interface NumberFieldDef<TEntity extends MapEntity, TFormValues, TKey extends keyof TFormValues> {
   kind: 'number';
   name: TKey;
   label: string;
@@ -86,11 +82,7 @@ export interface NumberFieldDef<
 }
 
 /** Enumerated select rendered as `<Select>`. */
-export interface EnumFieldDef<
-  TEntity extends MapEntity,
-  TFormValues,
-  TKey extends keyof TFormValues,
-> {
+interface EnumFieldDef<TEntity extends MapEntity, TFormValues, TKey extends keyof TFormValues> {
   kind: 'enum';
   name: TKey;
   label: string;
@@ -108,7 +100,7 @@ export interface EnumFieldDef<
   overridesPaths?: readonly string[];
 }
 
-export type FieldDef<
+type FieldDef<
   TEntity extends MapEntity,
   TFormValues,
   TKey extends keyof TFormValues = keyof TFormValues,
@@ -184,10 +176,7 @@ export interface EntitySchema<
  *   const F = fieldBuilder<LaneEntity, LaneFormValues>();
  *   F.field({ kind: 'number', name: 'speedLimit', read, write, ... })
  */
-export function fieldBuilder<
-  TEntity extends MapEntity,
-  TFormValues extends Record<string, unknown>,
->() {
+function fieldBuilder<TEntity extends MapEntity, TFormValues extends Record<string, unknown>>() {
   return {
     field<TKey extends keyof TFormValues>(
       def: FieldDef<TEntity, TFormValues, TKey>,

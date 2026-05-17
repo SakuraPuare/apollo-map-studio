@@ -52,13 +52,3 @@ export const useLicenseStore = create<LicenseStoreState>((set, get) => ({
     void get; // suppress unused
   },
 }));
-
-/** Read-only selector: is editing currently allowed? */
-export function selectCanEdit(s: LicenseStoreState): boolean {
-  return s.state.canEdit;
-}
-
-/** Read-only selector: license status string. */
-export function selectStatus(s: LicenseStoreState): LicenseState['status'] {
-  return s.state.status;
-}

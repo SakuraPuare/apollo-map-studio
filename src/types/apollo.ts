@@ -361,7 +361,7 @@ export interface RoadEntity {
 
 // ─── map_overlap.proto ───────────────────────────────────────────────
 
-export interface LaneOverlapInfo {
+interface LaneOverlapInfo {
   /** Optional in proto2; preserve absence to avoid spurious `0` on wire. */
   startS?: number;
   /** Optional in proto2; preserve absence to avoid spurious `0` on wire. */
@@ -510,16 +510,16 @@ export type ApolloEntity =
   | SpeedControlEntity;
 
 /** All Apollo entity type discriminators */
-export type ApolloEntityType = ApolloEntity['entityType'];
+type _ApolloEntityType = ApolloEntity['entityType'];
 
 // ─── map.proto (top-level Map container) ─────────────────────────────
 
-export interface MapProjection {
+interface MapProjection {
   /** PROJ.4 projection string */
   proj: string;
 }
 
-export interface MapHeader {
+interface MapHeader {
   version?: string;
   date?: string;
   projection?: MapProjection;
@@ -535,7 +535,7 @@ export interface MapHeader {
 }
 
 /** Top-level Apollo HD Map container — matches map.proto Map message */
-export interface ApolloMapProto {
+interface _ApolloMapProto {
   header?: MapHeader;
   crosswalks: CrosswalkEntity[];
   junctions: JunctionEntity[];

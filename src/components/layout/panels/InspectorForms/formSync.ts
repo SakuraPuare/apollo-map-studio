@@ -7,7 +7,7 @@ const SILENT_SYNC_OPTIONS = {
   shouldValidate: false,
 } as const;
 
-export function useLatestEntity<TEntity>(entity: TEntity) {
+function useLatestEntity<TEntity>(entity: TEntity) {
   const entityRef = useRef(entity);
   entityRef.current = entity;
   return entityRef;
@@ -37,7 +37,7 @@ export function useEntityFormSync<TEntity extends { id: string }, TFormValues ex
   return entityRef;
 }
 
-export function syncFormValues<TFormValues extends FieldValues>(
+function syncFormValues<TFormValues extends FieldValues>(
   methods: UseFormReturn<TFormValues>,
   desired: TFormValues,
 ): void {

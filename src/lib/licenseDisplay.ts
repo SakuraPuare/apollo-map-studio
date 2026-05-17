@@ -29,7 +29,7 @@ export function formatCountdownMs(ms: number): string {
   return days > 0 ? `${days}d ${clock}` : clock;
 }
 
-export function getLicenseExpiryTime(state: LicenseState): number | null {
+function getLicenseExpiryTime(state: LicenseState): number | null {
   if (state.status === 'activated' || state.status === 'expired_license') {
     const expires = state.license?.expires;
     return expires && expires > 0 ? expires : null;
@@ -38,12 +38,12 @@ export function getLicenseExpiryTime(state: LicenseState): number | null {
   return state.trialEnd > 0 ? state.trialEnd : null;
 }
 
-export function formatCountdownUntil(expiresAt: number | null | undefined, now: number): string {
+function formatCountdownUntil(expiresAt: number | null | undefined, now: number): string {
   if (!expiresAt) return '';
   return formatCountdownMs(expiresAt - now);
 }
 
-export function hasLicenseExpired(state: LicenseState, now: number): boolean {
+function hasLicenseExpired(state: LicenseState, now: number): boolean {
   const expiresAt = getLicenseExpiryTime(state);
   return (
     state.status === 'expired_trial' ||

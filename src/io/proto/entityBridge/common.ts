@@ -11,10 +11,10 @@ export interface RawPoint {
 export interface RawPolygon {
   point?: RawPoint[];
 }
-export interface RawLineSegment {
+interface RawLineSegment {
   point?: RawPoint[];
 }
-export interface RawCurveSegment {
+interface RawCurveSegment {
   line_segment?: RawLineSegment;
   s?: number;
   start_position?: RawPoint;

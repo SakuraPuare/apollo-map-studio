@@ -19,7 +19,7 @@ import { handleMapKeyDown } from './keyboard';
 import { handleSelectedMouseDown } from './selectionDrag';
 import { applyMoveSnap, applySnap as applySnapToPoint } from './snap';
 
-export interface RouterMutableState {
+interface RouterMutableState {
   mouseDownScreenPos: { x: number; y: number } | null;
   centerGrabOffset: [number, number] | null;
   middlePanLastScreenPos: { x: number; y: number } | null;

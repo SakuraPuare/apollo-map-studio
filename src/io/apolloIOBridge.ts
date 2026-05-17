@@ -16,7 +16,7 @@ const FALLBACK_PROJ = UTM_PRESETS.beijing;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
 const EXPORT_ENTITY_CHUNK_SIZE = 2_000;
 
-export interface ApolloExportOptions {
+interface ApolloExportOptions {
   baseMapSource?: ApolloExportBaseMapSource;
 }
 

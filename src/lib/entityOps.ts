@@ -4,12 +4,8 @@
  * UI code imports this module instead of reaching into
  * `src/core/geometry/apolloCompile.ts` directly.
  */
-import type { ApolloEntity } from '@/types/apollo';
-import type { BezierAnchorData, DrawingEntity, GeoPoint, MapEntity } from '@/types/entities';
 
-export type { ApolloEntity, BezierAnchorData, DrawingEntity, GeoPoint, MapEntity };
-
-export { cascadeDeleteRefsFull, type CascadeDeleteResult } from './entityOps/cascadeDeleteRefs';
+export { cascadeDeleteRefsFull } from './entityOps/cascadeDeleteRefs';
 export {
   compileEntity,
   createEntity,
@@ -30,7 +26,6 @@ export {
   canDuplicateEntity,
   duplicateEntity,
   DEFAULT_DUPLICATE_OFFSET_METERS,
-  type DuplicateEntityOptions,
 } from './entityOps/duplicate';
 export {
   isApolloEntityType,

@@ -2,7 +2,7 @@ import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { WorkspaceMode } from '@/core/workspaceViews';
 import { isWorkspaceViewActionId, getWorkspaceViewByActionId } from '@/core/workspaceViews';
 import { getActionDefs } from './definitions';
-import type { ActionCategory, ActionDef, KeyBinding, ToolStripSlot } from './types';
+import type { ActionDef, KeyBinding, ToolStripSlot } from './types';
 
 export type KeyBindingEvent = Pick<
   KeyboardEvent,
@@ -11,10 +11,6 @@ export type KeyBindingEvent = Pick<
 
 export function getActionMap(): Map<ActionDef['id'], ActionDef> {
   return new Map(getActionDefs().map((a) => [a.id, a]));
-}
-
-export function getActionsByCategory(category: ActionCategory): ActionDef[] {
-  return getActionDefs().filter((a) => a.category === category);
 }
 
 export function getMenuActions(menu: string): ActionDef[] {
@@ -57,7 +53,7 @@ export function getToolStripSlotActions(slot: ToolStripSlot): ActionDef[] {
     .sort((a, b) => (a.uiOrder ?? 99) - (b.uiOrder ?? 99));
 }
 
-export function isActionAvailableForMode(action: ActionDef, mode: WorkspaceMode): boolean {
+function isActionAvailableForMode(action: ActionDef, mode: WorkspaceMode): boolean {
   if (!isWorkspaceViewActionId(action.id)) return true;
   return Boolean(getWorkspaceViewByActionId(action.id, mode));
 }

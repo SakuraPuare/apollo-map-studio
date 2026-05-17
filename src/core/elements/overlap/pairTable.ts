@@ -103,7 +103,7 @@ function makeRule<T extends MapEntity['entityType']>(
   };
 }
 
-export const PAIR_RULES: readonly PairRule[] = [
+const PAIR_RULES: readonly PairRule[] = [
   makeRule('junction', 'polygon', (o) => ({ objectType: 'junction', objectId: o.id })),
   makeRule(
     'crosswalk',

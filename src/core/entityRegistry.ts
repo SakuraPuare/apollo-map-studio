@@ -25,7 +25,7 @@ import { BiShapePolygon } from 'react-icons/bi';
 import { PiWarningDiamondFill } from 'react-icons/pi';
 import type { MapEntity } from '@/types/entities';
 
-export type EntityType = MapEntity['entityType'];
+type EntityType = MapEntity['entityType'];
 
 export interface EntityRegistryEntry {
   type: EntityType;
@@ -36,7 +36,7 @@ export interface EntityRegistryEntry {
   topLevelOrder: number;
 }
 
-export const ENTITY_REGISTRY = [
+const ENTITY_REGISTRY = [
   {
     type: 'road',
     label: '道路',
@@ -223,7 +223,7 @@ export const ENTITY_REGISTRY = [
   },
 ] satisfies EntityRegistryEntry[];
 
-export const ENTITY_MAP = new Map<EntityType, EntityRegistryEntry>(
+const ENTITY_MAP = new Map<EntityType, EntityRegistryEntry>(
   ENTITY_REGISTRY.map((entry) => [entry.type, entry]),
 );
 

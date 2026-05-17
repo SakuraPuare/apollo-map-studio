@@ -9,7 +9,7 @@
 
 import { webLicenseProvider } from './web-license-provider';
 
-export type LicenseStatus =
+type LicenseStatus =
   | 'trial'
   | 'activated'
   | 'expired_trial'
@@ -77,7 +77,3 @@ export const licenseBridge: LicenseApi = {
     return window.apolloMapStudioLicense?.onChange(handler) ?? webLicenseProvider.onChange(handler);
   },
 };
-
-export function isDesktopBuild(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.apolloMapStudioLicense);
-}

@@ -43,7 +43,7 @@ export function sameHotRenderState(a: HotRenderState | null, b: HotRenderState) 
   );
 }
 
-export function canRenderHotEntity(entity: MapEntity, layerStates: LayerStates): boolean {
+function canRenderHotEntity(entity: MapEntity, layerStates: LayerStates): boolean {
   return isEntityTypeInteractive(layerStates, entity.entityType);
 }
 

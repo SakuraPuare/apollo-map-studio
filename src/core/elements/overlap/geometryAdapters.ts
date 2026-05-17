@@ -23,7 +23,7 @@ import type {
 import type { MapEntity } from '@/types/entities';
 
 /** Curve → polyline（拼接所有 segment 的 lineSegment.points） */
-export function curveToPolyline(curve: Curve): GeoPoint[] {
+function curveToPolyline(curve: Curve): GeoPoint[] {
   const out: GeoPoint[] = [];
   for (const seg of curve.segments) {
     const pts = seg.lineSegment.points;

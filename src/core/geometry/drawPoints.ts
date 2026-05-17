@@ -1,12 +1,12 @@
 import { haversineMeters } from '@/lib/geo';
 import type { LngLat } from './interpolate';
 
-export const NEAR_DUPLICATE_DRAW_POINT_METERS = 0.5;
+const NEAR_DUPLICATE_DRAW_POINT_METERS = 0.5;
 export const DRAW_FINISH_CLUSTER_METERS = 3;
 
 const POLYLINE_POINT_DRAW_STATES = new Set(['drawPolyline', 'drawCatmullRom']);
 
-export function isPolylinePointDrawState(state: string): boolean {
+function isPolylinePointDrawState(state: string): boolean {
   return POLYLINE_POINT_DRAW_STATES.has(state);
 }
 

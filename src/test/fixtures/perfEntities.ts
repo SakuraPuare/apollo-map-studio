@@ -12,7 +12,7 @@ const LAT = 39.9;
 const LNG = 116.4;
 const DEG_PER_M = 1 / 111_320;
 
-export function laneCurve(points: { x: number; y: number }[]): Curve {
+function laneCurve(points: { x: number; y: number }[]): Curve {
   const startPosition = points[0] ?? { x: 0, y: 0 };
   return {
     segments: [
@@ -64,7 +64,7 @@ export function makePerfLane(id: string, index: number, pointCount = 2): LaneEnt
   };
 }
 
-export function makePerfCrosswalk(id: string, index: number, halfM = 5): CrosswalkEntity {
+function makePerfCrosswalk(id: string, index: number, halfM = 5): CrosswalkEntity {
   const row = Math.floor(index / 100);
   const col = index % 100;
   const cx = LNG + col * 70 * DEG_PER_M;
@@ -85,7 +85,7 @@ export function makePerfCrosswalk(id: string, index: number, halfM = 5): Crosswa
   };
 }
 
-export function makePerfJunction(id: string, index: number, halfM = 12): JunctionEntity {
+function makePerfJunction(id: string, index: number, halfM = 12): JunctionEntity {
   const row = Math.floor(index / 100);
   const col = index % 100;
   const cx = LNG + col * 90 * DEG_PER_M;

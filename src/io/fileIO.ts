@@ -44,11 +44,6 @@ export async function readFileAsBytes(file: Blob): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-/** Read a Blob/File as UTF-8 text. */
-export function readFileAsText(file: Blob): Promise<string> {
-  return file.text();
-}
-
 /** Trigger a browser download for a given Blob using a synthetic anchor click. */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

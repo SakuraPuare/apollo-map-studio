@@ -1,11 +1,6 @@
-export {
-  BASE_ACTION_DEFS,
-  getActionDefs,
-  getWorkspaceViewActionDefs,
-} from './registry/definitions';
+export { getActionDefs } from './registry/definitions';
 export {
   formatShortcut,
-  getActionsByCategory,
   getActionMap,
   getCommandPaletteActions,
   getCommandPaletteActionsForMode,
@@ -16,15 +11,8 @@ export {
   getToolAction,
   getToolStripSlotActions,
   isMacPlatform,
-  isActionAvailableForMode,
   matchesKeybinding,
 } from './registry/helpers';
 export type { KeyBindingEvent } from './registry/helpers';
-export type {
-  ActionCategory,
-  ActionDef,
-  ActionId,
-  KeyBinding,
-  ToolStripSlot,
-} from './registry/types';
+export type { ActionDef, ActionId, KeyBinding } from './registry/types';
 export type { WorkspaceViewActionId } from '@/core/workspaceViews';

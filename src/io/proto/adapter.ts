@@ -9,7 +9,7 @@ const POINT_ENU_NAME = '.apollo.common.PointENU';
  * to every nested `apollo.common.PointENU` sub-message. Returns a new tree;
  * the input is not mutated.
  */
-export function transformPointsInMessage(
+function transformPointsInMessage(
   type: protobuf.Type,
   msg: unknown,
   transform: (p: PointXY) => PointXY,

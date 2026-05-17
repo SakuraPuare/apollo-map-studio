@@ -43,7 +43,7 @@ export function createSpatialState(): SpatialState {
   };
 }
 
-export function resetSpatialState(state: SpatialState) {
+function resetSpatialState(state: SpatialState) {
   state.tree.clear();
   state.entityMap.clear();
   state.itemMap.clear();

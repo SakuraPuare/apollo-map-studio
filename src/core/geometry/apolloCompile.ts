@@ -4,7 +4,7 @@
  * Public imports stay on `@/core/geometry/apolloCompile`; implementation
  * lives in focused modules under `apolloCompile/`.
  */
-export { pointsToCurve, pointsToPolygon } from './apolloCompile/conversions';
+export { pointsToCurve } from './apolloCompile/conversions';
 export { offsetPolylineDeg } from './apolloCompile/offsetPolyline';
 export {
   apolloEntityCoords,

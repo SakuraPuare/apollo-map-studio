@@ -44,7 +44,7 @@ const LazyEntityForm = lazy(async () => {
   return { default: module.EntityForm };
 });
 
-export function PanelFallback({ label }: { label: string }) {
+function PanelFallback({ label }: { label: string }) {
   return (
     <div className="h-full w-full flex items-center justify-center text-xs text-zinc-500">
       {label}
