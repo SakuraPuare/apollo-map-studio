@@ -173,7 +173,7 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Download web build
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-web
           path: dist
@@ -236,7 +236,7 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Download desktop build
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-desktop-build
           path: .
@@ -273,25 +273,25 @@ jobs:
 
     steps:
       - name: Download web artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-web
           path: artifacts/apollo-map-studio-web
 
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-linux
           path: artifacts/apollo-map-studio-linux
 
       - name: Download macOS artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-macos
           path: artifacts/apollo-map-studio-macos
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: apollo-map-studio-windows
           path: artifacts/apollo-map-studio-windows
