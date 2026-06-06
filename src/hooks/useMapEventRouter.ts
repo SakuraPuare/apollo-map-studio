@@ -14,9 +14,14 @@ export function useMapEventRouter(
   actorRef: ActorRefFrom<typeof editorMachine>,
   bridgeRef: React.RefObject<SpatialWorkerBridge | null>,
 ) {
+  const appMode = useUIStore((s) => s.appMode);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    // scene 模式下绘图 FSM 完全让位给场景编辑（useScenarioAuthoring / useScenarioLayer），
+    // 不挂任何地图/窗口监听，避免点选地图实体、Delete 误删地图要素等跨模式串扰。
+    if (appMode === 'scene') return;
 
     const ctx = createRouterContext(map, actorRef, bridgeRef);
     const handlers = createMapEventHandlers(ctx);
@@ -47,5 +52,5 @@ export function useMapEventRouter(
       unsubSnap();
       ctx.cursorScheduler.dispose();
     };
-  }, [actorRef, bridgeRef, mapRef]);
+  }, [actorRef, bridgeRef, mapRef, appMode]);
 }
