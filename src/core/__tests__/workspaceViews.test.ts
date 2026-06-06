@@ -42,7 +42,7 @@ describe('workspace view contributions', () => {
     const drawingIds = getSidebarViewsByPlacement('top', 'drawing').map((view) => view.id);
     const sceneIds = getSidebarViewsByPlacement('top', 'scene').map((view) => view.id);
     expect(drawingIds).toEqual(['outline', 'layers', 'search']);
-    expect(sceneIds).toEqual(['outline', 'layers', 'search']);
+    expect(sceneIds).toEqual(['scenarios', 'outline', 'layers', 'search']);
   });
 
   it('contributes dock panels by mode', () => {
@@ -65,6 +65,7 @@ describe('workspace view contributions', () => {
       'inspector',
       'timelinePanel',
       'toolbox',
+      'scenarios',
     ]);
   });
 });

@@ -1,10 +1,23 @@
 import { FaTerminal, FaMagnifyingGlass } from 'react-icons/fa6';
+import {
+  FaArrowPointer,
+  FaCar,
+  FaPersonWalking,
+  FaBicycle,
+  FaCube,
+  FaTrafficLight,
+  FaRoute,
+  FaFlag,
+  FaFlagCheckered,
+  FaLocationDot,
+} from 'react-icons/fa6';
 import { clsx } from 'clsx';
 import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import { MAP_ELEMENTS, ALL_DRAW_TOOLS, ELEMENT_MAP } from '@/core/elements';
 import type { BoundaryLineType } from '@/types/apollo';
 import { useUIStore } from '@/store/uiStore';
+import { useSceneToolStore, type SceneTool } from '@/store/sceneToolStore';
 import { boundaryTypeOptions } from '@/lib/schemas';
 import {
   formatShortcut,
@@ -41,6 +54,7 @@ function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: 
   const display = formatShortcut(shortcut);
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={display ? `${label} (${display})` : label}
@@ -87,6 +101,7 @@ function BoundaryBrushPalette() {
           key={type}
           type="button"
           title={type}
+          aria-label={type}
           onClick={() => setType(type)}
           className={clsx(
             'size-7 rounded flex items-center justify-center transition-all',
@@ -121,6 +136,7 @@ function ElementBar({ currentElement, onSelect }: ElementBarProps) {
         return (
           <button
             key={el.type}
+            type="button"
             onClick={() => onSelect(el.type)}
             title={el.label}
             className={clsx(
@@ -150,6 +166,7 @@ export function ToolStrip({
   getToggleState,
 }: ToolStripProps) {
   const elementDef = currentElement ? ELEMENT_MAP.get(currentElement) : null;
+  const appMode = useUIStore((s) => s.appMode);
   const connectModeActive = useUIStore((s) => s.connectMode.active);
   const boundaryBrushActive = useUIStore((s) => s.boundaryBrush.active);
   const elementSubtoolsVisible = !connectModeActive && !boundaryBrushActive;
@@ -160,17 +177,25 @@ export function ToolStrip({
 
       <Divider />
 
-      {elementSubtoolsVisible && (
-        <MapElementSubtools
-          currentTool={currentTool}
-          currentElement={currentElement}
-          elementLabel={elementDef?.label ?? ''}
-          tools={elementDef ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool)) : []}
-          onSelectTool={onSelectTool}
-        />
-      )}
+      {appMode === 'scene' ? (
+        <SceneToolButtons />
+      ) : (
+        <>
+          {elementSubtoolsVisible && (
+            <MapElementSubtools
+              currentTool={currentTool}
+              currentElement={currentElement}
+              elementLabel={elementDef?.label ?? ''}
+              tools={
+                elementDef ? ALL_DRAW_TOOLS.filter((t) => elementDef.tools.includes(t.tool)) : []
+              }
+              onSelectTool={onSelectTool}
+            />
+          )}
 
-      {boundaryBrushActive && <BoundaryBrushPalette />}
+          {boundaryBrushActive && <BoundaryBrushPalette />}
+        </>
+      )}
 
       <div className="flex-1" />
 
@@ -178,6 +203,57 @@ export function ToolStrip({
       <Divider />
       <ViewActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
     </div>
+  );
+}
+
+// ─── Scene authoring tools ─────────────────────────────────
+
+interface SceneToolDef {
+  tool: SceneTool;
+  icon: React.ElementType;
+  label: string;
+  shortcut?: string;
+}
+
+/** scene 模式工具：选择 / 放置障碍物 / 红绿灯 / 画轨迹 / 设 ego。 */
+const SCENE_TOOLS: SceneToolDef[][] = [
+  [{ tool: 'select', icon: FaArrowPointer, label: '选择', shortcut: 'v' }],
+  [
+    { tool: 'placeVehicle', icon: FaCar, label: '放置车辆' },
+    { tool: 'placePedestrian', icon: FaPersonWalking, label: '放置行人' },
+    { tool: 'placeBicycle', icon: FaBicycle, label: '放置自行车' },
+    { tool: 'placeStatic', icon: FaCube, label: '放置静态障碍物' },
+    { tool: 'placeTrafficLight', icon: FaTrafficLight, label: '放置红绿灯' },
+  ],
+  [{ tool: 'drawTrajectory', icon: FaRoute, label: '画轨迹（双击/Enter 结束）' }],
+  [
+    { tool: 'setEgoStart', icon: FaFlag, label: '设置主车起点' },
+    { tool: 'setEgoEnd', icon: FaFlagCheckered, label: '设置主车终点' },
+    { tool: 'addWaypoint', icon: FaLocationDot, label: '添加主车途经点' },
+  ],
+];
+
+function SceneToolButtons() {
+  const tool = useSceneToolStore((s) => s.tool);
+  const setTool = useSceneToolStore((s) => s.setTool);
+  return (
+    <>
+      {SCENE_TOOLS.map((group, gi) => (
+        <div key={group[0]!.tool} className="flex items-center gap-0.5">
+          {gi > 0 && <Divider />}
+          {group.map((def) => (
+            <ToolButton
+              key={def.tool}
+              icon={def.icon}
+              label={def.label}
+              shortcut={def.shortcut}
+              active={tool === def.tool}
+              onClick={() => setTool(def.tool)}
+            />
+          ))}
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -282,6 +358,7 @@ function DrawToolButtons({
 function CommandPaletteButton({ onOpen }: { onOpen?: () => void }) {
   return (
     <button
+      type="button"
       onClick={onOpen}
       className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
     >

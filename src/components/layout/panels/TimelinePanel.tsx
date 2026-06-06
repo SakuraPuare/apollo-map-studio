@@ -1,90 +1,15 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import {
-  FaPlay,
-  FaPause,
-  FaStop,
-  FaBackwardStep,
-  FaForwardStep,
-  FaPlus,
-  FaChevronRight,
-} from 'react-icons/fa6';
+import { useRef, useState, useLayoutEffect, useMemo } from 'react';
+import { FaPlay, FaPause, FaStop, FaBackwardStep, FaForwardStep } from 'react-icons/fa6';
 import { clsx } from 'clsx';
+import { usePlaybackStore } from '@/store/playbackStore';
+import { useScenarioStore } from '@/store/scenarioStore';
+import { buildTimelineTracks, type TimelineTrack } from './timelineTracks';
 
 // Width (px) reserved on the left for the track-header column.
 const TRACK_HEADER_WIDTH = 160;
 // Right-side padding inside the track area so the last label isn't clipped.
 const TRACK_RIGHT_PADDING = 16;
-
-// ─── Types ─────────────────────────────────────────────────
-
-interface Keyframe {
-  time: number; // seconds
-  value: unknown;
-}
-
-interface Track {
-  id: string;
-  name: string;
-  entityId: string;
-  keyframes: Keyframe[];
-  expanded: boolean;
-  color: string;
-}
-
-interface TimelineState {
-  duration: number; // seconds
-  currentTime: number;
-  isPlaying: boolean;
-  tracks: Track[];
-}
-
-const INITIAL_TRACKS: Track[] = [
-  {
-    id: 'ego',
-    name: 'Ego Vehicle',
-    entityId: '',
-    keyframes: [
-      { time: 0, value: null },
-      { time: 5, value: null },
-      { time: 12, value: null },
-    ],
-    expanded: false,
-    color: '#22d3ee',
-  },
-  {
-    id: 'npc1',
-    name: 'NPC Vehicle 1',
-    entityId: '',
-    keyframes: [
-      { time: 3, value: null },
-      { time: 8, value: null },
-      { time: 15, value: null },
-    ],
-    expanded: false,
-    color: '#f97316',
-  },
-  {
-    id: 'signal1',
-    name: 'Traffic Signal',
-    entityId: '',
-    keyframes: [
-      { time: 0, value: null },
-      { time: 10, value: null },
-      { time: 20, value: null },
-    ],
-    expanded: false,
-    color: '#22c55e',
-  },
-];
-
-function createInitialTimelineState(): TimelineState {
-  return {
-    duration: 30,
-    currentTime: 0,
-    isPlaying: false,
-    tracks: INITIAL_TRACKS,
-  };
-}
+const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2, 4];
 
 // ─── Playhead ──────────────────────────────────────────────
 
@@ -172,39 +97,6 @@ function effectiveTimelineZoom(trackAreaWidth: number, duration: number): number
   );
 }
 
-function useTimelinePlayback(
-  state: TimelineState,
-  setState: React.Dispatch<React.SetStateAction<TimelineState>>,
-) {
-  const animationRef = useRef<number | null>(null);
-  const currentTimeRef = useRef(state.currentTime);
-  currentTimeRef.current = state.currentTime;
-
-  useEffect(() => {
-    if (!state.isPlaying) return undefined;
-
-    const startTime = performance.now();
-    const startPlayTime = currentTimeRef.current;
-    const tick = () => {
-      const newTime = startPlayTime + (performance.now() - startTime) / 1000;
-      if (newTime >= state.duration) {
-        setState((s) => ({ ...s, currentTime: 0, isPlaying: false }));
-      } else {
-        setState((s) => ({ ...s, currentTime: newTime }));
-        animationRef.current = requestAnimationFrame(tick);
-      }
-    };
-
-    animationRef.current = requestAnimationFrame(tick);
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [setState, state.isPlaying, state.duration]);
-}
-
 function formatTime(t: number) {
   const mins = Math.floor(t / 60);
   const secs = Math.floor(t % 60);
@@ -216,20 +108,24 @@ interface TransportControlsProps {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+  speed: number;
   onSkipBack: () => void;
   onTogglePlay: () => void;
   onStop: () => void;
   onSkipForward: () => void;
+  onSetSpeed: (s: number) => void;
 }
 
 function TransportControls({
   currentTime,
   duration,
   isPlaying,
+  speed,
   onSkipBack,
   onTogglePlay,
   onStop,
   onSkipForward,
+  onSetSpeed,
 }: TransportControlsProps) {
   return (
     <div className="h-9 flex items-center gap-2 px-3 border-b border-white/[0.07] shrink-0">
@@ -252,10 +148,18 @@ function TransportControls({
       <span className="font-mono text-xs text-zinc-500 w-24">{formatTime(duration)}</span>
 
       <div className="flex-1" />
-      <button className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-white/10 rounded">
-        <FaPlus className="size-3" />
-        Add Track
-      </button>
+      <select
+        value={speed}
+        onChange={(e) => onSetSpeed(Number(e.target.value))}
+        className="bg-zinc-800 text-xs text-zinc-300 rounded px-1.5 py-0.5 border border-white/10 focus:outline-none"
+        title="Playback speed"
+      >
+        {PLAYBACK_SPEEDS.map((s) => (
+          <option key={s} value={s}>
+            {s}×
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -271,6 +175,7 @@ function IconButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={clsx(
         prominent ? 'p-1.5' : 'p-1',
@@ -282,13 +187,7 @@ function IconButton({
   );
 }
 
-function TrackHeaders({
-  tracks,
-  onToggleTrack,
-}: {
-  tracks: Track[];
-  onToggleTrack: (trackId: string) => void;
-}) {
+function TrackHeaders({ tracks }: { tracks: TimelineTrack[] }) {
   return (
     <div
       className="shrink-0 flex flex-col border-r border-white/[0.07] bg-zinc-900/30"
@@ -296,23 +195,15 @@ function TrackHeaders({
     >
       <div className="h-6 border-b border-white/[0.07]" />
       {tracks.map((track) => (
-        <TrackHeader key={track.id} track={track} onToggle={() => onToggleTrack(track.id)} />
+        <TrackHeader key={track.id} track={track} />
       ))}
     </div>
   );
 }
 
-function TrackHeader({ track, onToggle }: { track: Track; onToggle: () => void }) {
+function TrackHeader({ track }: { track: TimelineTrack }) {
   return (
-    <div className="flex items-center gap-1 px-2 h-8 border-b border-white/[0.05]">
-      <button onClick={onToggle} className="p-0.5">
-        <FaChevronRight
-          className={clsx(
-            'size-3 text-zinc-600 transition-transform',
-            track.expanded && 'rotate-90',
-          )}
-        />
-      </button>
+    <div className="flex items-center gap-1.5 px-2 h-8 border-b border-white/[0.05]">
       <div className="size-2 rounded-full shrink-0" style={{ backgroundColor: track.color }} />
       <span className="text-[11px] text-zinc-400 truncate">{track.name}</span>
     </div>
@@ -326,7 +217,7 @@ function TimelineTracks({
   zoom,
   trackAreaRef,
 }: {
-  tracks: Track[];
+  tracks: TimelineTrack[];
   duration: number;
   currentTime: number;
   zoom: number;
@@ -347,7 +238,7 @@ function TimelineTracks({
   );
 }
 
-function KeyframeTrack({ track, zoom }: { track: Track; zoom: number }) {
+function KeyframeTrack({ track, zoom }: { track: TimelineTrack; zoom: number }) {
   return (
     <div className="relative h-8 border-b border-white/[0.05]">
       {track.keyframes.map((kf, i) => (
@@ -359,7 +250,7 @@ function KeyframeTrack({ track, zoom }: { track: Track; zoom: number }) {
             backgroundColor: track.color,
             transform: 'translate(-50%, -50%) rotate(45deg)',
           }}
-          title={`${kf.time.toFixed(2)}s`}
+          title={`${kf.label} @ ${kf.time.toFixed(2)}s`}
         />
       ))}
     </div>
@@ -369,37 +260,42 @@ function KeyframeTrack({ track, zoom }: { track: Track; zoom: number }) {
 // ─── Main Component ────────────────────────────────────────
 
 export function TimelinePanel() {
-  const [state, setState] = useState<TimelineState>(createInitialTimelineState);
-  const { trackAreaRef, trackAreaWidth } = useTrackAreaWidth();
-  const effectiveZoom = effectiveTimelineZoom(trackAreaWidth, state.duration);
-  useTimelinePlayback(state, setState);
+  const currentTime = usePlaybackStore((s) => s.currentTime);
+  const duration = usePlaybackStore((s) => s.duration);
+  const isPlaying = usePlaybackStore((s) => s.isPlaying);
+  const speed = usePlaybackStore((s) => s.speed);
+  const { toggle, stop, setCurrentTime, setSpeed } = usePlaybackStore.getState();
 
-  const toggleTrackExpand = (trackId: string) => {
-    setState((s) => ({
-      ...s,
-      tracks: s.tracks.map((t) => (t.id === trackId ? { ...t, expanded: !t.expanded } : t)),
-    }));
-  };
+  const activeKey = useScenarioStore((s) => s.activeKey);
+  const loaded = useScenarioStore((s) => s.loaded);
+  const doc = useMemo(
+    () => loaded.find((l) => l.key === activeKey)?.doc ?? null,
+    [loaded, activeKey],
+  );
+  const tracks = useMemo(() => (doc ? buildTimelineTracks(doc, duration) : []), [doc, duration]);
+
+  const { trackAreaRef, trackAreaWidth } = useTrackAreaWidth();
+  const effectiveZoom = effectiveTimelineZoom(trackAreaWidth, duration);
 
   return (
     <div className="h-full flex flex-col bg-zinc-950">
       <TransportControls
-        currentTime={state.currentTime}
-        duration={state.duration}
-        isPlaying={state.isPlaying}
-        onSkipBack={() => setState((s) => ({ ...s, currentTime: Math.max(0, s.currentTime - 1) }))}
-        onTogglePlay={() => setState((s) => ({ ...s, isPlaying: !s.isPlaying }))}
-        onStop={() => setState((s) => ({ ...s, isPlaying: false, currentTime: 0 }))}
-        onSkipForward={() =>
-          setState((s) => ({ ...s, currentTime: Math.min(s.duration, s.currentTime + 1) }))
-        }
+        currentTime={currentTime}
+        duration={duration}
+        isPlaying={isPlaying}
+        speed={speed}
+        onSkipBack={() => setCurrentTime(Math.max(0, currentTime - 1))}
+        onTogglePlay={toggle}
+        onStop={stop}
+        onSkipForward={() => setCurrentTime(Math.min(duration, currentTime + 1))}
+        onSetSpeed={setSpeed}
       />
       <div className="flex-1 flex overflow-hidden">
-        <TrackHeaders tracks={state.tracks} onToggleTrack={toggleTrackExpand} />
+        <TrackHeaders tracks={tracks} />
         <TimelineTracks
-          tracks={state.tracks}
-          duration={state.duration}
-          currentTime={state.currentTime}
+          tracks={tracks}
+          duration={duration}
+          currentTime={currentTime}
           zoom={effectiveZoom}
           trackAreaRef={trackAreaRef}
         />

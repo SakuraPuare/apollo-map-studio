@@ -3,6 +3,8 @@ import { useSelector } from '@xstate/react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEditorActor } from '@/context/EditorContext';
 import { useMapStore } from '@/store/mapStore';
+import { useUIStore } from '@/store/uiStore';
+import { useScenarioStore } from '@/store/scenarioStore';
 
 const LazyMapCanvas = lazy(async () => {
   const module = await import('@/components/map/MapCanvas');
@@ -44,6 +46,21 @@ const LazyEntityForm = lazy(async () => {
   return { default: module.EntityForm };
 });
 
+const LazyScenarioObstacleForm = lazy(async () => {
+  const module = await import('../panels/InspectorForms/ScenarioObstacleForm');
+  return { default: module.ScenarioObstacleForm };
+});
+
+const LazyScenarioEgoForm = lazy(async () => {
+  const module = await import('../panels/InspectorForms/ScenarioEgoForm');
+  return { default: module.ScenarioEgoForm };
+});
+
+const LazyScenarioTrafficLightForm = lazy(async () => {
+  const module = await import('../panels/InspectorForms/ScenarioTrafficLightForm');
+  return { default: module.ScenarioTrafficLightForm };
+});
+
 function PanelFallback({ label }: { label: string }) {
   return (
     <div className="h-full w-full flex items-center justify-center text-xs text-zinc-500">
@@ -82,6 +99,47 @@ export function makeSidebarPanel(onOpenSettings: () => void) {
 }
 
 export function InspectorPanelContent() {
+  const appMode = useUIStore((s) => s.appMode);
+  if (appMode === 'scene') return <ScenarioInspectorContent />;
+  return <MapEntityInspectorContent />;
+}
+
+function ScenarioInspectorContent() {
+  const selectedKind = useScenarioStore((s) => s.selectedKind);
+  const selectedObstacleUid = useScenarioStore((s) => s.selectedObstacleUid);
+  const selectedTrafficLightUid = useScenarioStore((s) => s.selectedTrafficLightUid);
+  const activeKey = useScenarioStore((s) => s.activeKey);
+  const loaded = useScenarioStore((s) => s.loaded);
+  const doc = loaded.find((l) => l.key === activeKey)?.doc;
+
+  let body: React.ReactNode = null;
+  if (doc && selectedKind === 'obstacle') {
+    const obstacle = doc.obstacles.find((o) => o.uid === selectedObstacleUid);
+    if (obstacle) body = <LazyScenarioObstacleForm obstacle={obstacle} />;
+  } else if (doc && selectedKind === 'trafficLight') {
+    const light = doc.trafficLights.find((t) => t.uid === selectedTrafficLightUid);
+    if (light) body = <LazyScenarioTrafficLightForm light={light} />;
+  } else if (doc && selectedKind === 'ego') {
+    body = <LazyScenarioEgoForm ego={doc.ego} />;
+  }
+
+  if (!body) {
+    return (
+      <ScrollArea className="h-full bg-zinc-900/50">
+        <div className="py-8 text-center text-zinc-600 text-xs">
+          选择障碍物 / 红绿灯 / 主车以查看属性
+        </div>
+      </ScrollArea>
+    );
+  }
+  return (
+    <ScrollArea className="h-full bg-zinc-900/50">
+      <Suspense fallback={<PanelFallback label="Loading inspector..." />}>{body}</Suspense>
+    </ScrollArea>
+  );
+}
+
+function MapEntityInspectorContent() {
   const actorRef = useEditorActor();
   const selectedId = useSelector(actorRef, (s) => s.context.selectedEntityId);
   const entity = useMapStore((s) => (selectedId ? s.entities.get(selectedId) : undefined));
