@@ -17,11 +17,12 @@ import { zodResolverZ4 } from './resolver';
 
 type SignInfoFlag = (typeof signInfoTypeOptions)[number];
 
+const SIGN_INFO_TYPE_SET: ReadonlySet<string> = new Set(signInfoTypeOptions);
+
 function signInfoFlags(entity: SignalEntity): SignInfoFlag[] {
   const result: SignInfoFlag[] = [];
   for (const s of entity.signInfo) {
-    if ((signInfoTypeOptions as readonly string[]).includes(s.type))
-      result.push(s.type as SignInfoFlag);
+    if (SIGN_INFO_TYPE_SET.has(s.type)) result.push(s.type as SignInfoFlag);
   }
   return result;
 }

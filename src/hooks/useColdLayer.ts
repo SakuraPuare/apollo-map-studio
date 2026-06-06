@@ -216,6 +216,10 @@ async function syncAllColdFeatures(
     });
   }
   try {
+    // The await must precede the cancellation/version guards below — they
+    // exist to detect staleness that occurs *during* the worker round-trip.
+    // Deferring the await past them would defeat the race protection.
+    // react-doctor-disable-next-line react-doctor/async-defer-await
     const result = await context.bridge.send({ type: 'SYNC', entities: [...entities.values()] });
     if (context.isCancelled() || requestVersion !== context.refs.syncVersionRef.current) return;
     if (result.type !== 'COLD_READY') return;
@@ -236,6 +240,8 @@ async function applyIncrementalColdSync(
   requestVersion: number,
 ) {
   try {
+    // Await must precede the staleness guard below (see applyFullColdSync).
+    // react-doctor-disable-next-line react-doctor/async-defer-await
     const result = await context.bridge.send({
       type: 'INCREMENTAL',
       added: diff.added,
@@ -433,7 +439,8 @@ export function useColdLayer(
   const syncFrameRef = useRef<number | null>(null);
   const syncVersionRef = useRef(0);
   const selectedEntityIdRef = useRef<string | null>(null);
-  const entityFeatureCacheRef = useRef<Map<string, GeoJSON.Feature[]>>(new Map());
+  const entityFeatureCacheRef = useRef<Map<string, GeoJSON.Feature[]>>(null!);
+  if (entityFeatureCacheRef.current === null) entityFeatureCacheRef.current = new Map();
 
   useEffect(() => {
     const map = mapRef.current;

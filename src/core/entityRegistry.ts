@@ -227,9 +227,9 @@ const ENTITY_MAP = new Map<EntityType, EntityRegistryEntry>(
   ENTITY_REGISTRY.map((entry) => [entry.type, entry]),
 );
 
-export const TOP_LEVEL_ENTITY_TYPES = [...ENTITY_REGISTRY]
-  .sort((a, b) => a.topLevelOrder - b.topLevelOrder)
-  .map((entry) => entry.type);
+export const TOP_LEVEL_ENTITY_TYPES = ENTITY_REGISTRY.toSorted(
+  (a, b) => a.topLevelOrder - b.topLevelOrder,
+).map((entry) => entry.type);
 
 export function getEntityEntry(entityType: string): EntityRegistryEntry | undefined {
   return ENTITY_MAP.get(entityType as EntityType);

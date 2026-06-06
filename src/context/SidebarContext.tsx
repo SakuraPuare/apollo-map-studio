@@ -1,4 +1,4 @@
-import { createContext, use, useState, useCallback } from 'react';
+import { createContext, use, useState, useCallback, useMemo } from 'react';
 import { getDefaultSidebarViewId, type SidebarViewId } from '@/core/workspaceViews';
 
 interface SidebarContextValue {
@@ -18,18 +18,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const setTab = useCallback((tab: SidebarViewId) => setActiveTab(tab), []);
   const setQuery = useCallback((q: string) => setSearchQuery(q), []);
 
-  return (
-    <SidebarContext.Provider
-      value={{
-        activeTab,
-        setActiveTab: setTab,
-        searchQuery,
-        setSearchQuery: setQuery,
-      }}
-    >
-      {children}
-    </SidebarContext.Provider>
+  const value = useMemo<SidebarContextValue>(
+    () => ({ activeTab, setActiveTab: setTab, searchQuery, setSearchQuery: setQuery }),
+    [activeTab, setTab, searchQuery, setQuery],
   );
+
+  return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;
 }
 
 export function useSidebar(): SidebarContextValue {

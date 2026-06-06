@@ -86,8 +86,7 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
       <NodeLabel data={data} isGroup={isGroup} isSection={isSection} isEntity={isEntity} />
       <NodeChildCount data={data} isCountable={isGroup || isSection} />
       <NodeActions
-        isGroup={isGroup}
-        isEntity={isEntity}
+        kind={data.kind}
         isVisible={isVisible}
         isLocked={isLocked}
         onVisibilityToggle={handleVisibilityToggle}
@@ -178,8 +177,7 @@ function NodeChildCount({ data, isCountable }: { data: TreeNode; isCountable: bo
 }
 
 interface NodeActionsProps {
-  isGroup: boolean;
-  isEntity: boolean;
+  kind: TreeNode['kind'];
   isVisible: boolean;
   isLocked: boolean;
   onVisibilityToggle: (e: MouseEvent) => void;
@@ -191,7 +189,7 @@ interface NodeActionsProps {
 function NodeActions(props: NodeActionsProps) {
   return (
     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-      {props.isGroup && (
+      {props.kind === 'group' && (
         <GroupActions
           isVisible={props.isVisible}
           isLocked={props.isLocked}
@@ -199,7 +197,7 @@ function NodeActions(props: NodeActionsProps) {
           onLockToggle={props.onLockToggle}
         />
       )}
-      {props.isEntity && (
+      {props.kind === 'entity' && (
         <EntityActions
           disabled={props.isLocked}
           onUnparent={props.onUnparent}
@@ -224,6 +222,7 @@ function GroupActions({
   return (
     <>
       <button
+        type="button"
         onClick={onVisibilityToggle}
         className="p-0.5 hover:bg-white/10 rounded"
         title={isVisible ? 'Hide layer' : 'Show layer'}
@@ -235,6 +234,7 @@ function GroupActions({
         )}
       </button>
       <button
+        type="button"
         onClick={onLockToggle}
         className="p-0.5 hover:bg-white/10 rounded"
         title={isLocked ? 'Unlock layer' : 'Lock layer'}
@@ -261,6 +261,7 @@ function EntityActions({
   return (
     <>
       <button
+        type="button"
         disabled={disabled}
         onClick={onUnparent}
         className={clsx('p-0.5 rounded', disabled ? 'cursor-not-allowed' : 'hover:bg-white/10')}
@@ -274,6 +275,7 @@ function EntityActions({
         />
       </button>
       <button
+        type="button"
         disabled={disabled}
         onClick={onDelete}
         className={clsx('p-0.5 rounded', disabled ? 'cursor-not-allowed' : 'hover:bg-red-500/20')}
