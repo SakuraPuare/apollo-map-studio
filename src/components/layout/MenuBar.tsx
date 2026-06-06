@@ -49,6 +49,7 @@ function Menu({
   return (
     <div ref={ref} className="relative">
       <button
+        type="button"
         onClick={onOpen}
         className={`px-3 py-1 text-xs transition-colors rounded ${
           isOpen
@@ -69,6 +70,7 @@ function Menu({
             ) : (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => {
                   onExecute(item.id);
                   onClose();

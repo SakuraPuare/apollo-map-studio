@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useMapStore } from '@/store/mapStore';
@@ -23,18 +23,27 @@ export function SearchPanel({ selectedId, onSelect }: SearchPanelProps) {
     return searchEntities(entities, searchQuery);
   }, [entities, searchQuery]);
 
+  // Focus the search box when the panel mounts — it mounts in response to the
+  // user opening the Search tab, so taking focus here is expected (unlike a
+  // page-load autoFocus, which the no-autofocus rule guards against).
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-2 border-b border-white/[0.07] shrink-0">
         <div className="relative">
           <FaMagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-zinc-600" />
           <input
+            ref={inputRef}
             type="search"
+            aria-label="Search entities by id or type"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search id or type…"
             className="w-full bg-zinc-800/60 border border-white/[0.07] rounded pl-7 pr-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-cyan-500/50"
-            autoFocus
           />
         </div>
         <div className="text-[10px] text-zinc-600 mt-1 px-1">
@@ -51,28 +60,22 @@ export function SearchPanel({ selectedId, onSelect }: SearchPanelProps) {
         ) : (
           <ul className="py-1">
             {results.map((r) => (
-              <li
-                key={r.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelect?.(r.id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelect?.(r.id);
-                  }
-                }}
-                className={clsx(
-                  'px-3 py-1 cursor-pointer flex justify-between items-center gap-2 hover:bg-white/5',
-                  selectedId === r.id && 'bg-cyan-500/15',
-                )}
-              >
-                <span className="text-xs font-mono text-zinc-300 truncate" title={r.id}>
-                  {r.id.length > 22 ? `…${r.id.slice(-18)}` : r.id}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider text-zinc-500 shrink-0">
-                  {r.entityType}
-                </span>
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect?.(r.id)}
+                  className={clsx(
+                    'w-full px-3 py-1 cursor-pointer flex justify-between items-center gap-2 hover:bg-white/5',
+                    selectedId === r.id && 'bg-cyan-500/15',
+                  )}
+                >
+                  <span className="text-xs font-mono text-zinc-300 truncate" title={r.id}>
+                    {r.id.length > 22 ? `…${r.id.slice(-18)}` : r.id}
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-zinc-500 shrink-0">
+                    {r.entityType}
+                  </span>
+                </button>
               </li>
             ))}
           </ul>

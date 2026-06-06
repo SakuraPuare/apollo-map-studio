@@ -41,6 +41,7 @@ function ActivityBarGroup({
       {tabs.map(({ id, icon: Icon, label }) => (
         <button
           key={id}
+          type="button"
           onClick={() => onTabChange(id)}
           title={label}
           className={clsx(

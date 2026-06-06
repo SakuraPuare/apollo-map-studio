@@ -204,14 +204,11 @@ export function ActivationDialog() {
 function DialogFrame({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        role="button"
+      <button
+        type="button"
         tabIndex={0}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onClose();
-        }}
         aria-label="Close dialog"
       />
       <div className="relative w-full max-w-xl bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">

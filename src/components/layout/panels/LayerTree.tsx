@@ -192,6 +192,10 @@ function parentJunctionIsLocked(child: MapEntity, layerStates: LayerStates): boo
 function laneIsAssignedToRoad(laneId: string, entities: ReadonlyMap<string, MapEntity>): boolean {
   for (const entity of entities.values()) {
     if (entity.entityType !== 'road') continue;
+    // Fixed needle (laneId) over a per-section-varying haystack; runs once per
+    // drag-drop validation on small laneIds arrays, not a hot path. A Set would
+    // have to be rebuilt per section, so .includes() is the cheaper choice here.
+    // react-doctor-disable-next-line react-doctor/js-set-map-lookups
     if (entity.sections.some((section) => section.laneIds.includes(laneId))) return true;
   }
   return false;
@@ -211,6 +215,7 @@ function LayerTreeActions({
   return (
     <div className="flex shrink-0 items-center gap-1 px-2 py-1 border-b border-zinc-800/60">
       <button
+        type="button"
         disabled={roadLocked}
         onClick={onCreateRoad}
         className={createButtonClass(roadLocked)}
@@ -221,6 +226,7 @@ function LayerTreeActions({
         <FaPlus className="size-2.5" /> Road
       </button>
       <button
+        type="button"
         disabled={rsuLocked}
         onClick={onCreateRSU}
         className={createButtonClass(rsuLocked)}

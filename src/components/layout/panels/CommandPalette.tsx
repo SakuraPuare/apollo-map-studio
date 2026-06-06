@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useEffectEvent, useState, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { FaMagnifyingGlass } from 'react-icons/fa6';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,32 +43,30 @@ export function CommandPalette({
   );
 
   // ⌘K to open
+  const toggleOpen = useEffectEvent((next: boolean) => onOpenChange(next));
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        onOpenChange(!open);
+        toggleOpen(!open);
       }
       if (e.key === 'Escape' && open) {
-        onOpenChange(false);
+        toggleOpen(false);
       }
     };
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
-  }, [open, onOpenChange]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        role="button"
+      <button
+        type="button"
         tabIndex={0}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onOpenChange(false);
-        }}
         aria-label="Close command palette"
       />
 
@@ -166,6 +164,10 @@ function CommandActionItem({
 }) {
   const Icon = action.icon ?? FaMagnifyingGlass;
   return (
+    // Base text-zinc-300 has no background; the cyan background only applies
+    // when aria-selected, where text becomes white. Gray text never sits on
+    // cyan — the rule can't reason about the state-conditional class pair.
+    // react-doctor-disable-next-line react-doctor/no-gray-on-colored-background
     <Command.Item
       value={`${action.label} ${group}`}
       onSelect={() => onRun(action)}

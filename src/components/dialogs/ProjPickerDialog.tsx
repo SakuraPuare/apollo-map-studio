@@ -132,14 +132,11 @@ export function ProjPickerDialog() {
 function DialogShell({ children, onCancel }: { children: React.ReactNode; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        role="button"
+      <button
+        type="button"
         tabIndex={-1}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onCancel}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onCancel();
-        }}
         aria-label="Close dialog"
       />
       <div className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">

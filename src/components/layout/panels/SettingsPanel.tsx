@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { FaXmark } from 'react-icons/fa6';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -59,6 +59,7 @@ function NumInput({
   step = 1,
   onCommit,
   onReset,
+  ariaLabel,
 }: {
   id?: string;
   value: string;
@@ -68,6 +69,7 @@ function NumInput({
   step?: number;
   onCommit: (value: number) => void;
   onReset: () => void;
+  ariaLabel?: string;
 }) {
   const commit = () => {
     const n = Number(value);
@@ -78,6 +80,7 @@ function NumInput({
   return (
     <input
       id={id}
+      aria-label={ariaLabel}
       type="number"
       min={min}
       max={max}
@@ -188,6 +191,7 @@ function NumberSetting({
       <div>
         <NumInput
           id={`setting-${entry.id}`}
+          ariaLabel={entry.label}
           value={draftValue}
           onChange={(value) => setDraft(draftKey, value)}
           min={entry.min}
@@ -222,6 +226,7 @@ function BooleanSetting({
       <input
         id={`setting-${entry.id}`}
         type="checkbox"
+        aria-label={entry.label}
         checked={checked}
         onChange={(event) => entry.commit(settings, event.target.checked)}
         className="size-4 accent-cyan-500"
@@ -276,6 +281,14 @@ function ActionSetting({ entry }: { entry: ActionSettingEntryDef }) {
 }
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
+  // Gate: the body mounts fresh every time the panel opens, so its state
+  // (drafts seeded from the live store, active tab) is initialized once per
+  // open with no derived-state or re-seed effect. Closing unmounts it.
+  if (!open) return null;
+  return <SettingsPanelBody onClose={onClose} />;
+}
+
+function SettingsPanelBody({ onClose }: { onClose: () => void }) {
   const tabs = useMemo(() => getSettingsTabs(), []);
   const settings = useSettingsStore();
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]?.id ?? '');
@@ -285,21 +298,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
 
+  const onCloseEvent = useEffectEvent(onClose);
   useEffect(() => {
-    if (!open) return;
-    setDrafts(buildInitialDrafts(tabs, useSettingsStore.getState()));
-  }, [open, tabs]);
-
-  useEffect(() => {
-    if (!open) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseEvent();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+  }, []);
 
-  if (!open || !activeTab) return null;
+  if (!activeTab) return null;
 
   const setDraft = (key: string, value: string) => {
     setDrafts((current) => ({ ...current, [key]: value }));
@@ -307,14 +315,11 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        role="button"
+      <button
+        type="button"
         tabIndex={-1}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') onClose();
-        }}
         aria-label="Close settings"
       />
       <div className="relative grid h-[min(34rem,82vh)] w-[min(44rem,calc(100vw-2rem))] grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-2xl">

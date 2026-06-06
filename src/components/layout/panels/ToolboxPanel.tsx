@@ -69,6 +69,7 @@ export function ToolboxPanel() {
           </label>
           <input
             type="number"
+            aria-label="误差范围（米）"
             min="0.01"
             max="100"
             step="0.05"
@@ -146,6 +147,10 @@ function ToolButton({
   onClick: () => void;
 }) {
   return (
+    // text-zinc-600 only applies in the disabled state, where the background
+    // is also overridden to bg-white/[0.03] — the gray text never sits on the
+    // cyan background. The rule can't reason about the disabled: class pair.
+    // react-doctor-disable-next-line react-doctor/no-gray-on-colored-background
     <button
       type="button"
       disabled={disabled}
