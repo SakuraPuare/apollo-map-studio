@@ -231,6 +231,10 @@ class ApolloIOBridge {
         detail: `Sending entities ${chunk.nextOffset.toLocaleString()} / ${chunk.total.toLocaleString()}`,
         progress: 0.02 + 0.08 * (chunk.nextOffset / Math.max(1, chunk.total)),
       });
+      // Sequential by design: yield to the main thread between chunks so a
+      // large export streams without blocking the UI. Parallelizing with
+      // Promise.all would defeat the backpressure this loop provides.
+      // react-doctor-disable-next-line react-doctor/async-await-in-loop
       await this.yieldToMain();
     }
   }
@@ -252,6 +256,9 @@ class ApolloIOBridge {
     if (!entry) return;
 
     if (this.handleStreamingMessage(msg, entry)) return;
+    // This await *performs* the projection handling that the NEEDS_PROJECTION
+    // guard below depends on — it cannot be deferred past the guard.
+    // react-doctor-disable-next-line react-doctor/async-defer-await
     await this.handleProjectionRequest(msg);
     if (msg.type === 'NEEDS_PROJECTION') return;
 

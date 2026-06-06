@@ -30,12 +30,16 @@ export function useFocusEntity(
     }
 
     if (isTinyBounds(bounds)) {
+      // Imperative MapLibre camera command — drives the map handle, not a
+      // parent callback. The rule's heuristic misreads ref-method calls.
+      // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
       map.easeTo({
         center: boundsCenter(bounds),
         zoom: Math.max(map.getZoom(), TINY_FOCUS_ZOOM),
         duration: FOCUS_DURATION_MS,
       });
     } else {
+      // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
       map.fitBounds(
         new maplibregl.LngLatBounds([bounds.minX, bounds.minY], [bounds.maxX, bounds.maxY]),
         {

@@ -77,6 +77,9 @@ export function SchemaForm<TEntity extends MapEntity, TFormValues extends FieldV
   // handled by the cherry-pick effect below so we don't clobber the
   // field the user is typing into.
   useEffect(() => {
+    // react-hook-form imperative reset — re-seeds local form state, not a
+    // parent callback. The rule's heuristic misreads RHF mutations.
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
     reset(formValuesFromEntity(schemaRef.current, entityRef.current) as TFormValues);
   }, [entity.id, reset]);
 
@@ -85,10 +88,13 @@ export function SchemaForm<TEntity extends MapEntity, TFormValues extends FieldV
   // drag, etc.). The diff guard short-circuits the death loop after
   // the watch callback writes back into the store.
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
     const current = getValues();
     const diffs = diffFormAgainstEntity(schemaRef.current, current, entity);
     if (diffs.length === 0) return;
     for (const [key, value] of diffs) {
+      // RHF setValue — local form mutation, not data lifted to a parent.
+      // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
       setValue(key as Path<TFormValues>, value as PathValue<TFormValues, Path<TFormValues>>, {
         shouldDirty: false,
         shouldTouch: false,

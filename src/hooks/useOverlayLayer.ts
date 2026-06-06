@@ -207,6 +207,9 @@ function useSnapIndicatorLayer(
       src.setData(target ? snapTargetFeatureCollection(target) : EMPTY_FC);
     };
 
+    // Local imperative call that pushes snap geometry into the map source —
+    // not a parent callback. The rule's heuristic misreads it.
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
     apply(useUIStore.getState().currentSnapTarget);
     const unsub = useUIStore.subscribe((s, prev) => {
       if (s.currentSnapTarget !== prev.currentSnapTarget) {
