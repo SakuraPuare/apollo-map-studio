@@ -6,14 +6,24 @@
 
 /** Open a hidden `<input type="file">` and resolve with the selected File, or null if cancelled. */
 export function pickFile(accept: string): Promise<File | null> {
+  return pickFilesInternal(accept, false).then((files) => files[0] ?? null);
+}
+
+/** Open a multi-select file picker and resolve with the selected Files (empty if cancelled). */
+export function pickFiles(accept: string): Promise<File[]> {
+  return pickFilesInternal(accept, true);
+}
+
+function pickFilesInternal(accept: string, multiple: boolean): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = accept;
+    input.multiple = multiple;
     input.style.display = 'none';
 
     let settled = false;
-    const settle = (value: File | null) => {
+    const settle = (value: File[]) => {
       if (settled) return;
       settled = true;
       resolve(value);
@@ -25,13 +35,12 @@ export function pickFile(accept: string): Promise<File | null> {
     };
 
     input.addEventListener('change', () => {
-      const file = input.files && input.files[0] ? input.files[0] : null;
-      settle(file);
+      settle(input.files ? Array.from(input.files) : []);
     });
     // Use native events only. On macOS the window can regain focus before the
     // selected file is committed to the input; inferring cancel from focus can
     // race the later `change` event and make a real selection look cancelled.
-    input.addEventListener('cancel', () => settle(null));
+    input.addEventListener('cancel', () => settle([]));
 
     document.body.appendChild(input);
     input.click();
