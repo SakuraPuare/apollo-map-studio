@@ -1,0 +1,9 @@
+# pnpm settings. Supply-chain hardening (see react-doctor require-pnpm-hardening):
+# - minimumReleaseAge delays installing versions until they've been published
+#   long enough to be vetted/unpublished if malicious (7 days = 10080 minutes).
+# - trustPolicy: no-downgrade rejects packages whose provenance/signature
+#   trust signals weaken between updates.
+# These gate future version *resolution* only; frozen installs against the
+# committed pnpm-lock.yaml are unaffected.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade

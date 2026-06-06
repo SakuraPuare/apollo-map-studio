@@ -1,0 +1,27 @@
+{
+  "$schema": "https://www.react.doctor/schema/config.json",
+  "ignore": {
+    "overrides": [
+      {
+        "files": ["src/components/layout/workspaceContributions/**"],
+        "rules": ["deslop/unused-export", "react-doctor/only-export-components"]
+      },
+      {
+        "files": [
+          "src/components/layout/panels/InspectorForms.tsx",
+          "src/components/layout/panels/InspectorForms/**",
+          "src/components/layout/WorkspaceLayout/lazyPanels.tsx"
+        ],
+        "rules": ["react-doctor/only-export-components"]
+      },
+      {
+        "files": ["docs/**"],
+        "rules": ["deslop/unused-file"]
+      },
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
+      }
+    ]
+  }
+}
