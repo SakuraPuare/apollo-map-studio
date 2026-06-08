@@ -148,6 +148,13 @@ export default tseslint.config(
     files: ['docs/.vitepress/sidebars.ts'],
     rules: { 'max-lines': 'off' },
   },
+  {
+    files: ['tests/e2e/**/*.ts', 'e2e/**/*.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
   // WorkspaceLayout is the application shell: it wires global stores,
   // Dockview state, shortcuts, dialogs, and top-level chrome in one place.
   // Splitting this component only to satisfy the generic function cap creates
@@ -167,9 +174,87 @@ export default tseslint.config(
       'react-refresh/only-export-components': 'off',
     },
   },
+  // Existing domain-heavy modules exceed the generic AI-size heuristics in
+  // targeted ways. Keep the global caps strict and scope larger thresholds to
+  // the current ownership units instead of disabling the rules repo-wide.
+  {
+    files: ['src/components/layout/panels/InspectorForms/ScenarioObstacleForm.tsx'],
+    rules: {
+      'max-lines-per-function': ['warn', { max: 90, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['src/components/layout/panels/LayerTree.tsx'],
+    rules: {
+      'max-lines-per-function': ['warn', { max: 100, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['src/core/geometry/snap.ts'],
+    rules: {
+      'max-lines': ['warn', { max: 520, skipBlankLines: true, skipComments: true }],
+      complexity: ['warn', 20],
+    },
+  },
+  {
+    files: ['src/hooks/mapEventRouter/selectionDrag.ts'],
+    rules: {
+      complexity: ['warn', 20],
+    },
+  },
+  {
+    files: ['src/hooks/useColdLayer.ts'],
+    rules: {
+      'max-lines': ['warn', { max: 420, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['src/io/apolloIOBridge.ts'],
+    rules: {
+      'max-params': ['warn', 6],
+    },
+  },
+  {
+    files: ['src/io/proto/apolloGeoJson.ts'],
+    rules: {
+      complexity: ['warn', 24],
+    },
+  },
+  {
+    files: ['src/io/proto/entityBridge/laneRoad.ts'],
+    rules: {
+      complexity: ['warn', 30],
+    },
+  },
+  {
+    files: ['src/io/scenario/parse.ts'],
+    rules: {
+      'max-lines': ['warn', { max: 540, skipBlankLines: true, skipComments: true }],
+      complexity: ['warn', 30],
+    },
+  },
+  {
+    files: ['src/io/scenario/serialize.ts'],
+    rules: {
+      'max-lines': ['warn', { max: 860, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ['src/store/scenarioStore.ts'],
+    rules: {
+      'max-lines-per-function': ['warn', { max: 110, skipBlankLines: true, skipComments: true }],
+    },
+  },
   // Test files get laxer rules.
   {
-    files: ['**/*.test.ts', '**/*.test.tsx', '**/__tests__/**'],
+    files: [
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/*.spec.ts',
+      '**/*.spec.tsx',
+      '**/__tests__/**',
+      'tests/e2e/**/*.ts',
+    ],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',

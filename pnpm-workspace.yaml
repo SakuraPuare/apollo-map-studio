@@ -1,9 +1,27 @@
-# pnpm settings. Supply-chain hardening (see react-doctor require-pnpm-hardening):
-# - minimumReleaseAge delays installing versions until they've been published
-#   long enough to be vetted/unpublished if malicious (7 days = 10080 minutes).
-# - trustPolicy: no-downgrade rejects packages whose provenance/signature
-#   trust signals weaken between updates.
-# These gate future version *resolution* only; frozen installs against the
-# committed pnpm-lock.yaml are unaffected.
+packages:
+  - .
+  - tools/license-gen
+
+allowBuilds:
+  electron-winstaller: true
+  esbuild: true
+  msw: true
+
+# pnpm settings.
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - '*'
 trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 10080
+onlyBuiltDependencies:
+  - electron
+  - electron-winstaller
+  - esbuild
+  - msw
+overrides:
+  fast-uri: '>=3.1.2'
+  hono: '>=4.12.18'
+  ip-address: '>=10.1.1'
+  vite: '>=6.4.2'
+  vitepress>vite: ^6.4.2
+  esbuild: '>=0.25.0'

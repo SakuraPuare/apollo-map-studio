@@ -19,6 +19,14 @@
         "rules": ["deslop/unused-file"]
       },
       {
+        "files": ["tests/e2e/**"],
+        "rules": ["deslop/unused-file"]
+      },
+      {
+        "files": ["src/hooks/useHotLayer.ts", "src/hooks/useOverlayLayer.ts"],
+        "rules": ["deslop/unused-export"]
+      },
+      {
         "files": ["package.json"],
         "rules": ["deslop/unused-dev-dependency"]
       }
