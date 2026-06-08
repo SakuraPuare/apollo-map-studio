@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress';
 import type MarkdownIt from 'markdown-it';
+import type { Plugin } from 'vite';
 import { version } from '../../package.json';
 import abbr from 'markdown-it-abbr';
 import footnote from 'markdown-it-footnote';
@@ -31,6 +32,7 @@ import {
 // VITEPRESS_BASE is injected by GitHub Actions for sub-path deployment
 // e.g. /apollo-map-studio/ when hosted at github.io/<repo>/
 const base = process.env.VITEPRESS_BASE ?? '/';
+const normalizedBase = base.endsWith('/') ? base : `${base}/`;
 const isDesktopDocs = process.env.VITEPRESS_DESKTOP === 'true';
 const cleanUrls = process.env.VITEPRESS_CLEAN_URLS
   ? process.env.VITEPRESS_CLEAN_URLS !== 'false'
@@ -43,6 +45,54 @@ const SOCIAL = [
   { icon: 'github', link: REPO_URL, ariaLabel: 'GitHub' },
   { icon: 'npm', link: 'https://www.npmjs.com/package/vitepress', ariaLabel: 'VitePress' },
 ];
+
+const VITEPRESS_STATIC_BLOCK_RE = /['"`]__VP_STATIC_START__[^]*?__VP_STATIC_END__['"`]/g;
+
+interface LeanChunkCandidate {
+  type: string;
+  isEntry?: boolean;
+  facadeModuleId?: string | null;
+  fileName: string;
+}
+
+export function shouldEmitVitePressLeanChunk(chunk: LeanChunkCandidate): boolean {
+  return (
+    chunk.type === 'chunk' &&
+    chunk.isEntry === true &&
+    Boolean(chunk.facadeModuleId?.endsWith('.md')) &&
+    chunk.fileName.startsWith('assets/') &&
+    chunk.fileName.endsWith('.js') &&
+    !chunk.fileName.endsWith('.lean.js')
+  );
+}
+
+const emitVitePressLeanChunksForRolldown = (): Plugin => ({
+  name: 'ams:vitepress-rolldown-lean-chunks',
+  apply: 'build',
+  enforce: 'post',
+  generateBundle(_options, bundle) {
+    const emittedFileNames = new Set(Object.values(bundle).map((chunk) => chunk.fileName));
+
+    for (const chunk of Object.values(bundle)) {
+      if (!shouldEmitVitePressLeanChunk(chunk)) {
+        continue;
+      }
+
+      const leanFileName = chunk.fileName.replace(/\.js$/, '.lean.js');
+
+      if (emittedFileNames.has(leanFileName)) {
+        continue;
+      }
+
+      this.emitFile({
+        type: 'asset',
+        fileName: leanFileName,
+        source: chunk.code.replace(VITEPRESS_STATIC_BLOCK_RE, '""'),
+      });
+      emittedFileNames.add(leanFileName);
+    }
+  },
+});
 
 const configureMarkdownPlugins = (md: MarkdownIt) => {
   const defaultFence = md.renderer.rules.fence?.bind(md.renderer.rules);
@@ -74,7 +124,7 @@ export default defineConfig({
   base,
   cleanUrls,
   lastUpdated: true,
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: false,
   appearance: 'force-auto',
   scrollOffset: { selector: '#VPContent', padding: 24 },
   useWebFonts: false,
@@ -118,6 +168,7 @@ export default defineConfig({
   vite: {
     build: {
       chunkSizeWarningLimit: 3000,
+      target: 'esnext',
     },
     plugins: [
       GitChangelog({
@@ -133,6 +184,7 @@ export default defineConfig({
         ],
       }),
       GitChangelogMarkdownSection(),
+      emitVitePressLeanChunksForRolldown(),
     ],
   },
 
@@ -144,7 +196,7 @@ export default defineConfig({
       description: 'Apollo HD 地图编辑器 · 桌面与 Web · 完整中文文档',
       themeConfig: {
         logo: { src: '/logo.svg', alt: 'Apollo Map Studio' },
-        logoLink: '/',
+        logoLink: normalizedBase,
         siteTitle: 'Apollo Map Studio',
         nav: [
           { text: '指南', link: '/guide/getting-started', activeMatch: '^/guide/' },
@@ -236,7 +288,7 @@ export default defineConfig({
       description: 'Desktop and web HD map editor for the Apollo autonomous driving platform',
       themeConfig: {
         logo: { src: '/logo.svg', alt: 'Apollo Map Studio' },
-        logoLink: '/en/',
+        logoLink: `${normalizedBase}en/`,
         siteTitle: 'Apollo Map Studio',
         nav: [
           { text: 'Guide', link: '/en/guide/getting-started', activeMatch: '^/en/guide/' },

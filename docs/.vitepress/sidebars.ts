@@ -104,6 +104,7 @@ export const zhSidebarArchitecture = [
       { text: '导出引擎', link: '/architecture/export-engine' },
       { text: 'Electron 集成', link: '/architecture/electron-integration' },
       { text: '授权系统', link: '/architecture/license-system' },
+      { text: '授权加固', link: '/architecture/license-hardening' },
     ],
   },
   {
@@ -420,6 +421,7 @@ export const enSidebarArchitecture = [
       { text: 'Export Engine', link: '/en/architecture/export-engine' },
       { text: 'Electron Integration', link: '/en/architecture/electron-integration' },
       { text: 'License System', link: '/en/architecture/license-system' },
+      { text: 'License Hardening', link: '/en/architecture/license-hardening' },
     ],
   },
   {
