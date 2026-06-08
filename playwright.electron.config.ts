@@ -27,8 +27,9 @@ export default defineConfig({
         command: [
           'pnpm clean:electron',
           'pnpm exec tsc -p tsconfig.electron.json',
+          'cross-env VITE_APOLLO_ELECTRON_E2E=1 pnpm exec vite build --mode test',
           'pnpm build:docs:desktop',
-          `cross-env VITE_APOLLO_ELECTRON_E2E=1 pnpm exec vite --mode test --host 127.0.0.1 --port ${E2E_PORT} --strictPort`,
+          `pnpm exec vite preview --host 127.0.0.1 --port ${E2E_PORT} --strictPort`,
         ].join(' && '),
         url: E2E_BASE_URL,
         reuseExistingServer: false,
