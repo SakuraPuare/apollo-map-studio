@@ -1,4 +1,5 @@
-import { defineConfig, type Plugin, type ViteDevServer } from 'vite';
+import type { Plugin } from 'vite';
+import { defineConfig } from 'vitest/config';
 import accessGuard from 'access-guard/vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -74,7 +75,7 @@ function getVendorChunkName(id: string) {
 const DOCS_BASE = '/docs/';
 
 function vitePressDocsDevPlugin(): Plugin {
-  let docsServer: ViteDevServer | undefined;
+  let docsServer: Awaited<ReturnType<typeof createVitePressServer>> | undefined;
 
   return {
     name: 'apollo-map-studio:vitepress-docs-dev',
@@ -104,13 +105,17 @@ function vitePressDocsDevPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
+function shouldAttachDocsDevServer(mode: string): boolean {
+  return mode !== 'test' && mode !== 'benchmark';
+}
+
+export default defineConfig(({ mode }) => ({
   plugins: [
-    vitePressDocsDevPlugin(),
+    shouldAttachDocsDevServer(mode) ? vitePressDocsDevPlugin() : null,
     accessGuard({ blocklist: ACCESS_GUARD_BLOCKLIST }),
     react(),
     tailwindcss(),
-  ],
+  ].filter((plugin): plugin is Plugin => Boolean(plugin)),
   base: './',
   resolve: {
     alias: {
@@ -118,11 +123,14 @@ export default defineConfig({
     },
   },
   test: {
+    setupFiles: ['src/test/setup.ts'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
       '**/dist-electron/**',
       '**/.tmp/**',
+      '**/e2e/**',
+      '**/tests/e2e/**',
       '**/electron/**/*.test.cts',
       '**/electron/**/*.spec.cts',
     ],
@@ -146,4 +154,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
