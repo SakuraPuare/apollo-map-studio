@@ -16,8 +16,15 @@ import {
   parkingSpaceSchema,
   signalSchema,
   signalTypeOptions,
+  signInfoTypeOptions,
   stopSignSchema,
   stopSignTypeOptions,
+  roadSchema,
+  roadTypeOptions,
+  areaSchema,
+  areaTypeOptions,
+  barrierGateSchema,
+  barrierGateTypeOptions,
 } from '../schemas';
 
 // ── laneSchema ─────────────────────────────────────────────────
@@ -126,6 +133,13 @@ describe('signalSchema', () => {
       false,
     );
   });
+
+  it('signInfo 是必填数组', () => {
+    expect(signalSchema.safeParse({ type: 'SINGLE' }).success).toBe(false);
+    expect(
+      signalSchema.safeParse({ type: 'SINGLE', signInfo: 'NO_RIGHT_TURN_ON_RED' }).success,
+    ).toBe(false);
+  });
 });
 
 describe('stopSignSchema', () => {
@@ -137,6 +151,49 @@ describe('stopSignSchema', () => {
 
   it('未知 type 失败', () => {
     expect(stopSignSchema.safeParse({ type: 'FIVE_WAY' }).success).toBe(false);
+  });
+});
+
+// ── roadSchema / areaSchema / barrierGateSchema ─────────────────────
+
+describe('roadSchema', () => {
+  it('合法 enum 全部通过', () => {
+    for (const t of roadTypeOptions) {
+      expect(roadSchema.safeParse({ type: t }).success).toBe(true);
+    }
+  });
+
+  it('未知 type / 缺字段失败', () => {
+    expect(roadSchema.safeParse({ type: 'SERVICE_ROAD' }).success).toBe(false);
+    expect(roadSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('areaSchema', () => {
+  it('合法 enum 全部通过，name 可选', () => {
+    for (const t of areaTypeOptions) {
+      expect(areaSchema.safeParse({ type: t }).success).toBe(true);
+    }
+
+    expect(areaSchema.safeParse({ type: 'Driveable', name: 'Loading zone' }).success).toBe(true);
+  });
+
+  it('未知 type / 非字符串 name 失败', () => {
+    expect(areaSchema.safeParse({ type: 'Walkable' }).success).toBe(false);
+    expect(areaSchema.safeParse({ type: 'Driveable', name: 12 }).success).toBe(false);
+  });
+});
+
+describe('barrierGateSchema', () => {
+  it('合法 enum 全部通过', () => {
+    for (const t of barrierGateTypeOptions) {
+      expect(barrierGateSchema.safeParse({ type: t }).success).toBe(true);
+    }
+  });
+
+  it('未知 type / 缺字段失败', () => {
+    expect(barrierGateSchema.safeParse({ type: 'CHAIN' }).success).toBe(false);
+    expect(barrierGateSchema.safeParse({}).success).toBe(false);
   });
 });
 
@@ -154,5 +211,15 @@ describe('enum option lists 与 proto 契约', () => {
 
   it('laneDirectionOptions 包含 FORWARD/BACKWARD/BIDIRECTION', () => {
     expect(laneDirectionOptions).toEqual(['FORWARD', 'BACKWARD', 'BIDIRECTION']);
+  });
+
+  it('signInfoTypeOptions 只暴露正向 inspector flag', () => {
+    expect(signInfoTypeOptions).toEqual(['NO_RIGHT_TURN_ON_RED']);
+  });
+
+  it('road / area / barrierGate options 与 schema 同步', () => {
+    expect(roadTypeOptions).toEqual(['UNKNOWN_ROAD', 'HIGHWAY', 'CITY_ROAD', 'PARK']);
+    expect(areaTypeOptions).toEqual(['Driveable', 'UnDriveable', 'Custom1', 'Custom2', 'Custom3']);
+    expect(barrierGateTypeOptions).toEqual(['ROD', 'FENCE', 'ADVERTISING', 'TELESCOPIC', 'OTHER']);
   });
 });

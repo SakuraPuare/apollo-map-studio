@@ -12,15 +12,78 @@
  * store replaces the data slice. We also call temporal.getState().clear() to
  * flush undo history so tests cannot bleed history state.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useMapStore } from '../mapStore';
-import type { LaneEntity, JunctionEntity, RoadEntity, RSUEntity } from '@/types/apollo';
-import type { PolylineEntity, JunctionEntity as _JE } from '@/types/entities';
+import { useLicenseStore } from '../licenseStore';
+import { getSharedSpatialIndex, resetSharedSpatialIndex } from '@/core/elements/overlap';
+import { makeOverlapId } from '@/core/elements/overlap/overlapId';
+import type { LicenseState } from '@/lib/license-bridge';
+import type {
+  LaneEntity,
+  JunctionEntity,
+  RoadEntity,
+  RSUEntity,
+  CrosswalkEntity,
+  OverlapEntity,
+} from '@/types/apollo';
+import type { MapEntity, PolylineEntity } from '@/types/entities';
+
+const overlapWorkerMock = vi.hoisted(() => {
+  class MockOverlapWorkerBridge {
+    static instances: MockOverlapWorkerBridge[] = [];
+
+    resolvePatch: ((patch: unknown) => void) | null = null;
+    readonly reconcileFull = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          this.resolvePatch = resolve;
+        }),
+    );
+    readonly dispose = vi.fn();
+
+    constructor() {
+      MockOverlapWorkerBridge.instances.push(this);
+    }
+
+    resolve(patch: unknown) {
+      if (!this.resolvePatch) throw new Error('reconcileFull was not called');
+      this.resolvePatch(patch);
+    }
+  }
+
+  return { MockOverlapWorkerBridge };
+});
+
+vi.mock('@/core/workers/overlapBridge', () => ({
+  OverlapWorkerBridge: overlapWorkerMock.MockOverlapWorkerBridge,
+}));
 
 // ─── Capture action functions once (survive replace-setState) ────────────────
 
 const { addEntity, updateEntity, updateEntities, removeEntity, reparentEntity } =
   useMapStore.getState();
+
+const editableLicenseState: LicenseState = {
+  status: 'trial',
+  canEdit: true,
+  machineCode: '',
+  trialStart: 0,
+  trialEnd: 0,
+  daysRemaining: 7,
+  hoursRemaining: 7 * 24,
+  license: null,
+  checkedAt: 0,
+  reason: '',
+};
+
+const readOnlyLicenseState: LicenseState = {
+  ...editableLicenseState,
+  status: 'expired_trial',
+  canEdit: false,
+  daysRemaining: 0,
+  hoursRemaining: 0,
+  reason: 'trial expired',
+};
 
 // ─── Reset helpers ────────────────────────────────────────────────────────────
 
@@ -35,6 +98,17 @@ function resetStore() {
 
 beforeEach(() => {
   resetStore();
+  resetSharedSpatialIndex();
+  useLicenseStore.setState({
+    state: editableLicenseState,
+    initialized: true,
+    promptActivation: () => {},
+  });
+  vi.restoreAllMocks();
+});
+
+afterEach(() => {
+  resetSharedSpatialIndex();
 });
 
 // ─── Entity factories ─────────────────────────────────────────────────────────
@@ -130,6 +204,15 @@ function makeRSU(id: string, junctionId: string | null = null): RSUEntity {
   };
 }
 
+function makeCrosswalk(id: string, points: { x: number; y: number }[]): CrosswalkEntity {
+  return {
+    id,
+    entityType: 'crosswalk',
+    polygon: { points },
+    overlapIds: [],
+  };
+}
+
 function makePolyline(id: string): PolylineEntity {
   return {
     id,
@@ -145,6 +228,33 @@ function makePolyline(id: string): PolylineEntity {
 
 function entities() {
   return useMapStore.getState().entities;
+}
+
+function seedEntities(...items: MapEntity[]) {
+  useMapStore.setState({ entities: new Map(items.map((entity) => [entity.id, entity])) });
+}
+
+function makeOverlap(id: string, objects: OverlapEntity['objects']): OverlapEntity {
+  return {
+    id,
+    entityType: 'overlap',
+    objects,
+    regionOverlaps: [],
+  };
+}
+
+function makeWorkerPatch(changes: Map<string, MapEntity>) {
+  return {
+    changes,
+    removedOverlapIds: new Set<string>(),
+    stats: {
+      pairsTested: 1,
+      pairsMatched: 1,
+      overlapsCreated: 1,
+      overlapsRemoved: 0,
+      durationMs: 1,
+    },
+  };
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -227,6 +337,20 @@ describe('mapStore — addEntity', () => {
     expect(entities().size).toBe(1);
     expect(entities().get('j1')).toEqual(junction);
   });
+
+  it('does not add entities when editing is disabled', () => {
+    const promptActivation = vi.fn();
+    useLicenseStore.setState({
+      state: readOnlyLicenseState,
+      initialized: true,
+      promptActivation,
+    });
+
+    addEntity(makePolyline('blocked'));
+
+    expect(entities().has('blocked')).toBe(false);
+    expect(promptActivation).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -286,6 +410,31 @@ describe('mapStore — updateEntity', () => {
     const a = entities().get('laneA') as LaneEntity;
     expect(a.successorIds).not.toContain('laneB');
   });
+
+  it('passes no previous topology snapshot when updating a lane with the same object reference', () => {
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
+    seedEntities(lane);
+
+    updateEntity('lane1', lane);
+
+    expect(entities().get('lane1')).toEqual(lane);
+  });
+
+  it('does not update entities when editing is disabled', () => {
+    const p1 = makePolyline('p1');
+    const promptActivation = vi.fn();
+    seedEntities(p1);
+    useLicenseStore.setState({
+      state: readOnlyLicenseState,
+      initialized: true,
+      promptActivation,
+    });
+
+    updateEntity('p1', { ...p1, points: [{ x: 10, y: 10 }] });
+
+    expect(entities().get('p1')).toBe(p1);
+    expect(promptActivation).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -328,6 +477,36 @@ describe('mapStore — updateEntities', () => {
       ]),
     ).toBe(0);
     expect(entities().size).toBe(1);
+  });
+
+  it('reconciles topology and invalidates lane caches when lane entities change in a batch', () => {
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [9, 9], [10, 10]);
+    seedEntities(laneA, laneB);
+
+    const movedLaneB = makeLane('laneB', [1, 0], [2, 0]);
+
+    expect(updateEntities([['laneB', movedLaneB]])).toBe(1);
+
+    expect((entities().get('laneA') as LaneEntity).successorIds).toContain('laneB');
+    expect((entities().get('laneB') as LaneEntity).predecessorIds).toContain('laneA');
+  });
+
+  it('returns zero and does not mutate when editing is disabled', () => {
+    const p1 = makePolyline('p1');
+    const promptActivation = vi.fn();
+    seedEntities(p1);
+    useLicenseStore.setState({
+      state: readOnlyLicenseState,
+      initialized: true,
+      promptActivation,
+    });
+
+    const updated: PolylineEntity = { ...p1, points: [{ x: 10, y: 10 }] };
+
+    expect(updateEntities([['p1', updated]])).toBe(0);
+    expect(entities().get('p1')).toBe(p1);
+    expect(promptActivation).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -415,6 +594,35 @@ describe('mapStore — removeEntity', () => {
     expect(() => removeEntity('j1')).not.toThrow();
     expect(entities().has('j1')).toBe(false);
   });
+
+  it('does not remove entities when editing is disabled', () => {
+    const p1 = makePolyline('p1');
+    const promptActivation = vi.fn();
+    seedEntities(p1);
+    useLicenseStore.setState({
+      state: readOnlyLicenseState,
+      initialized: true,
+      promptActivation,
+    });
+
+    removeEntity('p1');
+
+    expect(entities().has('p1')).toBe(true);
+    expect(promptActivation).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs an empty spatial index before collecting neighboring lanes on lane removal', () => {
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
+    seedEntities(laneA, laneB);
+
+    expect(getSharedSpatialIndex().size()).toBe(0);
+
+    removeEntity('laneA');
+
+    expect(entities().has('laneA')).toBe(false);
+    expect((entities().get('laneB') as LaneEntity).predecessorIds).not.toContain('laneA');
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -444,6 +652,28 @@ describe('mapStore — reparentEntity', () => {
     expect(result.rejected).toBeUndefined();
     const updatedLane = entities().get('lane1') as LaneEntity;
     expect(updatedLane.junctionId).toBe('j1');
+  });
+
+  it('recomputes lane overlaps when lanes enter and leave the same junction', () => {
+    const junction = makeJunction('j1');
+    const laneA = makeLane('laneA', [0, 0], [1, 1]);
+    const laneB = makeLane('laneB', [0, 0], [1, -1]);
+    const overlapId = makeOverlapId(['laneA', 'laneB']);
+
+    seedEntities(junction, laneA, laneB);
+
+    reparentEntity('laneA', { kind: 'junction', id: 'j1' });
+    reparentEntity('laneB', { kind: 'junction', id: 'j1' });
+
+    expect(entities().get(overlapId)?.entityType).toBe('overlap');
+    expect((entities().get('laneA') as LaneEntity).overlapIds).toContain(overlapId);
+    expect((entities().get('laneB') as LaneEntity).overlapIds).toContain(overlapId);
+
+    reparentEntity('laneB', { kind: 'none' });
+
+    expect(entities().has(overlapId)).toBe(false);
+    expect((entities().get('laneA') as LaneEntity).overlapIds).not.toContain(overlapId);
+    expect((entities().get('laneB') as LaneEntity).overlapIds).not.toContain(overlapId);
   });
 
   it('reparents Lane → Junction is idempotent (returns empty changes)', () => {
@@ -548,6 +778,24 @@ describe('mapStore — reparentEntity', () => {
     reparentEntity('j1', { kind: 'junction', id: 'j2' }); // j2 not in store
     expect(entities().size).toBe(sizeBefore);
   });
+
+  it('returns rejected result and does not mutate when editing is disabled', () => {
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
+    const promptActivation = vi.fn();
+    seedEntities(lane);
+    useLicenseStore.setState({
+      state: readOnlyLicenseState,
+      initialized: true,
+      promptActivation,
+    });
+
+    const result = reparentEntity('lane1', { kind: 'none' });
+
+    expect(result.rejected).toBe('editing is disabled in read-only mode');
+    expect(result.changes.size).toBe(0);
+    expect(entities().get('lane1')).toBe(lane);
+    expect(promptActivation).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -636,6 +884,236 @@ describe('mapStore — undo/redo', () => {
     const s = useMapStore.getState();
     expect(typeof s.addEntity).toBe('function');
     expect(typeof s.removeEntity).toBe('function');
+  });
+
+  it('resets the shared spatial index after undo and redo', () => {
+    const crosswalk = makeCrosswalk('cw1', [
+      { x: -0.5, y: -0.5 },
+      { x: 0.5, y: -0.5 },
+      { x: 0.5, y: 0.5 },
+      { x: -0.5, y: 0.5 },
+    ]);
+    addEntity(crosswalk);
+
+    const bbox = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
+    expect(
+      getSharedSpatialIndex()
+        .queryBBox(bbox)
+        .map((node) => node.id),
+    ).toContain('cw1');
+
+    useMapStore.temporal.getState().undo();
+
+    expect(
+      getSharedSpatialIndex()
+        .queryBBox(bbox)
+        .map((node) => node.id),
+    ).not.toContain('cw1');
+
+    useMapStore.temporal.getState().redo();
+
+    expect(getSharedSpatialIndex().size()).toBe(0);
+    getSharedSpatialIndex().syncFromEntities(entities());
+    expect(
+      getSharedSpatialIndex()
+        .queryBBox(bbox)
+        .map((node) => node.id),
+    ).toContain('cw1');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7b. Import actions
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('mapStore — import actions', () => {
+  it('batchImport is a no-op for an empty import list', () => {
+    const p1 = makePolyline('p1');
+    seedEntities(p1);
+    const before = entities();
+
+    useMapStore.getState().batchImport([]);
+
+    expect(entities()).toBe(before);
+    expect(entities().get('p1')).toBe(p1);
+  });
+
+  it('batchImport preserves existing entities and applies full topology and overlap reconciliation', () => {
+    const existing = makePolyline('existing');
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
+    const crosswalk = makeCrosswalk('cw1', [
+      { x: 0.25, y: -0.25 },
+      { x: 0.75, y: -0.25 },
+      { x: 0.75, y: 0.25 },
+      { x: 0.25, y: 0.25 },
+    ]);
+    const expectedOverlapId = makeOverlapId(['laneA', 'cw1']);
+    seedEntities(existing);
+
+    useMapStore.getState().batchImport([laneA, laneB, crosswalk]);
+
+    expect(entities().get('existing')).toBe(existing);
+    expect((entities().get('laneA') as LaneEntity).successorIds).toContain('laneB');
+    expect((entities().get('laneB') as LaneEntity).predecessorIds).toContain('laneA');
+    expect(entities().get(expectedOverlapId)?.entityType).toBe('overlap');
+    expect((entities().get('laneA') as LaneEntity).overlapIds).toContain(expectedOverlapId);
+    expect((entities().get('cw1') as CrosswalkEntity).overlapIds).toContain(expectedOverlapId);
+  });
+
+  it('batchImport removes stale full-reconcile overlaps from the existing map', () => {
+    const staleOverlap = makeOverlap('overlap_stale', [
+      { objectType: 'lane', objectId: 'missing_lane', laneOverlapInfo: {} },
+      { objectType: 'crosswalk', objectId: 'missing_crosswalk' },
+    ]);
+    seedEntities(staleOverlap);
+
+    useMapStore.getState().batchImport([makePolyline('imported')]);
+
+    expect(entities().get('imported')?.entityType).toBe('polyline');
+    expect(entities().has('overlap_stale')).toBe(false);
+  });
+
+  it('replaceImportedEntities replaces the map, clears undo history, and does not run import reconciliation', () => {
+    addEntity(makePolyline('old'));
+    useMapStore.temporal.getState().clear();
+
+    const laneA = makeLane('laneA', [0, 0], [1, 0]);
+    const laneB = makeLane('laneB', [1, 0], [2, 0]);
+
+    useMapStore.getState().replaceImportedEntities([laneA, laneB]);
+
+    expect(entities().has('old')).toBe(false);
+    expect(entities().size).toBe(2);
+    expect((entities().get('laneA') as LaneEntity).successorIds).toHaveLength(0);
+
+    useMapStore.temporal.getState().undo();
+    expect(entities().has('old')).toBe(false);
+    expect(entities().size).toBe(2);
+  });
+
+  it('replaceImportedEntityMap publishes the provided map and resets the shared spatial index', () => {
+    const crosswalk = makeCrosswalk('cw1', [
+      { x: -0.5, y: -0.5 },
+      { x: 0.5, y: -0.5 },
+      { x: 0.5, y: 0.5 },
+      { x: -0.5, y: 0.5 },
+    ]);
+    const bbox = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
+    seedEntities(crosswalk);
+    getSharedSpatialIndex().syncFromEntities(entities());
+    expect(
+      getSharedSpatialIndex()
+        .queryBBox(bbox)
+        .map((node) => node.id),
+    ).toContain('cw1');
+
+    const imported = new Map<string, MapEntity>([['replacement', makePolyline('replacement')]]);
+    useMapStore.getState().replaceImportedEntityMap(imported);
+
+    expect(entities()).toBe(imported);
+    expect(getSharedSpatialIndex().size()).toBe(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7c. Async overlap worker
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('mapStore — recomputeOverlapsAsync', () => {
+  afterEach(() => {
+    overlapWorkerMock.MockOverlapWorkerBridge.instances = [];
+  });
+
+  it('returns null without constructing a worker when the store is empty', async () => {
+    await expect(useMapStore.getState().recomputeOverlapsAsync()).resolves.toBeNull();
+    expect(overlapWorkerMock.MockOverlapWorkerBridge.instances).toHaveLength(0);
+  });
+
+  it('does not recompute overlaps in read-only mode', async () => {
+    seedEntities(makeLane('lane1', [0, 0], [1, 0]));
+    useLicenseStore.getState().setState(readOnlyLicenseState);
+
+    await expect(useMapStore.getState().recomputeOverlapsAsync()).resolves.toBeNull();
+
+    expect(overlapWorkerMock.MockOverlapWorkerBridge.instances).toHaveLength(0);
+  });
+
+  it('ignores a stale worker patch when entities changed after the request began', async () => {
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
+    const crosswalk = makeCrosswalk('cw1', [
+      { x: 0.25, y: -0.25 },
+      { x: 0.75, y: -0.25 },
+      { x: 0.75, y: 0.25 },
+      { x: 0.25, y: 0.25 },
+    ]);
+    const staleOverlapId = makeOverlapId(['lane1', 'cw1']);
+    const staleOverlap = makeOverlap(staleOverlapId, [
+      { objectType: 'lane', objectId: 'lane1', laneOverlapInfo: {} },
+      { objectType: 'crosswalk', objectId: 'cw1' },
+    ]);
+
+    seedEntities(lane, crosswalk);
+    const recompute = useMapStore.getState().recomputeOverlapsAsync();
+    const worker = overlapWorkerMock.MockOverlapWorkerBridge.instances[0];
+    expect(worker).toBeDefined();
+    expect(worker!.reconcileFull).toHaveBeenCalledWith(entities());
+
+    updateEntity('lane1', makeLane('lane1', [10, 10], [11, 10]));
+    worker!.resolve(makeWorkerPatch(new Map([[staleOverlap.id, staleOverlap]])));
+
+    await expect(recompute).resolves.toBeNull();
+    expect(entities().has(staleOverlapId)).toBe(false);
+  });
+
+  it('applies a fresh worker patch, removes stale overlaps, resets spatial index, and disposes the worker', async () => {
+    const lane = makeLane('lane1', [0, 0], [1, 0]);
+    const crosswalk = makeCrosswalk('cw1', [
+      { x: 0.25, y: -0.25 },
+      { x: 0.75, y: -0.25 },
+      { x: 0.75, y: 0.25 },
+      { x: 0.25, y: 0.25 },
+    ]);
+    const staleOverlap = makeOverlap('overlap_stale', [
+      { objectType: 'lane', objectId: 'lane1', laneOverlapInfo: {} },
+      { objectType: 'crosswalk', objectId: 'cw1' },
+    ]);
+    const freshOverlapId = makeOverlapId(['lane1', 'cw1']);
+    const freshOverlap = makeOverlap(freshOverlapId, [
+      { objectType: 'lane', objectId: 'lane1', laneOverlapInfo: {} },
+      { objectType: 'crosswalk', objectId: 'cw1' },
+    ]);
+    const bbox = { minX: -1, minY: -1, maxX: 1, maxY: 1 };
+    seedEntities(lane, crosswalk, staleOverlap);
+    getSharedSpatialIndex().syncFromEntities(entities());
+    expect(
+      getSharedSpatialIndex()
+        .queryBBox(bbox)
+        .map((node) => node.id),
+    ).toContain('cw1');
+
+    const recompute = useMapStore.getState().recomputeOverlapsAsync();
+    const worker = overlapWorkerMock.MockOverlapWorkerBridge.instances[0];
+    expect(worker).toBeDefined();
+
+    const stats = {
+      pairsTested: 3,
+      pairsMatched: 1,
+      overlapsCreated: 1,
+      overlapsRemoved: 1,
+      durationMs: 12,
+    };
+    worker!.resolve({
+      changes: new Map([[freshOverlap.id, freshOverlap]]),
+      removedOverlapIds: new Set(['overlap_stale']),
+      stats,
+    });
+
+    await expect(recompute).resolves.toEqual(stats);
+    expect(entities().has('overlap_stale')).toBe(false);
+    expect(entities().get(freshOverlapId)).toEqual(freshOverlap);
+    expect(getSharedSpatialIndex().size()).toBe(0);
+    expect(worker!.dispose).toHaveBeenCalledTimes(1);
   });
 });
 

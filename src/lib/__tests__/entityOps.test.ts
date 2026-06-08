@@ -29,6 +29,8 @@ import {
 } from '../entityOps';
 import type {
   JunctionEntity,
+  OverlapEntity,
+  PNCJunctionEntity,
   RoadEntity,
   RSUEntity,
   LaneEntity as ApolloLaneEntity,
@@ -438,6 +440,34 @@ describe('reparent: Lane → RoadSection', () => {
     expect(newR.sections[0]!.id).toBe('auto_s0');
     expect(newR.sections[0]!.laneIds).toEqual([lane.id]);
   });
+
+  it('目标 road 不存在时拒绝', () => {
+    const lane = makeLane();
+
+    const result = reparent(
+      lane,
+      { kind: 'roadSection', roadId: 'missing', sectionId: 's0' },
+      asMap(lane),
+    );
+
+    expect(result.rejected).toBe('target road missing');
+  });
+
+  it('lane 已在目标 section 且无 junctionId 时是 no-op', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = null;
+    const road = makeRoad('r_1');
+    road.sections[0]!.laneIds = [lane.id];
+
+    const result = reparent(
+      lane,
+      { kind: 'roadSection', roadId: 'r_1', sectionId: road.sections[0]!.id },
+      asMap(lane, road),
+    );
+
+    expect(result.rejected).toBeUndefined();
+    expect(result.changes.size).toBe(0);
+  });
 });
 
 describe('reparent: Lane → Road（自动取首个 section）', () => {
@@ -449,6 +479,12 @@ describe('reparent: Lane → Road（自动取首个 section）', () => {
     expect(result.rejected).toBeUndefined();
     const newR = result.changes.get('r_1') as RoadEntity;
     expect(newR.sections[0]!.laneIds).toEqual([lane.id]);
+  });
+
+  it('target road 不存在时拒绝', () => {
+    const lane = makeLane();
+    const result = reparent(lane, { kind: 'road', id: 'missing' }, asMap(lane));
+    expect(result.rejected).toBe('target is not a road');
   });
 });
 
@@ -466,6 +502,16 @@ describe('reparent: Lane → none（解除归属）', () => {
     expect(newLane.junctionId).toBeNull();
     expect(newR.sections[0]!.laneIds).not.toContain(lane.id);
   });
+
+  it('lane 无 junctionId 且不在任何 road 下时是 no-op', () => {
+    const lane = makeLane();
+    (lane as ApolloLaneEntity).junctionId = null;
+
+    const result = reparent(lane, { kind: 'none' }, asMap(lane));
+
+    expect(result.rejected).toBeUndefined();
+    expect(result.changes.size).toBe(0);
+  });
 });
 
 describe('reparent: Road / RSU → Junction', () => {
@@ -476,11 +522,53 @@ describe('reparent: Road / RSU → Junction', () => {
     expect((result.changes.get('r_1') as RoadEntity).junctionId).toBe('j_1');
   });
 
+  it('Road 已经在目标 junction 下时是 no-op，解除 none 时清空', () => {
+    const road = makeRoad('r_1', 'j_1');
+    const j = makeJunction('j_1');
+
+    expect(reparent(road, { kind: 'junction', id: 'j_1' }, asMap(road, j)).changes.size).toBe(0);
+
+    const none = reparent(road, { kind: 'none' }, asMap(road));
+    expect((none.changes.get('r_1') as RoadEntity).junctionId).toBeNull();
+    expect(reparent(makeRoad('r_2'), { kind: 'none' }, asMap(makeRoad('r_2'))).changes.size).toBe(
+      0,
+    );
+  });
+
+  it('Road target 不是 junction 时拒绝', () => {
+    const road = makeRoad('r_1');
+
+    expect(reparent(road, { kind: 'junction', id: 'missing' }, asMap(road)).rejected).toBe(
+      'target is not a junction',
+    );
+  });
+
   it('RSU.junctionId 单字段更新', () => {
     const rsu = makeRSU('rsu_1', null);
     const j = makeJunction('j_1');
     const result = reparent(rsu, { kind: 'junction', id: 'j_1' }, asMap(rsu, j));
     expect((result.changes.get('rsu_1') as RSUEntity).junctionId).toBe('j_1');
+  });
+
+  it('RSU 已经在目标 junction 下时是 no-op，解除 none 时清空', () => {
+    const rsu = makeRSU('rsu_1', 'j_1');
+    const j = makeJunction('j_1');
+
+    expect(reparent(rsu, { kind: 'junction', id: 'j_1' }, asMap(rsu, j)).changes.size).toBe(0);
+
+    const none = reparent(rsu, { kind: 'none' }, asMap(rsu));
+    expect((none.changes.get('rsu_1') as RSUEntity).junctionId).toBeNull();
+    expect(reparent(makeRSU('rsu_2'), { kind: 'none' }, asMap(makeRSU('rsu_2'))).changes.size).toBe(
+      0,
+    );
+  });
+
+  it('RSU target 不是 junction 时拒绝', () => {
+    const rsu = makeRSU('rsu_1');
+
+    expect(reparent(rsu, { kind: 'junction', id: 'missing' }, asMap(rsu)).rejected).toBe(
+      'target is not a junction',
+    );
   });
 });
 
@@ -555,5 +643,86 @@ describe('cascadeDeleteRefsFull', () => {
     const result = cascadeDeleteRefsFull(new Set(['ov_1']), asMap(lane, j)).changes;
     expect((result.get(lane.id) as ApolloLaneEntity).overlapIds).toEqual(['ov_2']);
     expect((result.get('j_1') as JunctionEntity).overlapIds).toEqual([]);
+  });
+
+  it('删除 overlap participant 后仍有两个以上对象时只 patch overlap.objects', () => {
+    const target = makeLane();
+    const keepLane = makeLane();
+    (keepLane as ApolloLaneEntity).id = 'lane_keep';
+    const j = makeJunction('j_keep');
+    const overlap: OverlapEntity = {
+      id: 'ov_keep',
+      entityType: 'overlap',
+      objects: [
+        { objectType: 'lane', objectId: target.id, laneOverlapInfo: { startS: 0, endS: 1 } },
+        { objectType: 'lane', objectId: keepLane.id, laneOverlapInfo: { startS: 1, endS: 2 } },
+        { objectType: 'junction', objectId: j.id },
+      ],
+      regionOverlaps: [],
+    };
+
+    const result = cascadeDeleteRefsFull(new Set([target.id]), asMap(target, keepLane, j, overlap));
+
+    expect(result.cascadeRemoved.size).toBe(0);
+    expect((result.changes.get('ov_keep') as OverlapEntity).objects.map((o) => o.objectId)).toEqual(
+      [keepLane.id, j.id],
+    );
+  });
+
+  it('删除 overlap participant 后不足两个对象时级联删除 overlap 并清理其它 overlapIds', () => {
+    const target = makeLane();
+    const survivor = makeJunction('j_survivor');
+    survivor.overlapIds = ['ov_remove', 'ov_other'];
+    const overlap: OverlapEntity = {
+      id: 'ov_remove',
+      entityType: 'overlap',
+      objects: [
+        { objectType: 'lane', objectId: target.id, laneOverlapInfo: { startS: 0, endS: 1 } },
+        { objectType: 'junction', objectId: survivor.id },
+      ],
+      regionOverlaps: [],
+    };
+
+    const result = cascadeDeleteRefsFull(new Set([target.id]), asMap(target, survivor, overlap));
+
+    expect(result.cascadeRemoved).toEqual(new Set(['ov_remove']));
+    expect(result.changes.has('ov_remove')).toBe(false);
+    expect((result.changes.get('j_survivor') as JunctionEntity).overlapIds).toEqual(['ov_other']);
+  });
+
+  it('删除 PNC passage 引用目标时清理 lane/signal/yield/stopSign 数组', () => {
+    const pnc: PNCJunctionEntity = {
+      id: 'pnc_1',
+      entityType: 'pncJunction',
+      polygon: { points: [] },
+      overlapIds: [],
+      passageGroups: [
+        {
+          id: 'pg_1',
+          passages: [
+            {
+              id: 'passage_1',
+              laneIds: ['lane_gone', 'lane_keep'],
+              signalIds: ['signal_gone', 'signal_keep'],
+              yieldIds: ['yield_gone', 'yield_keep'],
+              stopSignIds: ['stop_gone', 'stop_keep'],
+              type: 'ENTRANCE',
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = cascadeDeleteRefsFull(
+      new Set(['lane_gone', 'signal_gone', 'yield_gone', 'stop_gone']),
+      asMap(pnc),
+    );
+
+    const passage = (result.changes.get('pnc_1') as PNCJunctionEntity).passageGroups[0]!
+      .passages[0]!;
+    expect(passage.laneIds).toEqual(['lane_keep']);
+    expect(passage.signalIds).toEqual(['signal_keep']);
+    expect(passage.yieldIds).toEqual(['yield_keep']);
+    expect(passage.stopSignIds).toEqual(['stop_keep']);
   });
 });

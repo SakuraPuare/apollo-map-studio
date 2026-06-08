@@ -114,8 +114,15 @@ describe('uiStore — toggle actions', () => {
 
   it('toggleAppMode 在 drawing / scene 之间切换', () => {
     expect(useUIStore.getState().appMode).toBe('drawing');
+    useUIStore.getState().toggleConnectMode();
+    useUIStore.getState().toggleBoundaryBrush();
+    expect(useUIStore.getState().boundaryBrush.active).toBe(true);
+
     useUIStore.getState().toggleAppMode();
     expect(useUIStore.getState().appMode).toBe('scene');
+    expect(useUIStore.getState().connectMode.active).toBe(false);
+    expect(useUIStore.getState().boundaryBrush.active).toBe(false);
+
     useUIStore.getState().toggleAppMode();
     expect(useUIStore.getState().appMode).toBe('drawing');
   });
@@ -136,8 +143,12 @@ describe('uiStore — toggle actions', () => {
   });
 
   it('setAppMode 直接设值', () => {
+    useUIStore.getState().toggleConnectMode();
+    useUIStore.getState().toggleBoundaryBrush();
     useUIStore.getState().setAppMode('scene');
     expect(useUIStore.getState().appMode).toBe('scene');
+    expect(useUIStore.getState().connectMode.active).toBe(false);
+    expect(useUIStore.getState().boundaryBrush.active).toBe(false);
   });
 });
 

@@ -33,6 +33,7 @@ import {
   readLaneCenterLineOpacity,
   readLaneArrowSize,
   readLaneArrowOpacity,
+  setSettingsStorageForTests,
   DEFAULT_HISTORY_LIMIT,
   MIN_HISTORY_LIMIT,
   MAX_HISTORY_LIMIT,
@@ -78,16 +79,12 @@ const localStorageMock = (() => {
   };
 })();
 
-Object.defineProperty(globalThis, 'localStorage', {
-  value: localStorageMock,
-  writable: true,
-});
-
 // ─── store reset ──────────────────────────────────────────────────────────────
 
 const initialSnapshot = useSettingsStore.getState();
 
 beforeEach(() => {
+  setSettingsStorageForTests(localStorageMock);
   localStorageMock.clear();
   vi.clearAllMocks();
   useSettingsStore.setState(initialSnapshot, true);
@@ -215,6 +212,16 @@ describe('settingsStore — setHistoryLimit', () => {
   it('rounds fractional values', () => {
     useSettingsStore.getState().setHistoryLimit(50.7);
     expect(useSettingsStore.getState().historyLimit).toBe(51);
+  });
+
+  it('coerces NaN to the minimum instead of persisting NaN', () => {
+    useSettingsStore.getState().setHistoryLimit(Number.NaN);
+
+    expect(useSettingsStore.getState().historyLimit).toBe(MIN_HISTORY_LIMIT);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'apollo-map-studio:historyLimit',
+      String(MIN_HISTORY_LIMIT),
+    );
   });
 
   it('persists to localStorage', () => {

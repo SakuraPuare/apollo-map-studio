@@ -278,7 +278,12 @@ function createReparentAction(set: MapSet, get: MapGet): Pick<MapActions, 'repar
       const result = reparent(child, target, get().entities);
       if (result.rejected || result.changes.size === 0) return result;
       const entities = new Map(get().entities);
-      for (const [id, entity] of result.changes) entities.set(id, entity);
+      const dirty = new Set<string>();
+      for (const [id, entity] of result.changes) {
+        entities.set(id, entity);
+        dirty.add(id);
+      }
+      applyOverlapPatch(entities, dirty);
       set({ entities });
       return result;
     },
@@ -288,20 +293,24 @@ function createReparentAction(set: MapSet, get: MapGet): Pick<MapActions, 'repar
 function createWorkerActions(set: MapSet, get: MapGet): Pick<MapActions, 'recomputeOverlapsAsync'> {
   return {
     async recomputeOverlapsAsync() {
+      if (!assertEditable('recomputeOverlapsAsync')) return null;
       const entities = get().entities;
       if (entities.size === 0) return null;
       const bridge = new OverlapWorkerBridge();
-      try {
-        const patch = await bridge.reconcileFull(entities);
-        const next = new Map(get().entities);
-        for (const id of patch.removedOverlapIds) next.delete(id);
-        for (const [id, e] of patch.changes) next.set(id, e);
-        set({ entities: next });
-        resetSharedSpatialIndex();
-        return patch.stats;
-      } finally {
-        bridge.dispose();
-      }
+      return bridge
+        .reconcileFull(entities)
+        .then((patch) => {
+          if (get().entities !== entities) return null;
+          const next = new Map(entities);
+          for (const id of patch.removedOverlapIds) next.delete(id);
+          for (const [id, e] of patch.changes) next.set(id, e);
+          set({ entities: next });
+          resetSharedSpatialIndex();
+          return patch.stats;
+        })
+        .finally(() => {
+          bridge.dispose();
+        });
     },
   };
 }
@@ -327,3 +336,19 @@ export const useMapStore = create<MapStore>()(
     },
   ),
 );
+
+type TemporalHistoryOp = (steps?: number) => void;
+
+function withSpatialIndexReset(op: TemporalHistoryOp): TemporalHistoryOp {
+  return (steps) => {
+    const before = useMapStore.getState().entities;
+    op(steps);
+    if (useMapStore.getState().entities !== before) resetSharedSpatialIndex();
+  };
+}
+
+const temporalState = useMapStore.temporal.getState();
+useMapStore.temporal.setState({
+  undo: withSpatialIndexReset(temporalState.undo),
+  redo: withSpatialIndexReset(temporalState.redo),
+});

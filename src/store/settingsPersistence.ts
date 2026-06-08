@@ -73,6 +73,26 @@ export const LANE_BOUNDARY_TYPE_OPTIONS = [
 ] as const satisfies readonly BoundaryLineType[];
 
 type LaneBoundaryTypeOption = (typeof LANE_BOUNDARY_TYPE_OPTIONS)[number];
+type SettingsStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+let storageOverride: SettingsStorage | null | undefined;
+
+export function setSettingsStorageForTests(storage: SettingsStorage | null): void {
+  storageOverride = storage;
+}
+
+function getSettingsStorage(): SettingsStorage | null {
+  if (storageOverride !== undefined) return storageOverride;
+  if (typeof window === 'undefined' || typeof window.document === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 export const MIN_SNAP_RADIUS = 2;
 export const MAX_SNAP_RADIUS = 64;
@@ -96,8 +116,11 @@ export const MIN_LANE_ARROW_SIZE = 4;
 export const MAX_LANE_ARROW_SIZE = 32;
 
 function readNum(key: string, fallback: number, min: number, max: number): number {
+  const storage = getSettingsStorage();
+  if (!storage) return fallback;
+
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (raw !== null) {
       const n = Number(raw);
       if (Number.isFinite(n)) return Math.max(min, Math.min(max, n));
@@ -109,8 +132,11 @@ function readNum(key: string, fallback: number, min: number, max: number): numbe
 }
 
 function readBool(key: string, fallback: boolean): boolean {
+  const storage = getSettingsStorage();
+  if (!storage) return fallback;
+
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (raw === 'true') return true;
     if (raw === 'false') return false;
   } catch {
@@ -120,8 +146,11 @@ function readBool(key: string, fallback: boolean): boolean {
 }
 
 function readEnum<T extends string>(key: string, fallback: T, options: readonly T[]): T {
+  const storage = getSettingsStorage();
+  if (!storage) return fallback;
+
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storage.getItem(key);
     if (raw !== null && options.includes(raw as T)) return raw as T;
   } catch {
     /* SSR / private mode */
@@ -130,14 +159,18 @@ function readEnum<T extends string>(key: string, fallback: T, options: readonly 
 }
 
 export function persistSetting(key: string, value: number | boolean | string) {
+  const storage = getSettingsStorage();
+  if (!storage) return;
+
   try {
-    localStorage.setItem(key, String(value));
+    storage.setItem(key, String(value));
   } catch {
     /* ignore */
   }
 }
 
 export function clampSettingNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
 }
 

@@ -191,10 +191,26 @@ function createUIActions(set: UISet, get: UIGet): CoreUIActions {
 
   return {
     setAppMode(mode) {
-      set({ appMode: mode });
+      set((s) =>
+        mode === 'scene'
+          ? {
+              appMode: mode,
+              connectMode: { active: false, firstLaneId: null },
+              boundaryBrush: { ...s.boundaryBrush, active: false },
+            }
+          : { appMode: mode },
+      );
     },
     toggleAppMode() {
-      set((s) => ({ appMode: s.appMode === 'drawing' ? 'scene' : 'drawing' }));
+      set((s) =>
+        s.appMode === 'drawing'
+          ? {
+              appMode: 'scene',
+              connectMode: { active: false, firstLaneId: null },
+              boundaryBrush: { ...s.boundaryBrush, active: false },
+            }
+          : { appMode: 'drawing' },
+      );
     },
 
     ...preferenceActions,

@@ -31,18 +31,33 @@ interface PlaybackActions {
 
 export type PlaybackStore = PlaybackState & PlaybackActions;
 
+const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
+
+function coercePlaybackSpeed(speed: number): number {
+  return PLAYBACK_SPEEDS.includes(speed as (typeof PLAYBACK_SPEEDS)[number]) ? speed : 1;
+}
+
 export const usePlaybackStore = create<PlaybackStore>((set) => ({
   currentTime: 0,
   duration: 30,
   isPlaying: false,
   speed: 1,
-  setCurrentTime: (t) => set((s) => ({ currentTime: Math.min(Math.max(t, 0), s.duration) })),
-  setDuration: (d) => set({ duration: Math.max(d, 0.001) }),
+  setCurrentTime: (t) =>
+    set((s) => ({ currentTime: Math.min(Math.max(Number.isFinite(t) ? t : 0, 0), s.duration) })),
+  setDuration: (d) =>
+    set((s) => {
+      const duration = Math.max(Number.isFinite(d) ? d : 0.001, 0.001);
+      return { duration, currentTime: Math.min(s.currentTime, duration) };
+    }),
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
   toggle: () => set((s) => ({ isPlaying: !s.isPlaying })),
   stop: () => set({ isPlaying: false, currentTime: 0 }),
-  setSpeed: (speed) => set({ speed }),
+  setSpeed: (speed) => set({ speed: coercePlaybackSpeed(speed) }),
   reset: (duration) =>
-    set({ duration: Math.max(duration, 0.001), currentTime: 0, isPlaying: false }),
+    set({
+      duration: Math.max(Number.isFinite(duration) ? duration : 0.001, 0.001),
+      currentTime: 0,
+      isPlaying: false,
+    }),
 }));

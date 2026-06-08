@@ -12,6 +12,8 @@
 import { describe, it, expect } from 'vitest';
 import { getEnumLabel, withLabels } from '../enumLabels';
 
+type EnumCategory = Parameters<typeof getEnumLabel>[0];
+
 // ── getEnumLabel ───────────────────────────────────────────────────────────────
 
 describe('getEnumLabel — laneType', () => {
@@ -214,6 +216,79 @@ describe('getEnumLabel — roadType', () => {
   });
 });
 
+const newerCategoryCases = [
+  {
+    category: 'signInfoType',
+    cases: [
+      ['NO_RIGHT_TURN_ON_RED', 'No Right Turn on Red'],
+      ['None', 'None'],
+    ],
+    missingValue: 'NO_LEFT_TURN_ON_RED',
+  },
+  {
+    category: 'subsignalType',
+    cases: [
+      ['UNKNOWN_SUBSIGNAL', 'Unknown'],
+      ['CIRCLE', 'Circle'],
+      ['ARROW_LEFT', 'Arrow Left'],
+      ['ARROW_FORWARD', 'Arrow Forward'],
+      ['ARROW_RIGHT', 'Arrow Right'],
+      ['ARROW_LEFT_AND_FORWARD', 'Arrow Left+Forward'],
+      ['ARROW_RIGHT_AND_FORWARD', 'Arrow Right+Forward'],
+      ['ARROW_U_TURN', 'Arrow U-Turn'],
+    ],
+    missingValue: 'FLASHING_YELLOW',
+  },
+  {
+    category: 'passageType',
+    cases: [
+      ['UNKNOWN_PASSAGE', 'Unknown'],
+      ['ENTRANCE', 'Entrance'],
+      ['EXIT', 'Exit'],
+    ],
+    missingValue: 'MERGE',
+  },
+  {
+    category: 'areaType',
+    cases: [
+      ['Driveable', 'Driveable'],
+      ['UnDriveable', 'Undriveable'],
+      ['Custom1', 'Custom 1'],
+      ['Custom2', 'Custom 2'],
+      ['Custom3', 'Custom 3'],
+    ],
+    missingValue: 'LoadingZone',
+  },
+  {
+    category: 'barrierGateType',
+    cases: [
+      ['ROD', 'Rod'],
+      ['FENCE', 'Fence'],
+      ['ADVERTISING', 'Advertising'],
+      ['TELESCOPIC', 'Telescopic'],
+      ['OTHER', 'Other'],
+    ],
+    missingValue: 'CHAIN',
+  },
+] satisfies ReadonlyArray<{
+  category: EnumCategory;
+  cases: ReadonlyArray<readonly [value: string, label: string]>;
+  missingValue: string;
+}>;
+
+describe.each(newerCategoryCases)(
+  'getEnumLabel — $category',
+  ({ category, cases, missingValue }) => {
+    it.each(cases)('%s → "%s"', (value, label) => {
+      expect(getEnumLabel(category, value)).toBe(label);
+    });
+
+    it('unknown value falls back to raw value', () => {
+      expect(getEnumLabel(category, missingValue)).toBe(missingValue);
+    });
+  },
+);
+
 describe('getEnumLabel — cross-category isolation', () => {
   it('UNKNOWN key in boundaryType does not bleed into junctionType lookup', () => {
     // Both have UNKNOWN but via separate dict objects
@@ -258,6 +333,15 @@ describe('withLabels', () => {
     const result = withLabels('laneType', ['CITY_DRIVING', 'GHOST_LANE']);
     expect(result[0]).toEqual({ value: 'CITY_DRIVING', label: 'City Driving' });
     expect(result[1]).toEqual({ value: 'GHOST_LANE', label: 'GHOST_LANE' });
+  });
+
+  it('maps newer enum categories while preserving order and fallback labels', () => {
+    const result = withLabels('passageType', ['UNKNOWN_PASSAGE', 'ENTRANCE', 'SERVICE_PASSAGE']);
+    expect(result).toEqual([
+      { value: 'UNKNOWN_PASSAGE', label: 'Unknown' },
+      { value: 'ENTRANCE', label: 'Entrance' },
+      { value: 'SERVICE_PASSAGE', label: 'SERVICE_PASSAGE' },
+    ]);
   });
 
   it('result is readonly (value and label fields are present on every item)', () => {

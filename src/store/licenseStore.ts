@@ -10,9 +10,12 @@
 import { create } from 'zustand';
 import { licenseBridge, type LicenseState } from '@/lib/license-bridge';
 
+type LicenseStateSource = 'hydrate' | 'push';
+
 interface LicenseStoreState {
   state: LicenseState;
   initialized: boolean;
+  sequence: number;
   hydrate(): Promise<void>;
   setState(s: LicenseState): void;
   /** Convenience action: open the activation dialog. Set elsewhere. */
@@ -21,34 +24,61 @@ interface LicenseStoreState {
 }
 
 const initial: LicenseState = {
-  status: 'trial',
-  canEdit: true,
+  status: 'not_started',
+  canEdit: false,
   machineCode: '',
   trialStart: 0,
   trialEnd: 0,
-  daysRemaining: 7,
-  hoursRemaining: 7 * 24,
+  daysRemaining: 0,
+  hoursRemaining: 0,
   license: null,
   checkedAt: 0,
-  reason: '',
+  reason: 'License state is loading.',
 };
 
-export const useLicenseStore = create<LicenseStoreState>((set, get) => ({
-  state: initial,
-  initialized: false,
-  async hydrate() {
-    const next = await licenseBridge.getState();
-    set({ state: next, initialized: true });
-  },
-  setState(s) {
-    set({ state: s, initialized: true });
-  },
-  promptActivation: () => {
-    // Default no-op; replaced via registerPromptActivation when the
-    // dialog component mounts.
-  },
-  registerPromptActivation(fn) {
-    set({ promptActivation: fn });
-    void get; // suppress unused
-  },
-}));
+export const useLicenseStore = create<LicenseStoreState>((set, get) => {
+  const setLicenseState = (state: LicenseState, source: LicenseStateSource) => {
+    set((current) => ({
+      state,
+      initialized: true,
+      sequence: source === 'push' ? current.sequence + 1 : current.sequence,
+    }));
+  };
+
+  return {
+    state: initial,
+    initialized: false,
+    sequence: 0,
+    async hydrate() {
+      const sequence = get().sequence + 1;
+      set({ sequence });
+      try {
+        const next = await licenseBridge.getState();
+        if (get().sequence === sequence) {
+          setLicenseState(next, 'hydrate');
+        }
+      } catch (error) {
+        if (get().sequence === sequence) {
+          setLicenseState(
+            {
+              ...initial,
+              checkedAt: Date.now(),
+              reason: error instanceof Error ? error.message : 'Failed to read license state.',
+            },
+            'hydrate',
+          );
+        }
+      }
+    },
+    setState(s) {
+      setLicenseState(s, 'push');
+    },
+    promptActivation: () => {
+      // Default no-op; replaced via registerPromptActivation when the
+      // dialog component mounts.
+    },
+    registerPromptActivation(fn) {
+      set({ promptActivation: fn });
+    },
+  };
+});

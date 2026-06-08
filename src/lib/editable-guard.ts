@@ -26,11 +26,11 @@ export function assertEditable(action = 'edit'): boolean {
   if (now - lastWarn > WARN_INTERVAL) {
     lastWarn = now;
     console.warn(`[license] Blocked ${action}: status=${state.status}. ${state.reason}`);
-    try {
-      promptActivation();
-    } catch {
-      // promptActivation may not be wired before the dialog mounts.
-    }
+  }
+  try {
+    promptActivation();
+  } catch {
+    // promptActivation may not be wired before the dialog mounts.
   }
   return false;
 }

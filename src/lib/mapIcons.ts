@@ -16,7 +16,6 @@
 import type { ComponentType, ReactElement } from 'react';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type maplibregl from 'maplibre-gl';
 import { FaSquareParking, FaTrafficLight, FaRoadBarrier } from 'react-icons/fa6';
 import { BsSignStop, BsSignYieldFill } from 'react-icons/bs';
 import { PiWarningDiamondFill } from 'react-icons/pi';
@@ -36,7 +35,10 @@ const REGISTRY: Record<string, ComponentType<IconProps>> = {
 };
 
 export const MAP_ICON_PX = ICON_PX;
-type MapIconRegistry = Pick<maplibregl.Map, 'hasImage' | 'addImage'>;
+interface MapIconRegistry {
+  hasImage(id: string): boolean;
+  addImage(id: string, image: ImageData): unknown;
+}
 
 /**
  * 把 react-icons 组件渲染成 ImageData。

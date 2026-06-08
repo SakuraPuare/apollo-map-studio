@@ -120,6 +120,8 @@ function handleLaneToRoadSection(
     mutatedSections = true;
   }
 
+  if (alreadyThere && !mutatedSections && !lane.junctionId) return { changes };
+
   if (mutatedSections) {
     changes.set(road.id, { ...road, sections });
   }
