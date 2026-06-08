@@ -12,14 +12,13 @@
  *   3. Emit 80 bits of base32 (Crockford-style) → 16 grouped characters
  *      (`XXXX-XXXX-XXXX-XXXX`). 80 bits is ample for non-collision.
  *
- * The result is cached on disk under userData/.lic-machine.dat so a single
- * NIC swap or a virtualised MAC flap doesn't immediately invalidate the
- * license (the license itself still contains the original code; if the
- * recompute differs we surface a `machine_mismatch` status).
+ * The first-seen result is persisted on disk under userData/.lic-machine.dat
+ * as a soft drift hint. The hint is tamper-evident but not secret; license
+ * binding is still enforced by the signed token and encrypted license state.
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHmac } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, cpus, totalmem, platform, release, hostname, arch } from 'node:os';
 import path from 'node:path';
@@ -28,10 +27,12 @@ import { APP_PEPPER } from './public-key.cjs';
 
 const CROCKFORD = 'ABCDEFGHJKMNPQRSTVWXYZ0123456789'; // no I, L, O, U
 const SAFE_TIMEOUT_MS = 1500;
+const MACHINE_CODE_RE = /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/;
+const HINT_DOMAIN = 'apms.machine-hint.v1';
 
 // ─── Public API ─────────────────────────────────────────────────────────
 
-let cached: string | null = null;
+let cached: MachineCodeResult | null = null;
 
 export interface MachineCodeResult {
   code: string;
@@ -41,6 +42,12 @@ export interface MachineCodeResult {
   digestHex: string;
 }
 
+export interface PersistedMachineHint {
+  code: string | null;
+  tampered: boolean;
+  tamperedReason?: string;
+}
+
 /**
  * Compute the machine code. Subsequent calls return the in-memory cached
  * value. Pass `userDataDir` so we can persist the first-seen value and
@@ -48,32 +55,27 @@ export interface MachineCodeResult {
  */
 export function computeMachineCode(userDataDir: string): MachineCodeResult {
   if (cached) {
-    return finalise(cached, []);
+    persistMachineHint(userDataDir, cached.code);
+    return {
+      code: cached.code,
+      signals: [...cached.signals],
+      digestHex: cached.digestHex,
+    };
   }
   const signals = collectSignals();
   const ikm = signals.join('||');
   const digest = createHmac('sha256', APP_PEPPER).update(ikm).digest();
   const code = encodeBase32(digest.subarray(0, 10));
-  cached = code;
-
-  // Persist a soft hint so we can detect MAC churn without re-doing the
-  // (slow) shell calls. The hint is encrypted with a per-machine key in
-  // storage.cts — here we just write the raw value with an HMAC, since
-  // an attacker who can read userData can also call this function.
-  try {
-    const hintPath = path.join(userDataDir, '.lic-machine.dat');
-    if (!existsSync(hintPath)) {
-      writeFileSync(hintPath, code, { mode: 0o600 });
-    }
-  } catch {
-    // Non-fatal — the in-memory cache still works.
-  }
-
-  return {
+  const result = {
     code,
     signals: signals.map((s) => s.split(':')[0] ?? ''),
     digestHex: digest.toString('hex'),
   };
+  cached = result;
+
+  persistMachineHint(userDataDir, code);
+
+  return result;
 }
 
 /**
@@ -83,15 +85,85 @@ export function computeMachineCode(userDataDir: string): MachineCodeResult {
  * saw on this device.
  */
 export function readPersistedHint(userDataDir: string): string | null {
+  const hint = readPersistedMachineHint(userDataDir);
+  return hint.tampered ? null : hint.code;
+}
+
+/**
+ * Read a previously-persisted machine code hint without re-deriving. Legacy
+ * raw hints are accepted for migration; new hints include an HMAC envelope so
+ * edits can be surfaced as tampering instead of being silently ignored.
+ */
+export function readPersistedMachineHint(userDataDir: string): PersistedMachineHint {
   try {
     const hintPath = path.join(userDataDir, '.lic-machine.dat');
-    if (!existsSync(hintPath)) return null;
+    if (!existsSync(hintPath)) return { code: null, tampered: false };
     const raw = readFileSync(hintPath, 'utf8').trim();
-    if (!/^[A-Z0-9-]{16,32}$/.test(raw)) return null;
-    return raw;
+    return parsePersistedMachineHint(raw);
   } catch {
-    return null;
+    return { code: null, tampered: true, tamperedReason: 'machine hint unreadable' };
   }
+}
+
+function persistMachineHint(userDataDir: string, code: string): void {
+  try {
+    const hintPath = path.join(userDataDir, '.lic-machine.dat');
+    if (!existsSync(hintPath)) {
+      writeFileSync(hintPath, `${code}\n${machineHintMac(code)}\n`, { mode: 0o600 });
+    }
+  } catch {
+    // Non-fatal — the in-memory cache still works.
+  }
+}
+
+function parsePersistedMachineHint(raw: string): PersistedMachineHint {
+  if (!raw) {
+    return { code: null, tampered: true, tamperedReason: 'machine hint is empty' };
+  }
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 1) {
+    const legacyCode = lines[0] ?? '';
+    if (!MACHINE_CODE_RE.test(legacyCode)) {
+      return { code: null, tampered: true, tamperedReason: 'machine hint malformed' };
+    }
+    return { code: legacyCode, tampered: false };
+  }
+
+  if (lines.length !== 2) {
+    return { code: null, tampered: true, tamperedReason: 'machine hint malformed' };
+  }
+
+  const code = lines[0] ?? '';
+  const mac = lines[1] ?? '';
+  if (!MACHINE_CODE_RE.test(code)) {
+    return { code: null, tampered: true, tamperedReason: 'machine hint code malformed' };
+  }
+  if (!/^[a-fA-F0-9]{64}$/.test(mac)) {
+    return { code: null, tampered: true, tamperedReason: 'machine hint MAC malformed' };
+  }
+  if (!safeHintEqual(mac.toLowerCase(), machineHintMac(code))) {
+    return { code: null, tampered: true, tamperedReason: 'machine hint HMAC mismatch' };
+  }
+  return { code, tampered: false };
+}
+
+function machineHintMac(code: string): string {
+  return createHmac('sha256', APP_PEPPER)
+    .update(HINT_DOMAIN)
+    .update('\0')
+    .update(code)
+    .digest('hex');
+}
+
+function safeHintEqual(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  return aBuf.length === bBuf.length && timingSafeEqual(aBuf, bBuf);
 }
 
 // ─── Signal collection ──────────────────────────────────────────────────
@@ -225,8 +297,4 @@ function encodeBase32(buf: Buffer): string {
   // 80 bits = 16 chars exactly. Group as XXXX-XXXX-XXXX-XXXX.
   out = out.slice(0, 16);
   return `${out.slice(0, 4)}-${out.slice(4, 8)}-${out.slice(8, 12)}-${out.slice(12, 16)}`;
-}
-
-function finalise(code: string, signals: string[]): MachineCodeResult {
-  return { code, signals, digestHex: '' };
 }

@@ -11,10 +11,15 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
-import { computeMachineCode, readPersistedHint, type MachineCodeResult } from './machine-id.cjs';
+import {
+  computeMachineCode,
+  readPersistedMachineHint,
+  type MachineCodeResult,
+} from './machine-id.cjs';
 import { TimeGuard } from './time-guard.cjs';
 import { LicenseStorage } from './storage.cjs';
 import { parseToken, verifyToken, safeEqual } from './crypto.cjs';
+import { isLicenseExpiryDowngrade } from './replay-policy.cjs';
 import type { ActivationResult, LicensePayload, LicenseState, LicenseStatus } from './types.cjs';
 
 const TRIAL_DAYS = 7;
@@ -118,7 +123,7 @@ export class LicenseManager {
     // refuse the downgrade. We accept upgrades (longer expiry) silently.
     const existing = this.storage.load();
     if (existing && !existing.tampered && existing.payload.lic === payload.lic) {
-      if (existing.payload.expires > payload.expires) {
+      if (isLicenseExpiryDowngrade(existing.payload.expires, payload.expires)) {
         return this.failedActivation('replay', 'A newer license is already installed.');
       }
     }
@@ -159,8 +164,10 @@ export class LicenseManager {
     const tg = this.timeGuard.snapshot();
 
     // Detect mid-flight machine code drift.
-    const persistedHint = readPersistedHint(this.userDataDir);
-    const machineDrift = persistedHint && persistedHint !== this.machine.code;
+    const persistedHint = readPersistedMachineHint(this.userDataDir);
+    const machineDrift =
+      persistedHint.tampered ||
+      (persistedHint.code !== null && persistedHint.code !== this.machine.code);
 
     if (tg.tampered || machineDrift) {
       return {
@@ -173,9 +180,11 @@ export class LicenseManager {
         hoursRemaining: 0,
         license: null,
         checkedAt,
-        reason: machineDrift
-          ? 'Machine fingerprint changed since first run.'
-          : (tg.tamperedReason ?? 'System clock or license state was tampered with.'),
+        reason: persistedHint.tampered
+          ? (persistedHint.tamperedReason ?? 'Machine fingerprint hint was tampered with.')
+          : machineDrift
+            ? 'Machine fingerprint changed since first run.'
+            : (tg.tamperedReason ?? 'System clock or license state was tampered with.'),
       };
     }
 

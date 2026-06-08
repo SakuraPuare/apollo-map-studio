@@ -35,6 +35,9 @@ export function b64url(buf: Buffer): string {
 }
 
 export function fromB64url(str: string): Buffer {
+  if (!/^[A-Za-z0-9_-]*$/.test(str)) {
+    throw new Error('invalid base64url');
+  }
   const pad = (4 - (str.length % 4)) % 4;
   const normal = str.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat(pad);
   return Buffer.from(normal, 'base64');
@@ -92,7 +95,12 @@ function isValidPayload(payload: LicensePayload): boolean {
   if (!isFiniteEpoch(payload.issued) || !isFiniteEpoch(payload.expires)) return false;
   if (payload.expires !== 0 && payload.expires <= payload.issued) return false;
   if (!/^[a-fA-F0-9]{16,128}$/.test(payload.nonce)) return false;
-  if (payload.name !== undefined && payload.name.length > MAX_STRING_FIELD) return false;
+  if (
+    payload.name !== undefined &&
+    (typeof payload.name !== 'string' || payload.name.length > MAX_STRING_FIELD)
+  ) {
+    return false;
+  }
   if (payload.features !== undefined) {
     if (!Array.isArray(payload.features) || payload.features.length > 64) return false;
     if (
@@ -217,8 +225,10 @@ export function hmacHex(key: Buffer, ...parts: (string | Buffer)[]): string {
 
 export function safeEqual(a: string, b: string): boolean {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
 }
 
 // ─── Misc ───────────────────────────────────────────────────────────────

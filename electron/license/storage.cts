@@ -54,6 +54,26 @@ interface StateV1 {
   mac: string;
 }
 
+function isHexString(value: unknown, length: number): value is string {
+  return typeof value === 'string' && value.length === length && /^[a-fA-F0-9]+$/.test(value);
+}
+
+function isStateV1(value: unknown): value is StateV1 {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<StateV1>;
+  const activatedAt = state.activatedAt;
+  return (
+    state.v === 1 &&
+    isHexString(state.tokenHash, 64) &&
+    typeof state.machineAtActivation === 'string' &&
+    Number.isSafeInteger(activatedAt) &&
+    typeof activatedAt === 'number' &&
+    activatedAt >= 0 &&
+    isHexString(state.nonce, 64) &&
+    isHexString(state.mac, 64)
+  );
+}
+
 export interface StoredLicense {
   payload: LicensePayload;
   token: string;
@@ -235,8 +255,8 @@ export class LicenseStorage {
       const aad = Buffer.from('apms.shadow.v1', 'utf8');
       const pt = aesDecrypt(getFileKey(this.machineCode, 'shadow'), enc, aad);
       if (!pt) return null;
-      const parsed = JSON.parse(pt.toString('utf8')) as StateV1;
-      return parsed.v === 1 ? parsed : null;
+      const parsed = JSON.parse(pt.toString('utf8')) as unknown;
+      return isStateV1(parsed) ? parsed : null;
     } catch {
       return null;
     }
@@ -245,8 +265,8 @@ export class LicenseStorage {
   private readState(): StateV1 | null {
     try {
       const raw = readFileSync(path.join(this.userDataDir, STATE), 'utf8');
-      const parsed = JSON.parse(raw) as StateV1;
-      return parsed.v === 1 ? parsed : null;
+      const parsed = JSON.parse(raw) as unknown;
+      return isStateV1(parsed) ? parsed : null;
     } catch {
       return null;
     }

@@ -78,6 +78,96 @@ test('LicenseStorage marks plaintext state edits tampered even when JSON remains
   assert.match(loaded?.tamperedReason ?? '', /token hash|HMAC/);
 });
 
+test('LicenseStorage treats malformed plaintext state shapes as tampered', () => {
+  storage().save(tokenFor(payload), payload);
+  const statePath = path.join(dir, '.lic-state.json');
+  const state = JSON.parse(readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+  state.nonce = {};
+  writeFileSync(statePath, JSON.stringify(state), { mode: 0o600 });
+
+  const loaded = storage().load();
+
+  assert.equal(loaded?.tampered, true);
+  assert.match(loaded?.tamperedReason ?? '', /missing\/corrupt/);
+});
+
+test('LicenseStorage treats malformed plaintext state shape variants as tampered', () => {
+  const malformedStates: unknown[] = [
+    null,
+    [],
+    {},
+    { v: 2 },
+    {
+      v: 1,
+      tokenHash: {},
+      machineAtActivation: MACHINE,
+      activatedAt: 1,
+      nonce: '0'.repeat(64),
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(63),
+      machineAtActivation: MACHINE,
+      activatedAt: 1,
+      nonce: '0'.repeat(64),
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(64),
+      machineAtActivation: MACHINE,
+      activatedAt: -1,
+      nonce: '0'.repeat(64),
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(64),
+      machineAtActivation: MACHINE,
+      activatedAt: Number.MAX_SAFE_INTEGER + 1,
+      nonce: '0'.repeat(64),
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(64),
+      machineAtActivation: MACHINE,
+      activatedAt: 1,
+      nonce: {},
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(64),
+      machineAtActivation: MACHINE,
+      activatedAt: 1,
+      nonce: 'z'.repeat(64),
+      mac: '0'.repeat(64),
+    },
+    {
+      v: 1,
+      tokenHash: '0'.repeat(64),
+      machineAtActivation: MACHINE,
+      activatedAt: 1,
+      nonce: '0'.repeat(64),
+      mac: 'z'.repeat(64),
+    },
+  ];
+
+  for (const malformedState of malformedStates) {
+    storage().save(tokenFor(payload), payload);
+    writeFileSync(path.join(dir, '.lic-state.json'), JSON.stringify(malformedState), {
+      mode: 0o600,
+    });
+
+    const loaded = storage().load();
+
+    assert.equal(loaded?.tampered, true, `state=${JSON.stringify(malformedState)}`);
+    assert.match(loaded?.tamperedReason ?? '', /missing\/corrupt/);
+  }
+});
+
 test('LicenseStorage marks copied license blobs tampered on a different machine key', () => {
   storage().save(tokenFor(payload), payload);
 
@@ -85,4 +175,28 @@ test('LicenseStorage marks copied license blobs tampered on a different machine 
 
   assert.equal(loaded?.tampered, true);
   assert.match(loaded?.tamperedReason ?? '', /missing\/corrupt/);
+});
+
+test('LicenseStorage marks encrypted primary and shadow byte edits tampered', () => {
+  for (const mirror of ['license.dat', '.lic-shadow.dat']) {
+    storage().save(tokenFor(payload), payload);
+    const mirrorPath = path.join(dir, mirror);
+    const raw = readFileSync(mirrorPath);
+    raw[raw.length - 1] = (raw[raw.length - 1] ?? 0) ^ 0xff;
+    writeFileSync(mirrorPath, raw, { mode: 0o600 });
+
+    const loaded = storage().load();
+
+    assert.equal(loaded?.tampered, true, `mirror=${mirror}`);
+    assert.match(loaded?.tamperedReason ?? '', /missing\/corrupt/);
+  }
+});
+
+test('LicenseStorage marks unparseable token bodies tampered after mirror checks pass', () => {
+  storage().save('APMS1.not-json.signature', payload);
+
+  const loaded = storage().load();
+
+  assert.equal(loaded?.tampered, true);
+  assert.match(loaded?.tamperedReason ?? '', /token body unparseable/);
 });

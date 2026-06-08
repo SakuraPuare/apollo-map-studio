@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   app,
   BrowserWindow,
@@ -14,7 +14,7 @@ import {
 } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 
-import { checkAccessGuardAccess, getAccessGuardIdentity } from './access-guard-runtime.cjs';
+import { checkAccessGuardAccess } from './access-guard-runtime.cjs';
 import { LicenseManager } from './license/manager.cjs';
 
 const APP_PROTOCOL = 'apollo-map-studio';
@@ -22,7 +22,6 @@ const APP_ICON_FILENAME = 'icon.png';
 const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
-  GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
   GET_WINDOW_STATE: 'app:get-window-state',
   WINDOW_MINIMIZE: 'app:window-minimize',
   WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
@@ -145,8 +144,16 @@ function getDevelopmentRendererUrl() {
   if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     throw new Error(`Unsupported ELECTRON_RENDERER_URL protocol: ${parsedUrl.protocol}`);
   }
+  if (!isLoopbackHost(parsedUrl.hostname)) {
+    throw new Error(`Unsupported ELECTRON_RENDERER_URL host: ${parsedUrl.hostname}`);
+  }
 
   return parsedUrl.toString();
+}
+
+function getDevelopmentRendererOrigin() {
+  const rendererUrl = getDevelopmentRendererUrl();
+  return rendererUrl ? new URL(rendererUrl).origin : null;
 }
 
 function getDocsIndexPath() {
@@ -368,7 +375,7 @@ function buildHelpMenu(): MenuItemConstructorOptions {
     {
       label: 'Help Documentation',
       click: () => {
-        void openHelpWindow();
+        void safeOpenHelpWindow();
       },
     },
   ];
@@ -430,6 +437,42 @@ function isHttpNavigationUrl(url: string) {
   }
 }
 
+function isLoopbackHost(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized === '[::1]'
+  );
+}
+
+function isContainedFileUrl(url: string, rootPath: string) {
+  try {
+    const resolvedRoot = path.resolve(rootPath);
+    const resolvedPath = path.resolve(fileURLToPath(url));
+    return resolvedPath === resolvedRoot || resolvedPath.startsWith(`${resolvedRoot}${path.sep}`);
+  } catch {
+    return false;
+  }
+}
+
+function isInternalNavigationUrl(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol === `${APP_PROTOCOL}:`) return true;
+    if (parsedUrl.protocol === 'file:') {
+      return isContainedFileUrl(url, path.dirname(getRendererIndexPath()));
+    }
+    if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+      return parsedUrl.origin === getDevelopmentRendererOrigin();
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 function getExternalNavigationTarget(url: string) {
   try {
     const parsedUrl = new URL(url);
@@ -452,15 +495,62 @@ function configureExternalNavigation(window: BrowserWindow) {
   });
 
   window.webContents.on('will-navigate', (event, url) => {
-    if (!isHttpNavigationUrl(url)) {
-      return;
-    }
+    if (isInternalNavigationUrl(url)) return;
 
     event.preventDefault();
-    const target = getExternalNavigationTarget(url);
-    if (target) {
-      void shell.openExternal(target);
+    if (isHttpNavigationUrl(url)) {
+      const target = getExternalNavigationTarget(url);
+      if (target) {
+        void shell.openExternal(target);
+      }
     }
+  });
+
+  window.webContents.on('will-redirect', (event, url) => {
+    if (isInternalNavigationUrl(url)) return;
+
+    event.preventDefault();
+    if (isHttpNavigationUrl(url)) {
+      const target = getExternalNavigationTarget(url);
+      if (target) {
+        void shell.openExternal(target);
+      }
+    }
+  });
+}
+
+export const __mainTestInternals = {
+  configureExternalNavigation,
+  getDevelopmentRendererUrl,
+  getExternalNavigationTarget,
+  isInternalNavigationUrl,
+  isLoopbackHost,
+} as const;
+
+function safeCreateMainWindow(): void {
+  createMainWindow().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    dialog.showErrorBox('Apollo Map Studio failed to start', message);
+    app.quit();
+  });
+}
+
+function safeOpenDeniedWindow(denialHtml: string): void {
+  openDeniedWindow(denialHtml).catch((error: unknown) => {
+    console.error('[electron] failed to open access-denied window:', error);
+    app.quit();
+  });
+}
+
+function safeOpenHelpWindow(): Promise<boolean> {
+  return openHelpWindow().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (helpWindow && !helpWindow.isDestroyed()) {
+      helpWindow.destroy();
+    }
+    helpWindow = null;
+    dialog.showErrorBox('Help documentation failed to open', message);
+    return false;
   });
 }
 
@@ -548,10 +638,6 @@ async function openDeniedWindow(denialHtml: string) {
 }
 
 function registerAppIpc() {
-  ipcMain.on(APP_IPC.GET_ACCESS_GUARD_IDENTITY, (event) => {
-    event.returnValue = getAccessGuardIdentity();
-  });
-
   ipcMain.handle(APP_IPC.GET_INFO, () => ({
     name: app.getName(),
     productName: 'Apollo Map Studio',
@@ -566,7 +652,7 @@ function registerAppIpc() {
     },
   }));
 
-  ipcMain.handle(APP_IPC.OPEN_HELP, () => openHelpWindow());
+  ipcMain.handle(APP_IPC.OPEN_HELP, () => safeOpenHelpWindow());
   ipcMain.handle(APP_IPC.GET_WINDOW_STATE, (event) => {
     const window = senderWindow(event);
     return window ? getWindowState(window) : null;
@@ -633,7 +719,9 @@ async function createMainWindow() {
   const developmentRendererUrl = getDevelopmentRendererUrl();
   if (developmentRendererUrl) {
     await window.loadURL(developmentRendererUrl);
-    window.webContents.openDevTools({ mode: 'detach' });
+    if (process.env.APOLLO_MAP_STUDIO_E2E !== '1') {
+      window.webContents.openDevTools({ mode: 'detach' });
+    }
     return;
   }
 
@@ -641,6 +729,10 @@ async function createMainWindow() {
 }
 
 app.setName('Apollo Map Studio');
+
+if (!app.isPackaged && process.env.APOLLO_MAP_STUDIO_USER_DATA_DIR) {
+  app.setPath('userData', path.resolve(process.env.APOLLO_MAP_STUDIO_USER_DATA_DIR));
+}
 
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.apollo-map-studio.app');
@@ -673,7 +765,7 @@ if (!gotSingleInstanceLock) {
     const access = checkAccessGuardAccess();
 
     if (!access.allowed) {
-      void openDeniedWindow(access.denialHtml ?? '');
+      safeOpenDeniedWindow(access.denialHtml ?? '');
       return;
     }
 
@@ -683,11 +775,11 @@ if (!gotSingleInstanceLock) {
     licenseManager.start();
     registerAppIpc();
 
-    void createMainWindow();
+    safeCreateMainWindow();
 
     app.on('activate', () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
-        void createMainWindow();
+        safeCreateMainWindow();
       }
     });
   });

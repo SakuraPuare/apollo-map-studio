@@ -2,15 +2,10 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, '..');
-const distElectronDir = path.join(repoRoot, 'dist-electron');
-const distDir = path.join(repoRoot, 'dist');
-const mainPath = path.join(distElectronDir, 'main.cjs');
 const integrityModuleName = 'ams-integrity.cjs';
-const integrityPath = path.join(distElectronDir, integrityModuleName);
 const encryptedPrefix = '/* APMS_ENC_V1 */\n';
 
 const protectedModuleRelPaths = [
@@ -19,13 +14,28 @@ const protectedModuleRelPaths = [
   'license/machine-id.cjs',
   'license/manager.cjs',
   'license/public-key.cjs',
+  'license/replay-policy.cjs',
   'license/storage.cjs',
   'license/time-guard.cjs',
   'license/types.cjs',
 ];
 
-function assertBuildOutput() {
-  if (!existsSync(mainPath)) {
+function createHardeningContext(options = {}) {
+  const repoRoot = options.repoRoot
+    ? path.resolve(options.repoRoot)
+    : path.resolve(__dirname, '..');
+  const distElectronDir = options.distElectronDir
+    ? path.resolve(options.distElectronDir)
+    : path.join(repoRoot, 'dist-electron');
+  const distDir = options.distDir ? path.resolve(options.distDir) : path.join(repoRoot, 'dist');
+  const mainPath = path.join(distElectronDir, 'main.cjs');
+  const integrityPath = path.join(distElectronDir, integrityModuleName);
+
+  return { repoRoot, distElectronDir, distDir, mainPath, integrityPath };
+}
+
+function assertBuildOutput(context) {
+  if (!existsSync(context.mainPath)) {
     throw new Error(
       'dist-electron/main.cjs is missing. Run `tsc -p tsconfig.electron.json` first.',
     );
@@ -58,12 +68,21 @@ function sha256File(absPath) {
   return createHash('sha256').update(readFileSync(absPath)).digest('hex');
 }
 
-function assertNoSourceMaps() {
-  const mapFiles = [...walkFiles(distElectronDir), ...walkFiles(distDir)].filter((file) =>
-    file.endsWith('.map'),
-  );
+function assertNoSourceMaps(context) {
+  const files = [...walkFiles(context.distElectronDir), ...walkFiles(context.distDir)];
+  const mapFiles = files.filter((file) => file.endsWith('.map'));
   if (mapFiles.length > 0) {
     throw new Error(`Release hardening refuses to ship sourcemaps:\n${mapFiles.join('\n')}`);
+  }
+
+  const jsFiles = files.filter((file) => /\.(?:cjs|mjs|js|html|css)$/.test(file));
+  const sourceMapReferences = jsFiles.filter((file) =>
+    readFileSync(file, 'utf8').includes('sourceMappingURL='),
+  );
+  if (sourceMapReferences.length > 0) {
+    throw new Error(
+      `Release hardening refuses to ship sourceMappingURL references:\n${sourceMapReferences.join('\n')}`,
+    );
   }
 }
 
@@ -74,9 +93,11 @@ function makeKeyParts(key) {
   return { mask: [...mask], masked: [...masked] };
 }
 
-function encryptModule(relPath, key) {
-  const absPath = path.join(distElectronDir, relPath);
-  if (!existsSync(absPath)) return null;
+function encryptModule(context, relPath, key) {
+  const absPath = path.join(context.distElectronDir, relPath);
+  if (!existsSync(absPath)) {
+    throw new Error(`Protected Electron module is missing: ${relPath}`);
+  }
 
   const source = readFileSync(absPath, 'utf8');
   if (source.startsWith(encryptedPrefix)) {
@@ -130,30 +151,32 @@ require('./${integrityModuleName}').verify(require('node:path').join(__dirname, 
 `;
 }
 
-function injectMainBootstrap(encryptedRelPaths, keyParts) {
-  const original = readFileSync(mainPath, 'utf8');
+function injectMainBootstrap(context, encryptedRelPaths, keyParts) {
+  const original = readFileSync(context.mainPath, 'utf8');
   if (original.includes(integrityModuleName)) {
     throw new Error('dist-electron/main.cjs is already hardened. Re-run tsc before hardening.');
   }
   const bootstrap = loaderBootstrap(encryptedRelPaths, keyParts);
-  writeFileSync(mainPath, `${bootstrap}\n${original}`, 'utf8');
+  writeFileSync(context.mainPath, `${bootstrap}\n${original}`, 'utf8');
 }
 
-function manifestFiles() {
-  const files = [...walkFiles(distElectronDir), ...walkFiles(distDir)].filter((absPath) => {
-    if (absPath === integrityPath) return false;
-    if (absPath.endsWith('.map')) return false;
-    return statSync(absPath).isFile();
-  });
+function manifestFiles(context) {
+  const files = [...walkFiles(context.distElectronDir), ...walkFiles(context.distDir)].filter(
+    (absPath) => {
+      if (absPath === context.integrityPath) return false;
+      if (absPath.endsWith('.map')) return false;
+      return statSync(absPath).isFile();
+    },
+  );
 
   const manifest = {};
   for (const absPath of files) {
-    manifest[toPosix(path.relative(repoRoot, absPath))] = sha256File(absPath);
+    manifest[toPosix(path.relative(context.repoRoot, absPath))] = sha256File(absPath);
   }
   return manifest;
 }
 
-function writeIntegrityModule(manifest) {
+function writeIntegrityModule(context, manifest) {
   const source = `'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -165,7 +188,50 @@ function sha256(absPath) {
   return crypto.createHash('sha256').update(fs.readFileSync(absPath)).digest('hex');
 }
 
+function walkFiles(rootDir) {
+  if (!fs.existsSync(rootDir)) return [];
+  const out = [];
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const abs = path.join(current, entry.name);
+      if (entry.isDirectory()) stack.push(abs);
+      else if (entry.isFile()) out.push(abs);
+    }
+  }
+  return out.sort();
+}
+
+function toPosix(p) {
+  return p.split(path.sep).join('/');
+}
+
+function manifestEligibleFiles(appRoot) {
+  return [
+    ...walkFiles(path.join(appRoot, 'dist-electron')),
+    ...walkFiles(path.join(appRoot, 'dist')),
+  ]
+    .map((absPath) => toPosix(path.relative(appRoot, absPath)))
+    .filter((relPath) => relPath !== 'dist-electron/${integrityModuleName}' && !relPath.endsWith('.map'))
+    .sort();
+}
+
+function assertManifestMatchesFiles(appRoot) {
+  const expected = new Set(Object.keys(MANIFEST));
+  const actual = new Set(manifestEligibleFiles(appRoot));
+  const missing = [...actual].filter((relPath) => !expected.has(relPath));
+  if (missing.length > 0) {
+    throw new Error('Integrity manifest is missing packaged files:\\n' + missing.join('\\n'));
+  }
+  const stale = [...expected].filter((relPath) => !actual.has(relPath));
+  if (stale.length > 0) {
+    throw new Error('Integrity manifest references missing packaged files:\\n' + stale.join('\\n'));
+  }
+}
+
 function verify(appRoot) {
+  assertManifestMatchesFiles(appRoot);
   for (const [relPath, expected] of Object.entries(MANIFEST)) {
     const absPath = path.join(appRoot, relPath);
     if (!fs.existsSync(absPath)) {
@@ -180,28 +246,51 @@ function verify(appRoot) {
 
 module.exports = { MANIFEST, verify };
 `;
-  writeFileSync(integrityPath, source, 'utf8');
+  writeFileSync(context.integrityPath, source, 'utf8');
 }
 
-function main() {
-  assertBuildOutput();
-  assertNoSourceMaps();
+export function hardenElectronBuild(options = {}) {
+  const context = createHardeningContext(options);
+
+  assertBuildOutput(context);
+  assertNoSourceMaps(context);
 
   const key = randomBytes(32);
-  const encryptedRelPaths = protectedModuleRelPaths
-    .map((relPath) => encryptModule(relPath, key))
-    .filter(Boolean);
+  const encryptedRelPaths = protectedModuleRelPaths.map((relPath) =>
+    encryptModule(context, relPath, key),
+  );
   const keyParts = makeKeyParts(key);
 
-  injectMainBootstrap(encryptedRelPaths, keyParts);
-  writeIntegrityModule(manifestFiles());
+  injectMainBootstrap(context, encryptedRelPaths, keyParts);
+  writeIntegrityModule(context, manifestFiles(context));
 
   console.log(
     `[electron hardening] encrypted ${encryptedRelPaths.length} modules and wrote ${path.relative(
-      repoRoot,
-      integrityPath,
+      context.repoRoot,
+      context.integrityPath,
     )}`,
   );
+
+  return {
+    encryptedRelPaths,
+    integrityPath: context.integrityPath,
+    manifest: manifestFiles(context),
+  };
 }
 
-main();
+function main() {
+  hardenElectronBuild();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
+
+export {
+  createHardeningContext,
+  encryptedPrefix,
+  integrityModuleName,
+  loaderBootstrap,
+  manifestFiles,
+  protectedModuleRelPaths,
+};

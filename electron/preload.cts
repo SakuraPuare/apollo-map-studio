@@ -12,7 +12,6 @@ const LICENSE_IPC = {
 const APP_IPC = {
   GET_INFO: 'app:get-info',
   OPEN_HELP: 'app:open-help',
-  GET_ACCESS_GUARD_IDENTITY: 'app:get-access-guard-identity',
   GET_WINDOW_STATE: 'app:get-window-state',
   WINDOW_MINIMIZE: 'app:window-minimize',
   WINDOW_TOGGLE_MAXIMIZE: 'app:window-toggle-maximize',
@@ -65,10 +64,6 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     return () => ipcRenderer.off(APP_IPC.NATIVE_MENU_ACTION, listener);
   },
 });
-contextBridge.exposeInMainWorld(
-  'accessGuardIdentity',
-  ipcRenderer.sendSync(APP_IPC.GET_ACCESS_GUARD_IDENTITY),
-);
 
 const licenseApi = {
   /** Snapshot of the current license state. */
