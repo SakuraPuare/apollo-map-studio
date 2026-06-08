@@ -2,6 +2,14 @@ import * as protobuf from 'protobufjs';
 
 const INDENT = '  ';
 
+type TextMapField = protobuf.Field & {
+  keyType: string;
+};
+
+function isMapField(field: protobuf.Field): field is TextMapField {
+  return field.map === true && typeof (field as { keyType?: unknown }).keyType === 'string';
+}
+
 export function encodeMessage(type: protobuf.Type, msg: unknown, level = 0): string {
   if (msg === null || typeof msg !== 'object') return '';
   const pad = INDENT.repeat(level);
@@ -11,16 +19,45 @@ export function encodeMessage(type: protobuf.Type, msg: unknown, level = 0): str
     field.resolve();
     const value = obj[field.name];
     if (value === null || value === undefined) continue;
-    if (field.repeated) {
+    if (isMapField(field)) {
+      appendMapField(lines, field, value, level, pad);
+    } else if (field.repeated) {
       if (!Array.isArray(value)) continue;
       for (const item of value) appendField(lines, field, item, level, pad);
-    } else if (field.map) {
-      continue;
     } else {
       appendField(lines, field, value, level, pad);
     }
   }
   return lines.join('\n');
+}
+
+function appendMapField(
+  lines: string[],
+  field: TextMapField,
+  value: unknown,
+  level: number,
+  pad: string,
+): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return;
+
+  const entryPad = INDENT.repeat(level + 1);
+  for (const [key, mapValue] of Object.entries(value as Record<string, unknown>)) {
+    const entryLines = [`${entryPad}key: ${encodeMapKey(field.keyType, key)}`];
+    if (field.resolvedType instanceof protobuf.Type) {
+      const inner = encodeMessage(field.resolvedType, mapValue, level + 2);
+      if (inner.length === 0) {
+        entryLines.push(`${entryPad}value {\n${entryPad}}`);
+      } else {
+        entryLines.push(`${entryPad}value {\n${inner}\n${entryPad}}`);
+      }
+    } else if (field.resolvedType instanceof protobuf.Enum) {
+      const name = field.resolvedType.valuesById[mapValue as number];
+      entryLines.push(`${entryPad}value: ${name ?? String(mapValue)}`);
+    } else {
+      entryLines.push(`${entryPad}value: ${encodeScalar(field.type, mapValue)}`);
+    }
+    lines.push(`${pad}${field.name} {\n${entryLines.join('\n')}\n${pad}}`);
+  }
 }
 
 function appendField(
@@ -43,6 +80,12 @@ function appendField(
   } else {
     lines.push(`${pad}${field.name}: ${encodeScalar(field.type, value)}`);
   }
+}
+
+function encodeMapKey(type: string, key: string): string {
+  if (type === 'string') return encodeQuoted(key);
+  if (type === 'bool') return key === 'true' ? 'true' : 'false';
+  return key;
 }
 
 function encodeScalar(type: string, value: unknown): string {

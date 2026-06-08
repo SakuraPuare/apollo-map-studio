@@ -47,12 +47,12 @@ export class TokenStream {
     if (this.pos >= this.text.length) return null;
     const c = this.text[this.pos]!;
     if (c === '"' || c === "'") return this.readString();
-    if ('{}[]<>,:;'.includes(c)) {
+    if (isSymbol(c)) {
       this.pos++;
       return { kind: 'symbol', value: c };
     }
     if (this.looksLikeNumber()) return this.readNumber();
-    if (/[A-Za-z_]/.test(c)) return this.readIdentifier();
+    if (isIdentifierStart(c.charCodeAt(0))) return this.readIdentifier();
     throw new Error(`Unexpected character "${c}" at pos ${this.pos}`);
   }
 
@@ -124,7 +124,7 @@ export class TokenStream {
       this.pos += 3;
       return { kind: 'number', value: this.text.slice(start, this.pos) };
     }
-    while (this.pos < this.text.length && /[0-9.eE+\-xXa-fA-F]/.test(this.text[this.pos]!)) {
+    while (this.pos < this.text.length && isNumberTokenChar(this.text.charCodeAt(this.pos))) {
       this.pos++;
     }
     if (this.text[this.pos] === 'f' || this.text[this.pos] === 'F') this.pos++;
@@ -133,11 +133,59 @@ export class TokenStream {
 
   private readIdentifier(): Token {
     const start = this.pos;
-    while (this.pos < this.text.length && /[A-Za-z0-9_]/.test(this.text[this.pos]!)) {
+    while (this.pos < this.text.length && isIdentifierPart(this.text.charCodeAt(this.pos))) {
       this.pos++;
     }
     return { kind: 'identifier', value: this.text.slice(start, this.pos) };
   }
+}
+
+function isSymbol(c: string): boolean {
+  return (
+    c === '{' ||
+    c === '}' ||
+    c === '[' ||
+    c === ']' ||
+    c === '<' ||
+    c === '>' ||
+    c === ',' ||
+    c === ':' ||
+    c === ';'
+  );
+}
+
+function isDigit(code: number): boolean {
+  return code >= 48 && code <= 57;
+}
+
+function isHexAlpha(code: number): boolean {
+  return (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
+}
+
+function isHexDigit(code: number): boolean {
+  return isDigit(code) || isHexAlpha(code);
+}
+
+function isIdentifierStart(code: number): boolean {
+  return code === 95 || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isIdentifierPart(code: number): boolean {
+  return isIdentifierStart(code) || isDigit(code);
+}
+
+function isNumberTokenChar(code: number): boolean {
+  return (
+    isDigit(code) ||
+    isHexAlpha(code) ||
+    code === 43 ||
+    code === 45 ||
+    code === 46 ||
+    code === 69 ||
+    code === 88 ||
+    code === 101 ||
+    code === 120
+  );
 }
 
 interface EscapeResult {
@@ -150,7 +198,7 @@ function readHexEscape(input: string, pos: number): EscapeResult {
   let p = pos;
   for (let i = 0; i < 2; i++) {
     const h = input[p];
-    if (h !== undefined && /[0-9a-fA-F]/.test(h)) {
+    if (h !== undefined && isHexDigit(input.charCodeAt(p))) {
       hex += h;
       p++;
     } else {

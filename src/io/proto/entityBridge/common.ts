@@ -35,7 +35,7 @@ export function wrapId(id: string): RawId {
 }
 
 export function unwrapIdArray(arr: RawId[] | undefined): string[] {
-  if (!arr) return [];
+  if (!arr || arr.length === 0) return [];
   const out: string[] = [];
   for (const item of arr) {
     const id = unwrapId(item);
@@ -45,7 +45,10 @@ export function unwrapIdArray(arr: RawId[] | undefined): string[] {
 }
 
 export function wrapIdArray(ids: string[]): RawId[] {
-  return ids.map(wrapId);
+  if (ids.length === 0) return [];
+  const out = new Array<RawId>(ids.length);
+  for (let i = 0; i < ids.length; i++) out[i] = wrapId(ids[i]!);
+  return out;
 }
 
 export function pointFromProto(p: RawPoint): PointENU {
@@ -57,19 +60,55 @@ export function pointToProto(p: PointENU): RawPoint {
 }
 
 export function convertPolygonFromProto(p: RawPolygon | undefined): ApolloPolygon {
-  return { points: (p?.point ?? []).map(pointFromProto) };
+  const points = p?.point;
+  if (!points || points.length === 0) return { points: [] };
+  const out = new Array<PointENU>(points.length);
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    out[i] =
+      point.z === undefined
+        ? { x: point.x ?? 0, y: point.y ?? 0 }
+        : { x: point.x ?? 0, y: point.y ?? 0, z: point.z };
+  }
+  return { points: out };
 }
 
 export function convertPolygonToProto(p: ApolloPolygon): RawPolygon {
-  return { point: p.points.map(pointToProto) };
+  const points = p.points;
+  if (points.length === 0) return { point: [] };
+  const out = new Array<RawPoint>(points.length);
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    out[i] =
+      point.z === undefined ? { x: point.x, y: point.y } : { x: point.x, y: point.y, z: point.z };
+  }
+  return { point: out };
 }
 
 function lineSegmentFromProto(ls: RawLineSegment | undefined): LineSegment {
-  return { points: (ls?.point ?? []).map(pointFromProto) };
+  const points = ls?.point;
+  if (!points || points.length === 0) return { points: [] };
+  const out = new Array<PointENU>(points.length);
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    out[i] =
+      point.z === undefined
+        ? { x: point.x ?? 0, y: point.y ?? 0 }
+        : { x: point.x ?? 0, y: point.y ?? 0, z: point.z };
+  }
+  return { points: out };
 }
 
 function lineSegmentToProto(ls: LineSegment): RawLineSegment {
-  return { point: ls.points.map(pointToProto) };
+  const points = ls.points;
+  if (points.length === 0) return { point: [] };
+  const out = new Array<RawPoint>(points.length);
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i]!;
+    out[i] =
+      point.z === undefined ? { x: point.x, y: point.y } : { x: point.x, y: point.y, z: point.z };
+  }
+  return { point: out };
 }
 
 function curveSegmentFromProto(seg: RawCurveSegment): CurveSegment {
@@ -107,17 +146,31 @@ function curveSegmentToProto(seg: CurveSegment): RawCurveSegment {
 }
 
 export function curveFromProto(c: RawCurve | undefined): Curve {
-  return { segments: (c?.segment ?? []).map(curveSegmentFromProto) };
+  const segments = c?.segment;
+  if (!segments || segments.length === 0) return { segments: [] };
+  const out = new Array<CurveSegment>(segments.length);
+  for (let i = 0; i < segments.length; i++) out[i] = curveSegmentFromProto(segments[i]!);
+  return { segments: out };
 }
 
 export function curveToProto(c: Curve): RawCurve {
-  return { segment: c.segments.map(curveSegmentToProto) };
+  const segments = c.segments;
+  if (segments.length === 0) return { segment: [] };
+  const out = new Array<RawCurveSegment>(segments.length);
+  for (let i = 0; i < segments.length; i++) out[i] = curveSegmentToProto(segments[i]!);
+  return { segment: out };
 }
 
 export function curveArrayFromProto(arr: RawCurve[] | undefined): Curve[] {
-  return (arr ?? []).map(curveFromProto);
+  if (!arr || arr.length === 0) return [];
+  const out = new Array<Curve>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = curveFromProto(arr[i]!);
+  return out;
 }
 
 export function curveArrayToProto(arr: Curve[]): RawCurve[] {
-  return arr.map(curveToProto);
+  if (arr.length === 0) return [];
+  const out = new Array<RawCurve>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = curveToProto(arr[i]!);
+  return out;
 }

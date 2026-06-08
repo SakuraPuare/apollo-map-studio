@@ -1,0 +1,4 @@
+{
+  "kind": "not-an-apollo-map",
+  "reason": "JSON is not a supported Apollo HD map import format"
+}

@@ -13,6 +13,21 @@ const TASK_IMPORT = 'apollo-import';
 const TASK_EXPORT = 'apollo-export';
 const NEW_MAP_FILENAME = 'apollo-map';
 
+type ApolloIOBridgeLike = Pick<
+  typeof apolloIOBridge,
+  'importBin' | 'importText' | 'exportBin' | 'exportText'
+>;
+
+let activeApolloIOBridge: ApolloIOBridgeLike = apolloIOBridge;
+
+export function setApolloIOBridgeForTests(bridge: ApolloIOBridgeLike): () => void {
+  const previous = activeApolloIOBridge;
+  activeApolloIOBridge = bridge;
+  return () => {
+    activeApolloIOBridge = previous;
+  };
+}
+
 function reportProgress(taskId: string, progress: ApolloIOProgress): void {
   useTaskProgressStore.getState().updateTask(taskId, {
     label: progress.label,
@@ -37,14 +52,14 @@ function endTask(id: string): void {
 
 async function importApolloBinFile(file: File): Promise<ApolloImportWorkerResult> {
   const bytes = await readFileAsBytes(file);
-  return apolloIOBridge.importBin(file.name, bytes, (progress) =>
+  return activeApolloIOBridge.importBin(file.name, bytes, (progress) =>
     reportProgress(TASK_IMPORT, progress),
   );
 }
 
 async function importApolloTextFile(file: File): Promise<ApolloImportWorkerResult> {
   const bytes = await readFileAsBytes(file);
-  return apolloIOBridge.importText(file.name, bytes, (progress) =>
+  return activeApolloIOBridge.importText(file.name, bytes, (progress) =>
     reportProgress(TASK_IMPORT, progress),
   );
 }
@@ -78,7 +93,7 @@ export async function pickAndImportApollo(): Promise<ApolloMapImportInfo | null>
 }
 
 function suggestedFilename(originalName: string, ext: 'bin' | 'txt'): string {
-  const base = originalName.replace(/\.(bin|txt|pb\.txt)$/i, '') || 'apollo-map';
+  const base = originalName.replace(/\.(pb\.txt|bin|txt)$/i, '') || 'apollo-map';
   const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
   return `${base}-${stamp}.${ext}`;
 }
@@ -149,7 +164,7 @@ export async function exportApolloBin(): Promise<void> {
 
   beginTask(TASK_EXPORT, 'Exporting Apollo map', ctx.info.filename);
   try {
-    const bytes = await apolloIOBridge.exportBin(
+    const bytes = await activeApolloIOBridge.exportBin(
       ctx.entities,
       ctx.info.projString,
       (progress) => reportProgress(TASK_EXPORT, progress),
@@ -179,7 +194,7 @@ export async function exportApolloText(): Promise<void> {
 
   beginTask(TASK_EXPORT, 'Exporting Apollo map', ctx.info.filename);
   try {
-    const bytes = await apolloIOBridge.exportText(
+    const bytes = await activeApolloIOBridge.exportText(
       ctx.entities,
       ctx.info.projString,
       (progress) => reportProgress(TASK_EXPORT, progress),

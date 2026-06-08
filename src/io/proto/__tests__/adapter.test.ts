@@ -86,6 +86,84 @@ describe('adapter — apolloMapToLonLat / fromLonLat', () => {
     expect(readHeaderProjString({ header: { projection: { proj } } })).toContain('+zone=10');
   });
 
+  it('readHeaderProjString decodes byte arrays and ignores unsupported projection values', () => {
+    const chars = Array.from('+proj=utm +zone=11', (ch) => ch.charCodeAt(0));
+
+    expect(readHeaderProjString({ header: { projection: { proj: chars } } })).toBe(
+      '+proj=utm +zone=11',
+    );
+    expect(readHeaderProjString({ header: { projection: { proj: 42 } } })).toBeNull();
+    expect(
+      readHeaderProjString({ header: { projection: { proj: { text: '+proj=utm' } } } }),
+    ).toBeNull();
+  });
+
+  it('clones memoized shared protobuf subtrees instead of reusing transformed references', async () => {
+    const sharedPoint = { x: 588_000, y: 4_137_000, z: 0 };
+    const sharedSegment = {
+      line_segment: {
+        point: [sharedPoint],
+      },
+    };
+    const rawMap = {
+      lane: [
+        {
+          id: { id: 'lane-a' },
+          central_curve: {
+            segment: [sharedSegment, sharedSegment],
+          },
+        },
+      ],
+    };
+
+    const { map } = await apolloMapToLonLat(rawMap, UTM_PRESETS.sunnyvale);
+    const lane = (map.lane as Array<Record<string, unknown>>)[0]!;
+    const centralCurve = lane.central_curve as { segment: Array<{ line_segment: unknown }> };
+
+    expect(centralCurve.segment[0]).not.toBe(centralCurve.segment[1]);
+    expect(centralCurve.segment[0]!.line_segment).not.toBe(centralCurve.segment[1]!.line_segment);
+    expect((centralCurve.segment[0]!.line_segment as { point: unknown[] }).point[0]).not.toBe(
+      (centralCurve.segment[1]!.line_segment as { point: unknown[] }).point[0],
+    );
+    expect(centralCurve.segment[0]).toEqual(centralCurve.segment[1]);
+  });
+
+  it('clones non-point protobuf subtrees while projecting point fields', async () => {
+    const rawPoint = { x: 588_000, y: 4_137_000, z: 0 };
+    const predecessorId = { id: 'lane-prev' };
+    const rawMap = {
+      header: {
+        projection: { proj: UTM_PRESETS.sunnyvale },
+      },
+      lane: [
+        {
+          id: { id: 'lane-a' },
+          predecessor_id: [predecessorId],
+          central_curve: {
+            segment: [{ line_segment: { point: [rawPoint] } }],
+          },
+        },
+      ],
+    };
+
+    const { map } = await apolloMapToLonLat(rawMap, UTM_PRESETS.sunnyvale);
+    const lane = (map.lane as Array<Record<string, unknown>>)[0]!;
+    const segment = (lane.central_curve as { segment: Array<Record<string, unknown>> }).segment[0]!;
+    const projectedPoint = (segment.line_segment as { point: Array<{ x: number; y: number }> })
+      .point[0]!;
+
+    expect(map.header).toEqual(rawMap.header);
+    expect(map.header).not.toBe(rawMap.header);
+    expect((map.header as { projection: unknown }).projection).not.toBe(rawMap.header.projection);
+    expect(lane.id).toEqual(rawMap.lane[0]!.id);
+    expect(lane.id).not.toBe(rawMap.lane[0]!.id);
+    expect(lane.predecessor_id).toEqual(rawMap.lane[0]!.predecessor_id);
+    expect(lane.predecessor_id).not.toBe(rawMap.lane[0]!.predecessor_id);
+    expect((lane.predecessor_id as unknown[])[0]).not.toBe(predecessorId);
+    expect(projectedPoint).not.toBe(rawPoint);
+    expect(projectedPoint.x).not.toBe(rawPoint.x);
+  });
+
   it('projects editor_meta geometry_source points through lon/lat and back', async () => {
     const rawMap: Record<string, unknown> = {
       header: {

@@ -10,6 +10,7 @@ import type {
   WorldPoint,
 } from '@/types/scenario';
 import { deepClone, isRecord, str } from './detect';
+import { patchMetaClassic, patchMetaOpenScenario } from './metaPatch';
 import { classicTypeToKind, isModeledRawEvent } from './parse';
 
 /** 归一 kind → classic `agent.type` 字面量（classicTypeToKind 的逆）。 */
@@ -33,12 +34,15 @@ const KIND_TO_CLASSIC: Record<ScenarioObstacle['kind'], string> = {
 export function serializeScenario(doc: ScenarioDoc): Record<string, unknown> {
   const out = deepClone(doc.raw);
   const scenario = isRecord(out.scenario) ? out.scenario : (out.scenario = {});
+  nameCounter = 0;
 
   if (doc.format === 'openscenario') {
+    patchMetaOpenScenario(scenario, doc);
     patchEgoOpenScenario(scenario, doc.ego);
     patchObstaclesOpenScenario(scenario, doc.obstacles);
     patchTrafficLightsOpenScenario(scenario, doc.trafficLights);
   } else {
+    patchMetaClassic(scenario, doc);
     patchEgoClassic(scenario, doc.ego);
     patchObstaclesClassic(scenario, doc.obstacles);
     patchTrafficLightsClassic(scenario, doc.trafficLights);
@@ -265,17 +269,21 @@ function buildPrivate(ob: ScenarioObstacle): Record<string, unknown> {
     },
   ];
   if (ob.trajectory.length > 1) {
-    privateActions.push({
-      routingAction: {
-        followTrajectoryAction: {
-          trajectoryRef: {
-            trajectory: { shape: { polyline: { vertices: ob.trajectory.map(buildVertex) } } },
-          },
-        },
-      },
-    });
+    privateActions.push(buildRoutingAction(ob.trajectory));
   }
   return { entityRef: { entityRef: ob.name }, privateActions };
+}
+
+function buildRoutingAction(trajectory: TrajectoryVertex[]): Record<string, unknown> {
+  return {
+    routingAction: {
+      followTrajectoryAction: {
+        trajectoryRef: {
+          trajectory: { shape: { polyline: { vertices: trajectory.map(buildVertex) } } },
+        },
+      },
+    },
+  };
 }
 
 // ─── openscenario: 动态事件 (storyboard.stories) ─────────────────────────────
@@ -290,7 +298,7 @@ function appendEventsOpenScenario(
   if (existingStories) {
     for (const ob of obstacles) {
       for (const ev of ob.events) {
-        if (ev.ref) patchExistingEvent(existingStories, ev);
+        if (ev.ref) patchExistingEvent(existingStories, ev, ob.name);
       }
     }
     pruneStoryEvents(existingStories, survivorEventKeys(obstacles));
@@ -338,14 +346,14 @@ function pruneStoryEvents(stories: unknown[], survivors: Set<string>): void {
   });
 }
 
-function patchExistingEvent(stories: unknown[], ev: ScenarioEvent): void {
+function patchExistingEvent(stories: unknown[], ev: ScenarioEvent, actorName: string): void {
   const r = ev.ref!;
   const story = stories[r.storyIndex];
   const act = nthRecord(story, 'acts', r.actIndex);
   const mg = nthRecord(act, 'maneuverGroups', r.mgIndex);
   const man = nthRecord(mg, 'maneuvers', r.manIndex);
   const rawEv = man && Array.isArray(man.events) ? man.events[r.eventIndex] : undefined;
-  if (isRecord(rawEv)) writeEventInto(rawEv, ev);
+  if (isRecord(rawEv)) writeEventInto(rawEv, ev, actorName);
 }
 
 /** 取 record.key[i] 若为对象。 */
@@ -356,46 +364,113 @@ function nthRecord(parent: unknown, key: string, i: number): Record<string, unkn
 }
 
 /** 把建模过的事件值就地写进既有 raw 事件（只覆写标量叶子，保留同级未建模字段与键序）。 */
-function writeEventInto(rawEv: Record<string, unknown>, ev: ScenarioEvent): void {
+function writeEventInto(
+  rawEv: Record<string, unknown>,
+  ev: ScenarioEvent,
+  actorName: string,
+): void {
   const actions = Array.isArray(rawEv.actions) ? rawEv.actions : [];
-  const first = actions.find(isRecord);
-  const pa = first && asRecord(first, 'privateAction');
-  if (pa) patchEventActionInto(pa, ev);
+  let first = actions.find(isRecord);
+  if (!first) {
+    first = { name: cryptoName() };
+    rawEv.actions = [first];
+  }
+  const pa = asRecord(first, 'privateAction');
+  if (pa && eventActionMatches(pa, ev.action.kind)) {
+    patchEventActionInto(pa, ev);
+  } else {
+    first.privateAction = buildEventAction(ev);
+  }
   if (ev.trigger) {
     const trig = asRecord(rawEv, 'startTrigger');
-    if (trig) writeTriggerInto(trig, ev);
+    if (trig) writeTriggerInto(trig, ev, actorName);
+    else rawEv.startTrigger = buildStartTrigger(actorName, ev.trigger);
+  } else {
+    delete rawEv.startTrigger;
   }
 }
 
 /** 就地覆写 speed/laneChange 的标量叶子。 */
 function patchEventActionInto(pa: Record<string, unknown>, ev: ScenarioEvent): void {
   if (ev.action.kind === 'speed') {
-    const sa = asRecord(asRecord(pa, 'longitudinalAction') ?? {}, 'speedAction');
-    if (!sa) return;
+    delete pa.lateralAction;
+    const longitudinalAction = asRecord(pa, 'longitudinalAction') ?? (pa.longitudinalAction = {});
+    const sa =
+      asRecord(longitudinalAction, 'speedAction') ??
+      (longitudinalAction.speedAction = {
+        speedActionDynamics: {},
+        speedActionTarget: { absoluteTargetSpeed: {} },
+      });
     const dyn = asRecord(sa, 'speedActionDynamics');
-    if (dyn) {
-      dyn.dynamicsDimension = ev.action.dynamicsDimension;
-      dyn.value = ev.action.dynamicsValue;
-    }
-    const abs = asRecord(asRecord(sa, 'speedActionTarget') ?? {}, 'absoluteTargetSpeed');
-    if (abs && 'value' in abs) abs.value = ev.action.targetSpeed;
+    const dynamics = dyn ?? (sa.speedActionDynamics = {});
+    dynamics.dynamicsDimension = ev.action.dynamicsDimension;
+    dynamics.dynamicsShape = ev.action.dynamicsShape;
+    dynamics.value = ev.action.dynamicsValue;
+    const target = asRecord(sa, 'speedActionTarget') ?? (sa.speedActionTarget = {});
+    const abs = asRecord(target, 'absoluteTargetSpeed') ?? (target.absoluteTargetSpeed = {});
+    abs.value = ev.action.targetSpeed;
   } else {
-    const lca = asRecord(asRecord(pa, 'lateralAction') ?? {}, 'laneChangeAction');
-    if (!lca) return;
-    const dyn = asRecord(lca, 'laneChangeActionDynamics');
-    if (dyn) dyn.value = ev.action.dynamicsValue;
-    const rel = asRecord(asRecord(lca, 'laneChangeTarget') ?? {}, 'relativeTargetLane');
-    if (rel && 'value' in rel) rel.value = ev.action.relativeTargetLane;
+    delete pa.longitudinalAction;
+    const lateralAction = asRecord(pa, 'lateralAction') ?? (pa.lateralAction = {});
+    const lca =
+      asRecord(lateralAction, 'laneChangeAction') ??
+      (lateralAction.laneChangeAction = {
+        laneChangeActionDynamics: {},
+        laneChangeTarget: { relativeTargetLane: {} },
+      });
+    const dyn = asRecord(lca, 'laneChangeActionDynamics') ?? (lca.laneChangeActionDynamics = {});
+    dyn.dynamicsDimension = ev.action.dynamicsDimension;
+    dyn.dynamicsShape = 'linear';
+    dyn.value = ev.action.dynamicsValue;
+    const target = asRecord(lca, 'laneChangeTarget') ?? (lca.laneChangeTarget = {});
+    const rel = asRecord(target, 'relativeTargetLane') ?? (target.relativeTargetLane = {});
+    if (ev.action.targetRef) rel.entityRef = { entityRef: ev.action.targetRef };
+    else delete rel.entityRef;
+    rel.value = ev.action.relativeTargetLane;
   }
 }
 
+function eventActionMatches(
+  pa: Record<string, unknown>,
+  kind: ScenarioEvent['action']['kind'],
+): boolean {
+  if (kind === 'speed') {
+    return Boolean(asRecord(asRecord(pa, 'longitudinalAction') ?? {}, 'speedAction'));
+  }
+  return Boolean(asRecord(asRecord(pa, 'lateralAction') ?? {}, 'laneChangeAction'));
+}
+
 /** 把触发值就地写进既有 startTrigger 的首个条件（只覆写 value/rule/position 标量）。 */
-function writeTriggerInto(trig: Record<string, unknown>, ev: ScenarioEvent): void {
-  const groups = Array.isArray(trig.conditionGroups) ? trig.conditionGroups : [];
-  const g0 = groups.find(isRecord);
-  const conds = g0 && Array.isArray(g0.conditions) ? g0.conditions : [];
+function writeTriggerInto(
+  trig: Record<string, unknown>,
+  ev: ScenarioEvent,
+  actorName: string,
+): void {
+  const trigger = ev.trigger!;
+  const groups = Array.isArray(trig.conditionGroups) ? trig.conditionGroups : null;
+  if (!groups) {
+    trig.conditionGroups = [{ conditions: [buildTriggerCondition(actorName, trigger)] }];
+    return;
+  }
+  let g0 = groups.find(isRecord);
+  if (!g0) {
+    g0 = { conditions: [buildTriggerCondition(actorName, trigger)] };
+    groups.push(g0);
+    return;
+  }
+  const conds = Array.isArray(g0.conditions) ? g0.conditions : null;
+  if (!conds) {
+    g0.conditions = [buildTriggerCondition(actorName, trigger)];
+    return;
+  }
   const c0 = conds.find(isRecord);
-  if (c0) patchConditionInto(c0, ev.trigger!);
+  if (!c0) {
+    conds.push(buildTriggerCondition(actorName, trigger));
+  } else if (conditionMatchesTrigger(c0, trigger.kind)) {
+    patchConditionInto(c0, trigger);
+  } else {
+    replaceConditionInto(c0, actorName, trigger);
+  }
 }
 
 function patchConditionInto(c0: Record<string, unknown>, trigger: ScenarioTrigger): void {
@@ -416,13 +491,73 @@ function patchConditionInto(c0: Record<string, unknown>, trigger: ScenarioTrigge
   if (!dc) return;
   dc.rule = trigger.rule;
   dc.value = trigger.value;
-  if (trigger.kind === 'distance' && trigger.position) {
-    const wp = asRecord(asRecord(dc, 'position') ?? {}, 'worldPosition');
-    if (wp) {
+  if (trigger.kind === 'distance') {
+    delete dc.entityRef;
+    if (trigger.position) {
+      const pos = asRecord(dc, 'position') ?? (dc.position = {});
+      const wp = asRecord(pos, 'worldPosition') ?? (pos.worldPosition = {});
       wp.x = trigger.position.x;
       wp.y = trigger.position.y;
+    } else {
+      delete dc.position;
     }
   }
+  if (trigger.relativeDistanceType) {
+    dc.relativeDistanceType = trigger.relativeDistanceType;
+  } else {
+    delete dc.relativeDistanceType;
+  }
+  if (trigger.kind === 'relativeDistance') {
+    delete dc.position;
+    if (trigger.targetRef) dc.entityRef = { entityRef: trigger.targetRef };
+    else delete dc.entityRef;
+  }
+}
+
+function conditionMatchesTrigger(
+  c0: Record<string, unknown>,
+  kind: ScenarioTrigger['kind'],
+): boolean {
+  if (kind === 'simulationTime') {
+    return Boolean(asRecord(asRecord(c0, 'byValueCondition') ?? {}, 'simulationTimeCondition'));
+  }
+  const ec = asRecord(asRecord(c0, 'byEntityCondition') ?? {}, 'entityCondition');
+  return kind === 'distance'
+    ? Boolean(ec && asRecord(ec, 'distanceCondition'))
+    : Boolean(ec && asRecord(ec, 'relativeDistanceCondition'));
+}
+
+function replaceConditionInto(
+  c0: Record<string, unknown>,
+  actorName: string,
+  trigger: ScenarioTrigger,
+): void {
+  delete c0.byValueCondition;
+  delete c0.byEntityCondition;
+  Object.assign(c0, buildConditionWithEntities(actorName, trigger));
+}
+
+function buildStartTrigger(
+  actorName: string,
+  trigger: NonNullable<ScenarioEvent['trigger']>,
+): Record<string, unknown> {
+  return {
+    conditionGroups: [
+      {
+        conditions: [buildTriggerCondition(actorName, trigger)],
+      },
+    ],
+  };
+}
+
+function buildTriggerCondition(
+  actorName: string,
+  trigger: NonNullable<ScenarioEvent['trigger']>,
+): Record<string, unknown> {
+  return {
+    conditionEdge: 'none',
+    ...buildConditionWithEntities(actorName, trigger),
+  };
 }
 
 function appendNewEvent(stories: unknown[], actorName: string, ev: ScenarioEvent): void {
@@ -467,18 +602,7 @@ function buildEvent(actorName: string, ev: ScenarioEvent): Record<string, unknow
     actions: [{ name: cryptoName(), privateAction: buildEventAction(ev) }],
   };
   if (ev.trigger) {
-    out.startTrigger = {
-      conditionGroups: [
-        {
-          conditions: [
-            {
-              conditionEdge: 'none',
-              ...buildConditionWithEntities(actorName, ev.trigger),
-            },
-          ],
-        },
-      ],
-    };
+    out.startTrigger = buildStartTrigger(actorName, ev.trigger);
   }
   return out;
 }
@@ -611,11 +735,18 @@ function patchEntityObjectDims(eo: Record<string, unknown>, ob: ScenarioObstacle
 
 function patchPrivateMotion(priv: Record<string, unknown>, ob: ScenarioObstacle): void {
   const actions = Array.isArray(priv.privateActions) ? priv.privateActions : [];
+  let hasRoutingAction = false;
   for (const a of actions) {
     if (!isRecord(a)) continue;
     if (isRecord(a.teleportAction)) patchWorldPosition(a.teleportAction, ob.position);
     if (isRecord(a.longitudinalAction)) patchSpeedAction(a.longitudinalAction, ob.initialSpeed);
-    if (isRecord(a.routingAction)) patchTrajectory(a.routingAction, ob.trajectory);
+    if (isRecord(a.routingAction)) {
+      hasRoutingAction = true;
+      patchTrajectory(a.routingAction, ob.trajectory);
+    }
+  }
+  if (!hasRoutingAction && ob.trajectory.length > 1) {
+    ensureArray(priv, 'privateActions').push(buildRoutingAction(ob.trajectory));
   }
 }
 
@@ -719,6 +850,11 @@ function patchOneAgentClassic(a: Record<string, unknown>, ob: ScenarioObstacle):
     sp.y = ob.position.y;
     if ('heading' in sp && typeof ob.position.h === 'number') sp.heading = ob.position.h;
     if ('speed' in sp) sp.speed = ob.initialSpeed;
+  }
+  if ('triggerType' in a) a.triggerType = ob.triggerType;
+  if ('startDistance' in a) {
+    if (ob.triggerValue === undefined) delete a.startDistance;
+    else a.startDistance = ob.triggerValue;
   }
   patchClassicTrackedPoints(a, ob.trajectory);
 }
@@ -837,7 +973,8 @@ function patchOneTrafficLight(raw: Record<string, unknown>, tl: ScenarioTrafficL
     if ('color' in initial) initial.color = tl.initialColor;
     if (tl.initialBlink !== undefined) initial.blink = tl.initialBlink;
   }
-  setIfPresent(raw, 'triggerValue', tl.triggerValue);
+  if (tl.triggerValue !== undefined) raw.triggerValue = tl.triggerValue;
+  else delete raw.triggerValue;
   if (Array.isArray(raw.stateGroup) && raw.stateGroup.length === tl.stateGroup.length) {
     raw.stateGroup.forEach((s, i) => {
       const st = tl.stateGroup[i]!;
@@ -847,6 +984,8 @@ function patchOneTrafficLight(raw: Record<string, unknown>, tl: ScenarioTrafficL
       }
     });
   } else if (Array.isArray(raw.stateGroup)) {
+    raw.stateGroup = tl.stateGroup.map(buildState);
+  } else if (tl.stateGroup.length > 0) {
     raw.stateGroup = tl.stateGroup.map(buildState);
   }
 }

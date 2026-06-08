@@ -36,33 +36,51 @@ export async function loadScenariosFromPicker(): Promise<LoadScenariosResult | n
   const store = useScenarioStore.getState();
   store.setProjString(proj);
 
-  const result: LoadScenariosResult = { loaded: 0, failed: [] };
-  for (const file of files) {
-    try {
-      if (file.size > MAX_SCENARIO_BYTES) {
-        result.failed.push({
-          filename: file.name,
-          reason: `file too large (${(file.size / 1024 / 1024).toFixed(1)} MB > 16 MB)`,
-        });
-        continue;
-      }
-      const text = await file.text();
-      const json = JSON.parse(text);
-      if (detectScenarioFormat(json) === null) {
-        result.failed.push({ filename: file.name, reason: 'not a recognized scenario file' });
-        continue;
-      }
-      const doc = parseScenario(json);
-      store.addLoaded(makeLoadedEntry(file.name, doc));
+  const settled = await Promise.all(files.map(loadScenarioFile));
+  const result: LoadScenariosResult = {
+    loaded: 0,
+    failed: [],
+  };
+  for (const item of settled) {
+    if ('entry' in item) {
+      store.addLoaded(item.entry);
       result.loaded++;
-    } catch (err) {
-      result.failed.push({
-        filename: file.name,
-        reason: err instanceof Error ? err.message : String(err),
-      });
+    } else {
+      result.failed.push(item.failed);
     }
   }
   return result;
+}
+
+type LoadScenarioFileResult =
+  | { entry: LoadedScenario }
+  | { failed: LoadScenariosResult['failed'][number] };
+
+async function loadScenarioFile(file: File): Promise<LoadScenarioFileResult> {
+  try {
+    if (file.size > MAX_SCENARIO_BYTES) {
+      return {
+        failed: {
+          filename: file.name,
+          reason: `file too large (${(file.size / 1024 / 1024).toFixed(1)} MB > 16 MB)`,
+        },
+      };
+    }
+    const text = await file.text();
+    const json = JSON.parse(text);
+    if (detectScenarioFormat(json) === null) {
+      return { failed: { filename: file.name, reason: 'not a recognized scenario file' } };
+    }
+    const doc = parseScenario(json);
+    return { entry: makeLoadedEntry(file.name, doc) };
+  } catch (err) {
+    return {
+      failed: {
+        filename: file.name,
+        reason: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
 }
 
 function makeLoadedEntry(filename: string, doc: ScenarioDoc): LoadedScenario {

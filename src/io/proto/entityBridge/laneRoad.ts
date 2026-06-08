@@ -1,6 +1,8 @@
 import type {
   BoundaryEdge,
   BoundaryPolygon,
+  Curve,
+  CurveSegment,
   LaneBoundary,
   LaneBoundaryTypeEntry,
   LaneEntity,
@@ -76,12 +78,87 @@ export interface RawLane {
   self_reverse_lane_id?: RawId[];
 }
 
+interface CurveMemo {
+  raws: RawCurve[];
+  curves: Curve[];
+}
+
+function clonePoint(point: { x?: number; y?: number; z?: number }): {
+  x: number;
+  y: number;
+  z?: number;
+} {
+  return point.z === undefined
+    ? { x: point.x ?? 0, y: point.y ?? 0 }
+    : { x: point.x ?? 0, y: point.y ?? 0, z: point.z };
+}
+
+function cloneCurve(curve: Curve): Curve {
+  const segments = curve.segments;
+  if (segments.length === 0) return { segments: [] };
+  const out = new Array<CurveSegment>(segments.length);
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!;
+    const points = segment.lineSegment.points;
+    const clonedPoints = new Array<(typeof points)[number]>(points.length);
+    for (let j = 0; j < points.length; j++) clonedPoints[j] = clonePoint(points[j]!);
+    const cloned: CurveSegment = { lineSegment: { points: clonedPoints } };
+    if (segment.s !== undefined) cloned.s = segment.s;
+    if (segment.startPosition !== undefined) {
+      cloned.startPosition = clonePoint(segment.startPosition);
+    }
+    if (segment.heading !== undefined) cloned.heading = segment.heading;
+    if (segment.length !== undefined) cloned.length = segment.length;
+    out[i] = cloned;
+  }
+  return { segments: out };
+}
+
+function curveFromProtoMemoized(curve: RawCurve | undefined, memo: CurveMemo | undefined): Curve {
+  if (!curve || !memo) return curveFromProto(curve);
+  const index = memo.raws.indexOf(curve);
+  if (index >= 0) return cloneCurve(memo.curves[index]!);
+  const converted = curveFromProto(curve);
+  memo.raws.push(curve);
+  memo.curves.push(converted);
+  return converted;
+}
+
+function curveMemoForLane(raw: RawLane): CurveMemo | undefined {
+  const central = raw.central_curve;
+  const left = raw.left_boundary?.curve;
+  const right = raw.right_boundary?.curve;
+  if (
+    (central !== undefined && (central === left || central === right)) ||
+    (left !== undefined && left === right)
+  ) {
+    return { raws: [], curves: [] };
+  }
+  return undefined;
+}
+
 function sampleFromProto(s: RawLaneSampleAssociation): LaneSampleAssociation {
   return { s: s.s ?? 0, width: s.width ?? 0 };
 }
 
 function sampleToProto(s: LaneSampleAssociation): RawLaneSampleAssociation {
   return { s: s.s, width: s.width };
+}
+
+function sampleArrayFromProto(
+  arr: RawLaneSampleAssociation[] | undefined,
+): LaneSampleAssociation[] {
+  if (!arr || arr.length === 0) return [];
+  const out = new Array<LaneSampleAssociation>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = sampleFromProto(arr[i]!);
+  return out;
+}
+
+function sampleArrayToProto(arr: LaneSampleAssociation[]): RawLaneSampleAssociation[] {
+  if (arr.length === 0) return [];
+  const out = new Array<RawLaneSampleAssociation>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = sampleToProto(arr[i]!);
+  return out;
 }
 
 function boundaryTypeEntryFromProto(e: RawLaneBoundaryTypeEntry): LaneBoundaryTypeEntry {
@@ -100,11 +177,33 @@ function boundaryTypeEntryToProto(e: LaneBoundaryTypeEntry): RawLaneBoundaryType
   return out;
 }
 
-function laneBoundaryFromProto(b: RawLaneBoundary | undefined): LaneBoundary {
+function boundaryTypeArrayFromProto(
+  arr: RawLaneBoundaryTypeEntry[] | undefined,
+): LaneBoundaryTypeEntry[] {
+  if (!arr || arr.length === 0) return [];
+  const out = new Array<LaneBoundaryTypeEntry>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = boundaryTypeEntryFromProto(arr[i]!);
+  return out;
+}
+
+function boundaryTypeArrayToProto(arr: LaneBoundaryTypeEntry[]): RawLaneBoundaryTypeEntry[] {
+  if (arr.length === 0) return [];
+  const out = new Array<RawLaneBoundaryTypeEntry>(arr.length);
+  for (let i = 0; i < arr.length; i++) out[i] = boundaryTypeEntryToProto(arr[i]!);
+  return out;
+}
+
+function laneBoundaryFromProto(
+  b: RawLaneBoundary | undefined,
+  curveMemo?: CurveMemo,
+): LaneBoundary {
   if (!b) return { curve: { segments: [] }, boundaryType: [] };
   const out: LaneBoundary = {
-    curve: curveFromProto(b.curve),
-    boundaryType: (b.boundary_type ?? []).map(boundaryTypeEntryFromProto),
+    curve: curveFromProtoMemoized(b.curve, curveMemo),
+    boundaryType:
+      b.boundary_type && b.boundary_type.length > 0
+        ? boundaryTypeArrayFromProto(b.boundary_type)
+        : [],
   };
   if (b.length !== undefined) out.length = b.length;
   if (b.virtual !== undefined) out.virtual = b.virtual;
@@ -114,7 +213,7 @@ function laneBoundaryFromProto(b: RawLaneBoundary | undefined): LaneBoundary {
 function laneBoundaryToProto(b: LaneBoundary): RawLaneBoundary {
   const out: RawLaneBoundary = {
     curve: curveToProto(b.curve),
-    boundary_type: b.boundaryType.map(boundaryTypeEntryToProto),
+    boundary_type: b.boundaryType.length > 0 ? boundaryTypeArrayToProto(b.boundaryType) : [],
   };
   if (b.length !== undefined) out.length = b.length;
   if (b.virtual !== undefined) out.virtual = b.virtual;
@@ -124,28 +223,54 @@ function laneBoundaryToProto(b: LaneBoundary): RawLaneBoundary {
 export function rawLaneToEntity(raw: RawLane): LaneEntity | null {
   const id = unwrapId(raw.id);
   if (!id) return null;
+  const curveMemo = curveMemoForLane(raw);
   const out: LaneEntity = {
     id,
     entityType: 'lane',
-    centralCurve: curveFromProto(raw.central_curve),
-    leftBoundary: laneBoundaryFromProto(raw.left_boundary),
-    rightBoundary: laneBoundaryFromProto(raw.right_boundary),
+    centralCurve: curveFromProtoMemoized(raw.central_curve, curveMemo),
+    leftBoundary: laneBoundaryFromProto(raw.left_boundary, curveMemo),
+    rightBoundary: laneBoundaryFromProto(raw.right_boundary, curveMemo),
     type: enumFromProto(LANE_TYPE, raw.type, 'NONE'),
     turn: enumFromProto(LANE_TURN, raw.turn, 'NO_TURN'),
     direction: enumFromProto(LANE_DIRECTION, raw.direction, 'FORWARD'),
-    predecessorIds: unwrapIdArray(raw.predecessor_id),
-    successorIds: unwrapIdArray(raw.successor_id),
-    leftNeighborForwardIds: unwrapIdArray(raw.left_neighbor_forward_lane_id),
-    rightNeighborForwardIds: unwrapIdArray(raw.right_neighbor_forward_lane_id),
-    leftNeighborReverseIds: unwrapIdArray(raw.left_neighbor_reverse_lane_id),
-    rightNeighborReverseIds: unwrapIdArray(raw.right_neighbor_reverse_lane_id),
-    selfReverseLaneIds: unwrapIdArray(raw.self_reverse_lane_id),
+    predecessorIds:
+      raw.predecessor_id && raw.predecessor_id.length > 0 ? unwrapIdArray(raw.predecessor_id) : [],
+    successorIds:
+      raw.successor_id && raw.successor_id.length > 0 ? unwrapIdArray(raw.successor_id) : [],
+    leftNeighborForwardIds:
+      raw.left_neighbor_forward_lane_id && raw.left_neighbor_forward_lane_id.length > 0
+        ? unwrapIdArray(raw.left_neighbor_forward_lane_id)
+        : [],
+    rightNeighborForwardIds:
+      raw.right_neighbor_forward_lane_id && raw.right_neighbor_forward_lane_id.length > 0
+        ? unwrapIdArray(raw.right_neighbor_forward_lane_id)
+        : [],
+    leftNeighborReverseIds:
+      raw.left_neighbor_reverse_lane_id && raw.left_neighbor_reverse_lane_id.length > 0
+        ? unwrapIdArray(raw.left_neighbor_reverse_lane_id)
+        : [],
+    rightNeighborReverseIds:
+      raw.right_neighbor_reverse_lane_id && raw.right_neighbor_reverse_lane_id.length > 0
+        ? unwrapIdArray(raw.right_neighbor_reverse_lane_id)
+        : [],
+    selfReverseLaneIds:
+      raw.self_reverse_lane_id && raw.self_reverse_lane_id.length > 0
+        ? unwrapIdArray(raw.self_reverse_lane_id)
+        : [],
     junctionId: unwrapId(raw.junction_id),
-    overlapIds: unwrapIdArray(raw.overlap_id),
-    leftSamples: (raw.left_sample ?? []).map(sampleFromProto),
-    rightSamples: (raw.right_sample ?? []).map(sampleFromProto),
-    leftRoadSamples: (raw.left_road_sample ?? []).map(sampleFromProto),
-    rightRoadSamples: (raw.right_road_sample ?? []).map(sampleFromProto),
+    overlapIds: raw.overlap_id && raw.overlap_id.length > 0 ? unwrapIdArray(raw.overlap_id) : [],
+    leftSamples:
+      raw.left_sample && raw.left_sample.length > 0 ? sampleArrayFromProto(raw.left_sample) : [],
+    rightSamples:
+      raw.right_sample && raw.right_sample.length > 0 ? sampleArrayFromProto(raw.right_sample) : [],
+    leftRoadSamples:
+      raw.left_road_sample && raw.left_road_sample.length > 0
+        ? sampleArrayFromProto(raw.left_road_sample)
+        : [],
+    rightRoadSamples:
+      raw.right_road_sample && raw.right_road_sample.length > 0
+        ? sampleArrayFromProto(raw.right_road_sample)
+        : [],
   };
   if (raw.length !== undefined) out.length = raw.length;
   if (raw.speed_limit !== undefined) out.speedLimit = raw.speed_limit;
@@ -158,21 +283,25 @@ export function entityToRawLane(e: LaneEntity): RawLane {
     central_curve: curveToProto(e.centralCurve),
     left_boundary: laneBoundaryToProto(e.leftBoundary),
     right_boundary: laneBoundaryToProto(e.rightBoundary),
-    overlap_id: wrapIdArray(e.overlapIds),
-    predecessor_id: wrapIdArray(e.predecessorIds),
-    successor_id: wrapIdArray(e.successorIds),
-    left_neighbor_forward_lane_id: wrapIdArray(e.leftNeighborForwardIds),
-    right_neighbor_forward_lane_id: wrapIdArray(e.rightNeighborForwardIds),
-    left_neighbor_reverse_lane_id: wrapIdArray(e.leftNeighborReverseIds),
-    right_neighbor_reverse_lane_id: wrapIdArray(e.rightNeighborReverseIds),
-    self_reverse_lane_id: wrapIdArray(e.selfReverseLaneIds),
+    overlap_id: e.overlapIds.length > 0 ? wrapIdArray(e.overlapIds) : [],
+    predecessor_id: e.predecessorIds.length > 0 ? wrapIdArray(e.predecessorIds) : [],
+    successor_id: e.successorIds.length > 0 ? wrapIdArray(e.successorIds) : [],
+    left_neighbor_forward_lane_id:
+      e.leftNeighborForwardIds.length > 0 ? wrapIdArray(e.leftNeighborForwardIds) : [],
+    right_neighbor_forward_lane_id:
+      e.rightNeighborForwardIds.length > 0 ? wrapIdArray(e.rightNeighborForwardIds) : [],
+    left_neighbor_reverse_lane_id:
+      e.leftNeighborReverseIds.length > 0 ? wrapIdArray(e.leftNeighborReverseIds) : [],
+    right_neighbor_reverse_lane_id:
+      e.rightNeighborReverseIds.length > 0 ? wrapIdArray(e.rightNeighborReverseIds) : [],
+    self_reverse_lane_id: e.selfReverseLaneIds.length > 0 ? wrapIdArray(e.selfReverseLaneIds) : [],
     type: enumToProto(LANE_TYPE_INV, e.type),
     turn: enumToProto(LANE_TURN_INV, e.turn),
     direction: enumToProto(LANE_DIRECTION_INV, e.direction),
-    left_sample: e.leftSamples.map(sampleToProto),
-    right_sample: e.rightSamples.map(sampleToProto),
-    left_road_sample: e.leftRoadSamples.map(sampleToProto),
-    right_road_sample: e.rightRoadSamples.map(sampleToProto),
+    left_sample: e.leftSamples.length > 0 ? sampleArrayToProto(e.leftSamples) : [],
+    right_sample: e.rightSamples.length > 0 ? sampleArrayToProto(e.rightSamples) : [],
+    left_road_sample: e.leftRoadSamples.length > 0 ? sampleArrayToProto(e.leftRoadSamples) : [],
+    right_road_sample: e.rightRoadSamples.length > 0 ? sampleArrayToProto(e.rightRoadSamples) : [],
   };
   if (e.length !== undefined) out.length = e.length;
   if (e.speedLimit !== undefined) out.speed_limit = e.speedLimit;

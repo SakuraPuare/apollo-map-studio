@@ -32,7 +32,10 @@ export type ApolloIORequest =
       filename: string;
       bytes: Uint8Array;
     }
+  | { type: 'ACK_IMPORT'; requestId: string }
+  | { type: 'CANCEL_IMPORT'; requestId: string }
   | { type: 'RESOLVE_PROJECTION'; requestId: string; projString: string }
+  | { type: 'CANCEL_PROJECTION'; requestId: string }
   | {
       type: 'BEGIN_EXPORT';
       requestId: string;
@@ -49,6 +52,7 @@ export type ApolloIORequest =
       total: number;
     }
   | { type: 'FINISH_EXPORT'; requestId: string }
+  | { type: 'CANCEL_EXPORT'; requestId: string }
   | { type: 'CLEAR'; requestId: string };
 
 export type ApolloIOResponse =

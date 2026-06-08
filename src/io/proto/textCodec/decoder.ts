@@ -3,6 +3,34 @@ import { TokenStream } from './tokenStream';
 
 type Token = ReturnType<TokenStream['peek']>;
 
+type TextMapField = protobuf.Field & {
+  keyType: string;
+};
+
+interface MapEntry {
+  key: string;
+  value: unknown;
+}
+
+interface PartialMapEntry {
+  key?: string;
+  value?: unknown;
+}
+
+const RESOLVED_FIELDS_BY_TYPE = new WeakMap<protobuf.Type, Record<string, protobuf.Field>>();
+
+function resolvedFieldsForType(type: protobuf.Type): Record<string, protobuf.Field> {
+  const cached = RESOLVED_FIELDS_BY_TYPE.get(type);
+  if (cached) return cached;
+  for (const field of type.fieldsArray) field.resolve();
+  RESOLVED_FIELDS_BY_TYPE.set(type, type.fields);
+  return type.fields;
+}
+
+function isMapField(field: protobuf.Field): field is TextMapField {
+  return field.map === true && typeof (field as { keyType?: unknown }).keyType === 'string';
+}
+
 export function decodeMessage(type: protobuf.Type, text: string): Record<string, unknown> {
   const stream = new TokenStream(text);
   const result = parseMessage(stream, type, false);
@@ -15,6 +43,7 @@ function parseMessage(
   inBraces: boolean,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
+  const fields = resolvedFieldsForType(type);
   for (;;) {
     const t = stream.peek();
     if (!t) {
@@ -36,13 +65,12 @@ function parseMessage(
     }
     stream.consume();
     const fieldName = t.value;
-    const field = type.fields[fieldName];
+    const field = fields[fieldName];
 
     if (!field) {
       skipFieldValue(stream);
       continue;
     }
-    field.resolve();
 
     const value = parseFieldValue(stream, field);
     assignFieldValue(result, fieldName, field, value);
@@ -50,6 +78,9 @@ function parseMessage(
 }
 
 function parseFieldValue(stream: TokenStream, field: protobuf.Field): unknown {
+  if (isMapField(field)) {
+    return parseMapEntry(stream, field);
+  }
   if (field.resolvedType instanceof protobuf.Type) {
     return parseNestedMessage(stream, field.resolvedType);
   }
@@ -60,6 +91,53 @@ function parseFieldValue(stream: TokenStream, field: protobuf.Field): unknown {
     return parseRepeatedArray(stream, field);
   }
   return parseScalarValue(stream, field);
+}
+
+function parseMapEntry(stream: TokenStream, field: TextMapField): MapEntry {
+  const next = stream.peek();
+  if (next?.kind === 'symbol' && next.value === ':') stream.consume();
+  const open = stream.expect('symbol');
+  const close = open.value === '{' ? '}' : open.value === '<' ? '>' : null;
+  if (!close) throw new Error(`Expected '{' or '<', got "${open.value}"`);
+
+  const entry: PartialMapEntry = {};
+  for (;;) {
+    const t = stream.peek();
+    if (!t) throw new Error('Unexpected EOF inside map entry');
+    if (t.kind === 'symbol' && t.value === close) {
+      stream.consume();
+      break;
+    }
+    if (t.kind === 'symbol' && t.value === ';') {
+      stream.consume();
+      continue;
+    }
+    parseMapEntryField(stream, field, entry, t);
+  }
+
+  if (entry.key === undefined) throw new Error(`Missing key for map field ${field.name}`);
+  return { key: entry.key, value: entry.value ?? defaultMapValue(field) };
+}
+
+function parseMapEntryField(
+  stream: TokenStream,
+  field: TextMapField,
+  entry: PartialMapEntry,
+  token: NonNullable<Token>,
+): void {
+  if (token.kind !== 'identifier') {
+    throw new Error(
+      `Expected map entry field, got ${token.kind} "${token.value}" near pos ${stream.position()}`,
+    );
+  }
+  stream.consume();
+  if (token.value === 'key') {
+    entry.key = parseMapKey(stream, field);
+  } else if (token.value === 'value') {
+    entry.value = parseMapValue(stream, field);
+  } else {
+    skipFieldValue(stream);
+  }
 }
 
 function parseNestedMessage(
@@ -74,6 +152,44 @@ function parseNestedMessage(
   const value = parseMessage(stream, resolvedType, true);
   stream.expect('symbol', close);
   return value;
+}
+
+function parseMapValue(stream: TokenStream, field: TextMapField): unknown {
+  if (field.resolvedType instanceof protobuf.Type) {
+    return parseNestedMessage(stream, field.resolvedType);
+  }
+  const peekColon = stream.peek();
+  if (peekColon?.kind === 'symbol' && peekColon.value === ':') stream.consume();
+  return parseScalarValue(stream, field);
+}
+
+function parseMapKey(stream: TokenStream, field: TextMapField): string {
+  const peekColon = stream.peek();
+  if (peekColon?.kind === 'symbol' && peekColon.value === ':') stream.consume();
+  const tok = stream.consume();
+  if (!tok) throw new Error(`Expected key for map field ${field.name}, got EOF`);
+
+  if (field.keyType === 'string') {
+    if (tok.kind !== 'string') {
+      throw new Error(`Expected string key for ${field.name}, got ${tok.kind}`);
+    }
+    return tok.value;
+  }
+  if (field.keyType === 'bool') {
+    return parseBoolMapKey(tok, field) ? 'true' : 'false';
+  }
+  if (tok.kind !== 'number') {
+    throw new Error(`Expected numeric key for ${field.name}, got ${tok.kind}`);
+  }
+  return String(parseTextInteger(tok.value));
+}
+
+function defaultMapValue(field: TextMapField): unknown {
+  if (field.resolvedType instanceof protobuf.Type) return {};
+  if (field.type === 'string') return '';
+  if (field.type === 'bytes') return new Uint8Array();
+  if (field.type === 'bool') return false;
+  return 0;
 }
 
 function parseRepeatedArray(stream: TokenStream, field: protobuf.Field): unknown[] {
@@ -98,6 +214,13 @@ function assignFieldValue(
   field: protobuf.Field,
   value: unknown,
 ): void {
+  if (isMapField(field)) {
+    const entry = value as MapEntry;
+    const map = (result[fieldName] as Record<string, unknown> | undefined) ?? {};
+    map[entry.key] = entry.value;
+    result[fieldName] = map;
+    return;
+  }
   if (field.repeated) {
     const arr = (result[fieldName] as unknown[] | undefined) ?? [];
     if (Array.isArray(value)) arr.push(...value);
@@ -141,7 +264,7 @@ function parseEnumValue(
     if (v === undefined) throw new Error(`Unknown enum value "${tok.value}" for ${field.name}`);
     return v;
   }
-  if (tok.kind === 'number') return parseInt(tok.value, 10);
+  if (tok.kind === 'number') return parseTextInteger(tok.value);
   throw new Error(`Expected enum, got ${tok.kind}`);
 }
 
@@ -185,7 +308,25 @@ function parseFloatValue(tok: NonNullable<Token>, field: protobuf.Field): number
 
 function parseIntegerValue(tok: NonNullable<Token>, field: protobuf.Field): number {
   if (tok.kind !== 'number') throw new Error(`Expected integer for ${field.name}, got ${tok.kind}`);
-  return parseInt(tok.value, 10);
+  return parseTextInteger(tok.value);
+}
+
+function parseTextInteger(value: string): number {
+  const sign = value.startsWith('-') ? -1 : 1;
+  const unsigned = value.startsWith('-') || value.startsWith('+') ? value.slice(1) : value;
+  if (unsigned.startsWith('0x') || unsigned.startsWith('0X')) {
+    return sign * parseInt(unsigned.slice(2), 16);
+  }
+  return parseInt(value, 10);
+}
+
+function parseBoolMapKey(tok: NonNullable<Token>, field: TextMapField): boolean {
+  if (tok.kind === 'identifier') {
+    if (tok.value === 'true' || tok.value === 'True' || tok.value === 't') return true;
+    if (tok.value === 'false' || tok.value === 'False' || tok.value === 'f') return false;
+  }
+  if (tok.kind === 'number') return tok.value !== '0';
+  throw new Error(`Expected bool key for ${field.name}, got ${tok.kind} "${tok.value}"`);
 }
 
 function skipFieldValue(stream: TokenStream): void {

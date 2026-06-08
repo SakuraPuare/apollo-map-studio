@@ -78,6 +78,11 @@ interface RawSpeedBump {
   position?: Curve[];
 }
 
+interface RawYieldSign {
+  id?: RawId;
+  stop_line?: Curve[];
+}
+
 interface RawClearArea {
   id?: RawId;
   polygon?: ApolloPolygon;
@@ -88,6 +93,22 @@ interface RawParkingSpace {
   polygon?: ApolloPolygon;
 }
 
+interface RawPNCJunction {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+}
+
+interface RawArea {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+}
+
+interface RawBarrierGate {
+  id?: RawId;
+  polygon?: ApolloPolygon;
+  stop_line?: Curve[];
+}
+
 interface RawApolloMap {
   lane?: RawLane[];
   crosswalk?: RawCrosswalk[];
@@ -95,9 +116,13 @@ interface RawApolloMap {
   road?: RawRoad[];
   signal?: RawSignal[];
   stop_sign?: RawStopSign[];
+  yield?: RawYieldSign[];
   speed_bump?: RawSpeedBump[];
   clear_area?: RawClearArea[];
   parking_space?: RawParkingSpace[];
+  pnc_junction?: RawPNCJunction[];
+  ad_area?: RawArea[];
+  barrier_gate?: RawBarrierGate[];
 }
 
 interface BoundsAccumulator {
@@ -182,9 +207,16 @@ export function computeApolloMapBounds(
   for (const parkingSpace of map.parking_space ?? []) {
     visitPolygonBounds(bounds, parkingSpace.polygon);
   }
+  for (const pncJunction of map.pnc_junction ?? []) visitPolygonBounds(bounds, pncJunction.polygon);
+  for (const area of map.ad_area ?? []) visitPolygonBounds(bounds, area.polygon);
+  for (const barrierGate of map.barrier_gate ?? []) {
+    visitPolygonBounds(bounds, barrierGate.polygon);
+    for (const stopLine of barrierGate.stop_line ?? []) visitCurveBounds(bounds, stopLine);
+  }
   visitRoadBounds(bounds, map.road);
   visitSignalBounds(bounds, map.signal);
   visitStopLineEntityBounds(bounds, map.stop_sign);
+  visitStopLineEntityBounds(bounds, map.yield);
   for (const speedBump of map.speed_bump ?? []) {
     for (const curve of speedBump.position ?? []) visitCurveBounds(bounds, curve);
   }

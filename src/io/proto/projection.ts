@@ -26,6 +26,11 @@ export interface Projection {
   fromLonLat(p: PointXY): PointXY;
 }
 
+function convertPoint(transform: proj4.Converter, p: PointXY): PointXY {
+  const [x, y] = transform.forward([p.x, p.y]);
+  return p.z === undefined ? { x, y } : { x, y, z: p.z };
+}
+
 /** Build a Projection from a PROJ.4 string (typically the value of Header.projection.proj). */
 export function makeProjection(projString: string): Projection {
   const clean = sanitizeProjString(projString);
@@ -33,14 +38,8 @@ export function makeProjection(projString: string): Projection {
   const fromWgs84 = proj4(WGS84, clean);
   return {
     projString: clean,
-    toLonLat: ({ x, y, z }) => {
-      const [lon, lat] = toWgs84.forward([x, y]);
-      return z === undefined ? { x: lon, y: lat } : { x: lon, y: lat, z };
-    },
-    fromLonLat: ({ x, y, z }) => {
-      const [ex, ey] = fromWgs84.forward([x, y]);
-      return z === undefined ? { x: ex, y: ey } : { x: ex, y: ey, z };
-    },
+    toLonLat: (p) => convertPoint(toWgs84, p),
+    fromLonLat: (p) => convertPoint(fromWgs84, p),
   };
 }
 

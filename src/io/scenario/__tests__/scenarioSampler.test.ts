@@ -69,6 +69,34 @@ describe('scenarioSampler: scenarioDuration', () => {
     expect(d).toBeGreaterThanOrEqual(10);
     expect(d).toBeLessThanOrEqual(11);
   });
+
+  it('ignores non-positive simulatorTime and derives from moving actors or signal cycles', () => {
+    const ob = obstacle({
+      moving: true,
+      triggerType: 'TIME',
+      triggerValue: 4,
+      initialSpeed: 5,
+      trajectory: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ],
+    });
+    const tl = trafficLight({
+      stateGroup: [
+        { color: 'GREEN', keepTime: 7 },
+        { color: 'RED', keepTime: 8 },
+      ],
+    });
+
+    expect(
+      scenarioDuration(baseDoc({ meta: { id: 's', tags: [], simulatorTime: 0 }, obstacles: [ob] })),
+    ).toBeGreaterThanOrEqual(6);
+    expect(
+      scenarioDuration(
+        baseDoc({ meta: { id: 's', tags: [], simulatorTime: -1 }, trafficLights: [tl] }),
+      ),
+    ).toBe(15);
+  });
 });
 
 describe('scenarioSampler: obstacle motion', () => {
@@ -77,6 +105,28 @@ describe('scenarioSampler: obstacle motion', () => {
     const posed = sampleScenarioAt(baseDoc({ obstacles: [ob] }), 5);
     expect(posed.obstacles[0]!.position.x).toBe(5);
     expect(posed.obstacles[0]!.position.y).toBe(7);
+  });
+
+  it('keeps moving obstacles static when their trajectory is missing or degenerate', () => {
+    const singlePoint = obstacle({
+      uid: 'single',
+      moving: true,
+      position: { x: 5, y: 6, h: 0.2 },
+      trajectory: [{ x: 1, y: 2 }],
+    });
+    const zeroLength = obstacle({
+      uid: 'zero',
+      moving: true,
+      position: { x: 7, y: 8, h: 0.4 },
+      trajectory: [
+        { x: 3, y: 4 },
+        { x: 3, y: 4 },
+      ],
+    });
+
+    const posed = sampleScenarioAt(baseDoc({ obstacles: [singlePoint, zeroLength] }), 10);
+    expect(posed.obstacles[0]).toMatchObject({ uid: 'single', position: { x: 5, y: 6, h: 0.2 } });
+    expect(posed.obstacles[1]).toMatchObject({ uid: 'zero', position: { x: 7, y: 8, h: 0.4 } });
   });
 
   it('moving obstacle (openscenario, initialSpeed) advances along path', () => {
@@ -111,6 +161,33 @@ describe('scenarioSampler: obstacle motion', () => {
     expect(sampleScenarioAt(doc, 5).obstacles[0]!.position.x).toBeCloseTo(50, 1);
   });
 
+  it('classic speed sampling handles low, one-sided, and missing segment speeds', () => {
+    const lowSpeed = obstacle({
+      moving: true,
+      trajectory: [
+        { x: 0, y: 0, speed: 0 },
+        { x: 10, y: 0 },
+        { x: 20, y: 0, speed: 4 },
+        { x: 30, y: 0 },
+      ],
+    });
+    const fallbackSpeed = obstacle({
+      uid: 'fallback',
+      moving: true,
+      initialSpeed: 2,
+      trajectory: [
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+        { x: 20, y: 0, speed: 5 },
+      ],
+    });
+
+    const doc = baseDoc({ obstacles: [lowSpeed, fallbackSpeed] });
+    expect(sampleScenarioAt(doc, 50).obstacles[0]!.position.x).toBeCloseTo(5, 4);
+    expect(sampleScenarioAt(doc, 101).obstacles[0]!.position.x).toBeCloseTo(14, 4);
+    expect(sampleScenarioAt(doc, 2.5).obstacles[1]!.position.x).toBeCloseTo(5, 4);
+  });
+
   it('TIME trigger delays start', () => {
     const ob = obstacle({
       moving: true,
@@ -127,6 +204,24 @@ describe('scenarioSampler: obstacle motion', () => {
     expect(sampleScenarioAt(doc, 2).obstacles[0]!.position.x).toBeCloseTo(0, 5);
     // 2s after trigger → 20m
     expect(sampleScenarioAt(doc, 5).obstacles[0]!.position.x).toBeCloseTo(20, 1);
+  });
+
+  it('clamps negative TIME triggers to the simulation start', () => {
+    const ob = obstacle({
+      moving: true,
+      initialSpeed: 10,
+      triggerType: 'TIME',
+      triggerValue: -3,
+      trajectory: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    });
+
+    expect(sampleScenarioAt(baseDoc({ obstacles: [ob] }), 1).obstacles[0]!.position.x).toBeCloseTo(
+      10,
+      1,
+    );
   });
 
   it('speed event changes velocity mid-run', () => {
@@ -160,6 +255,93 @@ describe('scenarioSampler: obstacle motion', () => {
     expect(at5).toBeCloseTo(50, 0);
     expect(at10).toBeCloseTo(at5, 0);
   });
+
+  it('sorts speed events, ignores non-time/non-speed events, and clamps negative speeds', () => {
+    const ob = obstacle({
+      moving: true,
+      initialSpeed: 5,
+      trajectory: [
+        { x: 0, y: 0 },
+        { x: 1000, y: 0 },
+      ],
+      events: [
+        {
+          uid: 'lane',
+          name: 'lane',
+          trigger: { kind: 'simulationTime', rule: 'greaterOrEqual', value: 1 },
+          action: {
+            kind: 'laneChange',
+            relativeTargetLane: 1,
+            dynamicsDimension: 'distance',
+            dynamicsValue: 3,
+          },
+          ref: null,
+        },
+        {
+          uid: 'distance-speed',
+          name: 'distance-speed',
+          trigger: { kind: 'distance', rule: 'greaterOrEqual', value: 2 },
+          action: {
+            kind: 'speed',
+            targetSpeed: 100,
+            dynamicsShape: 'linear',
+            dynamicsDimension: 'time',
+            dynamicsValue: 0,
+          },
+          ref: null,
+        },
+        {
+          uid: 'stop',
+          name: 'stop',
+          trigger: { kind: 'simulationTime', rule: 'greaterOrEqual', value: 4 },
+          action: {
+            kind: 'speed',
+            targetSpeed: -10,
+            dynamicsShape: 'linear',
+            dynamicsDimension: 'time',
+            dynamicsValue: 0,
+          },
+          ref: null,
+        },
+        {
+          uid: 'fast',
+          name: 'fast',
+          trigger: { kind: 'simulationTime', rule: 'greaterOrEqual', value: 2 },
+          action: {
+            kind: 'speed',
+            targetSpeed: 20,
+            dynamicsShape: 'linear',
+            dynamicsDimension: 'time',
+            dynamicsValue: 0,
+          },
+          ref: null,
+        },
+      ],
+    });
+    const doc = baseDoc({ obstacles: [ob] });
+
+    expect(sampleScenarioAt(doc, 3).obstacles[0]!.position.x).toBeCloseTo(30, 0);
+    const stopped = sampleScenarioAt(doc, 6).obstacles[0]!.position.x;
+    expect(stopped).toBeGreaterThanOrEqual(50);
+    expect(stopped).toBeLessThan(52);
+    expect(sampleScenarioAt(doc, 8).obstacles[0]!.position.x).toBeCloseTo(stopped, 0);
+  });
+
+  it('does not advance an openscenario obstacle with no usable speed', () => {
+    const ob = obstacle({
+      moving: true,
+      initialSpeed: -5,
+      trajectory: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+    });
+    const doc = baseDoc({ obstacles: [ob] });
+
+    expect(scenarioDuration(doc)).toBeGreaterThanOrEqual(3600);
+    expect(scenarioDuration(doc)).toBeLessThanOrEqual(3601);
+    expect(sampleScenarioAt(doc, 100).obstacles[0]!.position.x).toBeCloseTo(0, 5);
+  });
 });
 
 describe('scenarioSampler: traffic lights', () => {
@@ -186,6 +368,42 @@ describe('scenarioSampler: traffic lights', () => {
     // loops: cycle = 25s, so t=30 → 5s into cycle → GREEN
     expect(sampleScenarioAt(doc, 30).trafficLights[0]!.color).toBe('GREEN');
   });
+
+  it('honors TIME trigger, blink fallback, and skips zero-duration states', () => {
+    const tl = trafficLight({
+      triggerType: 'TIME',
+      triggerValue: 5,
+      initialColor: 'RED',
+      initialBlink: true,
+      stateGroup: [
+        { color: 'YELLOW', keepTime: 0 },
+        { color: 'GREEN', keepTime: 4, blink: true },
+        { color: 'RED' },
+      ],
+    });
+    const doc = baseDoc({ trafficLights: [tl] });
+
+    expect(sampleScenarioAt(doc, 4).trafficLights[0]).toMatchObject({
+      color: 'RED',
+      blink: true,
+    });
+    expect(sampleScenarioAt(doc, 5).trafficLights[0]).toMatchObject({
+      color: 'GREEN',
+      blink: true,
+    });
+  });
+
+  it('clamps negative TIME triggers for signal plans', () => {
+    const tl = trafficLight({
+      triggerType: 'TIME',
+      triggerValue: -10,
+      stateGroup: [{ color: 'GREEN', keepTime: 2 }],
+    });
+
+    expect(sampleScenarioAt(baseDoc({ trafficLights: [tl] }), 0).trafficLights[0]!.color).toBe(
+      'GREEN',
+    );
+  });
 });
 
 describe('scenarioSampler: ego', () => {
@@ -204,5 +422,31 @@ describe('scenarioSampler: ego', () => {
       ego: { start: { x: NaN, y: NaN }, end: { x: NaN, y: NaN }, waypoints: [] },
     });
     expect(sampleScenarioAt(doc, 1).ego).toBeNull();
+  });
+
+  it('returns the single valid ego point when only one endpoint is usable', () => {
+    const doc = baseDoc({
+      ego: { start: { x: 12, y: 34, h: 0.5 }, end: { x: NaN, y: NaN }, waypoints: [] },
+    });
+
+    expect(sampleScenarioAt(doc, 1).ego!.position).toEqual({ x: 12, y: 34, h: 0.5 });
+  });
+
+  it('filters invalid waypoints and clamps ego sampling before and after the duration', () => {
+    const doc = baseDoc({
+      ego: {
+        start: { x: 0, y: 0 },
+        waypoints: [
+          { x: NaN, y: 2 },
+          { x: 0, y: 10 },
+        ],
+        end: { x: 10, y: 10 },
+      },
+      meta: { id: 's', tags: [], simulatorTime: 20 },
+    });
+
+    expect(sampleScenarioAt(doc, -5).ego!.position).toMatchObject({ x: 0, y: 0 });
+    expect(sampleScenarioAt(doc, 10).ego!.position).toMatchObject({ x: 0, y: 10 });
+    expect(sampleScenarioAt(doc, 25).ego!.position).toMatchObject({ x: 10, y: 10 });
   });
 });

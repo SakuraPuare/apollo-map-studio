@@ -17,7 +17,11 @@ import {
   readHeaderProjString,
   entityCounts,
 } from '../proto/adapter';
-import { createApolloEntity } from '@/core/geometry/apolloCompile';
+import {
+  createApolloEntity,
+  getApolloEditPoints,
+  setAllApolloEditPoints,
+} from '@/core/geometry/apolloCompile';
 import type { MapElementType } from '@/core/elements';
 import { entityToHotFeatures } from '@/lib/geoJsonHelpers';
 import {
@@ -305,6 +309,81 @@ describe('end-to-end Apollo map IO pipeline', () => {
       };
       expect(reDecoded.lane.length).toBe(decoded.lane.length);
       expect(reDecoded.lane.map((l) => l.id.id)).toEqual(decoded.lane.map((l) => l.id.id));
+    },
+  );
+
+  it.runIf(existsSync(APOLLO_BIN))(
+    'borregas .bin import → edit Apollo entities → export → re-import preserves edits',
+    async () => {
+      const original = new Uint8Array(readFileSync(APOLLO_BIN));
+      const decoded = await decodeMapBin(original);
+      const projString = readHeaderProjString(decoded);
+      expect(projString).toBeTruthy();
+
+      const { map: lonLatMap, projString: usedProj } = await apolloMapToLonLat(
+        decoded,
+        projString!,
+      );
+      const imported = apolloMapToEntities(
+        lonLatMap as Parameters<typeof apolloMapToEntities>[0],
+      ) as ApolloEntity[];
+      const lane = imported.find((entity) => entity.entityType === 'lane');
+      const crosswalk = imported.find((entity) => entity.entityType === 'crosswalk');
+      const signal = imported.find((entity) => entity.entityType === 'signal');
+      expect(lane).toBeDefined();
+      expect(crosswalk).toBeDefined();
+      expect(signal).toBeDefined();
+
+      const laneEdit = getApolloEditPoints(lane!);
+      const crosswalkEdit = getApolloEditPoints(crosswalk!);
+      const signalEdit = getApolloEditPoints(signal!);
+      expect(laneEdit.length).toBeGreaterThanOrEqual(2);
+      expect(crosswalkEdit.length).toBeGreaterThanOrEqual(3);
+      expect(signalEdit.length).toBeGreaterThan(0);
+
+      const editedLanePoints = laneEdit.map((point, index) =>
+        index === 0 ? { ...point, x: point.x + 0.00001, y: point.y + 0.00001 } : point,
+      );
+      const editedCrosswalkPoints = crosswalkEdit.map((point, index) =>
+        index === 0 ? { ...point, x: point.x + 0.00002 } : point,
+      );
+      const editedSignalPoints = signalEdit.map((point, index) =>
+        index === 0 ? { ...point, y: point.y + 0.00002 } : point,
+      );
+
+      const editedById = new Map<string, ApolloEntity>([
+        [lane!.id, setAllApolloEditPoints(lane!, editedLanePoints)],
+        [crosswalk!.id, setAllApolloEditPoints(crosswalk!, editedCrosswalkPoints)],
+        [signal!.id, setAllApolloEditPoints(signal!, editedSignalPoints)],
+      ]);
+      const editedEntities = imported.map((entity) => editedById.get(entity.id) ?? entity);
+
+      const editedLonLatMap = entitiesToApolloMap(lonLatMap, editedEntities);
+      const { map: editedEnuMap } = await apolloMapFromLonLat(editedLonLatMap, usedProj);
+      const encoded = await encodeMapBin(editedEnuMap);
+      const reDecoded = await decodeMapBin(encoded);
+      const { map: reimportedLonLatMap } = await apolloMapToLonLat(reDecoded, usedProj);
+      const reimported = apolloMapToEntities(
+        reimportedLonLatMap as Parameters<typeof apolloMapToEntities>[0],
+      ) as ApolloEntity[];
+
+      expect(entityCounts(reimportedLonLatMap)).toMatchObject({
+        lane: 60,
+        crosswalk: 6,
+        signal: 15,
+        overlap: 143,
+      });
+
+      const reimportedLane = reimported.find((entity) => entity.id === lane!.id);
+      const reimportedCrosswalk = reimported.find((entity) => entity.id === crosswalk!.id);
+      const reimportedSignal = reimported.find((entity) => entity.id === signal!.id);
+      expect(reimportedLane).toBeDefined();
+      expect(reimportedCrosswalk).toBeDefined();
+      expect(reimportedSignal).toBeDefined();
+
+      expectPointClose(getApolloEditPoints(reimportedLane!)[0]!, editedLanePoints[0]!);
+      expectPointClose(getApolloEditPoints(reimportedCrosswalk!)[0]!, editedCrosswalkPoints[0]!);
+      expectPointClose(getApolloEditPoints(reimportedSignal!)[0]!, editedSignalPoints[0]!);
     },
   );
 

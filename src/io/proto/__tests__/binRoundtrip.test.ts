@@ -9,6 +9,31 @@ const APOLLO_BIN = path.resolve(
   '../../__fixtures__/apollo/borregas_ave/base_map.bin',
 );
 
+function normalizeDecoded(value: unknown): unknown {
+  if (value instanceof Uint8Array) return Array.from(value);
+  if (Array.isArray(value)) return value.map(normalizeDecoded);
+  if (isProtobufByteWrapper(value)) return value.data.map((b) => Number(b));
+  if (value === null || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      normalizeDecoded(item),
+    ]),
+  );
+}
+
+function isProtobufByteWrapper(value: unknown): value is { data: unknown[] } {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  return (
+    (entries.length === 1 ||
+      (entries.length === 2 && 'type' in (value as Record<string, unknown>))) &&
+    Array.isArray((value as { data?: unknown }).data) &&
+    (value as { data: unknown[] }).data.every((b) => Number.isInteger(b))
+  );
+}
+
 describe('Apollo Map proto bin codec', () => {
   it('loads the proto schema and resolves the Map type', async () => {
     const Map = await getMapType();
@@ -17,13 +42,17 @@ describe('Apollo Map proto bin codec', () => {
     expect(Map.fields.crosswalk).toBeDefined();
   });
 
-  // TODO: deep-equality across two decode passes fails because protobufjs
-  // toObject({bytes: Array}) mixes Uint8Array and {data:[...]} shapes for
-  // bytes fields after a re-encode pass. The codec's data is correct
-  // (lane count/id test below confirms), but the surface representation
-  // differs. Either normalize bytes shape post-decode or use a structural
-  // matcher here.
-  it.todo('round-trips Apollo borregas_ave/base_map.bin (decode → encode → decode equality)');
+  it.runIf(existsSync(APOLLO_BIN))(
+    'round-trips Apollo borregas_ave/base_map.bin with normalized structural equality',
+    async () => {
+      const original = new Uint8Array(readFileSync(APOLLO_BIN));
+      const decoded1 = await decodeMapBin(original);
+      const reEncoded = await encodeMapBin(decoded1);
+      const decoded2 = await decodeMapBin(reEncoded);
+
+      expect(normalizeDecoded(decoded2)).toEqual(normalizeDecoded(decoded1));
+    },
+  );
 
   it.runIf(existsSync(APOLLO_BIN))(
     'borregas_ave/base_map.bin decodes to a non-empty map with header',

@@ -90,6 +90,30 @@ describe('serialize: kind + traffic-light write-back (B2/B3)', () => {
   });
 });
 
+describe('serialize: scenario meta write-back', () => {
+  it('openscenario: patches map directory and simulator time when raw holders exist', () => {
+    const doc = seeded('openscenario', 0, 0);
+    doc.meta.mapDir = 'modules/map/data/changed';
+    doc.meta.simulatorTime = 321;
+
+    const reparsed = parseScenario(serializeScenario(doc));
+
+    expect(reparsed.meta.mapDir).toBe('modules/map/data/changed');
+    expect(reparsed.meta.simulatorTime).toBe(321);
+  });
+
+  it('classic: patches map directory and simulator time when raw fields exist', () => {
+    const doc = seeded('classic', 0, 0);
+    doc.meta.mapDir = 'modules/map/data/classic_changed';
+    doc.meta.simulatorTime = 222;
+
+    const reparsed = parseScenario(serializeScenario(doc));
+
+    expect(reparsed.meta.mapDir).toBe('modules/map/data/classic_changed');
+    expect(reparsed.meta.simulatorTime).toBe(222);
+  });
+});
+
 describe('serialize: events patch + prune (C2)', () => {
   it('openscenario: patches an existing event in place', () => {
     const doc = seeded('openscenario', 1, 0);
@@ -183,5 +207,176 @@ describe('serialize: missing-private motion edit (C5)', () => {
     const raw = privatelessRaw();
     const out = serializeScenario(parseScenario(raw)) as any;
     expect(out.scenario.storyboard.init.actions.privates).toHaveLength(0);
+  });
+});
+
+describe('serialize: creates missing raw subtrees for edited modeled fields', () => {
+  function existingStaticObstacleWithoutRouteRaw() {
+    return {
+      id: 'missing-route',
+      type: 'worldsim',
+      scenario: {
+        roadNetwork: { logicFile: { filepath: 'm/x' }, trafficLights: [] },
+        entities: {
+          scenarioObjects: [
+            {
+              name: 'Box1',
+              id: 9001,
+              entityObject: {
+                unknownUnmovableObject: {
+                  boundingBox: { dimensions: { length: 1, width: 1, height: 1 } },
+                },
+              },
+            },
+          ],
+        },
+        storyboard: {
+          init: {
+            actions: {
+              privates: [
+                {
+                  entityRef: { entityRef: 'Box1' },
+                  privateActions: [
+                    { teleportAction: { position: { worldPosition: { x: 1, y: 2, h: 0 } } } },
+                    {
+                      longitudinalAction: {
+                        speedAction: {
+                          speedActionDynamics: {
+                            dynamicsDimension: 'distance',
+                            dynamicsShape: 'linear',
+                            value: 0,
+                          },
+                          speedActionTarget: { absoluteTargetSpeed: { value: 0 } },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+          stories: [],
+        },
+        autoCarInfo: { start: { x: 0, y: 0 }, end: { x: 10, y: 10 } },
+      },
+    };
+  }
+
+  function existingTrafficLightWithoutStateGroupRaw() {
+    return {
+      id: 'missing-state-group',
+      type: 'worldsim',
+      scenario: {
+        roadNetwork: {
+          logicFile: { filepath: 'm/x' },
+          trafficLights: [
+            {
+              id: 'Signal_A',
+              location: { x: 10, y: 20 },
+              initialState: { color: 'RED' },
+            },
+          ],
+        },
+        entities: { scenarioObjects: [] },
+        storyboard: { init: { actions: { privates: [] } }, stories: [] },
+        autoCarInfo: { start: { x: 0, y: 0 }, end: { x: 1, y: 1 } },
+      },
+    };
+  }
+
+  it('openscenario: adding a trajectory to an existing static obstacle creates routingAction', () => {
+    const doc = parseScenario(existingStaticObstacleWithoutRouteRaw());
+    expect(doc.obstacles[0]!.kind).toBe('staticObstacle');
+    expect(doc.obstacles[0]!.trajectory).toHaveLength(0);
+
+    doc.obstacles[0]!.moving = true;
+    doc.obstacles[0]!.initialSpeed = 3;
+    doc.obstacles[0]!.trajectory = [
+      { x: 1, y: 2, h: 0 },
+      { x: 4, y: 6, h: 0.1 },
+      { x: 7, y: 9, h: 0.2 },
+    ];
+
+    const out = serializeScenario(doc) as any;
+    const privateActions = out.scenario.storyboard.init.actions.privates[0]
+      .privateActions as unknown[];
+    expect(privateActions.some((a: any) => a.routingAction)).toBe(true);
+
+    const reparsed = parseScenario(out);
+    expect(reparsed.obstacles[0]!.kind).toBe('staticObstacle');
+    expect(reparsed.obstacles[0]!.initialSpeed).toBe(3);
+    expect(reparsed.obstacles[0]!.trajectory).toEqual([
+      { x: 1, y: 2, h: 0 },
+      { x: 4, y: 6, h: 0.1 },
+      { x: 7, y: 9, h: 0.2 },
+    ]);
+  });
+
+  it('openscenario: changing an existing event action and trigger kind rebuilds those branches', () => {
+    const doc = seeded('openscenario', 1, 0);
+    doc.obstacles[0]!.events.push(makeEvent());
+    const withEvent = parseScenario(serializeScenario(doc));
+    const event = withEvent.obstacles[0]!.events[0]!;
+    event.action = {
+      kind: 'laneChange',
+      relativeTargetLane: -1,
+      dynamicsDimension: 'time',
+      dynamicsValue: 2.5,
+    };
+    event.trigger = {
+      kind: 'distance',
+      rule: 'lessOrEqual',
+      value: 12,
+      position: { x: 100, y: 200 },
+      relativeDistanceType: 'cartesianDistance',
+    };
+
+    const out = serializeScenario(withEvent) as any;
+    const privateAction =
+      out.scenario.storyboard.stories[0].acts[0].maneuverGroups[0].maneuvers[0].events[0].actions[0]
+        .privateAction;
+    expect(privateAction.longitudinalAction).toBeUndefined();
+    expect(
+      privateAction.lateralAction.laneChangeAction.laneChangeTarget.relativeTargetLane,
+    ).toMatchObject({
+      value: -1,
+    });
+
+    const reparsed = parseScenario(out);
+    const reparsedEvent = reparsed.obstacles[0]!.events[0]!;
+    expect(reparsedEvent.action).toMatchObject({
+      kind: 'laneChange',
+      relativeTargetLane: -1,
+      dynamicsDimension: 'time',
+      dynamicsValue: 2.5,
+    });
+    expect(reparsedEvent.trigger).toMatchObject({
+      kind: 'distance',
+      rule: 'lessOrEqual',
+      value: 12,
+      position: { x: 100, y: 200 },
+      relativeDistanceType: 'cartesianDistance',
+    });
+  });
+
+  it('openscenario: adding a timing plan to an existing traffic light creates stateGroup', () => {
+    const doc = parseScenario(existingTrafficLightWithoutStateGroupRaw());
+    expect(doc.trafficLights[0]!.stateGroup).toHaveLength(0);
+
+    doc.trafficLights[0]!.stateGroup = [
+      { color: 'GREEN', keepTime: 30 },
+      { color: 'YELLOW', keepTime: 3, blink: true },
+      { color: 'RED', keepTime: 20 },
+    ];
+
+    const out = serializeScenario(doc) as any;
+    expect(out.scenario.roadNetwork.trafficLights[0].stateGroup).toHaveLength(3);
+
+    const reparsed = parseScenario(out);
+    expect(reparsed.trafficLights[0]!.stateGroup).toEqual([
+      { color: 'GREEN', keepTime: 30, blink: undefined },
+      { color: 'YELLOW', keepTime: 3, blink: true },
+      { color: 'RED', keepTime: 20, blink: undefined },
+    ]);
   });
 });

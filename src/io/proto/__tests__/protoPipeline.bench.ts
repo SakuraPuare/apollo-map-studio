@@ -8,6 +8,7 @@ import { utmProjString } from '../projection';
 import type { RawLane } from '../entityBridge/laneRoad';
 
 const PROJ = utmProjString(50, 'N');
+const STANDARD_PROTO_BENCH_OPTIONS = { time: 1_500, warmupTime: 250 };
 
 function point(x: number, y: number) {
   return { x, y };
@@ -107,26 +108,43 @@ describe('proto entity bridge and projection', () => {
   ]) {
     const map = rawMap(scale.count, 8);
     const entities = apolloMapToEntities(map);
+    const bridgeBenchOptions = scale.count >= 5_000 ? STANDARD_PROTO_BENCH_OPTIONS : undefined;
 
-    bench(`proto bridge ${scale.label} — apolloMapToEntities`, () => {
-      apolloMapToEntities(map);
-    });
+    bench(
+      `proto bridge ${scale.label} — apolloMapToEntities`,
+      () => {
+        apolloMapToEntities(map);
+      },
+      bridgeBenchOptions,
+    );
 
-    bench(`proto bridge ${scale.label} — entitiesToApolloMap`, () => {
-      entitiesToApolloMap(map, entities);
-    });
+    bench(
+      `proto bridge ${scale.label} — entitiesToApolloMap`,
+      () => {
+        entitiesToApolloMap(map, entities);
+      },
+      bridgeBenchOptions,
+    );
 
     bench(`proto bounds ${scale.label} — computeApolloMapBounds`, () => {
       computeApolloMapBounds(map as Parameters<typeof computeApolloMapBounds>[0]);
     });
 
-    bench(`proto projection ${scale.label} — to lonlat`, async () => {
-      await apolloMapToLonLat(map, PROJ);
-    });
+    bench(
+      `proto projection ${scale.label} — to lonlat`,
+      async () => {
+        await apolloMapToLonLat(map, PROJ);
+      },
+      STANDARD_PROTO_BENCH_OPTIONS,
+    );
 
-    bench(`proto projection ${scale.label} — from lonlat`, async () => {
-      await apolloMapFromLonLat(map, PROJ);
-    });
+    bench(
+      `proto projection ${scale.label} — from lonlat`,
+      async () => {
+        await apolloMapFromLonLat(map, PROJ);
+      },
+      STANDARD_PROTO_BENCH_OPTIONS,
+    );
   }
 });
 
@@ -137,25 +155,45 @@ describe('proto codecs', async () => {
   const text = await encodeMapText(textMap);
   const roundtripEntities = apolloMapToEntities(map);
 
-  bench(`proto bin 1k lanes — encode`, async () => {
-    await encodeMapBin(map);
-  });
+  bench(
+    `proto bin 1k lanes — encode`,
+    async () => {
+      await encodeMapBin(map);
+    },
+    STANDARD_PROTO_BENCH_OPTIONS,
+  );
 
-  bench(`proto bin 1k lanes — decode`, async () => {
-    await decodeMapBin(bytes);
-  });
+  bench(
+    `proto bin 1k lanes — decode`,
+    async () => {
+      await decodeMapBin(bytes);
+    },
+    STANDARD_PROTO_BENCH_OPTIONS,
+  );
 
-  bench(`proto text 100 lanes — encode`, async () => {
-    await encodeMapText(textMap);
-  });
+  bench(
+    `proto text 100 lanes — encode`,
+    async () => {
+      await encodeMapText(textMap);
+    },
+    STANDARD_PROTO_BENCH_OPTIONS,
+  );
 
-  bench(`proto text 100 lanes — decode`, async () => {
-    await decodeMapText(text);
-  });
+  bench(
+    `proto text 100 lanes — decode`,
+    async () => {
+      await decodeMapText(text);
+    },
+    STANDARD_PROTO_BENCH_OPTIONS,
+  );
 
-  bench(`proto roundtrip 1k lanes — bridge project encode`, async () => {
-    const merged = entitiesToApolloMap(map, roundtripEntities);
-    const { map: projected } = await apolloMapFromLonLat(merged, PROJ);
-    await encodeMapBin(projected);
-  });
+  bench(
+    `proto roundtrip 1k lanes — bridge project encode`,
+    async () => {
+      const merged = entitiesToApolloMap(map, roundtripEntities);
+      const { map: projected } = await apolloMapFromLonLat(merged, PROJ);
+      await encodeMapBin(projected);
+    },
+    STANDARD_PROTO_BENCH_OPTIONS,
+  );
 });
