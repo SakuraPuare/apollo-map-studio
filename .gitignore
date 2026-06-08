@@ -148,6 +148,12 @@ vite.config.ts.timestamp-*
 
 # Playwright / MCP debug snapshots (transient, never commit)
 .playwright-mcp/
+playwright-report/
+test-results/
+
+# Transient coverage runs and per-agent scratch artifacts (never commit)
+coverage-*/
+agent*-bench-results.json
 *-tab.png
 page-initial.png
 sidebar-state.png
