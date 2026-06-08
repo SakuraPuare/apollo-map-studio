@@ -110,6 +110,8 @@ function useScenarioPlayback(
     };
 
     // 初次对齐 + 订阅后续时刻变化。
+    // Imperative MapLibre source update, not a parent data callback.
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
     render(usePlaybackStore.getState().currentTime);
     let prev = usePlaybackStore.getState().currentTime;
     const unsub = usePlaybackStore.subscribe((s) => {
@@ -183,8 +185,11 @@ function useScenarioFitBounds(
     if (!map || !mapLoadedRef.current || !doc || !projString) return;
     if (fittedKeyRef.current === activeKey) return;
     try {
+      // Active scenario changes are synchronized to the external MapLibre camera.
+      // react-doctor-disable-next-line react-doctor/no-event-handler
       const bounds = scenarioBoundsLngLat(makeProjection(projString), doc);
       if (bounds) {
+        // react-doctor-disable-next-line react-doctor/no-event-handler, react-doctor/no-pass-data-to-parent
         map.fitBounds(bounds, { padding: 80, maxZoom: 19, animate: true, duration: 600 });
         fittedKeyRef.current = activeKey;
       }

@@ -18,13 +18,20 @@ export function useMapLibreInit(containerRef: React.RefObject<HTMLDivElement | n
       zoom: readMapZoom(),
       doubleClickZoom: false,
     });
+    const canvas = map.getCanvas();
+    canvas.dataset.testid = 'maplibre-canvas';
+    canvas.dataset.mapReady = 'false';
+    canvas.ariaLabel = 'MapLibre canvas';
 
     const onLoad = () => {
-      mapLoadedRef.current = true;
+      if (mapLoadedRef.current) return;
       addEditorLayers(map);
+      mapLoadedRef.current = true;
+      canvas.dataset.mapReady = 'true';
     };
 
     map.on('load', onLoad);
+    if (map.loaded()) onLoad();
 
     mapRef.current = map;
     return () => {

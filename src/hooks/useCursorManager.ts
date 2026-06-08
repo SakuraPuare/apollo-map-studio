@@ -19,6 +19,35 @@ export function cursorForState(
   return '';
 }
 
+export function installCursorManager(
+  canvas: { style: { cursor: string } },
+  actorRef: ActorRefFrom<typeof editorMachine>,
+): () => void {
+  const applyCursor = () => {
+    canvas.style.cursor = cursorForState(
+      actorRef.getSnapshot().value as string,
+      useUIStore.getState().connectMode.active,
+      useUIStore.getState().boundaryBrush.active,
+    );
+  };
+
+  applyCursor();
+  const subscription = actorRef.subscribe(applyCursor);
+  const unsubUI = useUIStore.subscribe((s, prev) => {
+    if (
+      s.connectMode.active !== prev.connectMode.active ||
+      s.boundaryBrush.active !== prev.boundaryBrush.active
+    ) {
+      applyCursor();
+    }
+  });
+
+  return () => {
+    subscription.unsubscribe();
+    unsubUI();
+  };
+}
+
 export function useCursorManager(
   mapRef: React.RefObject<maplibregl.Map | null>,
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -26,29 +55,6 @@ export function useCursorManager(
   useEffect(() => {
     const canvas = mapRef.current?.getCanvas();
     if (!canvas) return;
-
-    const applyCursor = () => {
-      canvas.style.cursor = cursorForState(
-        actorRef.getSnapshot().value as string,
-        useUIStore.getState().connectMode.active,
-        useUIStore.getState().boundaryBrush.active,
-      );
-    };
-
-    applyCursor();
-    const subscription = actorRef.subscribe(applyCursor);
-    const unsubUI = useUIStore.subscribe((s, prev) => {
-      if (
-        s.connectMode.active !== prev.connectMode.active ||
-        s.boundaryBrush.active !== prev.boundaryBrush.active
-      ) {
-        applyCursor();
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      unsubUI();
-    };
+    return installCursorManager(canvas, actorRef);
   }, [actorRef, mapRef]);
 }

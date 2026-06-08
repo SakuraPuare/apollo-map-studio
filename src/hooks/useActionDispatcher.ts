@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ActorRefFrom } from 'xstate';
-import type { editorMachine } from '@/core/fsm/editorMachine';
+import type { DrawTool, editorMachine } from '@/core/fsm/editorMachine';
+import type { MapElementType } from '@/core/elements';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
 import {
@@ -31,13 +32,17 @@ import {
   hasSelectionClipboard,
   pasteSelectionFromClipboard,
 } from '@/lib/selectionClipboard';
+import { deleteSelectedEntity } from './mapEventRouter/keyboard';
+import { isTextEditingTarget } from './textEditingTarget';
+
+export { isTextEditingTarget } from './textEditingTarget';
 
 /**
  * Set of action ids that mutate map state — blocked when the license
  * is not in an editable state. Categories `edit`, `tool`, `selection`
  * are blocked wholesale; specific extras (`connectLanes`) blocked by id.
  */
-function actionRequiresEdit(id: ActionId): boolean {
+export function actionRequiresEdit(id: ActionId): boolean {
   if (id === 'copySelection') return false;
   if (id === 'connectLanes') return true;
   const def = getActionMap().get(id);
@@ -52,6 +57,8 @@ export interface ActionDispatcher {
    * set of identifiers with the Action Registry.
    */
   execute: (actionId: ActionId) => void;
+  /** Select a draw tool while preserving ToolStrip's Apollo element context. */
+  selectTool: (tool: DrawTool, element?: MapElementType) => void;
   /** Get toggle state for toggle actions */
   getToggleState: (actionId: ActionId) => boolean;
   /** All action definitions (for UI rendering) */
@@ -67,6 +74,8 @@ interface ActionDispatcherOptions {
   onToggleWorkspaceView?: (actionId: WorkspaceViewActionId) => void;
   getWorkspaceViewState?: (actionId: WorkspaceViewActionId) => boolean;
 }
+
+export type { ActionDispatcherOptions };
 
 function importApollo() {
   void pickAndImportApollo();
@@ -87,7 +96,9 @@ function registerHistoryHandlers(map: Map<ActionId, () => void>, options: Action
   };
   map.set('undo', () => historyWithCancel('undo'));
   map.set('redo', () => historyWithCancel('redo'));
-  map.set('delete', () => options.actorRef.send({ type: 'DELETE_ENTITY' }));
+  map.set('delete', () => {
+    deleteSelectedEntity(options.actorRef);
+  });
 }
 
 function registerClipboardHandlers(
@@ -154,11 +165,14 @@ function registerToolHandlers(map: Map<ActionId, () => void>, options: ActionDis
   for (const action of getActionDefs()) {
     if (!action.drawTool) continue;
     const tool = action.drawTool;
-    map.set(action.id, () => options.actorRef.send({ type: 'SELECT_TOOL', tool }));
+    map.set(action.id, () => {
+      const activeElement = options.actorRef.getSnapshot().context.activeElement ?? undefined;
+      options.actorRef.send({ type: 'SELECT_TOOL', tool, element: activeElement });
+    });
   }
 }
 
-function buildActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () => void> {
+export function buildActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () => void> {
   const map = new Map<ActionId, () => void>();
   registerFileHandlers(map, options);
   registerHistoryHandlers(map, options);
@@ -200,70 +214,72 @@ function useActionHandlers(options: ActionDispatcherOptions): Map<ActionId, () =
   );
 }
 
-function isTextEditingTarget(target: EventTarget | null): boolean {
-  if (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement) return true;
-  if (typeof HTMLTextAreaElement !== 'undefined' && target instanceof HTMLTextAreaElement)
-    return true;
-  if (typeof HTMLSelectElement !== 'undefined' && target instanceof HTMLSelectElement) return true;
-  if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement) {
-    return target.isContentEditable;
-  }
-  return false;
+export function installKeyboardShortcuts(
+  execute: (actionId: ActionId) => void,
+  target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
+): () => void {
+  const kbActions = getKeyBindingActions();
+  const handler = (e: KeyboardEvent) => {
+    const inInput = isTextEditingTarget(e.target);
+
+    for (const action of kbActions) {
+      if (!action.keybinding) continue;
+      if (inInput && !action.keybinding.global) continue;
+      if (!matchesKeybinding(e, action.keybinding)) continue;
+      e.preventDefault();
+      execute(action.id);
+      return;
+    }
+  };
+
+  target.addEventListener('keydown', handler as EventListener);
+  return () => target.removeEventListener('keydown', handler as EventListener);
 }
 
 function useKeyboardShortcuts(execute: (actionId: ActionId) => void) {
-  useEffect(() => {
-    const kbActions = getKeyBindingActions();
-    const handler = (e: KeyboardEvent) => {
-      const inInput = isTextEditingTarget(e.target);
+  useEffect(() => installKeyboardShortcuts(execute), [execute]);
+}
 
-      for (const action of kbActions) {
-        if (!action.keybinding) continue;
-        if (inInput && !action.keybinding.global) continue;
-        if (!matchesKeybinding(e, action.keybinding)) continue;
-        e.preventDefault();
-        execute(action.id);
-        return;
-      }
-    };
+export function installClipboardEvents(
+  execute: (actionId: ActionId) => void,
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  target: Pick<Window, 'addEventListener' | 'removeEventListener'> = window,
+): () => void {
+  const handleCopy = (e: ClipboardEvent) => {
+    if (isTextEditingTarget(e.target)) return;
+    if (!getSelectedClipboardEntity(actorRef)) return;
+    e.preventDefault();
+    execute('copySelection');
+  };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [execute]);
+  const handlePaste = (e: ClipboardEvent) => {
+    if (isTextEditingTarget(e.target)) return;
+    if (!hasSelectionClipboard()) return;
+    e.preventDefault();
+    execute('pasteSelection');
+  };
+
+  target.addEventListener('copy', handleCopy as EventListener);
+  target.addEventListener('paste', handlePaste as EventListener);
+  return () => {
+    target.removeEventListener('copy', handleCopy as EventListener);
+    target.removeEventListener('paste', handlePaste as EventListener);
+  };
 }
 
 function useClipboardEvents(
   execute: (actionId: ActionId) => void,
   actorRef: ActorRefFrom<typeof editorMachine>,
 ) {
-  useEffect(() => {
-    const handleCopy = (e: ClipboardEvent) => {
-      if (isTextEditingTarget(e.target)) return;
-      if (!getSelectedClipboardEntity(actorRef)) return;
-      e.preventDefault();
-      execute('copySelection');
-    };
+  useEffect(() => installClipboardEvents(execute, actorRef), [actorRef, execute]);
+}
 
-    const handlePaste = (e: ClipboardEvent) => {
-      if (isTextEditingTarget(e.target)) return;
-      if (!hasSelectionClipboard()) return;
-      e.preventDefault();
-      execute('pasteSelection');
-    };
-
-    window.addEventListener('copy', handleCopy);
-    window.addEventListener('paste', handlePaste);
-    return () => {
-      window.removeEventListener('copy', handleCopy);
-      window.removeEventListener('paste', handlePaste);
-    };
-  }, [actorRef, execute]);
+export function installNativeMenuActions(execute: (actionId: ActionId) => void): () => void {
+  return appBridge.onNativeMenuAction((actionId) => execute(actionId as ActionId));
 }
 
 function useNativeMenuActions(execute: (actionId: ActionId) => void) {
-  useEffect(() => {
-    return appBridge.onNativeMenuAction((actionId) => execute(actionId as ActionId));
-  }, [execute]);
+  useEffect(() => installNativeMenuActions(execute), [execute]);
 }
 
 function useActionToggleState(
@@ -306,21 +322,49 @@ function useActionToggleState(
   );
 }
 
+function executeActionWithHandlers(handlers: Map<ActionId, () => void>, actionId: ActionId) {
+  if (actionRequiresEdit(actionId) && !assertEditable(actionId)) return;
+  if (actionRequiresEdit(actionId) && useUIStore.getState().appMode !== 'drawing') return;
+  const handler = handlers.get(actionId);
+  if (handler) handler();
+  else console.warn(`[ActionRegistry] No handler for action: ${actionId}`);
+}
+
+export function createActionExecutor(handlers: Map<ActionId, () => void>) {
+  return (actionId: ActionId) => executeActionWithHandlers(handlers, actionId);
+}
+
+export function createToolSelector(actorRef: ActorRefFrom<typeof editorMachine>) {
+  return (tool: DrawTool, element?: MapElementType) => selectToolWithActor(actorRef, tool, element);
+}
+
+function selectToolWithActor(
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  tool: DrawTool,
+  element?: MapElementType,
+) {
+  if (!assertEditable(`tool:${tool}`)) return;
+  actorRef.send({ type: 'SELECT_TOOL', tool, element });
+}
+
 function useActionExecute(handlers: Map<ActionId, () => void>) {
   return useCallback(
-    (actionId: ActionId) => {
-      if (actionRequiresEdit(actionId) && !assertEditable(actionId)) return;
-      const handler = handlers.get(actionId);
-      if (handler) handler();
-      else console.warn(`[ActionRegistry] No handler for action: ${actionId}`);
-    },
+    (actionId: ActionId) => executeActionWithHandlers(handlers, actionId),
     [handlers],
+  );
+}
+
+function useToolSelector(actorRef: ActorRefFrom<typeof editorMachine>) {
+  return useCallback(
+    (tool: DrawTool, element?: MapElementType) => selectToolWithActor(actorRef, tool, element),
+    [actorRef],
   );
 }
 
 export function useActionDispatcher(options: ActionDispatcherOptions): ActionDispatcher {
   const handlers = useActionHandlers(options);
   const execute = useActionExecute(handlers);
+  const selectTool = useToolSelector(options.actorRef);
   const getToggleState = useActionToggleState(options.getWorkspaceViewState);
   useKeyboardShortcuts(execute);
   useClipboardEvents(execute, options.actorRef);
@@ -328,6 +372,7 @@ export function useActionDispatcher(options: ActionDispatcherOptions): ActionDis
 
   return {
     execute,
+    selectTool,
     getToggleState,
     actions: getActionDefs(),
   };

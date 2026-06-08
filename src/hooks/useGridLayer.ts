@@ -24,6 +24,14 @@ const METERS_PER_DEG_LAT = 111320;
 /** 安全上限：避免极端 zoom-out + step 错配时生成几万条线。 */
 export const MAX_LINES_PER_AXIS = 240;
 
+function gridLineCount(start: number, end: number, step: number): number {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(step) || step <= 0) {
+    return 0;
+  }
+  if (start > end) return 0;
+  return Math.min(MAX_LINES_PER_AXIS, Math.floor((end - start) / step) + 1);
+}
+
 export function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
   const bounds = map.getBounds();
   const zoom = map.getZoom();
@@ -42,14 +50,17 @@ export function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
   const startLat = Math.floor(south / stepLat) * stepLat;
   const startLng = Math.floor(west / stepLng) * stepLng;
 
-  const features: GeoJSON.Feature[] = [];
+  const latCount = gridLineCount(startLat, north, stepLat);
+  const lngCount = gridLineCount(startLng, east, stepLng);
+  const features = new Array<GeoJSON.Feature>(latCount + lngCount);
+  let featureIndex = 0;
 
   // horizontal lines (沿纬度等高线)
   let latIdx = Math.floor(south / stepLat);
-  let countLat = 0;
-  for (let lat = startLat; lat <= north && countLat < MAX_LINES_PER_AXIS; lat += stepLat) {
+  for (let countLat = 0; countLat < latCount; countLat++) {
+    const lat = startLat + countLat * stepLat;
     const major = latIdx % majorEvery === 0;
-    features.push({
+    features[featureIndex++] = {
       type: 'Feature',
       properties: { major },
       geometry: {
@@ -59,17 +70,16 @@ export function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
           [east, lat],
         ],
       },
-    });
+    };
     latIdx++;
-    countLat++;
   }
 
   // vertical lines (沿经度)
   let lngIdx = Math.floor(west / stepLng);
-  let countLng = 0;
-  for (let lng = startLng; lng <= east && countLng < MAX_LINES_PER_AXIS; lng += stepLng) {
+  for (let countLng = 0; countLng < lngCount; countLng++) {
+    const lng = startLng + countLng * stepLng;
     const major = lngIdx % majorEvery === 0;
-    features.push({
+    features[featureIndex++] = {
       type: 'Feature',
       properties: { major },
       geometry: {
@@ -79,15 +89,67 @@ export function buildGrid(map: maplibregl.Map): GeoJSON.FeatureCollection {
           [lng, north],
         ],
       },
-    });
+    };
     lngIdx++;
-    countLng++;
   }
 
   return { type: 'FeatureCollection', features };
 }
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+export function applyGridLayer(
+  map: maplibregl.Map,
+  mapLoaded: boolean,
+  gridEnabled: boolean,
+): void {
+  if (!mapLoaded) return;
+  if (!map.getLayer('grid-line')) return;
+
+  map.setLayoutProperty('grid-line', 'visibility', gridEnabled ? 'visible' : 'none');
+
+  const src = map.getSource('grid') as maplibregl.GeoJSONSource | undefined;
+  if (!src) return;
+  src.setData(gridEnabled ? buildGrid(map) : EMPTY_FC);
+}
+
+export function installGridLayerSync(
+  map: maplibregl.Map,
+  mapLoadedRef: React.RefObject<boolean>,
+  gridEnabled: boolean,
+): () => void {
+  const apply = () => applyGridLayer(map, mapLoadedRef.current, gridEnabled);
+
+  // 立即应用一次（覆盖首次启用 + 默认隐藏 → 显示）
+  apply();
+
+  // 兜底：map 还没 load 就被启用，等 load 完再 apply 一次
+  let pendingLoad = false;
+  if (!mapLoadedRef.current) {
+    pendingLoad = true;
+    map.once('load', apply);
+  }
+
+  if (!gridEnabled) {
+    return () => {
+      if (pendingLoad) map.off('load', apply);
+    };
+  }
+
+  // 启用时才订阅 viewport 变化；关掉就静音，避免无谓重算
+  const onMove = () => {
+    const src = map.getSource('grid') as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData(buildGrid(map));
+  };
+  map.on('moveend', onMove);
+  map.on('zoomend', onMove);
+  return () => {
+    if (pendingLoad) map.off('load', apply);
+    map.off('moveend', onMove);
+    map.off('zoomend', onMove);
+  };
+}
 
 /**
  * 把 ToolStrip 的 toggleGrid 真正落到画布：
@@ -103,46 +165,6 @@ export function useGridLayer(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    const apply = () => {
-      if (!mapLoadedRef.current) return;
-      if (!map.getLayer('grid-line')) return;
-
-      map.setLayoutProperty('grid-line', 'visibility', gridEnabled ? 'visible' : 'none');
-
-      const src = map.getSource('grid') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-      src.setData(gridEnabled ? buildGrid(map) : EMPTY_FC);
-    };
-
-    // 立即应用一次（覆盖首次启用 + 默认隐藏 → 显示）
-    apply();
-
-    // 兜底：map 还没 load 就被启用，等 load 完再 apply 一次
-    let pendingLoad = false;
-    if (!mapLoadedRef.current) {
-      pendingLoad = true;
-      map.once('load', apply);
-    }
-
-    if (!gridEnabled) {
-      return () => {
-        if (pendingLoad) map.off('load', apply);
-      };
-    }
-
-    // 启用时才订阅 viewport 变化；关掉就静音，避免无谓重算
-    const onMove = () => {
-      const src = map.getSource('grid') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-      src.setData(buildGrid(map));
-    };
-    map.on('moveend', onMove);
-    map.on('zoomend', onMove);
-    return () => {
-      if (pendingLoad) map.off('load', apply);
-      map.off('moveend', onMove);
-      map.off('zoomend', onMove);
-    };
+    return installGridLayerSync(map, mapLoadedRef, gridEnabled);
   }, [gridEnabled, mapRef, mapLoadedRef]);
 }

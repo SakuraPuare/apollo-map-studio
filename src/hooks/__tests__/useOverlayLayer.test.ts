@@ -12,14 +12,20 @@
  * MapLibre or React.
  */
 
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import type { LngLat, BezierAnchor } from '@/core/geometry/interpolate';
 import {
+  applySnapIndicatorSource,
+  installOverlayLayer,
+  installSnapIndicatorLayer,
+  renderOverlayFrame,
   samePoint,
   sameOverlayRenderState,
+  snapTargetFeatureCollection,
   buildOverlayFeatures,
   type OverlayRenderState,
 } from '../useOverlayLayer';
+import { useUIStore } from '@/store/uiStore';
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
@@ -30,6 +36,60 @@ const A = (x: number, y: number): BezierAnchor => ({
   point: [x, y],
   handleIn: null,
   handleOut: null,
+});
+
+const initialUIState = useUIStore.getState();
+
+class FakeGeoJSONSource {
+  setData = vi.fn();
+}
+
+function actorSnapshot(
+  overrides: Partial<OverlayRenderState> & { activeElement?: string | null } = {},
+) {
+  const state = makeOverlayState(overrides);
+  return {
+    value: state.currentState,
+    context: {
+      drawPoints: state.drawPoints,
+      previewPoint: state.previewPoint,
+      bezierAnchors: state.bezierAnchors,
+      activeElement: overrides.activeElement ?? null,
+    },
+  };
+}
+
+function actorRef(snapshot: ReturnType<typeof actorSnapshot>) {
+  return { getSnapshot: vi.fn(() => snapshot) };
+}
+
+function subscribableActor(snapshot: ReturnType<typeof actorSnapshot>) {
+  const listeners: Array<() => void> = [];
+  const subscription = { unsubscribe: vi.fn() };
+  return {
+    getSnapshot: vi.fn(() => snapshot),
+    subscribe: vi.fn((listener: () => void) => {
+      listeners.push(listener);
+      return subscription;
+    }),
+    emit() {
+      for (const listener of listeners) listener();
+    },
+    subscription,
+  };
+}
+
+function mapWithSource(source: FakeGeoJSONSource | null = new FakeGeoJSONSource()) {
+  return {
+    getSource: vi.fn((id: string) => (id === 'overlay' || id === 'snap' ? source : undefined)),
+    once: vi.fn(),
+    off: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useUIStore.setState(initialUIState, true);
 });
 
 // ---------------------------------------------------------------------------
@@ -407,5 +467,265 @@ describe('buildOverlayFeatures — drawPolygon', () => {
       }),
     );
     expect(f.filter((x) => x.geometry.type === 'Polygon')).toHaveLength(1);
+  });
+});
+
+describe('overlay frame rendering', () => {
+  it('writes overlay feature collections for drawing states', () => {
+    const source = new FakeGeoJSONSource();
+    const map = mapWithSource(source);
+    const last = renderOverlayFrame({
+      map: map as never,
+      mapLoaded: true,
+      actorRef: actorRef(
+        actorSnapshot({
+          currentState: 'drawPolyline',
+          drawPoints: [P(0, 0)],
+          previewPoint: P(1, 1),
+        }),
+      ) as never,
+      lastRenderState: null,
+    });
+
+    expect(last?.currentState).toBe('drawPolyline');
+    expect(source.setData).toHaveBeenCalledWith({
+      type: 'FeatureCollection',
+      features: expect.arrayContaining([expect.objectContaining({ type: 'Feature' })]),
+    });
+  });
+
+  it('clears overlay data for non-drawing states and locked active elements', () => {
+    const source = new FakeGeoJSONSource();
+    const idleMap = mapWithSource(source);
+
+    renderOverlayFrame({
+      map: idleMap as never,
+      mapLoaded: true,
+      actorRef: actorRef(actorSnapshot({ currentState: 'selected' })) as never,
+      lastRenderState: null,
+    });
+
+    expect(source.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+
+    source.setData.mockClear();
+    useUIStore.getState().setLayerLocked('lane', true);
+    const lockedSnapshot = {
+      ...actorSnapshot({
+        currentState: 'drawPolyline',
+        drawPoints: [P(0, 0)],
+        previewPoint: P(1, 1),
+      }),
+      context: {
+        ...actorSnapshot({
+          currentState: 'drawPolyline',
+          drawPoints: [P(0, 0)],
+          previewPoint: P(1, 1),
+        }).context,
+        activeElement: 'lane',
+      },
+    };
+
+    const next = renderOverlayFrame({
+      map: mapWithSource(source) as never,
+      mapLoaded: true,
+      actorRef: actorRef(lockedSnapshot) as never,
+      lastRenderState: null,
+    });
+
+    expect(next?.canRenderOverlay).toBe(false);
+    expect(source.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+  });
+
+  it('skips map writes when map is unloaded, source is missing, or state is unchanged', () => {
+    const source = new FakeGeoJSONSource();
+    const snapshot = actorSnapshot({
+      currentState: 'drawPolyline',
+      drawPoints: [P(0, 0)],
+      previewPoint: P(1, 1),
+    });
+
+    expect(
+      renderOverlayFrame({
+        map: mapWithSource(source) as never,
+        mapLoaded: false,
+        actorRef: actorRef(snapshot) as never,
+        lastRenderState: null,
+      }),
+    ).toBeNull();
+    expect(source.setData).not.toHaveBeenCalled();
+
+    expect(
+      renderOverlayFrame({
+        map: mapWithSource(null) as never,
+        mapLoaded: true,
+        actorRef: actorRef(snapshot) as never,
+        lastRenderState: null,
+      }),
+    ).toBeNull();
+
+    const rendered = renderOverlayFrame({
+      map: mapWithSource(source) as never,
+      mapLoaded: true,
+      actorRef: actorRef(snapshot) as never,
+      lastRenderState: null,
+    });
+    source.setData.mockClear();
+    const skipped = renderOverlayFrame({
+      map: mapWithSource(source) as never,
+      mapLoaded: true,
+      actorRef: actorRef(snapshot) as never,
+      lastRenderState: rendered,
+    });
+
+    expect(skipped).toBe(rendered);
+    expect(source.setData).not.toHaveBeenCalled();
+  });
+});
+
+describe('snap indicator source rendering', () => {
+  it('builds snap target feature collections', () => {
+    expect(
+      snapTargetFeatureCollection({
+        kind: 'vertex',
+        entityId: 'lane-1',
+        entityType: 'lane',
+        point: { x: 1, y: 2 },
+      }),
+    ).toEqual({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { kind: 'vertex', entityId: 'lane-1', entityType: 'lane' },
+          geometry: { type: 'Point', coordinates: [1, 2] },
+        },
+      ],
+    });
+  });
+
+  it('writes snap targets, clears null target, and skips missing sources', () => {
+    const source = new FakeGeoJSONSource();
+    const map = mapWithSource(source);
+
+    applySnapIndicatorSource(map as never, true, {
+      kind: 'edge',
+      entityId: 'poly-1',
+      entityType: 'polyline',
+      point: { x: 3, y: 4 },
+    });
+    applySnapIndicatorSource(map as never, true, null);
+    applySnapIndicatorSource(mapWithSource(source) as never, false, null);
+    applySnapIndicatorSource(mapWithSource(null) as never, true, null);
+
+    expect(source.setData).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: 'FeatureCollection' }),
+    );
+    expect(source.setData).toHaveBeenNthCalledWith(2, {
+      type: 'FeatureCollection',
+      features: [],
+    });
+    expect(source.setData).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('installOverlayLayer', () => {
+  it('schedules loaded overlay renders, dedupes pending frames, reacts to UI changes, and cleans up', () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const cancelAnimationFrameSpy = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameSpy);
+
+    const source = new FakeGeoJSONSource();
+    const map = mapWithSource(source);
+    const actor = subscribableActor(
+      actorSnapshot({
+        currentState: 'drawPolyline',
+        drawPoints: [P(0, 0)],
+        previewPoint: P(1, 1),
+      }),
+    );
+
+    const cleanup = installOverlayLayer(map as never, { current: true }, actor as never);
+
+    expect(actor.subscribe).toHaveBeenCalledTimes(1);
+    expect(rafCallbacks).toHaveLength(1);
+
+    actor.emit();
+    expect(rafCallbacks).toHaveLength(1);
+
+    rafCallbacks[0]!(0);
+    expect(source.setData).toHaveBeenCalledTimes(1);
+
+    useUIStore.getState().setLayerLocked('polyline', true);
+    expect(rafCallbacks).toHaveLength(2);
+
+    cleanup();
+
+    expect(actor.subscription.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(map.off).toHaveBeenCalledWith('load', expect.any(Function));
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(2);
+  });
+
+  it('waits for load when mapLoadedRef is false', () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+    const source = new FakeGeoJSONSource();
+    const map = mapWithSource(source);
+    const actor = subscribableActor(actorSnapshot({ currentState: 'selected' }));
+    const mapLoadedRef = { current: false };
+
+    const cleanup = installOverlayLayer(map as never, mapLoadedRef, actor as never);
+
+    expect(map.once).toHaveBeenCalledWith('load', expect.any(Function));
+    expect(rafCallbacks).toHaveLength(0);
+
+    mapLoadedRef.current = true;
+    const onLoad = map.once.mock.calls[0]![1] as () => void;
+    onLoad();
+    expect(rafCallbacks).toHaveLength(1);
+
+    rafCallbacks[0]!(0);
+    expect(source.setData).toHaveBeenCalledWith({ type: 'FeatureCollection', features: [] });
+
+    cleanup();
+  });
+});
+
+describe('installSnapIndicatorLayer', () => {
+  it('applies current snap target, reacts only to target changes, and unsubscribes', () => {
+    const source = new FakeGeoJSONSource();
+    const map = mapWithSource(source);
+    const snapTarget = {
+      kind: 'vertex' as const,
+      entityId: 'lane-1',
+      entityType: 'lane',
+      point: { x: 1, y: 2 },
+    };
+    useUIStore.getState().setSnapTarget(snapTarget);
+
+    const unsubscribe = installSnapIndicatorLayer(map as never, { current: true });
+
+    expect(source.setData).toHaveBeenCalledTimes(1);
+    expect(source.setData).toHaveBeenCalledWith(snapTargetFeatureCollection(snapTarget));
+
+    useUIStore.setState({ layerStates: { ...useUIStore.getState().layerStates } });
+    expect(source.setData).toHaveBeenCalledTimes(1);
+
+    useUIStore.getState().setSnapTarget(null);
+    expect(source.setData).toHaveBeenCalledTimes(2);
+    expect(source.setData).toHaveBeenLastCalledWith({ type: 'FeatureCollection', features: [] });
+
+    unsubscribe();
+    useUIStore.getState().setSnapTarget(snapTarget);
+    expect(source.setData).toHaveBeenCalledTimes(2);
   });
 });

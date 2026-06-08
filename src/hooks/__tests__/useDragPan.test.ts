@@ -11,8 +11,9 @@
  * (dragPanDisabledRef — avoid redundant enable/disable calls).
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
+  installDragPanSync,
   shouldDisableDragPan as shouldDisable,
   shouldDisableDragPanForSnapshot,
 } from '../useDragPan';
@@ -275,5 +276,86 @@ describe('state transition scenarios', () => {
         { state: 'drawPolyline', isDraggingHandle: false },
       ]),
     ).toEqual(['disable', 'enable']);
+  });
+});
+
+describe('installDragPanSync', () => {
+  function actorStub(initialState = 'idle') {
+    let snapshot = {
+      value: initialState,
+      context: { selectedEntityId: null, isDraggingHandle: false },
+    };
+    let listener: (() => void) | null = null;
+    const unsubscribe = vi.fn();
+    return {
+      getSnapshot: vi.fn(() => snapshot),
+      subscribe: vi.fn((fn: () => void) => {
+        listener = fn;
+        return { unsubscribe };
+      }),
+      setSnapshot(next: typeof snapshot) {
+        snapshot = next;
+        listener?.();
+      },
+      unsubscribe,
+    };
+  }
+
+  it('disables and enables map dragPan across actor transitions', () => {
+    const actor = actorStub('idle');
+    const map = { dragPan: { disable: vi.fn(), enable: vi.fn() } };
+    const disabledRef = { current: false };
+
+    const cleanup = installDragPanSync(map as never, actor as never, disabledRef);
+    expect(map.dragPan.disable).not.toHaveBeenCalled();
+    expect(map.dragPan.enable).not.toHaveBeenCalled();
+
+    actor.setSnapshot({
+      value: 'editingPoint',
+      context: { selectedEntityId: null, isDraggingHandle: false },
+    });
+    expect(disabledRef.current).toBe(true);
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+
+    actor.setSnapshot({
+      value: 'idle',
+      context: { selectedEntityId: null, isDraggingHandle: false },
+    });
+    expect(disabledRef.current).toBe(false);
+    expect(map.dragPan.enable).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    expect(actor.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('reacts to boundary brush UI changes and skips redundant calls', () => {
+    const actor = actorStub('idle');
+    const map = { dragPan: { disable: vi.fn(), enable: vi.fn() } };
+    const disabledRef = { current: false };
+
+    const cleanup = installDragPanSync(map as never, actor as never, disabledRef);
+
+    useUIStore.getState().toggleBoundaryBrush();
+    expect(disabledRef.current).toBe(true);
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+
+    actor.setSnapshot({
+      value: 'drawBezier',
+      context: { selectedEntityId: null, isDraggingHandle: false },
+    });
+    expect(map.dragPan.disable).toHaveBeenCalledTimes(1);
+
+    useUIStore.getState().exitBoundaryBrush();
+    expect(disabledRef.current).toBe(true);
+    expect(map.dragPan.enable).not.toHaveBeenCalled();
+
+    actor.setSnapshot({
+      value: 'idle',
+      context: { selectedEntityId: null, isDraggingHandle: false },
+    });
+    expect(disabledRef.current).toBe(false);
+    expect(map.dragPan.enable).toHaveBeenCalledTimes(1);
+
+    cleanup();
   });
 });

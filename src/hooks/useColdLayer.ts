@@ -60,6 +60,14 @@ function withPromotedFeatureId(feature: GeoJSON.Feature): GeoJSON.Feature {
   return { ...feature, properties: { ...feature.properties, featureId: id } };
 }
 
+function bucketNeedsPromotedFeatureIds(features: GeoJSON.Feature[]): boolean {
+  for (const feature of features) {
+    const id = featureId(feature);
+    if (id != null && feature.properties?.featureId !== id) return true;
+  }
+  return false;
+}
+
 function setColdSourceData(
   src: maplibregl.GeoJSONSource,
   features: GeoJSON.Feature[],
@@ -92,11 +100,21 @@ export async function rebuildColdSourceFromCache(
   await setColdSourceData(src, []);
   let chunk: GeoJSON.Feature[] = [];
   for (const bucket of cache.values()) {
-    for (const feature of bucket) {
-      chunk.push(withPromotedFeatureId(feature));
-      if (chunk.length >= SOURCE_UPDATE_CHUNK_SIZE) {
-        await updateColdSourceChunk(src, { add: chunk });
-        chunk = [];
+    if (bucketNeedsPromotedFeatureIds(bucket)) {
+      for (const feature of bucket) {
+        chunk.push(withPromotedFeatureId(feature));
+        if (chunk.length >= SOURCE_UPDATE_CHUNK_SIZE) {
+          await updateColdSourceChunk(src, { add: chunk });
+          chunk = [];
+        }
+      }
+    } else {
+      for (let i = 0; i < bucket.length; i++) {
+        chunk.push(bucket[i]!);
+        if (chunk.length >= SOURCE_UPDATE_CHUNK_SIZE) {
+          await updateColdSourceChunk(src, { add: chunk });
+          chunk = [];
+        }
       }
     }
   }
@@ -428,6 +446,18 @@ function setupColdLayerSync({
     map.off('load', onLoad);
   };
 }
+
+export const __coldLayerInternals = {
+  applyColdSelectionFilter,
+  syncAllColdFeatures,
+  applyIncrementalColdSync,
+  applyColdDeltaResult,
+  applyColdReadyResult,
+  syncColdLayer,
+  cancelScheduledSync,
+  unsubscribeColdLayer,
+  setupColdLayerSync,
+};
 
 export function useColdLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,

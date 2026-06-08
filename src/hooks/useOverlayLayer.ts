@@ -171,7 +171,7 @@ export function buildOverlayFeatures(renderState: OverlayRenderState): GeoJSON.F
   return builder ? builder(renderState) : [];
 }
 
-function snapTargetFeatureCollection(target: SnapTarget): GeoJSON.FeatureCollection {
+export function snapTargetFeatureCollection(target: SnapTarget): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
@@ -188,6 +188,35 @@ function snapTargetFeatureCollection(target: SnapTarget): GeoJSON.FeatureCollect
   };
 }
 
+export function applySnapIndicatorSource(
+  map: maplibregl.Map,
+  mapLoaded: boolean,
+  target: SnapTarget | null,
+) {
+  if (!mapLoaded) return;
+  const src = map.getSource('snap') as maplibregl.GeoJSONSource | undefined;
+  if (!src) return;
+  src.setData(target ? snapTargetFeatureCollection(target) : EMPTY_FC);
+}
+
+export function installSnapIndicatorLayer(
+  map: maplibregl.Map,
+  mapLoadedRef: React.RefObject<boolean>,
+): () => void {
+  const apply = (target: SnapTarget | null) =>
+    applySnapIndicatorSource(map, mapLoadedRef.current, target);
+
+  // Local imperative call that pushes snap geometry into the map source —
+  // not a parent callback. The rule's heuristic misreads it.
+  // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
+  apply(useUIStore.getState().currentSnapTarget);
+  return useUIStore.subscribe((s, prev) => {
+    if (s.currentSnapTarget !== prev.currentSnapTarget) {
+      apply(s.currentSnapTarget);
+    }
+  });
+}
+
 function useSnapIndicatorLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,
   mapLoadedRef: React.RefObject<boolean>,
@@ -199,26 +228,104 @@ function useSnapIndicatorLayer(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    const apply = (target: SnapTarget | null) => {
-      if (!mapLoadedRef.current) return;
-      const src = map.getSource('snap') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-      src.setData(target ? snapTargetFeatureCollection(target) : EMPTY_FC);
-    };
-
-    // Local imperative call that pushes snap geometry into the map source —
-    // not a parent callback. The rule's heuristic misreads it.
-    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
-    apply(useUIStore.getState().currentSnapTarget);
-    const unsub = useUIStore.subscribe((s, prev) => {
-      if (s.currentSnapTarget !== prev.currentSnapTarget) {
-        apply(s.currentSnapTarget);
-      }
-    });
-
-    return unsub;
+    return installSnapIndicatorLayer(map, mapLoadedRef);
   }, [mapLoadedRef, mapRef]);
+}
+
+function overlayRenderStateFromSnapshot(
+  snapshot: ReturnType<ActorRefFrom<typeof editorMachine>['getSnapshot']>,
+): OverlayRenderState {
+  const activeEntityType = entityTypeForDrawState(
+    snapshot.value as string,
+    snapshot.context.activeElement ?? null,
+  );
+  return {
+    currentState: snapshot.value as string,
+    drawPoints: snapshot.context.drawPoints,
+    previewPoint: snapshot.context.previewPoint,
+    bezierAnchors: snapshot.context.bezierAnchors,
+    canRenderOverlay: activeEntityType
+      ? isEntityTypeInteractive(useUIStore.getState().layerStates, activeEntityType)
+      : true,
+  };
+}
+
+export function renderOverlayFrame({
+  map,
+  mapLoaded,
+  actorRef,
+  lastRenderState,
+}: {
+  map: maplibregl.Map;
+  mapLoaded: boolean;
+  actorRef: ActorRefFrom<typeof editorMachine>;
+  lastRenderState: OverlayRenderState | null;
+}): OverlayRenderState | null {
+  if (!mapLoaded) return lastRenderState;
+
+  const src = map.getSource('overlay') as maplibregl.GeoJSONSource | undefined;
+  if (!src) return lastRenderState;
+
+  const nextState = overlayRenderStateFromSnapshot(actorRef.getSnapshot());
+
+  if (sameOverlayRenderState(lastRenderState, nextState)) return lastRenderState;
+
+  if (!isDrawingState(nextState.currentState) || !nextState.canRenderOverlay) {
+    src.setData(EMPTY_FC);
+    return nextState;
+  }
+
+  src.setData({
+    type: 'FeatureCollection',
+    features: buildOverlayFeatures(nextState),
+  });
+  return nextState;
+}
+
+export function installOverlayLayer(
+  map: maplibregl.Map,
+  mapLoadedRef: React.RefObject<boolean>,
+  actorRef: ActorRefFrom<typeof editorMachine>,
+): () => void {
+  let frameId: number | null = null;
+  let lastRenderState: OverlayRenderState | null = null;
+
+  const renderOverlayLayer = () => {
+    frameId = null;
+    lastRenderState = renderOverlayFrame({
+      map,
+      mapLoaded: mapLoadedRef.current,
+      actorRef,
+      lastRenderState,
+    });
+  };
+
+  const scheduleRender = () => {
+    if (frameId !== null) return;
+    frameId = requestAnimationFrame(renderOverlayLayer);
+  };
+
+  const actorSubscription = actorRef.subscribe(scheduleRender);
+  const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
+    if (state.layerStates !== prevState.layerStates) {
+      scheduleRender();
+    }
+  });
+
+  if (mapLoadedRef.current) {
+    scheduleRender();
+  } else {
+    map.once('load', scheduleRender);
+  }
+
+  return () => {
+    actorSubscription.unsubscribe();
+    unsubscribeUI();
+    map.off('load', scheduleRender);
+    if (frameId !== null) {
+      cancelAnimationFrame(frameId);
+    }
+  };
 }
 
 export function useOverlayLayer(
@@ -229,72 +336,7 @@ export function useOverlayLayer(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    let frameId: number | null = null;
-    let lastRenderState: OverlayRenderState | null = null;
-
-    const renderOverlayLayer = () => {
-      frameId = null;
-      if (!mapLoadedRef.current) return;
-
-      const src = map.getSource('overlay') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-
-      const snapshot = actorRef.getSnapshot();
-      const activeEntityType = entityTypeForDrawState(
-        snapshot.value as string,
-        snapshot.context.activeElement ?? null,
-      );
-      const nextState: OverlayRenderState = {
-        currentState: snapshot.value as string,
-        drawPoints: snapshot.context.drawPoints,
-        previewPoint: snapshot.context.previewPoint,
-        bezierAnchors: snapshot.context.bezierAnchors,
-        canRenderOverlay: activeEntityType
-          ? isEntityTypeInteractive(useUIStore.getState().layerStates, activeEntityType)
-          : true,
-      };
-
-      if (sameOverlayRenderState(lastRenderState, nextState)) return;
-      lastRenderState = nextState;
-
-      if (!isDrawingState(nextState.currentState) || !nextState.canRenderOverlay) {
-        src.setData(EMPTY_FC);
-        return;
-      }
-
-      src.setData({
-        type: 'FeatureCollection',
-        features: buildOverlayFeatures(nextState),
-      });
-    };
-
-    const scheduleRender = () => {
-      if (frameId !== null) return;
-      frameId = requestAnimationFrame(renderOverlayLayer);
-    };
-
-    const actorSubscription = actorRef.subscribe(scheduleRender);
-    const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
-      if (state.layerStates !== prevState.layerStates) {
-        scheduleRender();
-      }
-    });
-
-    if (mapLoadedRef.current) {
-      scheduleRender();
-    } else {
-      map.once('load', scheduleRender);
-    }
-
-    return () => {
-      actorSubscription.unsubscribe();
-      unsubscribeUI();
-      map.off('load', scheduleRender);
-      if (frameId !== null) {
-        cancelAnimationFrame(frameId);
-      }
-    };
+    return installOverlayLayer(map, mapLoadedRef, actorRef);
   }, [actorRef, mapLoadedRef, mapRef]);
 
   useSnapIndicatorLayer(mapRef, mapLoadedRef);

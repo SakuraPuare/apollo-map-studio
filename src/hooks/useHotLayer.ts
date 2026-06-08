@@ -47,6 +47,128 @@ function canRenderHotEntity(entity: MapEntity, layerStates: LayerStates): boolea
   return isEntityTypeInteractive(layerStates, entity.entityType);
 }
 
+export function hotRenderStateFromSnapshot(
+  snapshot: ReturnType<ActorRefFrom<typeof editorMachine>['getSnapshot']>,
+): HotRenderState {
+  const selectedEntityId = snapshot.context.selectedEntityId;
+  const entity = selectedEntityId
+    ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
+    : null;
+  const layerStates = useUIStore.getState().layerStates;
+  return {
+    selectedEntityId,
+    entity,
+    isEditingPoint: snapshot.value === 'editingPoint',
+    dragPointIndex: snapshot.context.dragPointIndex,
+    dragPointType: snapshot.context.dragPointType,
+    dragCurrentPoint: snapshot.context.dragCurrentPoint,
+    dragAltKey: snapshot.context.dragAltKey,
+    canRenderEntity: entity ? canRenderHotEntity(entity, layerStates) : false,
+  };
+}
+
+export function hotDisplayEntity(state: HotRenderState): MapEntity | null {
+  if (!state.entity) return null;
+  return state.isEditingPoint &&
+    state.dragCurrentPoint &&
+    (state.dragPointIndex >= 0 ||
+      state.dragPointType === 'rotate' ||
+      state.dragPointType === 'center')
+    ? applyDrag(
+        state.entity,
+        state.dragPointIndex,
+        state.dragPointType,
+        state.dragCurrentPoint,
+        state.dragAltKey,
+      )
+    : state.entity;
+}
+
+export function renderHotFrame({
+  map,
+  mapLoaded,
+  actorRef,
+  lastRenderState,
+}: {
+  map: maplibregl.Map;
+  mapLoaded: boolean;
+  actorRef: ActorRefFrom<typeof editorMachine>;
+  lastRenderState: HotRenderState | null;
+}): HotRenderState | null {
+  if (!mapLoaded) return lastRenderState;
+
+  const src = map.getSource('hot') as maplibregl.GeoJSONSource | undefined;
+  if (!src) return lastRenderState;
+
+  const nextState = hotRenderStateFromSnapshot(actorRef.getSnapshot());
+
+  if (sameHotRenderState(lastRenderState, nextState)) return lastRenderState;
+
+  if (!nextState.selectedEntityId || !nextState.entity || !nextState.canRenderEntity) {
+    src.setData(EMPTY_FC);
+    return nextState;
+  }
+
+  const displayEntity = hotDisplayEntity(nextState);
+  src.setData({
+    type: 'FeatureCollection',
+    features: displayEntity ? entityToHotFeatures(displayEntity) : [],
+  });
+  return nextState;
+}
+
+export function installHotLayer(
+  map: maplibregl.Map,
+  mapLoadedRef: React.RefObject<boolean>,
+  actorRef: ActorRefFrom<typeof editorMachine>,
+): () => void {
+  let frameId: number | null = null;
+  let lastRenderState: HotRenderState | null = null;
+
+  const renderHotLayer = () => {
+    frameId = null;
+    lastRenderState = renderHotFrame({
+      map,
+      mapLoaded: mapLoadedRef.current,
+      actorRef,
+      lastRenderState,
+    });
+  };
+
+  const scheduleRender = () => {
+    if (frameId !== null) return;
+    frameId = requestAnimationFrame(renderHotLayer);
+  };
+
+  const actorSubscription = actorRef.subscribe(scheduleRender);
+  const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
+    if (state.entities !== prevState.entities) {
+      scheduleRender();
+    }
+  });
+  const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
+    if (state.layerStates !== prevState.layerStates) {
+      scheduleRender();
+    }
+  });
+
+  if (mapLoadedRef.current) {
+    scheduleRender();
+  } else {
+    map.once('load', scheduleRender);
+  }
+
+  return () => {
+    actorSubscription.unsubscribe();
+    unsubscribeStore();
+    unsubscribeUI();
+    map.off('load', scheduleRender);
+    if (frameId !== null) {
+      cancelAnimationFrame(frameId);
+    }
+  };
+}
+
 export function useHotLayer(
   mapRef: React.RefObject<maplibregl.Map | null>,
   mapLoadedRef: React.RefObject<boolean>,
@@ -55,91 +177,6 @@ export function useHotLayer(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    let frameId: number | null = null;
-    let lastRenderState: HotRenderState | null = null;
-
-    const renderHotLayer = () => {
-      frameId = null;
-      if (!mapLoadedRef.current) return;
-
-      const src = map.getSource('hot') as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
-
-      const snapshot = actorRef.getSnapshot();
-      const selectedEntityId = snapshot.context.selectedEntityId;
-      const entity = selectedEntityId
-        ? (useMapStore.getState().entities.get(selectedEntityId) ?? null)
-        : null;
-      const layerStates = useUIStore.getState().layerStates;
-      const nextState: HotRenderState = {
-        selectedEntityId,
-        entity,
-        isEditingPoint: snapshot.value === 'editingPoint',
-        dragPointIndex: snapshot.context.dragPointIndex,
-        dragPointType: snapshot.context.dragPointType,
-        dragCurrentPoint: snapshot.context.dragCurrentPoint,
-        dragAltKey: snapshot.context.dragAltKey,
-        canRenderEntity: entity ? canRenderHotEntity(entity, layerStates) : false,
-      };
-
-      if (sameHotRenderState(lastRenderState, nextState)) return;
-      lastRenderState = nextState;
-
-      if (!selectedEntityId || !entity || !nextState.canRenderEntity) {
-        src.setData(EMPTY_FC);
-        return;
-      }
-
-      const displayEntity =
-        nextState.isEditingPoint &&
-        nextState.dragCurrentPoint &&
-        (nextState.dragPointIndex >= 0 ||
-          nextState.dragPointType === 'rotate' ||
-          nextState.dragPointType === 'center')
-          ? applyDrag(
-              entity,
-              nextState.dragPointIndex,
-              nextState.dragPointType,
-              nextState.dragCurrentPoint,
-              nextState.dragAltKey,
-            )
-          : entity;
-
-      src.setData({ type: 'FeatureCollection', features: entityToHotFeatures(displayEntity) });
-    };
-
-    const scheduleRender = () => {
-      if (frameId !== null) return;
-      frameId = requestAnimationFrame(renderHotLayer);
-    };
-
-    const actorSubscription = actorRef.subscribe(scheduleRender);
-    const unsubscribeStore = useMapStore.subscribe((state, prevState) => {
-      if (state.entities !== prevState.entities) {
-        scheduleRender();
-      }
-    });
-    const unsubscribeUI = useUIStore.subscribe((state, prevState) => {
-      if (state.layerStates !== prevState.layerStates) {
-        scheduleRender();
-      }
-    });
-
-    if (mapLoadedRef.current) {
-      scheduleRender();
-    } else {
-      map.once('load', scheduleRender);
-    }
-
-    return () => {
-      actorSubscription.unsubscribe();
-      unsubscribeStore();
-      unsubscribeUI();
-      map.off('load', scheduleRender);
-      if (frameId !== null) {
-        cancelAnimationFrame(frameId);
-      }
-    };
+    return installHotLayer(map, mapLoadedRef, actorRef);
   }, [actorRef, mapLoadedRef, mapRef]);
 }

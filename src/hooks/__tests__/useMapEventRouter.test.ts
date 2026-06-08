@@ -14,17 +14,24 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { isDuplicateInput } from '../useMapEventRouter';
+import { installMapEventRouter, isDuplicateInput } from '../useMapEventRouter';
 import { isDrawingState } from '@/core/fsm/editorMachine';
 import { HIT_BBOX_PADDING_PX } from '@/config/mapConstants';
 import { useUIStore } from '@/store/uiStore';
+import { useMapStore } from '@/store/mapStore';
 import { workerHitTest } from '../mapEventRouter/hitTest';
 import { createMapEventHandlers, createRouterContext } from '../mapEventRouter/eventHandlers';
+import type { LaneEntity } from '@/types/apollo';
+import type { PolylineEntity } from '@/types/entities';
+
+type RenderedFeatureStub = { properties?: Record<string, unknown> };
 
 const initialUISnapshot = useUIStore.getState();
 
 beforeEach(() => {
   useUIStore.setState(initialUISnapshot, true);
+  useMapStore.setState({ entities: new Map() });
+  useMapStore.temporal.getState().clear();
 });
 
 // ---------------------------------------------------------------------------
@@ -158,8 +165,140 @@ describe('workerHitTest layer state filtering', () => {
   });
 });
 
+describe('installMapEventRouter lifecycle', () => {
+  function actorStub() {
+    return {
+      getSnapshot: vi.fn(() => ({
+        value: 'idle',
+        context: {
+          selectedEntityId: null,
+          activeElement: null,
+          drawPoints: [],
+          bezierAnchors: [],
+          dragPointType: 'vertex',
+          dragPointIndex: -1,
+          dragAltKey: false,
+        },
+      })),
+      send: vi.fn(),
+    };
+  }
+
+  function mapStub() {
+    return {
+      on: vi.fn(),
+      off: vi.fn(),
+      getZoom: vi.fn(() => 17.25),
+      getCanvas: vi.fn(() => ({ style: { cursor: '' } })),
+      dragPan: { disable: vi.fn(), enable: vi.fn() },
+      queryRenderedFeatures: vi.fn(() => []),
+    };
+  }
+
+  function stubWindowListeners() {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+    vi.stubGlobal('window', { addEventListener, removeEventListener });
+    return { addEventListener, removeEventListener };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('registers map and keyboard handlers and cleans up the same handlers', () => {
+    const map = mapStub();
+    const actor = actorStub();
+    const bridgeRef = { current: null };
+    const win = stubWindowListeners();
+
+    const dispose = installMapEventRouter(map as never, actor as never, bridgeRef, 'drawing');
+
+    expect(dispose).toEqual(expect.any(Function));
+    expect(useUIStore.getState().currentZoom).toBe(17.25);
+    expect(map.on).toHaveBeenCalledTimes(6);
+    expect(map.on).toHaveBeenCalledWith('mousedown', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('click', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mousemove', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('mouseup', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('dblclick', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('zoomend', expect.any(Function));
+    expect(win.addEventListener).toHaveBeenCalledWith('keydown', expect.any(Function));
+
+    dispose!();
+
+    expect(map.off).toHaveBeenCalledTimes(6);
+    for (const [eventName, handler] of map.on.mock.calls) {
+      expect(map.off).toHaveBeenCalledWith(eventName, handler);
+    }
+    expect(win.removeEventListener).toHaveBeenCalledWith(
+      'keydown',
+      win.addEventListener.mock.calls[0]![1],
+    );
+  });
+
+  it('does not install listeners in scene mode', () => {
+    const map = mapStub();
+    const win = stubWindowListeners();
+
+    const dispose = installMapEventRouter(
+      map as never,
+      actorStub() as never,
+      { current: null },
+      'scene',
+    );
+
+    expect(dispose).toBeUndefined();
+    expect(map.on).not.toHaveBeenCalled();
+    expect(win.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it('clears stale snap target when snapping is disabled while installed', () => {
+    const map = mapStub();
+    stubWindowListeners();
+    useUIStore.getState().setSnapTarget({ kind: 'vertex', point: [1, 2] } as never);
+    useUIStore.getState().setSnapEnabled(true);
+
+    const dispose = installMapEventRouter(
+      map as never,
+      actorStub() as never,
+      { current: null },
+      'drawing',
+    );
+    useUIStore.getState().setSnapEnabled(false);
+
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+    dispose!();
+  });
+});
+
 describe('drawing mouse button routing', () => {
-  function actorStub(state = 'drawPolyline') {
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  type ActorContext = {
+    drawPoints: unknown[];
+    previewPoint: unknown | null;
+    bezierAnchors: unknown[];
+    isDraggingHandle: boolean;
+    selectedEntityId: string | null;
+    dragPointIndex: number;
+    dragPointType: 'vertex' | 'center' | 'handleIn' | 'handleOut' | 'rotate';
+    dragCurrentPoint: unknown | null;
+    dragAltKey: boolean;
+    activeElement: null;
+  };
+
+  function actorStub(state = 'drawPolyline', context: Partial<ActorContext> = {}) {
     return {
       getSnapshot: vi.fn(() => ({
         value: state,
@@ -174,6 +313,7 @@ describe('drawing mouse button routing', () => {
           dragCurrentPoint: null,
           dragAltKey: false,
           activeElement: null,
+          ...context,
         },
       })),
       send: vi.fn(),
@@ -188,9 +328,64 @@ describe('drawing mouse button routing', () => {
       panBy: vi.fn(),
       getCanvas: vi.fn(() => canvas),
       getZoom: vi.fn(() => 18),
-      queryRenderedFeatures: vi.fn(() => []),
+      queryRenderedFeatures: vi.fn((): RenderedFeatureStub[] => []),
     };
     return { map, canvas, dragPan };
+  }
+
+  function laneAt(id: string, start: [number, number], end: [number, number]): LaneEntity {
+    return {
+      id,
+      entityType: 'lane',
+      centralCurve: {
+        segments: [
+          {
+            lineSegment: {
+              points: [
+                { x: start[0], y: start[1] },
+                { x: end[0], y: end[1] },
+              ],
+            },
+            s: 0,
+            startPosition: { x: start[0], y: start[1] },
+            heading: 0,
+            length: 111,
+          },
+        ],
+      },
+      leftBoundary: { curve: { segments: [] }, length: 111, boundaryType: [] },
+      rightBoundary: { curve: { segments: [] }, length: 111, boundaryType: [] },
+      length: 111,
+      type: 'CITY_DRIVING',
+      turn: 'NO_TURN',
+      direction: 'FORWARD',
+      speedLimit: 0,
+      predecessorIds: [],
+      successorIds: [],
+      leftNeighborForwardIds: [],
+      rightNeighborForwardIds: [],
+      leftNeighborReverseIds: [],
+      rightNeighborReverseIds: [],
+      selfReverseLaneIds: [],
+      junctionId: null,
+      overlapIds: [],
+      leftSamples: [{ s: 0, width: 0 }],
+      rightSamples: [{ s: 0, width: 0 }],
+      leftRoadSamples: [],
+      rightRoadSamples: [],
+    };
+  }
+
+  function polyline(): PolylineEntity {
+    return {
+      id: 'line-1',
+      entityType: 'polyline',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+        { x: 2, y: 2 },
+      ],
+    };
   }
 
   let timeStamp = 0;
@@ -199,17 +394,19 @@ describe('drawing mouse button routing', () => {
     buttons = 0,
     x = 10,
     y = 20,
+    altKey = false,
   }: {
     button?: number;
     buttons?: number;
     x?: number;
     y?: number;
+    altKey?: boolean;
   } = {}) {
     return {
       point: { x, y },
       lngLat: { lng: x, lat: y },
       originalEvent: {
-        altKey: false,
+        altKey,
         button,
         buttons,
         timeStamp: ++timeStamp,
@@ -229,6 +426,28 @@ describe('drawing mouse button routing', () => {
       handlers: createMapEventHandlers(ctx),
       map,
     };
+  }
+
+  function setupWithContext(
+    state: string,
+    context: Partial<ActorContext> = {},
+    bridge: unknown = null,
+  ) {
+    const actorRef = actorStub(state, context);
+    const { map, canvas, dragPan } = mapStub();
+    const ctx = createRouterContext(map as never, actorRef as never, { current: bridge as never });
+    return {
+      actorRef,
+      canvas,
+      dragPan,
+      handlers: createMapEventHandlers(ctx),
+      map,
+    };
+  }
+
+  async function flushAsync() {
+    await Promise.resolve();
+    await Promise.resolve();
   }
 
   it('only primary click places drawPolyline points', () => {
@@ -263,6 +482,500 @@ describe('drawing mouse button routing', () => {
     expect(dragPan.enable).toHaveBeenCalledTimes(1);
     expect(canvas.style.cursor).toBe('crosshair');
     expect(actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('restores middle-pan cursor and dragPan for boundary brush, editing, and selected line states', () => {
+    const boundary = setupWithContext('drawPolyline');
+    const boundaryDown = mouseEvent({ button: 1, buttons: 4, x: 1, y: 1 });
+    boundary.handlers.onMouseDown(boundaryDown as never);
+    useUIStore.getState().setBoundaryBrushType('DOUBLE_YELLOW');
+    boundary.handlers.onMouseUp(mouseEvent({ button: 1, x: 1, y: 1 }) as never);
+    expect(boundary.canvas.style.cursor).toBe('crosshair');
+    useUIStore.getState().exitBoundaryBrush();
+
+    const editing = setupWithContext('drawPolyline');
+    editing.handlers.onMouseDown(mouseEvent({ button: 1, buttons: 4, x: 1, y: 1 }) as never);
+    editing.actorRef.getSnapshot.mockReturnValue({
+      value: 'editingPoint',
+      context: {
+        drawPoints: [],
+        previewPoint: null,
+        bezierAnchors: [],
+        isDraggingHandle: false,
+        selectedEntityId: null,
+        dragPointIndex: -1,
+        dragPointType: 'vertex',
+        dragCurrentPoint: null,
+        dragAltKey: false,
+        activeElement: null,
+      },
+    });
+    editing.handlers.onMouseUp(mouseEvent({ button: 1, x: 1, y: 1 }) as never);
+    expect(editing.canvas.style.cursor).toBe('grabbing');
+
+    const line = polyline();
+    useMapStore.setState({ entities: new Map([[line.id, line]]) });
+    const selected = setupWithContext('drawPolyline');
+    selected.handlers.onMouseDown(mouseEvent({ button: 1, buttons: 4, x: 1, y: 1 }) as never);
+    selected.actorRef.getSnapshot.mockReturnValue({
+      value: 'selected',
+      context: {
+        drawPoints: [],
+        previewPoint: null,
+        bezierAnchors: [],
+        isDraggingHandle: false,
+        selectedEntityId: line.id,
+        dragPointIndex: -1,
+        dragPointType: 'center',
+        dragCurrentPoint: null,
+        dragAltKey: false,
+        activeElement: null,
+      },
+    });
+    selected.handlers.onMouseUp(mouseEvent({ button: 1, x: 1, y: 1 }) as never);
+    expect(selected.dragPan.disable).toHaveBeenCalled();
+    expect(selected.canvas.style.cursor).toBe('');
+  });
+
+  it('ends middle pan from mousemove when the middle button is no longer pressed', () => {
+    const { dragPan, handlers } = setup();
+
+    handlers.onMouseDown(mouseEvent({ button: 1, buttons: 4, x: 1, y: 1 }) as never);
+    const move = mouseEvent({ buttons: 0, x: 2, y: 2 });
+    handlers.onMouseMove(move as never);
+
+    expect(move.preventDefault).toHaveBeenCalled();
+    expect(dragPan.enable).toHaveBeenCalled();
+  });
+
+  it('routes selected and idle clicks through worker hit testing', async () => {
+    const selectedBridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'lane-1', entityType: 'lane', distance: 0 }],
+      }),
+    };
+    const selected = setupWithContext('selected', { selectedEntityId: 'lane-old' }, selectedBridge);
+
+    selected.handlers.onClick(mouseEvent({ button: 0, x: 8, y: 9 }) as never);
+    await flushAsync();
+
+    expect(selectedBridge.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'HIT_TEST', point: [8, 9] }),
+    );
+    expect(selected.actorRef.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: 'lane-1' });
+
+    const idleBridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'signal-1', entityType: 'signal', distance: 0 }],
+      }),
+    };
+    const idle = setupWithContext('idle', {}, idleBridge);
+
+    idle.handlers.onClick(mouseEvent({ button: 0, x: 4, y: 5 }) as never);
+    await flushAsync();
+
+    expect(idle.actorRef.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: 'signal-1' });
+  });
+
+  it('ignores async hit-test results after selected or idle state changes', async () => {
+    const selectedBridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'lane-1', entityType: 'lane', distance: 0 }],
+      }),
+    };
+    const selected = setupWithContext('selected', { selectedEntityId: 'lane-old' }, selectedBridge);
+    selected.actorRef.getSnapshot
+      .mockReturnValueOnce({
+        value: 'selected',
+        context: {
+          drawPoints: [],
+          previewPoint: null,
+          bezierAnchors: [],
+          isDraggingHandle: false,
+          selectedEntityId: 'lane-old',
+          dragPointIndex: -1,
+          dragPointType: 'center',
+          dragCurrentPoint: null,
+          dragAltKey: false,
+          activeElement: null,
+        },
+      })
+      .mockReturnValue({
+        value: 'idle',
+        context: {
+          drawPoints: [],
+          previewPoint: null,
+          bezierAnchors: [],
+          isDraggingHandle: false,
+          selectedEntityId: null,
+          dragPointIndex: -1,
+          dragPointType: 'vertex',
+          dragCurrentPoint: null,
+          dragAltKey: false,
+          activeElement: null,
+        },
+      });
+
+    selected.handlers.onClick(mouseEvent({ button: 0 }) as never);
+    await flushAsync();
+    expect(selected.actorRef.send).not.toHaveBeenCalledWith({
+      type: 'SELECT_ENTITY',
+      id: 'lane-1',
+    });
+
+    const idleBridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'signal-1', entityType: 'signal', distance: 0 }],
+      }),
+    };
+    const idle = setupWithContext('idle', {}, idleBridge);
+    idle.actorRef.getSnapshot
+      .mockReturnValueOnce({
+        value: 'idle',
+        context: {
+          drawPoints: [],
+          previewPoint: null,
+          bezierAnchors: [],
+          isDraggingHandle: false,
+          selectedEntityId: null,
+          dragPointIndex: -1,
+          dragPointType: 'vertex',
+          dragCurrentPoint: null,
+          dragAltKey: false,
+          activeElement: null,
+        },
+      })
+      .mockReturnValue({
+        value: 'selected',
+        context: {
+          drawPoints: [],
+          previewPoint: null,
+          bezierAnchors: [],
+          isDraggingHandle: false,
+          selectedEntityId: 'other',
+          dragPointIndex: -1,
+          dragPointType: 'center',
+          dragCurrentPoint: null,
+          dragAltKey: false,
+          activeElement: null,
+        },
+      });
+
+    idle.handlers.onClick(mouseEvent({ button: 0 }) as never);
+    await flushAsync();
+    expect(idle.actorRef.send).not.toHaveBeenCalledWith({
+      type: 'SELECT_ENTITY',
+      id: 'signal-1',
+    });
+  });
+
+  it('does not hit test or select entities from non-primary idle clicks', async () => {
+    const bridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'signal-1', entityType: 'signal', distance: 0 }],
+      }),
+    };
+    const idle = setupWithContext('idle', {}, bridge);
+
+    idle.handlers.onClick(mouseEvent({ button: 2, x: 4, y: 5 }) as never);
+    await flushAsync();
+
+    expect(bridge.send).not.toHaveBeenCalled();
+    expect(idle.actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('deselects selected entities on worker miss and ignores hot-point clicks', async () => {
+    const missBridge = {
+      send: vi.fn().mockResolvedValue({ type: 'HIT_RESULT', hits: [] }),
+    };
+    const selected = setupWithContext('selected', { selectedEntityId: 'lane-old' }, missBridge);
+
+    selected.handlers.onClick(mouseEvent({ button: 0 }) as never);
+    await flushAsync();
+
+    expect(selected.actorRef.send).toHaveBeenCalledWith({ type: 'DESELECT' });
+
+    const hotPointBridge = {
+      send: vi.fn().mockResolvedValue({ type: 'HIT_RESULT', hits: [] }),
+    };
+    const hotPoint = setupWithContext('selected', { selectedEntityId: 'lane-old' }, hotPointBridge);
+    hotPoint.map.queryRenderedFeatures.mockReturnValue([{ properties: { index: 0 } }]);
+
+    hotPoint.handlers.onClick(mouseEvent({ button: 0 }) as never);
+    await flushAsync();
+
+    expect(hotPointBridge.send).not.toHaveBeenCalled();
+    expect(hotPoint.actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('ignores click selection when the pointer moved past the click threshold', async () => {
+    const bridge = {
+      send: vi.fn().mockResolvedValue({
+        type: 'HIT_RESULT',
+        hits: [{ id: 'lane-1', entityType: 'lane', distance: 0 }],
+      }),
+    };
+    const { actorRef, handlers } = setupWithContext('idle', {}, bridge);
+
+    handlers.onMouseDown(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+    handlers.onClick(mouseEvent({ button: 0, x: 200, y: 200 }) as never);
+    await flushAsync();
+
+    expect(bridge.send).not.toHaveBeenCalled();
+    expect(actorRef.send).not.toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: 'lane-1' });
+  });
+
+  it('double click sends DOUBLE_CLICK for drawable layers and respects locked layers', () => {
+    const drawable = setupWithContext('drawPolygon');
+    const event = mouseEvent({ button: 0, x: 3, y: 4 });
+
+    drawable.handlers.onDblClick(event as never);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(drawable.actorRef.send).toHaveBeenCalledWith({
+      type: 'DOUBLE_CLICK',
+      point: [3, 4],
+    });
+
+    const nonPrimary = setupWithContext('drawPolygon');
+    nonPrimary.handlers.onDblClick(mouseEvent({ button: 2 }) as never);
+    expect(nonPrimary.actorRef.send).not.toHaveBeenCalled();
+
+    useUIStore.getState().setLayerLocked('polygon', true);
+    const locked = setupWithContext('drawPolygon');
+    locked.handlers.onDblClick(mouseEvent({ button: 0 }) as never);
+    expect(locked.actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates rapid draw clicks and routes drawBezier mousedown', () => {
+    const draw = setupWithContext('drawPolygon');
+    draw.handlers.onClick(mouseEvent({ button: 0, x: 4, y: 5 }) as never);
+    draw.handlers.onClick(mouseEvent({ button: 0, x: 4, y: 5 }) as never);
+
+    expect(draw.actorRef.send).toHaveBeenCalledTimes(1);
+    expect(draw.actorRef.send).toHaveBeenCalledWith({ type: 'MOUSE_DOWN', point: [4, 5] });
+
+    const bezier = setupWithContext('drawBezier');
+    bezier.handlers.onMouseDown(mouseEvent({ button: 0, x: 8, y: 9 }) as never);
+    expect(bezier.actorRef.send).toHaveBeenCalledWith({ type: 'MOUSE_DOWN', point: [8, 9] });
+  });
+
+  it('ignores editing-point clicks and mousedowns', () => {
+    const { actorRef, handlers } = setupWithContext('editingPoint');
+
+    handlers.onMouseDown(mouseEvent({ button: 0, x: 1, y: 2 }) as never);
+    handlers.onClick(mouseEvent({ button: 0, x: 1, y: 2 }) as never);
+
+    expect(actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('commits editing drags to the map store on mouse up', () => {
+    const entity = polyline();
+    useMapStore.setState({ entities: new Map([[entity.id, entity]]) });
+    const { actorRef, dragPan, handlers } = setupWithContext('editingPoint', {
+      selectedEntityId: entity.id,
+      dragPointIndex: 1,
+      dragPointType: 'vertex',
+    });
+
+    handlers.onMouseUp(mouseEvent({ button: 0, x: 9, y: 10 }) as never);
+
+    expect((useMapStore.getState().entities.get(entity.id) as PolylineEntity).points[1]).toEqual({
+      x: 9,
+      y: 10,
+    });
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'DRAG_END', point: [9, 10] });
+    expect(dragPan.disable).toHaveBeenCalled();
+  });
+
+  it('moves editing points on mouse move, clears snap target, and skips locked entity commits', () => {
+    const entity = polyline();
+    useMapStore.setState({ entities: new Map([[entity.id, entity]]) });
+    useUIStore.getState().setSnapTarget({
+      kind: 'vertex',
+      entityId: 'other',
+      entityType: 'polyline',
+      point: { x: 0, y: 0 },
+    });
+    const { actorRef, handlers } = setupWithContext('editingPoint', {
+      selectedEntityId: entity.id,
+      dragPointIndex: 2,
+      dragPointType: 'vertex',
+    });
+
+    handlers.onMouseMove(mouseEvent({ button: 0, x: 7, y: 8 }) as never);
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'DRAG_MOVE', point: [7, 8] });
+
+    useUIStore.getState().setLayerLocked('polyline', true);
+    handlers.onMouseUp(mouseEvent({ button: 0, x: 9, y: 10 }) as never);
+
+    expect((useMapStore.getState().entities.get(entity.id) as PolylineEntity).points[2]).toEqual({
+      x: 2,
+      y: 2,
+    });
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+  });
+
+  it('updates selected-state cursor and dragPan on mousemove', () => {
+    const entity = polyline();
+    useMapStore.setState({ entities: new Map([[entity.id, entity]]) });
+    useUIStore.getState().setSnapTarget({
+      kind: 'edge',
+      entityId: 'other',
+      entityType: 'polyline',
+      point: { x: 0, y: 0 },
+    });
+    const { canvas, dragPan, handlers, map } = setupWithContext('selected', {
+      selectedEntityId: entity.id,
+    });
+
+    handlers.onMouseMove(mouseEvent({ button: 0, x: 1, y: 1 }) as never);
+
+    expect(dragPan.disable).toHaveBeenCalled();
+    expect(canvas.style.cursor).toBe('grab');
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+
+    useUIStore.getState().setLayerLocked('polyline', true);
+    map.queryRenderedFeatures.mockReturnValue([{ properties: { index: 0 } }]);
+    handlers.onMouseMove(mouseEvent({ button: 0, x: 2, y: 2 }) as never);
+
+    expect(dragPan.enable).toHaveBeenCalled();
+    expect(canvas.style.cursor).toBe('grab');
+  });
+
+  it('clears snap target while idle and while drawing into a locked layer', () => {
+    useUIStore.getState().setSnapTarget({
+      kind: 'vertex',
+      entityId: 'other',
+      entityType: 'polyline',
+      point: { x: 0, y: 0 },
+    });
+    const idle = setupWithContext('idle');
+    idle.handlers.onMouseMove(mouseEvent({ button: 0 }) as never);
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+
+    useUIStore.getState().setSnapTarget({
+      kind: 'vertex',
+      entityId: 'other',
+      entityType: 'polygon',
+      point: { x: 0, y: 0 },
+    });
+    useUIStore.getState().setLayerVisible('polygon', false);
+    const draw = setupWithContext('drawPolygon');
+    draw.handlers.onMouseMove(mouseEvent({ button: 0, x: 5, y: 6 }) as never);
+    draw.handlers.onClick(mouseEvent({ button: 0, x: 5, y: 6 }) as never);
+
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+    expect(draw.actorRef.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MOUSE_MOVE' }),
+    );
+    expect(draw.actorRef.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MOUSE_DOWN' }),
+    );
+  });
+
+  it('sends drawing mouseup for primary buttons and ignores non-primary drawing mouseup', () => {
+    const draw = setupWithContext('drawPolygon');
+    draw.handlers.onMouseUp(mouseEvent({ button: 2, x: 1, y: 2 }) as never);
+    expect(draw.actorRef.send).not.toHaveBeenCalled();
+
+    draw.handlers.onMouseUp(mouseEvent({ button: 0, x: 3, y: 4 }) as never);
+    expect(draw.actorRef.send).toHaveBeenCalledWith({ type: 'MOUSE_UP', point: [3, 4] });
+
+    const selected = setupWithContext('selected');
+    selected.handlers.onMouseUp(mouseEvent({ button: 2, x: 5, y: 6 }) as never);
+    expect(selected.actorRef.send).toHaveBeenCalledWith({ type: 'MOUSE_UP', point: [5, 6] });
+  });
+
+  it('shows boundary-brush cursor on hover and ignores non-primary brush mousedown', () => {
+    useUIStore.getState().setSnapTarget({
+      kind: 'vertex',
+      entityId: 'other',
+      entityType: 'lane',
+      point: { x: 0, y: 0 },
+    });
+    useUIStore.getState().setBoundaryBrushType('CURB');
+    const { actorRef, canvas, dragPan, handlers } = setupWithContext('idle');
+
+    handlers.onMouseMove(mouseEvent({ x: 10, y: 10 }) as never);
+    expect(canvas.style.cursor).toBe('crosshair');
+    expect(useUIStore.getState().currentSnapTarget).toBeNull();
+
+    handlers.onMouseDown(mouseEvent({ button: 2, x: 10, y: 10 }) as never);
+    expect(dragPan.disable).not.toHaveBeenCalled();
+    expect(actorRef.send).not.toHaveBeenCalled();
+  });
+
+  it('paints lane boundaries with the boundary brush and keeps drag pan disabled', () => {
+    const lane = laneAt('lane-1', [0, 0], [0.001, 0]);
+    useMapStore.setState({ entities: new Map([[lane.id, lane]]) });
+    useUIStore.getState().setBoundaryBrushType('CURB');
+    const { actorRef, canvas, dragPan, handlers } = setupWithContext('idle');
+
+    handlers.onMouseDown(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+    handlers.onMouseUp(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+
+    const updated = useMapStore.getState().entities.get(lane.id) as LaneEntity;
+    expect(updated.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['CURB'] }]);
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: lane.id });
+    expect(dragPan.disable).toHaveBeenCalled();
+    expect(canvas.style.cursor).toBe('crosshair');
+  });
+
+  it('handles boundary-brush misses and duplicate hits without repeat updates', () => {
+    const lane = laneAt('lane-1', [0, 0], [0.001, 0]);
+    useMapStore.setState({ entities: new Map([[lane.id, lane]]) });
+    useUIStore.getState().setBoundaryBrushType('CURB');
+    const { actorRef, handlers } = setupWithContext('idle');
+
+    handlers.onMouseDown(mouseEvent({ button: 0, x: 10, y: 10 }) as never);
+    expect(useMapStore.getState().entities.get(lane.id)).toBe(lane);
+    expect(actorRef.send).not.toHaveBeenCalled();
+
+    handlers.onMouseMove(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+    const once = useMapStore.getState().entities.get(lane.id) as LaneEntity;
+    handlers.onMouseMove(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+    expect(useMapStore.getState().entities.get(lane.id)).toBe(once);
+    expect(actorRef.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores drag pan when boundary brush is released after being disabled', () => {
+    const lane = laneAt('lane-1', [0, 0], [0.001, 0]);
+    useMapStore.setState({ entities: new Map([[lane.id, lane]]) });
+    useUIStore.getState().setBoundaryBrushType('CURB');
+    const { dragPan, handlers } = setupWithContext('idle');
+
+    handlers.onMouseDown(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+    useUIStore.getState().exitBoundaryBrush();
+    handlers.onMouseUp(mouseEvent({ button: 0, x: 0, y: 0 }) as never);
+
+    expect(dragPan.enable).toHaveBeenCalled();
+  });
+
+  it('routes keydown through keyboard handlers and clears center grab state', () => {
+    const { actorRef, handlers } = setupWithContext('selected', {
+      selectedEntityId: 'line-1',
+      dragPointIndex: -1,
+      dragPointType: 'center',
+    });
+
+    handlers.onKeyDown({ key: 'Escape' } as KeyboardEvent);
+
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'CANCEL' });
+  });
+
+  it('stores the latest map zoom on zoomend', () => {
+    const { handlers, map } = setupWithContext('idle');
+    map.getZoom.mockReturnValue(12.5);
+
+    handlers.onZoomEnd();
+
+    expect(useUIStore.getState().currentZoom).toBe(12.5);
   });
 });
 

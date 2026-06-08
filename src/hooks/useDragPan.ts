@@ -49,6 +49,33 @@ export function shouldDisableDragPanForSnapshot(snapshot: EditorSnapshot): boole
   );
 }
 
+export function installDragPanSync(
+  map: Pick<maplibregl.Map, 'dragPan'>,
+  actorRef: ActorRefFrom<typeof editorMachine>,
+  dragPanDisabledRef: { current: boolean },
+): () => void {
+  const syncDragPan = () => {
+    const snapshot = actorRef.getSnapshot();
+    const shouldDisable = shouldDisableDragPanForSnapshot(snapshot);
+
+    if (shouldDisable === dragPanDisabledRef.current) return;
+    dragPanDisabledRef.current = shouldDisable;
+    if (shouldDisable) map.dragPan.disable();
+    else map.dragPan.enable();
+  };
+
+  syncDragPan();
+  const subscription = actorRef.subscribe(syncDragPan);
+  const unsubUI = useUIStore.subscribe((state, prev) => {
+    if (state.boundaryBrush.active !== prev.boundaryBrush.active) syncDragPan();
+  });
+
+  return () => {
+    subscription.unsubscribe();
+    unsubUI();
+  };
+}
+
 export function useDragPan(
   mapRef: React.RefObject<maplibregl.Map | null>,
   actorRef: ActorRefFrom<typeof editorMachine>,
@@ -58,26 +85,6 @@ export function useDragPan(
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    const syncDragPan = () => {
-      const snapshot = actorRef.getSnapshot();
-      const shouldDisable = shouldDisableDragPanForSnapshot(snapshot);
-
-      if (shouldDisable === dragPanDisabledRef.current) return;
-      dragPanDisabledRef.current = shouldDisable;
-      if (shouldDisable) map.dragPan.disable();
-      else map.dragPan.enable();
-    };
-
-    syncDragPan();
-    const subscription = actorRef.subscribe(syncDragPan);
-    const unsubUI = useUIStore.subscribe((state, prev) => {
-      if (state.boundaryBrush.active !== prev.boundaryBrush.active) syncDragPan();
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      unsubUI();
-    };
+    return installDragPanSync(map, actorRef, dragPanDisabledRef);
   }, [actorRef, mapRef]);
 }

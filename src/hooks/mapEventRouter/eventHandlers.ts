@@ -232,6 +232,7 @@ function onMouseDown(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
   const state = ctx.actorRef.getSnapshot().value as string;
 
   if (useUIStore.getState().boundaryBrush.active) {
+    if (!isPrimaryMouseButton(e)) return;
     ctx.mutable.boundaryBrushDragging = true;
     ctx.mutable.lastBoundaryBrushHit = null;
     ctx.map.dragPan.disable();
@@ -243,6 +244,8 @@ function onMouseDown(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
     startMiddlePan(ctx, e);
     return;
   }
+
+  if (!isPrimaryMouseButton(e)) return;
 
   const selectedDrag = handleSelectedMouseDown(ctx.map, ctx.actorRef, e);
   if (selectedDrag.handled) {
@@ -257,8 +260,7 @@ function onMouseDown(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
 }
 
 function onClick(ctx: RouterContext, e: maplibregl.MapMouseEvent): void {
-  if (!isPrimaryMouseButton(e) && isDrawingState(ctx.actorRef.getSnapshot().value as string))
-    return;
+  if (!isPrimaryMouseButton(e)) return;
   if (isClickAfterDrag(ctx, e)) return;
   if (handleBoundaryBrushInput(ctx, e)) return;
   if (handleConnectModeClick(ctx.actorRef, hitTest(ctx), e)) return;

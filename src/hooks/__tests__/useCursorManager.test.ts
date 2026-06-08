@@ -19,9 +19,16 @@
  * branches reproduced inline — no React renderer needed.
  */
 
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { isDrawingState } from '@/core/fsm/editorMachine';
-import { cursorForState as applyCursor } from '../useCursorManager';
+import { useUIStore } from '@/store/uiStore';
+import { cursorForState as applyCursor, installCursorManager } from '../useCursorManager';
+
+const initialUISnapshot = useUIStore.getState();
+
+beforeEach(() => {
+  useUIStore.setState(initialUISnapshot, true);
+});
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -116,5 +123,60 @@ describe('isDrawingState (imported from editorMachine)', () => {
 
   it('rejects arbitrary string', () => {
     expect(isDrawingState('flying')).toBe(false);
+  });
+});
+
+describe('installCursorManager', () => {
+  function actorStub(initialState = 'idle') {
+    let state = initialState;
+    let listener: (() => void) | null = null;
+    const unsubscribe = vi.fn();
+    return {
+      getSnapshot: vi.fn(() => ({ value: state })),
+      subscribe: vi.fn((fn: () => void) => {
+        listener = fn;
+        return { unsubscribe };
+      }),
+      setState(next: string) {
+        state = next;
+        listener?.();
+      },
+      unsubscribe,
+    };
+  }
+
+  it('applies initial cursor, tracks actor transitions, and unsubscribes', () => {
+    const canvas = { style: { cursor: 'initial' } };
+    const actor = actorStub('idle');
+
+    const cleanup = installCursorManager(canvas, actor as never);
+    expect(canvas.style.cursor).toBe('');
+
+    actor.setState('drawPolyline');
+    expect(canvas.style.cursor).toBe('crosshair');
+
+    actor.setState('editingPoint');
+    expect(canvas.style.cursor).toBe('grabbing');
+
+    cleanup();
+    expect(actor.unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('reacts to connect mode and boundary brush UI state changes', () => {
+    const canvas = { style: { cursor: '' } };
+    const actor = actorStub('idle');
+
+    const cleanup = installCursorManager(canvas, actor as never);
+
+    useUIStore.getState().toggleConnectMode();
+    expect(canvas.style.cursor).toBe('crosshair');
+
+    useUIStore.getState().toggleConnectMode();
+    expect(canvas.style.cursor).toBe('');
+
+    useUIStore.getState().toggleBoundaryBrush();
+    expect(canvas.style.cursor).toBe('crosshair');
+
+    cleanup();
   });
 });
