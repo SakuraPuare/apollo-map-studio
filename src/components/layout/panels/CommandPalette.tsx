@@ -32,6 +32,7 @@ export function CommandPalette({
 
   const actions = useMemo(() => getCommandPaletteActionsForMode(appMode), [appMode]);
   const grouped = useMemo(() => groupActions(actions), [actions]);
+  const closePalette = useEffectEvent(() => onOpenChange(false));
 
   const runCommand = useCallback(
     (action: ActionDef) => {
@@ -42,17 +43,10 @@ export function CommandPalette({
     [onExecute, onOpenChange],
   );
 
-  // ⌘K to open
-  const toggleOpen = useEffectEvent((next: boolean) => onOpenChange(next));
   useEffect(() => {
+    if (!open) return;
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        toggleOpen(!open);
-      }
-      if (e.key === 'Escape' && open) {
-        toggleOpen(false);
-      }
+      if (e.key === 'Escape') closePalette();
     };
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
@@ -72,6 +66,10 @@ export function CommandPalette({
 
       <Command
         className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command Palette"
+        data-testid="command-palette"
         loop
       >
         <div className="flex items-center border-b border-white/10 px-4">
@@ -79,6 +77,8 @@ export function CommandPalette({
           <Command.Input
             value={search}
             onValueChange={setSearch}
+            aria-label="Command search"
+            data-testid="command-palette-input"
             placeholder="Type a command or search..."
             className="flex-1 h-12 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 outline-none"
           />

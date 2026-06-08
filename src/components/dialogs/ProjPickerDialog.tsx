@@ -139,7 +139,12 @@ function DialogShell({ children, onCancel }: { children: React.ReactNode; onCanc
         onClick={onCancel}
         aria-label="Close dialog"
       />
-      <div className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="projection-dialog-title"
+        className="relative w-full max-w-lg bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+      >
         {children}
       </div>
     </div>
@@ -149,7 +154,7 @@ function DialogShell({ children, onCancel }: { children: React.ReactNode; onCanc
 function ProjectionHeader({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-      <h2 className="text-sm font-medium text-zinc-200">
+      <h2 id="projection-dialog-title" className="text-sm font-medium text-zinc-200">
         Choose Coordinate System
         <span className="ml-2 text-zinc-500 text-[11px] font-normal">
           current map has no Header.projection.proj
@@ -158,6 +163,7 @@ function ProjectionHeader({ onCancel }: { onCancel: () => void }) {
       <button
         type="button"
         onClick={onCancel}
+        aria-label="Close projection picker"
         className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
       >
         <FaXmark className="size-4" />
@@ -341,7 +347,10 @@ function ResolvedProjection({ value }: { value: string }) {
   return (
     <div className="pt-2 border-t border-white/5">
       <div className="text-zinc-500 text-[10px] uppercase tracking-widest mb-1">Resolved</div>
-      <div className="px-2 py-1.5 rounded bg-zinc-800/50 border border-white/5 text-zinc-300 text-[11px] font-mono break-all select-text">
+      <div
+        className="px-2 py-1.5 rounded bg-zinc-800/50 border border-white/5 text-zinc-300 text-[11px] font-mono break-all select-text"
+        data-testid="projection-resolved-value"
+      >
         {value || '— enter a PROJ string above —'}
       </div>
     </div>

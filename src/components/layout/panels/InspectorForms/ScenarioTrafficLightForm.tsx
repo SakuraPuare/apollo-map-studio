@@ -7,9 +7,14 @@ import type {
   WorldPoint,
 } from '@/types/scenario';
 import { Section, Row, NumRow, TextRow, SelectRow, inputCls } from './scenarioFormRows';
+import { useStableRowKeys } from './useStableRowKeys';
 
 const COLORS: TrafficLightColor[] = ['RED', 'GREEN', 'YELLOW'];
 const TRIGGERS: TriggerType[] = ['TIME', 'DISTANCE', 'NA'];
+
+function stateSignature(state: ScenarioTrafficLight['stateGroup'][number]) {
+  return [state.color, state.keepTime ?? '', state.blink ?? ''].join('|');
+}
 
 /** 红绿灯属性表单（含配时方案编辑）。读写 scenarioStore（含 undo）。 */
 export function ScenarioTrafficLightForm({ light }: { light: ScenarioTrafficLight }) {
@@ -86,11 +91,12 @@ function StateGroupEditor({
     onUpdate(light.uid, { stateGroup: [...light.stateGroup, { color: 'GREEN', keepTime: 10 }] });
   const removeState = (i: number) =>
     onUpdate(light.uid, { stateGroup: light.stateGroup.filter((_, idx) => idx !== i) });
+  const stateRows = useStableRowKeys(light.stateGroup, `${light.uid}-state`, stateSignature);
 
   return (
     <>
-      {light.stateGroup.map((st, i) => (
-        <Row key={i} label={`#${i + 1}`}>
+      {stateRows.map(({ item: st, rowKey, index: i }) => (
+        <Row key={rowKey} label={`#${i + 1}`}>
           <div className="flex items-center gap-1">
             <select
               aria-label={`阶段 ${i + 1} 颜色`}
@@ -120,7 +126,7 @@ function StateGroupEditor({
               type="button"
               aria-label={`删除阶段 ${i + 1}`}
               onClick={() => removeState(i)}
-              className="shrink-0 rounded p-1 text-zinc-500 hover:bg-red-500/15 hover:text-red-300"
+              className="shrink-0 rounded p-1 text-red-300/70 hover:bg-red-500/15 hover:text-red-200"
             >
               <FaTrash className="size-2.5" />
             </button>

@@ -48,15 +48,27 @@ interface ToolButtonProps {
   active?: boolean;
   onClick?: () => void;
   disabled?: boolean;
+  testId?: string;
 }
 
-function ToolButton({ icon: Icon, label, shortcut, active, onClick, disabled }: ToolButtonProps) {
+function ToolButton({
+  icon: Icon,
+  label,
+  shortcut,
+  active,
+  onClick,
+  disabled,
+  testId,
+}: ToolButtonProps) {
   const display = formatShortcut(shortcut);
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={label}
+      aria-pressed={active === undefined ? undefined : active}
+      data-testid={testId}
       title={display ? `${label} (${display})` : label}
       className={clsx(
         'relative h-7 px-2 flex items-center gap-1 rounded text-xs transition-all shrink-0',
@@ -138,6 +150,9 @@ function ElementBar({ currentElement, onSelect }: ElementBarProps) {
             key={el.type}
             type="button"
             onClick={() => onSelect(el.type)}
+            aria-label={el.label}
+            aria-pressed={active}
+            data-testid={`element-${el.type}`}
             title={el.label}
             className={clsx(
               'size-7 flex items-center justify-center rounded text-xs transition-all shrink-0',
@@ -170,14 +185,18 @@ export function ToolStrip({
   const connectModeActive = useUIStore((s) => s.connectMode.active);
   const boundaryBrushActive = useUIStore((s) => s.boundaryBrush.active);
   const elementSubtoolsVisible = !connectModeActive && !boundaryBrushActive;
+  const drawingMode = appMode === 'drawing';
 
   return (
     <div className="h-9 bg-ams-bg-base border-b border-ams-border-subtle flex items-center px-2 gap-1 shrink-0">
-      <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
+      {drawingMode && (
+        <>
+          <ModeActionButtons getToggleState={getToggleState} onExecuteAction={onExecuteAction} />
+          <Divider />
+        </>
+      )}
 
-      <Divider />
-
-      {appMode === 'scene' ? (
+      {!drawingMode ? (
         <SceneToolButtons />
       ) : (
         <>
@@ -248,6 +267,7 @@ function SceneToolButtons() {
               label={def.label}
               shortcut={def.shortcut}
               active={tool === def.tool}
+              testId={`scene-tool-${def.tool}`}
               onClick={() => setTool(def.tool)}
             />
           ))}
@@ -275,6 +295,7 @@ function ModeActionButtons({ getToggleState, onExecuteAction }: ActionButtonGrou
           label={action.label}
           shortcut={action.shortcut}
           active={getToggleState(action.id)}
+          testId={`action-${action.id}`}
           onClick={() => onExecuteAction(action.id)}
         />
       ))}
@@ -346,6 +367,7 @@ function DrawToolButtons({
               label={`${elementLabel} · ${action?.label ?? tool}`}
               shortcut={action?.shortcut}
               active={currentTool === tool}
+              testId={`draw-tool-${currentElement}-${tool}`}
               onClick={() => onSelectTool(tool, currentElement)}
             />
           );
@@ -360,6 +382,10 @@ function CommandPaletteButton({ onOpen }: { onOpen?: () => void }) {
     <button
       type="button"
       onClick={onOpen}
+      aria-label="Command Palette"
+      aria-haspopup="dialog"
+      aria-keyshortcuts="Meta+K Control+K"
+      title="Command Palette (⌘K)"
       className="h-7 px-2 flex items-center gap-1.5 rounded text-xs text-ams-text-secondary hover:text-ams-text-primary hover:bg-ams-surface-hover shrink-0"
     >
       <FaTerminal className="size-3.5" />
@@ -377,7 +403,7 @@ function ViewActionButtons({ getToggleState, onExecuteAction }: ActionButtonGrou
         icon={Icon}
         label={action.label}
         shortcut={action.shortcut}
-        active={action.isToggle ? getToggleState(action.id) : false}
+        active={action.isToggle ? getToggleState(action.id) : undefined}
         onClick={() => onExecuteAction(action.id)}
       />
     );

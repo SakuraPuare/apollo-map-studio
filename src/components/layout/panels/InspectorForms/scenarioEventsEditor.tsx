@@ -69,7 +69,7 @@ function EventCard({
           type="button"
           aria-label={`删除事件 ${index + 1}`}
           onClick={onRemove}
-          className="rounded p-1 text-zinc-500 hover:bg-red-500/15 hover:text-red-300"
+          className="rounded p-1 text-red-300/70 hover:bg-red-500/15 hover:text-red-200"
         >
           <FaTrash className="size-2.5" />
         </button>

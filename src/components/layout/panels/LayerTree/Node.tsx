@@ -68,6 +68,9 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
       style={style}
       role="treeitem"
       tabIndex={0}
+      data-testid={`layer-tree-node-${data.kind}-${data.entityType ?? data.id}`}
+      data-entity-id={data.kind === 'entity' ? (data.entityId ?? undefined) : undefined}
+      data-entity-type={data.entityType}
       onClick={selectOrToggle}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

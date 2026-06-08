@@ -51,6 +51,7 @@ function Menu({
       <button
         type="button"
         onClick={onOpen}
+        data-testid={`menu-${label.toLowerCase().replace(/\s+/g, '-')}`}
         className={`px-3 py-1 text-xs transition-colors rounded ${
           isOpen
             ? 'text-zinc-200 bg-white/10'
@@ -71,6 +72,8 @@ function Menu({
               <button
                 key={item.id}
                 type="button"
+                data-action-id={item.id}
+                data-testid={`menuitem-${item.id.replace(/[^a-zA-Z0-9]+/g, '-')}`}
                 onClick={() => {
                   onExecute(item.id);
                   onClose();
@@ -171,8 +174,10 @@ function ModeToggle() {
       <button
         type="button"
         onClick={() => setAppMode('drawing')}
+        aria-pressed={appMode === 'drawing'}
         className={makeBtnClass('drawing')}
         title="绘图模式 — Drawing Mode"
+        data-testid="mode-drawing"
       >
         绘图
       </button>
@@ -180,8 +185,10 @@ function ModeToggle() {
       <button
         type="button"
         onClick={() => setAppMode('scene')}
+        aria-pressed={appMode === 'scene'}
         className={makeBtnClass('scene')}
         title="场景模式 — Scene Mode"
+        data-testid="mode-scene"
       >
         场景
       </button>

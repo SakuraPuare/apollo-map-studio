@@ -22,7 +22,8 @@ import { SidebarProvider, useSidebar } from '@/context/SidebarContext';
 import { useActionDispatcher } from '@/hooks/useActionDispatcher';
 
 import { useActorRef, useSelector } from '@xstate/react';
-import { editorMachine, type DrawTool } from '@/core/fsm/editorMachine';
+import { editorMachine } from '@/core/fsm/editorMachine';
+import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { MapElementType } from '@/core/elements';
 import {
   createDefaultLayout,
@@ -77,7 +78,6 @@ function WorkspaceLayoutInner() {
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const openAbout = useCallback(() => setAboutOpen(true), []);
   const components = useDockviewComponents(openSettings);
-  useCommandPaletteKeys(setCommandPaletteOpen);
   const refreshOpenPanels = useCallback((api: DockviewApi) => {
     setOpenPanelIds(
       new Set(
@@ -120,23 +120,15 @@ function WorkspaceLayoutInner() {
   );
 
   // Action dispatcher — single source of all action handling + keyboard shortcuts
-  const { execute, getToggleState } = useActionDispatcher({
+  const { execute, selectTool, getToggleState } = useActionDispatcher({
     actorRef,
-    onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onOpenCommandPalette: () => setCommandPaletteOpen((open) => !open),
     onOpenSettings: () => setSettingsOpen(true),
     onOpenAbout: openAbout,
     onResetLayout: handleResetLayout,
     onToggleWorkspaceView: handleWorkspaceViewToggle,
     getWorkspaceViewState,
   });
-
-  // Tool selection (for ToolStrip which needs element param)
-  const handleSelectTool = useCallback(
-    (tool: string, element?: MapElementType) => {
-      actorRef.send({ type: 'SELECT_TOOL', tool: tool as DrawTool, element });
-    },
-    [actorRef],
-  );
 
   useEffect(() => {
     apiRef.current?.getPanel('sidebar')?.api.setTitle(getSidebarTitle(activeTab));
@@ -150,7 +142,11 @@ function WorkspaceLayoutInner() {
   const onReady = useDockviewReady(apiRef, appMode, activeTab, refreshOpenPanels);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100">
+    <div
+      className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100"
+      data-testid="workspace-layout"
+      aria-label="Apollo Map Studio workspace"
+    >
       <DesktopTitleBar windowState={windowState} />
       <WorkspaceToolbar
         desktopRuntime={desktopRuntime}
@@ -158,7 +154,7 @@ function WorkspaceLayoutInner() {
         getToggleState={getToggleState}
         currentTool={currentState}
         currentElement={activeElement as MapElementType | null}
-        onSelectTool={handleSelectTool}
+        onSelectTool={selectTool}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
       <WorkspaceMainContent
@@ -185,6 +181,11 @@ function WorkspaceLayoutInner() {
   function handleActivityTabChange(tab: ActivityTab) {
     const sidebarView = getSidebarViewDef(tab);
     if (!isSidebarViewAvailable(tab, appMode)) return;
+    if (sidebarView?.kind === 'modal') {
+      if (tab === 'settings') setSettingsOpen(true);
+      setActiveTab(getDefaultSidebarViewId(appMode));
+      return;
+    }
     if (sidebarView?.kind === 'panel') {
       const api = apiRef.current;
       if (api) {
@@ -248,7 +249,7 @@ interface WorkspaceToolbarProps {
   getToggleState: ReturnType<typeof useActionDispatcher>['getToggleState'];
   currentTool: string;
   currentElement: MapElementType | null;
-  onSelectTool: (tool: string, element?: MapElementType) => void;
+  onSelectTool: (tool: DrawTool, element?: MapElementType) => void;
   onOpenCommandPalette: () => void;
 }
 
@@ -293,9 +294,9 @@ function WorkspaceMainContent({
   onTabChange,
 }: WorkspaceMainContentProps) {
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="flex-1 flex overflow-hidden" data-testid="workspace-main">
       <ActivityBar activeTab={activeTab} appMode={appMode} onTabChange={onTabChange} />
-      <div className="flex-1">
+      <div className="flex-1" data-testid="workspace-dockview" aria-label="Workspace panels">
         <DockviewReact
           key={appMode}
           components={components}
@@ -315,23 +316,6 @@ function useDockviewComponents(openSettings: () => void) {
     timeline: TimelinePanelContent,
     toolbox: ToolboxPanelContent,
   }).current;
-}
-
-function useCommandPaletteKeys(
-  setCommandPaletteOpen: React.Dispatch<React.SetStateAction<boolean>>,
-) {
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setCommandPaletteOpen((open) => !open);
-      }
-      if (event.key === 'Escape') setCommandPaletteOpen(false);
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [setCommandPaletteOpen]);
 }
 
 function useDockviewReady(

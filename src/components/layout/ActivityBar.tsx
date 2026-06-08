@@ -19,7 +19,11 @@ export function ActivityBar({ activeTab, appMode, onTabChange }: ActivityBarProp
   const bottomTabs = getSidebarViewsByPlacement('bottom', appMode);
 
   return (
-    <div className="w-12 bg-ams-bg-base border-r border-ams-border-subtle flex flex-col items-center py-2 shrink-0">
+    <div
+      className="w-12 bg-ams-bg-base border-r border-ams-border-subtle flex flex-col items-center py-2 shrink-0"
+      aria-label="Activity bar"
+      data-testid="activity-bar"
+    >
       <ActivityBarGroup tabs={topTabs} activeTab={activeTab} onTabChange={onTabChange} />
       <div className="flex-1" />
       <ActivityBarGroup tabs={bottomTabs} activeTab={activeTab} onTabChange={onTabChange} />
@@ -44,6 +48,8 @@ function ActivityBarGroup({
           type="button"
           onClick={() => onTabChange(id)}
           title={label}
+          aria-label={label}
+          data-testid={`activity-${id}`}
           className={clsx(
             'relative size-10 flex items-center justify-center rounded transition-colors',
             activeTab === id

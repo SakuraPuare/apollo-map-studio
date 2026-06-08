@@ -94,7 +94,7 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   );
 
   return (
-    <div className="h-full min-h-0 flex flex-col">
+    <div className="h-full min-h-0 flex flex-col" data-testid="layer-tree">
       <LayerTreeActions
         roadLocked={isEntityTypeLocked(layerStates, 'road')}
         rsuLocked={isEntityTypeLocked(layerStates, 'rsu')}

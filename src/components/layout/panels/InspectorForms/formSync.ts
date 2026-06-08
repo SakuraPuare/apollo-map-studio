@@ -37,7 +37,7 @@ export function useEntityFormSync<TEntity extends { id: string }, TFormValues ex
   return entityRef;
 }
 
-function syncFormValues<TFormValues extends FieldValues>(
+export function syncFormValues<TFormValues extends FieldValues>(
   methods: UseFormReturn<TFormValues>,
   desired: TFormValues,
 ): void {

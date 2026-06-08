@@ -37,10 +37,20 @@ export function loadLayout(api: DockviewApi, mode: AppMode): boolean {
   try {
     const saved = localStorage.getItem(LAYOUT_KEY_BY_MODE[mode]);
     if (saved) {
-      api.fromJSON(JSON.parse(saved));
+      const layout = JSON.parse(saved);
+      if (!savedLayoutPanelsAreAvailable(layout, mode)) {
+        throw new Error('Saved layout contains panels unavailable in the current mode');
+      }
+      api.fromJSON(layout);
+      if (!hasEditorPanel(api, mode)) throw new Error('Saved layout is missing the editor panel');
       return true;
     }
   } catch {
+    try {
+      api.clear();
+    } catch {
+      /* ignore */
+    }
     clearSavedLayout(mode);
   }
   return false;
@@ -69,6 +79,51 @@ export function createDefaultLayout(api: DockviewApi, mode: AppMode) {
       },
     });
     applyPanelDefaultSize(dockPanel, panel.defaultSize);
+  }
+}
+
+function hasEditorPanel(api: DockviewApi, mode: AppMode): boolean {
+  const editorDef = getWorkspacePanelDefs(mode).find((panel) => panel.zone === 'editor');
+  return Boolean(editorDef && api.getPanel(editorDef.id));
+}
+
+function savedLayoutPanelsAreAvailable(layout: unknown, mode: AppMode): boolean {
+  const panelIds = new Set<WorkspacePanelId>();
+  collectWorkspacePanelIds(layout, panelIds);
+  for (const panelId of panelIds) {
+    if (!isWorkspacePanelAvailable(panelId, mode)) return false;
+  }
+  return true;
+}
+
+function collectWorkspacePanelIds(value: unknown, out: Set<WorkspacePanelId>): void {
+  if (typeof value === 'string') {
+    if (isWorkspacePanelId(value)) out.add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectWorkspacePanelIds(item, out);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'id') collectWorkspacePanelIds(child, out);
+    else if (key === 'panelIds') collectWorkspacePanelIds(child, out);
+    else if (key === 'views') collectWorkspacePanelIds(child, out);
+    else if (key === 'activeView') collectWorkspacePanelIds(child, out);
+    else if (key === 'panels') collectWorkspacePanelRecord(child, out);
+  }
+}
+
+function collectWorkspacePanelRecord(value: unknown, out: Set<WorkspacePanelId>): void {
+  if (value === null || typeof value !== 'object') {
+    collectWorkspacePanelIds(value, out);
+    return;
+  }
+
+  for (const [panelId, panel] of Object.entries(value)) {
+    if (isWorkspacePanelId(panelId)) out.add(panelId);
+    collectWorkspacePanelIds(panel, out);
   }
 }
 

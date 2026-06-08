@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
   FaBookOpen,
   FaCheck,
@@ -29,15 +29,16 @@ const LOADING_RUNTIME_INFO: AppRuntimeInfo = {
   versions: {},
 };
 
-function getVersionRows(runtimeInfo: AppRuntimeInfo) {
-  return [
+function getVersionRows(runtimeInfo: AppRuntimeInfo): Array<[string, string]> {
+  const rows: Array<[string, string | undefined]> = [
     ['Version', `v${runtimeInfo.version}`],
     ['Runtime', runtimeInfo.runtime === 'desktop' ? 'Electron' : 'Web'],
     ['Platform', runtimeInfo.platform],
     ['Chrome', runtimeInfo.versions.chrome],
     ['Electron', runtimeInfo.versions.electron],
     ['Node', runtimeInfo.versions.node],
-  ].filter(([, value]) => Boolean(value));
+  ];
+  return rows.filter((row): row is [string, string] => Boolean(row[1]));
 }
 
 function VersionDetails({ runtimeInfo }: { runtimeInfo: AppRuntimeInfo }) {
@@ -47,9 +48,18 @@ function VersionDetails({ runtimeInfo }: { runtimeInfo: AppRuntimeInfo }) {
     <section className="px-5 py-4">
       <dl className="divide-y divide-white/10 border border-white/10 rounded bg-zinc-950/50">
         {versionRows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[8rem_1fr] gap-3 px-3 py-2">
+          <div
+            key={label}
+            className="grid grid-cols-[8rem_1fr] gap-3 px-3 py-2"
+            data-testid={`about-version-row-${testIdSuffix(label)}`}
+          >
             <dt className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</dt>
-            <dd className="text-xs text-zinc-200 font-mono break-all">{value}</dd>
+            <dd
+              className="text-xs text-zinc-200 font-mono break-all"
+              data-testid={`about-version-value-${testIdSuffix(label)}`}
+            >
+              {value}
+            </dd>
           </div>
         ))}
       </dl>
@@ -138,15 +148,23 @@ function LicenseDetails() {
               <LicenseRow label="Issued" value={formatLocalDateTime(state.license.issued)} />
             </>
           ) : null}
-          <div className="grid grid-cols-[8rem_minmax(0,1fr)_max-content] items-center gap-3 px-3 py-2">
+          <div
+            className="grid grid-cols-[8rem_minmax(0,1fr)_max-content] items-center gap-3 px-3 py-2"
+            data-testid="about-license-row-device-code"
+          >
             <dt className="text-[11px] uppercase tracking-wider text-zinc-500">Device code</dt>
-            <dd className="min-w-0 break-all font-mono text-xs text-zinc-200">
+            <dd
+              className="min-w-0 break-all font-mono text-xs text-zinc-200"
+              data-testid="about-license-value-device-code"
+            >
               {state.machineCode || 'Checking...'}
             </dd>
             <button
               type="button"
               onClick={() => void copyMachineCode()}
               disabled={!state.machineCode}
+              aria-label="Copy device code"
+              data-testid="about-copy-device-code"
               className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copied ? <FaCheck className="size-3" /> : <FaCopy className="size-3" />}
@@ -169,11 +187,26 @@ function LicenseRow({
   mono?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[8rem_1fr] gap-3 px-3 py-2">
+    <div
+      className="grid grid-cols-[8rem_1fr] gap-3 px-3 py-2"
+      data-testid={`about-license-row-${testIdSuffix(label)}`}
+    >
       <dt className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</dt>
-      <dd className={`break-all text-xs text-zinc-200 ${mono ? 'font-mono' : ''}`}>{value}</dd>
+      <dd
+        className={`break-all text-xs text-zinc-200 ${mono ? 'font-mono' : ''}`}
+        data-testid={`about-license-value-${testIdSuffix(label)}`}
+      >
+        {value}
+      </dd>
     </div>
   );
+}
+
+function testIdSuffix(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
@@ -183,6 +216,7 @@ function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
         type="button"
         onClick={() => void appBridge.openHelp()}
         className="px-3 py-1.5 text-xs rounded border border-white/10 text-zinc-300 hover:bg-white/10 inline-flex items-center gap-2"
+        data-testid="about-help"
       >
         <FaBookOpen className="size-3" />
         Help Documentation
@@ -191,6 +225,7 @@ function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
         type="button"
         onClick={onClose}
         className="px-3 py-1.5 text-xs rounded bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
+        data-testid="about-close-footer"
       >
         Close
       </button>
@@ -200,12 +235,19 @@ function AboutFooter({ onClose }: Pick<AboutDialogProps, 'onClose'>) {
 
 export function AboutDialog({ open, onClose }: AboutDialogProps) {
   const [info, setInfo] = useState<AppRuntimeInfo | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const onCloseEvent = useEffectEvent(onClose);
 
   useEffect(() => {
     if (!open) return;
     void appBridge.getAppInfo().then(setInfo);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const timer = setTimeout(() => dialogRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
@@ -230,15 +272,25 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <button
         type="button"
-        tabIndex={0}
+        tabIndex={-1}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close dialog"
       />
-      <div className="relative w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-lg shadow-2xl overflow-hidden">
+      <div
+        ref={dialogRef}
+        className="relative w-full max-w-2xl bg-zinc-900 border border-white/10 rounded-lg shadow-2xl overflow-hidden"
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="about-dialog-title"
+        data-testid="about-dialog"
+      >
         <header className="flex items-center justify-between px-5 py-3 border-b border-white/10">
           <div>
-            <h2 className="text-sm font-medium text-zinc-200">{runtimeInfo.productName}</h2>
+            <h2 id="about-dialog-title" className="text-sm font-medium text-zinc-200">
+              {runtimeInfo.productName}
+            </h2>
             <p className="text-[11px] text-zinc-500">Version, license, and device information</p>
           </div>
           <button
@@ -246,6 +298,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
             onClick={onClose}
             className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
             aria-label="Close"
+            data-testid="about-close-header"
           >
             <FaXmark className="size-4" />
           </button>

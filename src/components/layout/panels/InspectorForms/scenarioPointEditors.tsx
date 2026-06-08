@@ -2,11 +2,18 @@ import { FaTrash, FaPlus } from 'react-icons/fa6';
 import { useScenarioStore } from '@/store/scenarioStore';
 import type { ScenarioObstacle, ScenarioEgo, WorldPoint } from '@/types/scenario';
 import { Row, inputCls } from './scenarioFormRows';
+import { useStableRowKeys } from './useStableRowKeys';
 
 /**
  * 顶点/航点的逐点编辑（X/Y 受控 + 增删）。轨迹与 ego 航点共用一套行 UI，
  * 各自绑定 scenarioStore 的对应 action（均走 zundo undo）。
  */
+
+function pointSignature(point: WorldPoint & { speed?: number }) {
+  return [point.x, point.y, point.z ?? '', point.h ?? '', point.v ?? '', point.speed ?? ''].join(
+    '|',
+  );
+}
 
 function PointRow({
   index,
@@ -48,7 +55,7 @@ function PointRow({
           type="button"
           aria-label={`删除点 ${index + 1}`}
           onClick={onRemove}
-          className="shrink-0 rounded p-1 text-zinc-500 hover:bg-red-500/15 hover:text-red-300"
+          className="shrink-0 rounded p-1 text-red-300/70 hover:bg-red-500/15 hover:text-red-200"
         >
           <FaTrash className="size-2.5" />
         </button>
@@ -76,12 +83,17 @@ export function TrajectoryEditor({ obstacle }: { obstacle: ScenarioObstacle }) {
   const remove = useScenarioStore((s) => s.removeTrajectoryVertex);
   const add = useScenarioStore((s) => s.addTrajectoryVertex);
   const last = obstacle.trajectory[obstacle.trajectory.length - 1];
+  const trajectoryRows = useStableRowKeys(
+    obstacle.trajectory,
+    `${obstacle.uid}-trajectory`,
+    pointSignature,
+  );
 
   return (
     <>
-      {obstacle.trajectory.map((v, i) => (
+      {trajectoryRows.map(({ item: v, rowKey, index: i }) => (
         <PointRow
-          key={i}
+          key={rowKey}
           index={i}
           point={v}
           onChange={(key, value) => update(obstacle.uid, i, { ...v, [key]: value })}
@@ -107,12 +119,13 @@ export function WaypointEditor({ ego }: { ego: ScenarioEgo }) {
   const remove = useScenarioStore((s) => s.removeEgoWaypoint);
   const add = useScenarioStore((s) => s.addEgoWaypoint);
   const last = ego.waypoints[ego.waypoints.length - 1];
+  const waypointRows = useStableRowKeys(ego.waypoints, 'ego-waypoint', pointSignature);
 
   return (
     <>
-      {ego.waypoints.map((w, i) => (
+      {waypointRows.map(({ item: w, rowKey, index: i }) => (
         <PointRow
-          key={i}
+          key={rowKey}
           index={i}
           point={w}
           onChange={(key, value) => update(i, { ...w, [key]: value })}

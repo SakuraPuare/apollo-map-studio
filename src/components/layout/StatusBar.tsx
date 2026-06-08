@@ -44,11 +44,16 @@ export function StatusBar({ mode = 'idle', entityCount = 0 }: StatusBarProps) {
   const licenseState = useLicenseStore((s) => s.state);
   const windowState = useDesktopWindowState();
 
-  const modeLabel = MODE_LABELS[mode] || mode;
-  const isDrawing = mode.startsWith('draw');
+  const modeLabel = appMode === 'scene' ? 'Scene' : (MODE_LABELS[mode] ?? mode);
+  const isDrawing = appMode === 'drawing' && mode.startsWith('draw');
 
   return (
-    <div className="h-6 bg-ams-bg-base border-t border-ams-border-subtle flex items-center px-2 text-[10px] text-ams-text-muted shrink-0">
+    <div
+      className="h-6 bg-ams-bg-base border-t border-ams-border-subtle flex items-center px-2 text-[10px] text-ams-text-muted shrink-0"
+      data-testid="status-bar"
+      role="group"
+      aria-label="Application status"
+    >
       <StatusLeft
         appMode={appMode}
         modeLabel={modeLabel}
@@ -92,7 +97,11 @@ function StatusLeft({
     <div className="flex items-center gap-3 min-w-0">
       <div className="flex items-center gap-1">
         <span className="text-ams-text-disabled">Mode:</span>
-        <span className="text-ams-accent font-medium">
+        <span
+          className="text-ams-accent font-medium"
+          data-testid="status-app-mode"
+          data-status-field="app-mode"
+        >
           {appMode === 'drawing' ? '绘图' : '场景'}
         </span>
       </div>
@@ -104,14 +113,24 @@ function StatusLeft({
             isDrawing ? 'bg-ams-accent animate-pulse' : 'bg-ams-text-disabled'
           }`}
         />
-        <span className={isDrawing ? 'text-ams-accent' : 'text-ams-text-secondary'}>
+        <span
+          className={isDrawing ? 'text-ams-accent' : 'text-ams-text-secondary'}
+          data-testid="status-editor-mode"
+          data-status-field="editor-mode"
+        >
           {modeLabel}
         </span>
       </div>
 
       <div className="flex items-center gap-1">
         <span className="text-ams-text-disabled">Entities:</span>
-        <span className="font-mono text-ams-text-secondary">{entityCount}</span>
+        <span
+          className="font-mono text-ams-text-secondary"
+          data-testid="status-entity-count"
+          data-status-field="entity-count"
+        >
+          {entityCount}
+        </span>
       </div>
 
       {apolloInfo && <ApolloMapStatus info={apolloInfo} />}
@@ -125,9 +144,15 @@ function ApolloMapStatus({ info }: { info: ApolloMapImportInfo }) {
   return (
     <>
       <div className="w-px h-3 bg-ams-border-strong" />
-      <div className="flex items-center gap-1.5" title={`PROJ: ${info.projString}`}>
+      <div
+        className="flex items-center gap-1.5"
+        data-testid="status-apollo-map"
+        title={`PROJ: ${info.projString}`}
+      >
         <FaMap className="size-3 text-ams-accent" />
-        <span className="text-ams-text-secondary">{info.filename}</span>
+        <span className="text-ams-text-secondary" data-testid="status-apollo-filename">
+          {info.filename}
+        </span>
         <span className="text-ams-text-disabled font-mono">
           lane={info.counts.lane ?? 0} road={info.counts.road ?? 0}
         </span>
@@ -191,6 +216,7 @@ function LicenseStatusPill({ state }: { state: LicenseState }) {
       className={`flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] ${
         ok ? 'border-emerald-500/20 text-emerald-300' : 'border-amber-500/30 text-amber-200'
       }`}
+      data-testid="license-status"
       title={state.reason}
     >
       <Icon className="size-3" />
@@ -210,6 +236,10 @@ function StatusToggle({
 }) {
   return (
     <div
+      aria-label={`${label} ${enabled ? 'enabled' : 'disabled'}`}
+      data-testid={`status-toggle-${label.toLowerCase()}`}
+      data-status-toggle={label.toLowerCase()}
+      data-enabled={enabled}
       className={`flex items-center gap-1 ${enabled ? 'text-ams-accent' : 'text-ams-text-disabled'}`}
     >
       <Icon className="size-3" />

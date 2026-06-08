@@ -41,6 +41,7 @@ function LicenseChip() {
     <button
       type="button"
       onClick={() => promptActivation()}
+      data-testid="license-chip"
       className={`nodrag inline-flex h-6 items-center gap-1.5 rounded border px-2 text-[11px] ${
         ok
           ? 'border-white/10 text-zinc-400 hover:bg-white/5 hover:text-zinc-200'
@@ -66,6 +67,8 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         type="button"
         className={buttonClass}
         title="Minimize"
+        aria-label="Minimize"
+        data-testid="window-minimize"
         onClick={() => void appBridge.minimizeWindow()}
       >
         <FaMinus className="size-3" />
@@ -74,6 +77,8 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         type="button"
         className={buttonClass}
         title={state.isMaximized ? 'Restore' : 'Maximize'}
+        aria-label={state.isMaximized ? 'Restore' : 'Maximize'}
+        data-testid="window-maximize-toggle"
         onClick={() => void appBridge.toggleMaximizeWindow()}
       >
         {state.isMaximized ? <FaSquare className="size-3" /> : <FaRegSquare className="size-3" />}
@@ -82,6 +87,8 @@ function WindowControls({ state }: { state: DesktopWindowState }) {
         type="button"
         className={`${buttonClass} hover:bg-red-500/80 hover:text-white`}
         title="Close"
+        aria-label="Close"
+        data-testid="window-close"
         onClick={() => void appBridge.closeWindow()}
       >
         <FaXmark className="size-3.5" />
@@ -102,6 +109,7 @@ export function DesktopTitleBar({ windowState }: DesktopTitleBarProps) {
       className={`drag h-9 shrink-0 border-b border-white/[0.07] bg-zinc-950/95 text-zinc-400 ${
         windowState?.isFocused === false ? 'opacity-80' : ''
       }`}
+      data-testid="desktop-titlebar"
     >
       <div className="flex h-full items-center gap-3 pl-3 pr-0">
         {platform === 'darwin' ? <div className="w-[68px] shrink-0" /> : null}

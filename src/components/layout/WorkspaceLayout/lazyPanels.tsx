@@ -80,28 +80,33 @@ export function OverlayFallback({ label }: { label: string }) {
 export function MapPanelContent() {
   const actorRef = useEditorActor();
   return (
-    <Suspense fallback={<PanelFallback label="Loading map..." />}>
-      <div className="w-full h-full">
+    <div className="w-full h-full" data-testid="workspace-panel-map">
+      <Suspense fallback={<PanelFallback label="Loading map..." />}>
         <LazyMapCanvas actorRef={actorRef} />
-      </div>
-    </Suspense>
+      </Suspense>
+    </div>
   );
 }
 
 export function makeSidebarPanel(onOpenSettings: () => void) {
   return function SidebarSlot() {
     return (
-      <Suspense fallback={<PanelFallback label="Loading sidebar..." />}>
-        <LazySidebarPanel onOpenSettings={onOpenSettings} />
-      </Suspense>
+      <div className="h-full w-full" data-testid="workspace-panel-sidebar">
+        <Suspense fallback={<PanelFallback label="Loading sidebar..." />}>
+          <LazySidebarPanel onOpenSettings={onOpenSettings} />
+        </Suspense>
+      </div>
     );
   };
 }
 
 export function InspectorPanelContent() {
   const appMode = useUIStore((s) => s.appMode);
-  if (appMode === 'scene') return <ScenarioInspectorContent />;
-  return <MapEntityInspectorContent />;
+  return (
+    <div className="h-full w-full" data-testid="workspace-panel-inspector">
+      {appMode === 'scene' ? <ScenarioInspectorContent /> : <MapEntityInspectorContent />}
+    </div>
+  );
 }
 
 function ScenarioInspectorContent() {
@@ -146,14 +151,18 @@ function MapEntityInspectorContent() {
 
   return (
     <ScrollArea className="h-full bg-zinc-900/50">
-      <div className="p-3">
+      <div className="p-3" data-testid="inspector-panel">
         {entity ? (
           <>
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
-              <span className="font-medium text-sm text-cyan-400">
+              <span className="font-medium text-sm text-cyan-400" data-testid="inspector-title">
                 {entity.entityType.charAt(0).toUpperCase() + entity.entityType.slice(1)}
               </span>
-              <span className="text-[10px] font-mono text-zinc-600" title={entity.id}>
+              <span
+                className="text-[10px] font-mono text-zinc-600"
+                title={entity.id}
+                data-testid="inspector-entity-id"
+              >
                 {entity.id.length > 16 ? `...${entity.id.slice(-12)}` : entity.id}
               </span>
             </div>
@@ -173,16 +182,20 @@ function MapEntityInspectorContent() {
 
 export function TimelinePanelContent() {
   return (
-    <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
-      <LazyTimelinePanel />
-    </Suspense>
+    <div className="h-full w-full" data-testid="workspace-panel-timeline">
+      <Suspense fallback={<PanelFallback label="Loading timeline..." />}>
+        <LazyTimelinePanel />
+      </Suspense>
+    </div>
   );
 }
 
 export function ToolboxPanelContent() {
   return (
-    <Suspense fallback={<PanelFallback label="Loading toolbox..." />}>
-      <LazyToolboxPanel />
-    </Suspense>
+    <div className="h-full w-full" data-testid="workspace-panel-toolbox">
+      <Suspense fallback={<PanelFallback label="Loading toolbox..." />}>
+        <LazyToolboxPanel />
+      </Suspense>
+    </div>
   );
 }

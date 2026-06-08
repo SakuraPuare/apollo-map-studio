@@ -50,7 +50,7 @@ function Toolbar({
         aria-label="新建场景格式"
         value={newFormat}
         onChange={(e) => onNewFormat(e.target.value as ScenarioFormat)}
-        className="rounded border border-white/10 bg-zinc-800/50 px-1 py-1 text-[10px] text-zinc-300 focus:border-cyan-500/50 focus:outline-none"
+        className="rounded border border-white/10 bg-zinc-800/50 p-1 text-[10px] text-zinc-300 focus:border-cyan-500/50 focus:outline-none"
         title="新建场景格式"
       >
         <option value="openscenario">openscenario</option>

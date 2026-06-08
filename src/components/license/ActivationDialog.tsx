@@ -206,12 +206,19 @@ function DialogFrame({ children, onClose }: { children: React.ReactNode; onClose
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <button
         type="button"
-        tabIndex={0}
+        tabIndex={-1}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close dialog"
       />
-      <div className="relative w-full max-w-xl bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+      <div
+        className="relative w-full max-w-xl bg-zinc-900 border border-white/10 rounded-xl shadow-2xl overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="activation-dialog-title"
+        aria-describedby="activation-dialog-status"
+        data-testid="activation-dialog"
+      >
         {children}
       </div>
     </div>
@@ -229,17 +236,25 @@ function ActivationHeader({
 }) {
   return (
     <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-      <h2 className="text-sm font-medium text-zinc-200">
-        Apollo Map Studio License
-        <span className="ml-2 text-zinc-500 text-[11px] font-normal">
+      <div>
+        <h2 id="activation-dialog-title" className="text-sm font-medium text-zinc-200">
+          Apollo Map Studio License
+        </h2>
+        <p
+          id="activation-dialog-status"
+          className="text-zinc-500 text-[11px] font-normal"
+          data-testid="activation-status"
+        >
           status: {state.status} · {state.reason}
-        </span>
-      </h2>
+        </p>
+      </div>
       <button
         type="button"
         onClick={onClose}
         className="p-1 hover:bg-white/10 rounded text-zinc-500 hover:text-zinc-300"
         disabled={busy}
+        aria-label="Close activation dialog"
+        data-testid="activation-close"
       >
         <FaXmark className="size-4" />
       </button>
@@ -262,7 +277,10 @@ function MachineCodeSection({
         This machine&apos;s code
       </span>
       <div className="flex items-center gap-2">
-        <code className="flex-1 px-3 py-2 bg-zinc-950 border border-white/10 rounded font-mono text-sm text-cyan-300 select-all">
+        <code
+          className="flex-1 px-3 py-2 bg-zinc-950 border border-white/10 rounded font-mono text-sm text-cyan-300 select-all"
+          data-testid="activation-machine-code"
+        >
           {machineCode || '...'}
         </code>
         <button
@@ -327,6 +345,7 @@ function ActivationCodeSection({
         className="w-full px-3 py-2 bg-zinc-950 border border-white/10 rounded font-mono text-xs text-zinc-200 placeholder:text-zinc-600 focus:border-cyan-500/50 focus:outline-none resize-none"
         placeholder="APMS1.eyJ2IjoxLCJsaWMiOiIuLi4ifQ...."
         disabled={busy}
+        data-testid="activation-code-input"
       />
       {error && <ActivationError error={error} />}
     </section>
@@ -379,6 +398,7 @@ function ActivationFooter({
         onClick={onActivate}
         disabled={busy || !canActivate}
         className="px-4 py-1.5 text-xs rounded bg-cyan-500/20 text-cyan-200 border border-cyan-500/40 hover:bg-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+        data-testid="activation-submit"
       >
         {busy ? 'Verifying...' : 'Activate'}
       </button>

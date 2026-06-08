@@ -21,7 +21,20 @@ interface MapCanvasProps {
   actorRef: ActorRefFrom<typeof editorMachine>;
 }
 
-export function MapCanvas({ actorRef }: MapCanvasProps) {
+function ElectronE2EMapHarness() {
+  return (
+    <div className="w-full h-full bg-zinc-950" data-testid="map-canvas" aria-label="Map canvas">
+      <div
+        className="h-full w-full"
+        data-testid="maplibre-canvas"
+        data-map-ready="true"
+        aria-hidden="true"
+      />
+    </div>
+  );
+}
+
+function MapCanvasRuntime({ actorRef }: MapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bridgeRef = useRef<SpatialWorkerBridge | null>(null);
 
@@ -50,5 +63,20 @@ export function MapCanvas({ actorRef }: MapCanvasProps) {
   useDragPan(mapRef, actorRef);
   useFocusEntity(mapRef, mapLoadedRef);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full"
+      data-testid="map-canvas"
+      aria-label="Map canvas"
+    />
+  );
+}
+
+export function MapCanvas(props: MapCanvasProps) {
+  if (import.meta.env.VITE_APOLLO_ELECTRON_E2E === '1') {
+    return <ElectronE2EMapHarness />;
+  }
+
+  return <MapCanvasRuntime {...props} />;
 }

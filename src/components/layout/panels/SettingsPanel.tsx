@@ -322,9 +322,16 @@ function SettingsPanelBody({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         aria-label="Close settings"
       />
-      <div className="relative grid h-[min(34rem,82vh)] w-[min(44rem,calc(100vw-2rem))] grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-dialog-title"
+        className="relative grid h-[min(34rem,82vh)] w-[min(44rem,calc(100vw-2rem))] grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-xl border border-white/10 bg-zinc-900 shadow-2xl"
+      >
         <aside className="border-r border-white/10 bg-zinc-950/40 px-2 py-3">
-          <div className="mb-3 px-2 text-sm font-medium text-zinc-200">Settings</div>
+          <div id="settings-dialog-title" className="mb-3 px-2 text-sm font-medium text-zinc-200">
+            Settings
+          </div>
           <div className="space-y-1">
             {tabs.map((tab) => (
               <TabButton
