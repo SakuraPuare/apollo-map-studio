@@ -1,20 +1,20 @@
 ---
 title: electron/preload.cts — contextBridge IPC bridge
-description: Exposes apolloMapStudio / apolloMapStudioLicense via contextBridge.exposeInMainWorld; the only IPC surface visible to the renderer.
+description: Exposes apolloMapStudio / apolloMapStudioLicense via contextBridge.exposeInMainWorld; wraps app, window, native menu, and license IPC.
 ---
 
 # `electron/preload.cts` — contextBridge IPC bridge
 
-> Source: `electron/preload.cts` · 47 lines · CommonJS module (`.cts`)
+> Source: `electron/preload.cts` · 93 lines · CommonJS module (`.cts`)
 
 ## Purpose
 
 `preload.cts` runs inside the Chromium sandbox (`sandbox: true`) and has access to the safe subset of Electron (`ipcRenderer`, etc.). It uses `contextBridge.exposeInMainWorld` to inject two objects into the renderer's `window`:
 
-1. `window.apolloMapStudio` — read-only platform / version metadata.
+1. `window.apolloMapStudio` — app info, Help, window controls, window-state subscription, and native-menu action subscription.
 2. `window.apolloMapStudioLicense` — the licensing IPC client.
 
-The renderer wraps these via `src/lib/license-bridge.ts` so the "object is undefined" case (browser preview) never reaches consumer code.
+The renderer wraps these via `src/lib/app-bridge.ts` and `src/lib/license-bridge.ts` so the "object is undefined" case (browser preview) never reaches consumer code.
 
 ## contextBridge exposure #1: `apolloMapStudio`
 
@@ -26,14 +26,40 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     electron: process.versions.electron,
     node: process.versions.node,
   },
+  getAppInfo() {
+    return ipcRenderer.invoke(APP_IPC.GET_INFO);
+  },
+  openHelp() {
+    return ipcRenderer.invoke(APP_IPC.OPEN_HELP);
+  },
+  getWindowState() {
+    return ipcRenderer.invoke(APP_IPC.GET_WINDOW_STATE);
+  },
+  minimizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_MINIMIZE);
+  },
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_TOGGLE_MAXIMIZE);
+  },
+  closeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_CLOSE);
+  },
+  onWindowStateChange(handler) {
+    // register app:window-state listener, return unsubscribe
+  },
+  onNativeMenuAction(handler) {
+    // register app:native-menu-action listener, return unsubscribe
+  },
 });
 ```
 
-Read-only metadata used by the About panel / debug header:
+Minimal app/runtime, Help, window-control, and native-menu action bridge used by `appBridge`:
 
 ```ts
 window.apolloMapStudio?.platform; // 'darwin' | 'linux' | 'win32'
 window.apolloMapStudio?.versions; // { chrome: '120…', electron: '41.0.0', node: '20…' }
+await window.apolloMapStudio?.getAppInfo?.();
+await window.apolloMapStudio?.openHelp?.();
 ```
 
 The renderer must use `?.` — `window.apolloMapStudio` is undefined in a browser-preview build.
@@ -89,7 +115,7 @@ contextBridge.exposeInMainWorld('apolloMapStudioLicense', licenseApi);
 
 | Window object                                  | Renderer type                                 | Main-process implementation                  |
 | ---------------------------------------------- | --------------------------------------------- | -------------------------------------------- |
-| `window.apolloMapStudio`                       | (inline)                                      | `process.platform` / `process.versions`      |
+| `window.apolloMapStudio`                       | inline type in `src/lib/app-bridge.ts`        | app/window/native menu IPC                   |
 | `window.apolloMapStudioLicense.getState`       | `() => Promise<LicenseState>`                 | `LicenseManager.refresh()`                   |
 | `window.apolloMapStudioLicense.getMachineCode` | `() => Promise<string>`                       | `MachineCodeResult.code`                     |
 | `window.apolloMapStudioLicense.activate`       | `(code: string) => Promise<ActivationResult>` | `LicenseManager.activate(code)`              |
@@ -120,25 +146,29 @@ Sandbox preload cannot expose a full `EventEmitter` through contextBridge (funct
 
 ## Test coverage
 
-No standalone tests; the contextBridge surface is exercised by end-to-end / Spectron tests.
+`pnpm test:electron` includes preload unit tests for the contextBridge surface, IPC routing, and subscription filtering; `pnpm test:electron:e2e` also verifies the renderer-visible preload bridge in the real desktop shell.
 
 ## Consumers
 
-The sole consumer: [`license-bridge`](../lib/license-bridge.md) — wraps `window.apolloMapStudioLicense?.xxx ?? fallback()`.
+Main consumers:
 
-UI components must not access `window.apolloMapStudioLicense` directly — they go through `licenseBridge`.
+- `src/lib/app-bridge.ts` — wraps the `window.apolloMapStudio` app/runtime, Help, window, and native-menu action APIs.
+- [`license-bridge`](../lib/license-bridge.md) — wraps `window.apolloMapStudioLicense?.xxx ?? fallback()`.
+
+UI components must not access these `window` objects directly — they go through `appBridge` / `licenseBridge`.
 
 ## Source map
 
-| Lines | Content                           |
-| ----- | --------------------------------- |
-| 1     | imports                           |
-| 3     | type imports (erased at runtime)  |
-| 5     | `STATUS_BROADCAST_CHANNEL`        |
-| 6–11  | `LICENSE_IPC` channels            |
-| 13–20 | `apolloMapStudio` exposure        |
-| 22–45 | `licenseApi`                      |
-| 47    | `apolloMapStudioLicense` exposure |
+| Lines | Content                            |
+| ----- | ---------------------------------- |
+| 1     | imports                            |
+| 3     | type imports (erased at runtime)   |
+| 5     | `STATUS_BROADCAST_CHANNEL`         |
+| 6–11  | `LICENSE_IPC` channels             |
+| 13–24 | `APP_IPC` / `LICENSE_IPC` channels |
+| 29–59 | `apolloMapStudio` exposure         |
+| 63–91 | `licenseApi`                       |
+| 93    | `apolloMapStudioLicense` exposure  |
 
 ## See also
 

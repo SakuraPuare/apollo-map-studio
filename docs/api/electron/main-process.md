@@ -72,7 +72,7 @@ if (rendererUrl) {
 await mainWindow.loadFile(getRendererIndexPath());
 ```
 
-- Dev：从 Vite dev server 拉资源（`vite.config.ts` 中 electron-vite 注入 `ELECTRON_RENDERER_URL`），自动打开 detach 模式 DevTools
+- Dev：从 Vite dev server 拉资源（`electron:dev` 脚本或 Electron E2E fixture 设置 `ELECTRON_RENDERER_URL`），自动打开 detach 模式 DevTools
 - Prod：加载打包后的 `dist/index.html`
 
 ### 外部链接拦截
@@ -176,7 +176,7 @@ let licenseManager: LicenseManager | null = null;
 
 ## 测试覆盖
 
-主进程逻辑通常用 Spectron / Playwright Electron 做端到端测试，本 repo 暂无（或在 CI 中走 `pnpm package` smoke test）。
+主进程逻辑由两层覆盖：`pnpm test:electron` 用 `node --test` 跑 main/preload/license 单测；`pnpm test:electron:e2e` 用 Playwright Electron 启动真实桌面壳，覆盖窗口、preload bridge、native menu callback wiring、Help/About 和 license 基础流程。发布前仍建议对 `pnpm package` 产物做一次手工 smoke。
 
 ## 相关 IPC
 
@@ -222,4 +222,4 @@ let licenseManager: LicenseManager | null = null;
 - [Preload](./preload.md)
 - [License Manager](./license-manager.md)
 - `tsconfig.electron.json` —— 编译配置（输出 `.cjs`）
-- `vite.config.ts` —— `ELECTRON_RENDERER_URL` 注入
+- `package.json` —— `electron:dev` 设置 `ELECTRON_RENDERER_URL`

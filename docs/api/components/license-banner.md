@@ -140,7 +140,7 @@ switch (state.status) {
 
 - [WorkspaceLayout](./workspace-layout.md) — 父组件
 - [ActivationDialog](./activation-dialog.md) — 实际的激活流程
-- [`licenseStore`](/api/store) — 状态机
+- [`licenseStore`](/api/store/) — 状态机
 - `useLicenseSync` → `src/hooks/useLicense.ts`
 
 ## 英文镜像

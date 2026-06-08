@@ -128,5 +128,5 @@ When `open=false` it returns `null` — the modal is removed from the DOM.
 
 - [WorkspaceLayout](./workspace-layout.md) — `<ActivationDialog />` is always mounted at the root
 - [LicenseBanner](./license-banner.md) — primary entry point
-- [`licenseStore`](/en/api/store) — state machine
+- [`licenseStore`](/en/api/store/) — state machine
 - License IPC contract → [`/en/api/electron`](/en/api/electron)

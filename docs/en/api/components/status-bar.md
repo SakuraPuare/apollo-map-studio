@@ -108,5 +108,5 @@ None. Pure derived display. The cursor lng/lat and zoom are written into `uiStor
 
 - [WorkspaceLayout](./workspace-layout.md) — parent
 - [`uiStore`](/en/api/store/store-ui) — `gridEnabled` / `snapEnabled` / `cursorLngLat` / `currentZoom` / `appMode`
-- [`apolloMapStore`](/en/api/store) — `info`
+- [`apolloMapStore`](/en/api/store/) — `info`
 - [Architecture overview](/en/architecture/) — design tokens

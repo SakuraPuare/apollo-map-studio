@@ -180,12 +180,12 @@ This section shares directional intent. It is not a release commitment. Once
 an item ships it moves into the matching version section above.
 :::
 
-| Topic                       | Description                                                                                      | Related chapter                                               |
-| --------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| Multi-language i18n         | `enumLabels.ts` already exposes the i18n hook; introducing i18next only replaces the dictionary. | [Enum Mappings](/en/reference/enum-mappings)                  |
-| Light theme                 | 1.0 ships dark-only. Light theme will override `ams-*` tokens under `[data-theme="light"]`.      | [Color Palette](/en/reference/color-palette)                  |
-| Worker protocol v3          | Plans to use `SharedArrayBuffer` to remove postMessage clone overhead.                           | [Worker protocol](/en/architecture/worker-protocol)           |
-| Cross-platform native menus | Electron menus are still React-rendered; will migrate to native menu APIs.                       | [Electron integration](/en/architecture/electron-integration) |
+| Topic                       | Description                                                                                                                                                                        | Related chapter                                               |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Multi-language i18n         | `enumLabels.ts` already exposes the i18n hook; introducing i18next only replaces the dictionary.                                                                                   | [Enum Mappings](/en/reference/enum-mappings)                  |
+| Light theme                 | 1.0 ships dark-only. Light theme will override `ams-*` tokens under `[data-theme="light"]`.                                                                                        | [Color Palette](/en/reference/color-palette)                  |
+| Worker protocol v3          | Plans to use `SharedArrayBuffer` to remove postMessage clone overhead.                                                                                                             | [Worker protocol](/en/architecture/worker-protocol)           |
+| Cross-platform native menus | The Electron main process now installs native menus and routes them through native menu callback wiring into renderer actions; later work can expand OS-menu interaction coverage. | [Electron integration](/en/architecture/electron-integration) |
 
 ## Versioning policy in detail
 
@@ -211,8 +211,8 @@ Each release walks through this list:
 
 | Item         | 1.0.0                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Node.js      | ≥ 20                                                         |
-| pnpm         | ≥ 10                                                         |
+| Node.js      | ≥ 22.22.1                                                    |
+| pnpm         | 11.5.2                                                       |
 | Browser      | Chrome 120+, Firefox 120+, Safari 17+ (Chromium recommended) |
 | Electron     | 41                                                           |
 | Apollo proto | proto2 syntax aligned with Apollo 9.0 fields                 |

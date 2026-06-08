@@ -162,7 +162,7 @@ react-arborist 在拖动过程中调用此函数判定能否 drop。逻辑：
 
 - [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → LayerTree（`activeTab='layers'`）
 - [`mapStore.reparentEntity`](/api/store/store-map)
-- [`entityOps`](/api/lib) — proto 抗腐蚀层入口
+- [`entityOps`](/api/lib/) — proto 抗腐蚀层入口
 - [架构](/architecture/) — Anti-corruption layer
 - [InspectorForms](./inspector-forms.md) — 选中实体后的细节编辑
 
@@ -180,7 +180,7 @@ react-arborist 在拖动过程中调用此函数判定能否 drop。逻辑：
 | [MapCanvas](./map-canvas.md)             | 通过 `mapStore.entities` 间接联动（修改后冷层 round-trip 重渲染）   |
 | [LayerTree](./layer-tree.md)             | 通过 `mapStore` 共享实体状态                                        |
 | [InspectorForms](./inspector-forms.md)   | 通过 `editorMachine.context.selectedEntityId` 同步选中实体          |
-| [Action Registry](/api/core)             | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
+| [Action Registry](/api/core/)            | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
 
 ::: tip 维护建议
 当组件之间需要**直接 prop 传递**时，先问自己：能不能改放到 store？如果该数据被 ≥3 个组件读取，store 通常更合适；2 个之间则 props 更轻量。

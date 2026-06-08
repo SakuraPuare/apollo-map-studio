@@ -131,7 +131,7 @@ const computed =
 ## 跨页参考
 
 - [WorkspaceLayout](./workspace-layout.md) — `LazyProjPickerDialog` 在此挂载
-- [`projDialogStore`](/api/store) — request/resolve API
+- [`projDialogStore`](/api/store/) — request/resolve API
 - Apollo import → `src/io/mapIO.ts` → `src/io/apolloIO.worker.ts`（消息契约见 `src/io/apolloIOProtocol.ts`）
 - 投影 helpers → `src/io/proto/projection.ts`
 

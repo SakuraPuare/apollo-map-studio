@@ -324,10 +324,11 @@ linux: { target: [{ target: AppImage, arch: [x64] }, { target: deb, arch: [x64] 
 
 ## 14. 测试
 
-- Renderer 侧：`isDesktopBuild()` 在测试环境返回 false，所有 license API
-  走 fallback；用例不依赖 Electron。
-- 主进程目前未引 spectron/playwright-electron。
-- 手工冒烟：`pnpm package` 产物在 `release/` 里启动跑一遍 import → export。
+- Renderer/Vitest：浏览器环境下 license API 走 fallback，用于覆盖 renderer store、hooks、UI 分支。
+- Electron 单测：`pnpm test:electron` 编译 `electron/**/*.cts` 后用 `node --test` 覆盖 main/preload/license 逻辑。
+- Electron E2E：`pnpm test:electron:e2e` 使用 Playwright Electron 启动真实桌面壳，覆盖 preload bridge、窗口控制、native menu callback wiring、Help/About 和 license activation dialog 基础流。
+- Linux 无 `DISPLAY` 时需要 `xvfb-run`；脚本会自动使用它，缺失时按提示安装 xvfb。
+- 发布前仍建议对 `pnpm package` 产物做一次手工冒烟，覆盖 packaged/hardened artifact 的 import → export。
 
 ## 15. 源码地图
 

@@ -131,6 +131,6 @@ Imported from `@/io/proto/projection`:
 ## Cross-references
 
 - [WorkspaceLayout](./workspace-layout.md) — mounts `LazyProjPickerDialog`
-- [`projDialogStore`](/en/api/store) — request/resolve API
+- [`projDialogStore`](/en/api/store/) — request/resolve API
 - Apollo import → `src/io/mapIO.ts` → `src/io/apolloIO.worker.ts` (message contract in `src/io/apolloIOProtocol.ts`)
 - Projection helpers → `src/io/proto/projection.ts`

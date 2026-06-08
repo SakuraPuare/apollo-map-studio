@@ -107,7 +107,7 @@ export function LaneRef({ id }: { id: string | null | undefined }): JSX.Element;
 ## 跨页参考
 
 - [InspectorForms](./inspector-forms.md) — 调用方
-- [`editorMachine`](/api/core) — `SELECT_ENTITY` 事件
+- [`editorMachine`](/api/core/) — `SELECT_ENTITY` 事件
 - [`mapStore`](/api/store/store-map) — `entities` 验在性
 
 ## 英文镜像

@@ -14,7 +14,7 @@ description: pnpm install / pnpm dev / pnpm electron:dev、Node 版本、跨平�
 git clone <repo>
 cd apollo-map-studio
 pnpm install
-pnpm dev   # http://localhost:5173
+pnpm dev   # localhost:5173
 ```
 
 Web 编辑器跑起来后再考虑 Electron。
@@ -22,8 +22,8 @@ Web 编辑器跑起来后再考虑 Electron。
 
 ## 必备 (Required)
 
-- **Node.js 20+** — `node -v` 应显示 `v20.x` 或更高。
-- **pnpm 10+** — `pnpm -v` 应显示 `10.x` 或更高。
+- **Node.js 22.22.1+** — `node -v` 应显示 `v22.22.1` 或更高。
+- **pnpm 11.5.2** — `pnpm -v` 应显示 `11.5.2`。
 - **Git 2.40+** — Husky 9 依赖 modern git。
 - **OS** — Linux / macOS / Windows 都可（Windows 推荐 WSL2 跑测试）。
 
@@ -39,17 +39,17 @@ Web 编辑器跑起来后再考虑 Electron。
 ```bash
 # 一次性
 curl -fsSL https://fnm.vercel.app/install | bash
-fnm install 20
-fnm use 20
+fnm install 22.22.1
+fnm use 22.22.1
 corepack enable
-corepack prepare pnpm@10 --activate
+corepack prepare pnpm@11.5.2 --activate
 ```
 
 ### 或：volta
 
 ```bash
 curl https://get.volta.sh | bash
-volta install node@20
+volta install node@22.22.1
 volta install pnpm
 ```
 
@@ -69,7 +69,7 @@ pnpm test            # 跑单测，~6s
 pnpm dev             # 启动 vite，默认 5173
 ```
 
-打开 http://localhost:5173，应当看到地图编辑器主界面（地图为空白，
+打开 localhost:5173，应当看到地图编辑器主界面（地图为空白，
 正常）。
 
 ### 验证 husky
@@ -146,7 +146,7 @@ git 配置 `core.autocrlf=input` 也行。
 
 ### macOS
 
-- Apple Silicon 原生 Node 20 ARM 即可。
+- Apple Silicon 原生 Node 22 ARM 即可。
 - 一些 native deps（如 keytar，本项目没用）需 Rosetta；当前依赖纯 JS。
 - 桌面打包详见 [打包桌面版本](../recipes/packaging-desktop-builds)。
 
@@ -250,8 +250,8 @@ chmod +x .husky/pre-commit  # 必要时
 未官方支持，但可用：
 
 ```bash
-# 任何 Node 20 + pnpm 10 镜像都能跑
-docker run -it --rm -v "$PWD":/app -w /app node:20 bash
+# 任何 Node 22.22.1+ + pnpm 11.5.2 镜像都能跑
+docker run -it --rm -v "$PWD":/app -w /app node:22 bash
 corepack enable
 pnpm install
 pnpm test

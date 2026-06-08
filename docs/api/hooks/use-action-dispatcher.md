@@ -239,7 +239,7 @@ const { execute, getToggleState } = useActionDispatcher({
 - [Action Registry](../core/action-registry.md)
 - [editorMachine FSM](../core/editor-machine.md)
 - [`useDrawCommit`](./use-draw-commit.md)
-- [Architecture: Action Registry (R5)](/architecture)
+- [Architecture: Action Registry (R5)](/architecture/)
 
 ## 源码索引
 

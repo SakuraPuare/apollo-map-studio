@@ -38,7 +38,7 @@ on:
   pull_request:
     branches: [main, v1]
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: <workflow>-<ref>
   cancel-in-progress: true
 ```
 
@@ -48,13 +48,29 @@ concurrency:
 | 触发 tag | `v*` 形如 `v1.0.0`          |
 | 并发策略 | 同 ref 新提交会取消上一轮跑 |
 
-### Job 1：`check` — 质量门禁与 Web 构建
+### Job 1：`quality` — 质量门禁矩阵
 
 ```yaml
-check:
-  name: Typecheck & Test
+quality:
+  name: Quality (<task>)
   runs-on: ubuntu-latest
   timeout-minutes: 10
+  strategy:
+    fail-fast: false
+    matrix:
+      include:
+        - task: Typecheck
+          command: pnpm typecheck
+        - task: ESLint
+          command: pnpm lint
+        - task: Prettier
+          command: pnpm format:check
+        - task: Unit tests
+          command: pnpm test
+        - task: Electron tests
+          command: pnpm test:electron
+        - task: React Doctor
+          command: CI=true pnpm run react-doctor
 ```
 
 #### 环境
@@ -63,81 +79,124 @@ check:
 | ------- | --------------- |
 | Runner  | `ubuntu-latest` |
 | 超时    | 10 分钟         |
-| Node.js | 20              |
-| pnpm    | 10              |
+| Node.js | 22.22.1         |
+| pnpm    | 11.5.2          |
 
 #### Step 表
 
-| #   | Step 名              | Action                       | 命令 / 用途                                                              |
-| --- | -------------------- | ---------------------------- | ------------------------------------------------------------------------ |
-| 1   | Checkout repository  | `actions/checkout@v6`        | 拉代码                                                                   |
-| 2   | Install pnpm         | `pnpm/action-setup@v4`       | `version: 10`                                                            |
-| 3   | Setup Node.js        | `actions/setup-node@v6`      | `node-version: 20`, `cache: pnpm`                                        |
-| 4   | Install dependencies | —                            | `pnpm install --frozen-lockfile`                                         |
-| 5   | TypeScript typecheck | —                            | `pnpm typecheck`                                                         |
-| 6   | ESLint               | —                            | `pnpm lint`                                                              |
-| 7   | Prettier formatting  | —                            | `pnpm format:check`                                                      |
-| 8   | Web production build | —                            | `pnpm build:web`                                                         |
-| 9   | Documentation build  | —                            | `pnpm docs:build`                                                        |
-| 10  | Unit tests           | —                            | `pnpm test`                                                              |
-| 11  | Benchmarks           | —                            | `pnpm bench --outputJson bench-results.json`                             |
-| 12  | Perf budget guard    | —                            | `node scripts/check-bench-budget.mjs bench-results.json`                 |
-| 13  | Upload web artifact  | `actions/upload-artifact@v7` | `name: apollo-map-studio-web`, `path: dist/`, `if-no-files-found: error` |
+| #   | Step 名              | Action                  | 命令 / 用途                                       |
+| --- | -------------------- | ----------------------- | ------------------------------------------------- |
+| 1   | Checkout repository  | `actions/checkout@v6`   | 拉代码                                            |
+| 2   | Install pnpm         | `pnpm/action-setup@v4`  | `version: 11.5.2`                                 |
+| 3   | Setup Node.js        | `actions/setup-node@v6` | `node-version: 22.22.1`, cache pnpm               |
+| 4   | Install dependencies | —                       | `pnpm install --frozen-lockfile --prefer-offline` |
+| 5   | Run matrix task      | —                       | `matrix.command`                                  |
 
-::: tip Step 9 与 docs-preview 的关系
-`pnpm docs:build` 只是验证 docs 能编译；真正发布 GitHub Pages 由
-`docs-preview.yml` 处理。两条流水线互不依赖。
+::: tip 质量门禁拆分
+`quality` 只跑静态检查、单测、Electron node:test 与 React Doctor。Web 构建、
+docs 构建和 bench 都是独立 job，失败时更容易定位。
 :::
 
-### Job 2：`desktop-package` — 三平台 Electron 打包
+### Job 2：`benchmarks` — 性能预算
+
+```yaml
+benchmarks:
+  name: Benchmarks
+  runs-on: ubuntu-latest
+  timeout-minutes: 10
+```
+
+| #   | Step 名                 | Action                       | 命令 / 用途                                              |
+| --- | ----------------------- | ---------------------------- | -------------------------------------------------------- |
+| 1-4 | Checkout / pnpm / Node  | `actions/*`                  | 与 `quality` 相同，Node `22.22.1` / pnpm `11.5.2`        |
+| 5   | Run benchmarks          | —                            | `pnpm bench --outputJson bench-results.json`             |
+| 6   | Perf budget guard       | —                            | `node scripts/check-bench-budget.mjs bench-results.json` |
+| 7   | Upload benchmark report | `actions/upload-artifact@v7` | `name: bench-results`, `path: bench-results.json`        |
+
+### Job 3：`web-build` — Web 构建产物
+
+`web-build` 在 ubuntu 上运行 `pnpm build:web`，并把 `dist/` 上传为
+`apollo-map-studio-web`。后续桌面构建和 tag release 都复用这个 artifact。
+
+### Job 4：`docs-build` — 文档构建
+
+`docs-build` 在 ubuntu 上运行 `pnpm docs:build`。真正发布 GitHub Pages 仍由
+`docs-preview.yml` 处理，两条流水线互不依赖。
+
+### Job 5：`desktop-build` — hardened Electron assets
+
+```yaml
+desktop-build:
+  name: Desktop build
+  runs-on: ubuntu-latest
+  timeout-minutes: 15
+  needs: web-build
+  if: github.event_name != 'pull_request'
+```
+
+| #   | Step 名                        | Action                         | 命令 / 用途                            |
+| --- | ------------------------------ | ------------------------------ | -------------------------------------- |
+| 1-4 | Checkout / pnpm / Node / deps  | `actions/*`                    | Node `22.22.1` / pnpm `11.5.2`         |
+| 5   | Download web build             | `actions/download-artifact@v5` | 下载 `apollo-map-studio-web` 到 `dist` |
+| 6   | Build desktop docs             | —                              | `pnpm build:docs:desktop`              |
+| 7   | Build hardened Electron assets | —                              | `pnpm build:electron:hardened`         |
+| 8   | Verify Electron hardening      | —                              | `pnpm verify:electron-hardening`       |
+| 9   | Upload desktop build           | `actions/upload-artifact@v7`   | 上传 `dist/` 和 `dist-electron/`       |
+
+#### Step 7 secret
+
+| 变量                              | 来源                                      | 用途                       |
+| --------------------------------- | ----------------------------------------- | -------------------------- |
+| `APMS_LICENSE_PRIVATE_KEY_BASE64` | `secrets.APMS_LICENSE_PRIVATE_KEY_BASE64` | 同步 Electron license 公钥 |
+
+### Job 6：`desktop-package` — 三平台 Electron 打包
 
 ```yaml
 desktop-package:
-  name: Desktop package (${{ matrix.os }})
-  runs-on: ${{ matrix.os }}
+  name: Desktop package (<os>)
+  runs-on: <matrix.os>
   timeout-minutes: 30
-  needs: check
+  needs: desktop-build
+  if: github.event_name != 'pull_request'
   strategy:
     fail-fast: false
     matrix:
       include:
         - os: ubuntu-latest
-          package-script: package:linux
+          builder-args: --linux --x64
           artifact-name: apollo-map-studio-linux
         - os: macos-latest
-          package-script: package:mac
+          builder-args: --mac --x64 --arm64
           artifact-name: apollo-map-studio-macos
         - os: windows-latest
-          package-script: package:win
+          builder-args: --win --x64
           artifact-name: apollo-map-studio-windows
 ```
 
-| 项          | 值                                    |
-| ----------- | ------------------------------------- |
-| 依赖        | `needs: check`（先跑过质量门禁）      |
-| 超时        | 30 分钟                               |
-| 矩阵        | 3 个 runner × 1 配置                  |
-| `fail-fast` | `false`（一个平台失败不会取消另两个） |
+| 项          | 值                                                      |
+| ----------- | ------------------------------------------------------- |
+| 依赖        | `needs: desktop-build`（复用 hardened assets artifact） |
+| 超时        | 30 分钟                                                 |
+| 矩阵        | 3 个 runner × 对应 electron-builder args                |
+| `fail-fast` | `false`（一个平台失败不会取消另两个）                   |
 
 #### Step 表
 
-| #   | Step 名                  | Action                       | 命令 / 用途                      |
-| --- | ------------------------ | ---------------------------- | -------------------------------- |
-| 1   | Checkout repository      | `actions/checkout@v6`        | —                                |
-| 2   | Install pnpm             | `pnpm/action-setup@v4`       | `version: 10`                    |
-| 3   | Setup Node.js            | `actions/setup-node@v6`      | `node-version: 20`               |
-| 4   | Install dependencies     | —                            | `pnpm install --frozen-lockfile` |
-| 5   | Build desktop artifacts  | —                            | `pnpm` + matrix `package-script` |
-| 6   | Upload desktop artifacts | `actions/upload-artifact@v7` | 见下表                           |
+| #   | Step 名                   | Action                         | 命令 / 用途                                                        |
+| --- | ------------------------- | ------------------------------ | ------------------------------------------------------------------ |
+| 1-4 | Checkout / pnpm / Node    | `actions/*`                    | Node `22.22.1` / pnpm `11.5.2`                                     |
+| 5   | Download desktop build    | `actions/download-artifact@v5` | 下载 `apollo-map-studio-desktop-build` 到仓库根                    |
+| 6   | Package desktop artifacts | —                              | `pnpm exec electron-builder <matrix.builder-args> --publish never` |
+| 7   | Upload desktop artifacts  | `actions/upload-artifact@v7`   | 见下表                                                             |
 
-#### Step 5 环境变量
+#### Step 6 环境变量
 
-| 变量                          | 值                                    | 用途                                                         |
-| ----------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| `CSC_IDENTITY_AUTO_DISCOVERY` | `false`                               | 关闭 electron-builder 的 codesign 自动发现，避免无证书时报错 |
-| `GH_TOKEN`                    | GitHub Actions `secrets.GITHUB_TOKEN` | electron-builder publish 需要                                |
+| 变量                          | 值                 | 用途                                                         |
+| ----------------------------- | ------------------ | ------------------------------------------------------------ |
+| `NODE_OPTIONS`                | `--no-deprecation` | 静默 Electron Builder 依赖里的弃用提示                       |
+| `CSC_IDENTITY_AUTO_DISCOVERY` | `false`            | 关闭 electron-builder 的 codesign 自动发现，避免无证书时报错 |
 
-#### Step 6 上传产物
+#### Step 7 上传产物
 
 ```yaml
 path: |
@@ -161,24 +220,24 @@ if-no-files-found: error
 任何一个平台上传到的文件为空都会让该 job 失败，阻止后续 release。
 :::
 
-### Job 3：`github-release` — Tag 发布
+### Job 7：`github-release` — Tag 发布
 
 ```yaml
 github-release:
   name: GitHub Release
   runs-on: ubuntu-latest
   timeout-minutes: 10
-  needs: [check, desktop-package]
+  needs: [quality, benchmarks, web-build, docs-build, desktop-package]
   if: startsWith(github.ref, 'refs/tags/v')
   permissions:
     contents: write
 ```
 
-| 项       | 值                                |
-| -------- | --------------------------------- |
-| 依赖     | `check`、`desktop-package` 全成功 |
-| 触发条件 | `refs/tags/v*`                    |
-| 权限     | `contents: write`（发布 release） |
+| 项       | 值                                                                           |
+| -------- | ---------------------------------------------------------------------------- |
+| 依赖     | `quality`、`benchmarks`、`web-build`、`docs-build`、`desktop-package` 全成功 |
+| 触发条件 | `refs/tags/v*`                                                               |
+| 权限     | `contents: write`（发布 release）                                            |
 
 #### Step 表
 
@@ -219,6 +278,7 @@ on:
       - 'CHANGELOG.md'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -229,12 +289,12 @@ concurrency:
   cancel-in-progress: false
 ```
 
-| 项       | 值                                                          |
-| -------- | ----------------------------------------------------------- |
-| 触发分支 | `main`, `v1`                                                |
-| 触发路径 | `docs/**`, `CHANGELOG.md`, `package.json`, `pnpm-lock.yaml` |
-| 手动触发 | `workflow_dispatch`                                         |
-| 并发策略 | `pages`（**不**取消上一轮，避免 Pages 状态污染）            |
+| 项       | 值                                                                                 |
+| -------- | ---------------------------------------------------------------------------------- |
+| 触发分支 | `main`, `v1`                                                                       |
+| 触发路径 | `docs/**`, `CHANGELOG.md`, `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` |
+| 手动触发 | `workflow_dispatch`                                                                |
+| 并发策略 | `pages`（**不**取消上一轮，避免 Pages 状态污染）                                   |
 
 ### Job：`deploy`
 
@@ -244,7 +304,7 @@ deploy:
   runs-on: ubuntu-latest
   environment:
     name: github-pages
-    url: ${{ steps.deployment.outputs.page_url }}
+    url: <deployment page url>
 ```
 
 #### Step 表
@@ -252,8 +312,8 @@ deploy:
 | #   | Step 名               | Action                             | 命令 / 配置                                                         |
 | --- | --------------------- | ---------------------------------- | ------------------------------------------------------------------- |
 | 1   | Checkout repository   | `actions/checkout@v6`              | —                                                                   |
-| 2   | Install pnpm          | `pnpm/action-setup@v4`             | `version: 10`                                                       |
-| 3   | Setup Node.js         | `actions/setup-node@v6`            | `node-version: 20`, `cache: pnpm`                                   |
+| 2   | Install pnpm          | `pnpm/action-setup@v4`             | `version: 11.5.2`                                                   |
+| 3   | Setup Node.js         | `actions/setup-node@v6`            | `node-version: 22.22.1`, `cache: pnpm`                              |
 | 4   | Install dependencies  | —                                  | `pnpm install --frozen-lockfile`                                    |
 | 5   | Build docs            | —                                  | `pnpm docs:build`，`VITEPRESS_BASE` 使用 repository name 组成子路径 |
 | 6   | Configure Pages       | `actions/configure-pages@v6`       | —                                                                   |
@@ -295,7 +355,7 @@ VitePress 需要知道 base 才能正确解析资源路径。`docs-preview.yml` 
 ### 「desktop-package 单平台失败」
 
 - `fail-fast: false`，其他平台不会被取消，但 release 不会出
-- 本地复现：相应 `pnpm package:linux | package:mac | package:win`
+- 本地复现：先跑 `pnpm build:desktop`，再跑对应 `pnpm exec electron-builder --linux --x64 --publish never` / `--mac --x64 --arm64` / `--win --x64`
 - 常见原因：electron-builder 平台依赖缺失（macOS dmg-license、Windows wine）
 
 ### 「Pages 部署失败」
@@ -306,12 +366,12 @@ VitePress 需要知道 base 才能正确解析资源路径。`docs-preview.yml` 
 
 ## 触发器矩阵
 
-| 事件                      | `ci.yml::check` | `ci.yml::desktop-package` | `ci.yml::github-release` | `docs-preview.yml::deploy` |
-| ------------------------- | --------------- | ------------------------- | ------------------------ | -------------------------- |
-| push main / v1            | ✅              | ✅                        | ❌                       | 仅当路径命中               |
-| pull_request to main / v1 | ✅              | ✅                        | ❌                       | ❌                         |
-| tag `v*`                  | ✅              | ✅                        | ✅                       | ❌                         |
-| `workflow_dispatch`       | ❌              | ❌                        | ❌                       | ✅                         |
+| 事件                      | `ci.yml::quality` | `ci.yml::desktop-build` | `ci.yml::desktop-package` | `ci.yml::github-release` | `docs-preview.yml::deploy` |
+| ------------------------- | ----------------- | ----------------------- | ------------------------- | ------------------------ | -------------------------- |
+| push main / v1            | ✅                | ✅                      | ✅                        | ❌                       | 仅当路径命中               |
+| pull_request to main / v1 | ✅                | ❌                      | ❌                        | ❌                       | ❌                         |
+| tag `v*`                  | ✅                | ✅                      | ✅                        | ✅                       | ❌                         |
+| `workflow_dispatch`       | ❌                | ❌                      | ❌                        | ❌                       | ✅                         |
 
 ## 相关文档
 

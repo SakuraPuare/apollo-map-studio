@@ -12,9 +12,11 @@ description: Vitest 模式、fixture、回归测试（undoCancel、clickDedup）
 
 - 单测在 `__tests__/` 子目录，与被测代码同级。
 - bench 在 `*.bench.ts`，与被测代码同级。
-- 端到端：暂未引入 Playwright / Cypress（roadmap）。
+- Web E2E 在 `tests/e2e/`，使用 Playwright + Chromium 覆盖浏览器/renderer 交互。
+- Electron E2E 在 `electron-e2e/`，使用 Playwright Electron 启动真实桌面壳。
+- `pnpm test:electron` 不是 E2E；它用 `node --test` 跑 main/preload/license 单测。
 
-CI 跑 `pnpm test`，~6 秒。
+常规 CI 跑 `pnpm test` 和 `pnpm test:electron`；Web/Electron E2E 属于专项或发布前检查，除非 workflow 显式加入。
 :::
 
 ## 命令速查
@@ -26,7 +28,14 @@ pnpm test --watch                            # watch 模式
 pnpm test --reporter=verbose                 # 看每个 it
 pnpm test --coverage                         # v8 覆盖率
 pnpm test --update                           # 更新 snapshot（慎用）
+pnpm test:e2e                                # Web E2E：Chromium + Vite test server
+pnpm test:e2e:ci                             # 安装 Chromium/deps 后跑 Web E2E
+pnpm test:electron                           # Electron main/preload/license 单测
+pnpm test:electron:e2e                       # Electron 桌面 E2E
 ```
+
+Linux 无 `DISPLAY` 时，Electron E2E 需要 `xvfb-run`。脚本会自动使用它；
+缺失时按提示安装 xvfb，或手动运行 `xvfb-run -a pnpm test:electron:e2e`。
 
 ## 目录约定
 

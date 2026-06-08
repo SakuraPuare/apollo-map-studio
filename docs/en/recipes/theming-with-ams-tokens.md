@@ -23,7 +23,7 @@ self-intersect" warning banner.
 
 ## Prerequisites
 
-- You have read [Design System](../design).
+- You have read [Design System](../design/).
 - You know Tailwind 4 `@theme` syntax.
 - The project loads `src/index.css` via `@tailwindcss/vite`.
 

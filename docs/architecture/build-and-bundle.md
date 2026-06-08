@@ -172,38 +172,56 @@ package name —— 兼容 pnpm 嵌套依赖。
 
 `.github/workflows/ci.yml`：
 
-### 8.1 `check` job (ubuntu)
+### 8.1 质量、构建与性能 jobs
 
 ```yaml
-- pnpm typecheck
-- pnpm lint
-- pnpm format:check
-- pnpm build:web
-- pnpm docs:build
-- pnpm test
-- pnpm bench --outputJson bench-results.json
-- node scripts/check-bench-budget.mjs bench-results.json
+quality:
+  - pnpm typecheck
+  - pnpm lint
+  - pnpm format:check
+  - pnpm test
+  - pnpm test:electron
+  - CI=true pnpm run react-doctor
+benchmarks:
+  - pnpm bench --outputJson bench-results.json
+  - node scripts/check-bench-budget.mjs bench-results.json
+web-build:
+  - pnpm build:web
+docs-build:
+  - pnpm docs:build
+desktop-build:
+  - download apollo-map-studio-web
+  - pnpm build:docs:desktop
+  - pnpm build:electron:hardened
+  - pnpm verify:electron-hardening
 ```
 
-upload `dist/` 作为 web artifact。
+`web-build` 上传 `dist/`；`desktop-build` 下载 web artifact，生成
+`dist/docs` 和 hardened `dist-electron/` 后上传桌面构建产物。
 
 ### 8.2 `desktop-package` matrix
 
 ```yaml
 matrix:
   include:
-    - { os: ubuntu-latest, package-script: package:linux, artifact: apollo-map-studio-linux }
-    - { os: macos-latest, package-script: package:mac, artifact: apollo-map-studio-macos }
-    - { os: windows-latest, package-script: package:win, artifact: apollo-map-studio-windows }
+    - { os: ubuntu-latest, builder-args: --linux --x64, artifact-name: apollo-map-studio-linux }
+    - {
+        os: macos-latest,
+        builder-args: --mac --x64 --arm64,
+        artifact-name: apollo-map-studio-macos,
+      }
+    - { os: windows-latest, builder-args: --win --x64, artifact-name: apollo-map-studio-windows }
 ```
 
-`needs: check` —— 仅在 typecheck/test/bench 通过后才打桌面包。
+`desktop-package` 依赖 `desktop-build`，下载
+`apollo-map-studio-desktop-build` 后运行
+`pnpm exec electron-builder &#36;&#123;&#123; matrix.builder-args &#125;&#125; --publish never`。
 
 环境变量：
 
 - `CSC_IDENTITY_AUTO_DISCOVERY: false` —— 不试图从 keychain 找证书
-- `GH_TOKEN: secrets.GITHUB_TOKEN` —— electron-builder 可用，但
-  `publish: never` 时不上传
+- `NODE_OPTIONS: --no-deprecation` —— 打包阶段屏蔽 Electron Builder
+  的 Node deprecation 噪声
 
 ### 8.3 `github-release` (tag only)
 
@@ -211,14 +229,15 @@ matrix:
 if: startsWith(github.ref, 'refs/tags/v')
 ```
 
-下载所有 artifacts → 打包 web zip → `softprops/action-gh-release@v3`
-发布 GitHub Release，附 dmg / zip / deb / AppImage / exe。
+`github-release` 依赖 `quality`、`benchmarks`、`web-build`、`docs-build`
+和 `desktop-package`。tag 推送时下载所有 artifacts，打包 web zip，再用
+`softprops/action-gh-release@v3` 发布 dmg / zip / deb / AppImage / exe。
 
 ## 9. Concurrency
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: &#36;&#123;&#123; github.workflow &#125;&#125;-&#36;&#123;&#123; github.ref &#125;&#125;
   cancel-in-progress: true
 ```
 
@@ -226,27 +245,33 @@ concurrency:
 
 ## 10. 本地脚本（package.json）
 
-| 脚本                      | 用途                                                     |
-| ------------------------- | -------------------------------------------------------- |
-| `dev`                     | `vite` —— 浏览器开发                                     |
-| `build`                   | `vite build` —— renderer prod 构建                       |
-| `build:web`               | 同 `build`，CI 用                                        |
-| `build:electron`          | `tsc -p tsconfig.electron.json`                          |
-| `build:desktop`           | `build:web && build:electron`                            |
-| `electron:dev`            | concurrently vite + wait-on + electron + HMR             |
-| `electron:start`          | `build:desktop && electron .`                            |
-| `package`                 | `--dir` —— 不打 installer，本地跑产物                    |
-| `package:linux`           | `electron-builder --linux --x64 --publish never`         |
-| `package:mac`             | `--mac --x64 --arm64 --publish never`                    |
-| `package:win`             | `--win --x64 --publish never`                            |
-| `docs:dev`                | `vitepress dev docs`                                     |
-| `docs:build`              | `vitepress build docs`                                   |
-| `docs:preview`            | `vitepress preview docs`                                 |
-| `test`                    | `vitest run`                                             |
-| `bench`                   | `vitest bench --run`                                     |
-| `typecheck`               | `tsc --noEmit && tsc -p tsconfig.electron.json --noEmit` |
-| `lint` / `lint:fix`       | `eslint .`                                               |
-| `format` / `format:check` | `prettier`                                               |
+| 脚本                        | 用途                                                                                                            |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `dev`                       | `vite` —— 浏览器开发                                                                                            |
+| `build`                     | `build:web && build:docs:desktop`                                                                               |
+| `build:web`                 | `vite build` —— renderer prod 构建                                                                              |
+| `build:docs:desktop`        | VitePress 构建到 `dist/docs`，供桌面包加载                                                                      |
+| `build:electron`            | sync public key + clean + `tsc -p tsconfig.electron.json`                                                       |
+| `build:electron:hardened`   | `build:electron` 后加密受保护 Electron 模块                                                                     |
+| `verify:electron-hardening` | 校验 sealed modules、loader、integrity manifest                                                                 |
+| `build:desktop`             | `build && build:electron:hardened && verify:electron-hardening`                                                 |
+| `electron:dev`              | concurrently vite + wait-on + electron + HMR                                                                    |
+| `electron:start`            | `build:desktop && electron .`                                                                                   |
+| `package`                   | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --dir --publish never`               |
+| `package:linux`             | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --linux --x64 --publish never`       |
+| `package:mac`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --mac --x64 --arm64 --publish never` |
+| `package:win`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --win --x64 --publish never`         |
+| `docs:dev`                  | `vitepress dev docs`                                                                                            |
+| `docs:build`                | `vitepress build docs`                                                                                          |
+| `docs:preview`              | `vitepress preview docs`                                                                                        |
+| `test`                      | `vitest run`                                                                                                    |
+| `test:electron`             | `node scripts/run-electron-tests.mjs`                                                                           |
+| `bench`                     | `vitest bench --run --maxWorkers=1`                                                                             |
+| `bench:fast`                | `vitest bench --run --maxWorkers=100%`                                                                          |
+| `typecheck`                 | renderer + config + Electron 三套 tsconfig                                                                      |
+| `lint` / `lint:fix`         | `eslint .`（`lint` 另跑 react-doctor）                                                                          |
+| `react-doctor`              | UI 结构检查，CI 以 blocking error 运行                                                                          |
+| `format` / `format:check`   | `prettier`                                                                                                      |
 
 ## 11. 体积与性能
 

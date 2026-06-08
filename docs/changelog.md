@@ -159,12 +159,12 @@ curve / proto2 optional / overlap / map header metadata）的保真。
 对应的版本章节里。
 :::
 
-| 主题           | 描述                                                                      | 关联章节                                            |
-| -------------- | ------------------------------------------------------------------------- | --------------------------------------------------- |
-| 多语言 i18n    | `enumLabels.ts` 已经预留 hook，未来引入 i18next 时只需要替换 dictionary。 | [Enum Mappings](/reference/enum-mappings)           |
-| 亮色主题       | 1.0 仅暗色；亮色主题计划通过 `[data-theme="light"]` 覆盖 `ams-*` token。  | [Color Palette](/reference/color-palette)           |
-| Worker 协议 v3 | 计划引入 `SharedArrayBuffer` 减少 postMessage clone 开销。                | [Worker 协议](/architecture/worker-protocol)        |
-| 跨平台原生菜单 | 当前 Electron 菜单仍由 React 渲染；计划迁移至原生菜单 API。               | [Electron 集成](/architecture/electron-integration) |
+| 主题           | 描述                                                                                                                     | 关联章节                                            |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| 多语言 i18n    | `enumLabels.ts` 已经预留 hook，未来引入 i18next 时只需要替换 dictionary。                                                | [Enum Mappings](/reference/enum-mappings)           |
+| 亮色主题       | 1.0 仅暗色；亮色主题计划通过 `[data-theme="light"]` 覆盖 `ams-*` token。                                                 | [Color Palette](/reference/color-palette)           |
+| Worker 协议 v3 | 计划引入 `SharedArrayBuffer` 减少 postMessage clone 开销。                                                               | [Worker 协议](/architecture/worker-protocol)        |
+| 跨平台原生菜单 | Electron 主进程已安装原生菜单，并通过 native menu callback wiring 触发 renderer action；后续可继续增强 OS 菜单交互覆盖。 | [Electron 集成](/architecture/electron-integration) |
 
 ## 版本号语义解读
 
@@ -191,8 +191,8 @@ curve / proto2 optional / overlap / map header metadata）的保真。
 
 | 项目         | 1.0.0                                                       |
 | ------------ | ----------------------------------------------------------- |
-| Node.js      | ≥ 20                                                        |
-| pnpm         | ≥ 10                                                        |
+| Node.js      | ≥ 22.22.1                                                   |
+| pnpm         | 11.5.2                                                      |
 | 浏览器       | Chrome 120+, Firefox 120+, Safari 17+（建议 Chromium 系列） |
 | Electron     | 41                                                          |
 | Apollo proto | proto2 syntax，与 Apollo 9.0 字段对齐                       |

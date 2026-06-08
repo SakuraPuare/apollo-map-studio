@@ -35,7 +35,7 @@ mapStore.entities ──▶ useColdLayer.scheduleSync (RAF) ──▶ bridge.sen
                                        cold GeoJSONSource.setData / updateData
 ```
 
-Full layering is documented in [Architecture: Cold Layer](/en/architecture).
+Full layering is documented in [Architecture: Cold Layer](/en/architecture/).
 
 ## Signature
 
@@ -254,7 +254,7 @@ the `MapCanvas` effect.
 - [`useHotLayer`](./use-hot-layer.md)
 - [SpatialWorkerBridge](../core/spatial-bridge.md)
 - [Worker protocol](../core/worker-protocol.md)
-- [Architecture: Cold layer pipeline](/en/architecture)
+- [Architecture: Cold layer pipeline](/en/architecture/)
 
 ## Source map
 

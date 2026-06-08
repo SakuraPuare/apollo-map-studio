@@ -1,46 +1,33 @@
-# License Hardening
+# 授权加固
 
-Apollo Map Studio uses an offline activation model. This raises the cost of
-common activation attacks, but no purely local desktop check can be made
-uncrackable against an attacker who can patch the shipped binary or runtime.
+Apollo Map Studio 使用离线激活模型。它可以提高常见激活攻击的成本，但只要攻击者能够修改发布包或运行时，纯本地桌面校验就不可能做到不可破解。
 
-## Covered Attacks
+## 覆盖的攻击面
 
-| Attack                          | Defense                                                                       | Regression                                    |
-| ------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------- |
-| Forged activation code          | Ed25519 signature verification with only the public key shipped in the app    | `electron/license/__tests__/crypto.test.cts`  |
-| Token for another machine       | Canonical machine-code binding in signed payload                              | `crypto.test.cts`                             |
-| Expired or malformed token      | Strict payload validation for epoch windows, nonce, features, and field sizes | `crypto.test.cts`                             |
-| Downgrade replay                | Manager refuses shorter expiry for the same license id                        | `electron/license/manager.cts`                |
-| Local license file edits        | AES-GCM primary/shadow files plus HMAC-sealed state file                      | `electron/license/__tests__/storage.test.cts` |
-| Deleted or partial mirror files | Three-file mirror cross-check marks install tampered                          | `storage.test.cts`                            |
-| Copying blobs between machines  | Per-machine HKDF keys make copied encrypted blobs unreadable                  | `storage.test.cts`                            |
-| Clock rollback                  | `TimeGuard` high-water timestamp, anchor mtime checks, and sticky tamper flag | `electron/license/time-guard.cts`             |
+| 攻击方式             | 防护措施                                                | 回归用例                                      |
+| -------------------- | ------------------------------------------------------- | --------------------------------------------- |
+| 伪造激活码           | Ed25519 签名校验，应用内只发布公钥                      | `electron/license/__tests__/crypto.test.cts`  |
+| 使用其他机器的 token | 签名载荷绑定规范化 machine code                         | `crypto.test.cts`                             |
+| 过期或畸形 token     | 严格校验 epoch 窗口、nonce、features 和字段长度         | `crypto.test.cts`                             |
+| 降级重放             | 同一 license id 不接受更短有效期                        | `electron/license/manager.cts`                |
+| 修改本地授权文件     | AES-GCM 主/影子文件，加 HMAC 密封状态文件               | `electron/license/__tests__/storage.test.cts` |
+| 删除或破坏镜像文件   | 三文件镜像交叉检查，异常时标记为 tampered               | `storage.test.cts`                            |
+| 跨机器复制授权 blob  | 每台机器派生 HKDF 密钥，复制后的加密 blob 无法读取      | `storage.test.cts`                            |
+| 回拨系统时间         | `TimeGuard` 高水位时间戳、anchor mtime 检查和粘性篡改位 | `electron/license/time-guard.cts`             |
 
-## Operational Requirements
+## 运行要求
 
-- Keep `tools/license-gen/keys/private.pem` out of shipped builds and source
-  control. The app must only contain `electron/license/public-key.cts`.
-- Use `pnpm build:desktop` or the `pnpm package*` scripts for release
-  artifacts. They compile readable source first, then seal the access guard and
-  selected `dist-electron/license/*.cjs` files before adding a packaged-file
-  integrity manifest.
-- Keep `electron:dev` on the plain TypeScript build. Artifact hardening is
-  intentionally a release-build step, not a source-obfuscation step.
-- Keep `build:electron` destructive for `dist-electron`. It clears stale
-  Electron output before `tsc`, then `build:electron:hardened` seals the fresh
-  output.
-- Issue renewal tokens with the same `lic` id and a later `expires` value.
-  Older tokens for the same id are intentionally rejected.
-- Treat any `tampered`, `machine_mismatch`, `invalid`, `expired_trial`, or
-  `expired_license` state as read-only in renderer code.
-- For high-value deployments, combine offline activation with server-side
-  entitlement checks or signed update channels. Local checks alone are
-  bypassable by binary patching.
+- 不要把 `tools/license-gen/keys/private.pem` 放进发布包或源码仓库。应用中只能包含 `electron/license/public-key.cts`。
+- 发布产物必须使用 `pnpm build:desktop` 或 `pnpm package*` 脚本生成。流程会先编译可读源码，再密封 access guard 和选定的 `dist-electron/license/*.cjs` 文件，最后写入发布文件完整性清单。
+- `electron:dev` 保持使用普通 TypeScript 构建。产物加固是发布构建步骤，不是源码混淆步骤。
+- `build:electron` 会清理 `dist-electron` 后重新编译；`build:electron:hardened` 只密封这份新输出，避免复用陈旧产物。
+- 续期 token 应使用同一个 `lic` id，并提供更晚的 `expires`。同一 id 的旧有效期 token 会被拒绝。
+- 渲染进程遇到 `tampered`、`machine_mismatch`、`invalid`、`expired_trial` 或 `expired_license` 状态时必须按只读处理。
+- 高价值部署应把离线激活与服务端权益校验或签名更新渠道结合使用。单靠本地校验可以被二进制补丁绕过。
 
-## Verification
+## 验证
 
-Run the source-level license hardening checks with:
+运行源码级授权加固检查：
 
 ```bash
 rm -rf .tmp/electron-license-tests
@@ -48,15 +35,11 @@ pnpm exec tsc -p tsconfig.electron.test.json
 node --test .tmp/electron-license-tests/electron/license/__tests__/*.test.cjs
 ```
 
-Run the release artifact hardening checks with:
+运行发布产物加固检查：
 
 ```bash
 pnpm build:desktop
 pnpm verify:electron-hardening
 ```
 
-The artifact check rejects sourcemaps, requires the protected Electron access
-guard and license modules to be AES-GCM sealed, and verifies
-`dist-electron/ams-integrity.cjs` against the generated `dist/` and
-`dist-electron/` files. Electron test files are excluded from the TypeScript
-build and rejected by the verifier if stale artifacts ever reappear.
+产物检查会拒绝 sourcemap，要求受保护的 Electron access guard 和授权模块已经被 AES-GCM 密封，并使用 `dist-electron/ams-integrity.cjs` 校验生成的 `dist/` 与 `dist-electron/` 文件。Electron 测试文件会被 TypeScript 发布构建排除；如果陈旧测试产物重新出现，验证脚本也会拒绝通过。

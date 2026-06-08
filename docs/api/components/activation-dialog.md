@@ -128,7 +128,7 @@ z-[100] 与 [TaskProgressOverlay](./task-progress-overlay.md) 同层——但 Ac
 
 - [WorkspaceLayout](./workspace-layout.md) — `<ActivationDialog />` 始终挂载于根
 - [LicenseBanner](./license-banner.md) — 弹出该 dialog 的常规入口
-- [`licenseStore`](/api/store) — 状态机
+- [`licenseStore`](/api/store/) — 状态机
 - License IPC 协议 → [`/api/electron`](/api/electron)
 
 ## 英文镜像

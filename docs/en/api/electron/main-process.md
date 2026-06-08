@@ -70,7 +70,7 @@ if (rendererUrl) {
 await mainWindow.loadFile(getRendererIndexPath());
 ```
 
-- Dev: pulls assets from the Vite dev server (electron-vite injects `ELECTRON_RENDERER_URL` via `vite.config.ts`); auto-opens detached DevTools.
+- Dev: pulls assets from the Vite dev server (`electron:dev` or the Electron E2E fixture sets `ELECTRON_RENDERER_URL`); auto-opens detached DevTools.
 - Prod: loads `dist/index.html` from the bundle.
 
 ### External-link interception
@@ -174,7 +174,7 @@ let licenseManager: LicenseManager | null = null;
 
 ## Test coverage
 
-Main-process logic is normally exercised by Spectron / Playwright-Electron end-to-end tests. The repo currently does a smoke check via `pnpm package` in CI rather than a dedicated unit test.
+Main-process logic is covered in two layers: `pnpm test:electron` runs main/preload/license unit tests with `node --test`, and `pnpm test:electron:e2e` launches the real desktop shell with Playwright Electron to cover windows, the preload bridge, native menu callback wiring, Help/About, and the basic license flow. Before release, still run a manual smoke on the `pnpm package` artifact.
 
 ## Related IPC
 
@@ -220,4 +220,4 @@ Broadcast channel: `license:state` (sent to every `BrowserWindow`).
 - [Preload](./preload.md)
 - [License Manager](./license-manager.md)
 - `tsconfig.electron.json` — compile config (emits `.cjs`)
-- `vite.config.ts` — `ELECTRON_RENDERER_URL` injection
+- `package.json` — `electron:dev` sets `ELECTRON_RENDERER_URL`

@@ -113,7 +113,7 @@ interface ToolStripProps {
 
 - [WorkspaceLayout](./workspace-layout.md) — 父组件
 - [MenuBar](./menu-bar.md) / [CommandPalette](./command-palette.md) — 共享 Action Registry
-- [`editorMachine`](/api/core) — `SELECT_TOOL` / `DEFAULT_MODE` / `CONNECT_LANES` 事件
+- [`editorMachine`](/api/core/) — `SELECT_TOOL` / `DEFAULT_MODE` / `CONNECT_LANES` 事件
 - [架构](/architecture/) — Action Registry 设计、ams-\* 设计 token
 
 ## 英文镜像

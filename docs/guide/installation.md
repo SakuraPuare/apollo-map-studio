@@ -1,6 +1,6 @@
 ---
 title: 安装与运行
-description: 在 Linux / macOS / Windows 上安装 Apollo Map Studio 的开发依赖与桌面壳，覆盖 pnpm、Vite、Electron 41、electron-builder 打包流水线。
+description: 在 Linux / macOS / Windows 上安装 Apollo Map Studio 的开发依赖与桌面壳，覆盖 pnpm、Vite、Electron 42、electron-builder 打包流水线。
 ---
 
 # 安装与运行 / Installation
@@ -11,23 +11,23 @@ description: 在 Linux / macOS / Windows 上安装 Apollo Map Studio 的开发�
 
 ## 概览 / Overview
 
-Apollo Map Studio 是一个 React 19 + TypeScript + Vite 8 的工程，桌面端套 Electron 41 壳。所有依赖通过 **pnpm** 管理（`package.json:95-100` 把 `electron` / `electron-winstaller` 列进 `onlyBuiltDependencies`）。CI 在 `.github/workflows/ci.yml` 跑 typecheck / lint / format / test / bench 五连击；本地通过 `husky` + `lint-staged` 在提交时跑 `eslint --fix` 与 `prettier --write`。
+Apollo Map Studio 是一个 React 19 + TypeScript + Vite 8 的工程，桌面端套 Electron 42 壳。所有依赖通过 **pnpm** 管理，CI 在 `.github/workflows/ci.yml` 跑 typecheck / lint / format / test / bench / docs / desktop package。
 
 ### 软件栈版本
 
-| 依赖 / Package   | 版本（package.json） | 说明                                           |
-| ---------------- | -------------------- | ---------------------------------------------- |
-| Node.js          | ≥ 20.x（LTS 推荐）   | Vite 8 / Electron 41 的底线                    |
-| pnpm             | ≥ 9.x                | `package.json` 用 `pnpm.onlyBuiltDependencies` |
-| TypeScript       | `^6.0.2`             | tsconfig.json + tsconfig.electron.json         |
-| Vite             | `^8.0.7`             | dev / build / preview                          |
-| Electron         | `^41.5.0`            | 桌面壳                                         |
-| electron-builder | `^26.8.1`            | 打包 dmg/AppImage/exe                          |
-| MapLibre GL      | `^5.22.0`            | WebGL 渲染                                     |
-| Zustand / zundo  | `^5.0.12` / `^2.3.0` | 数据中心 + 撤销                                |
-| XState           | `^5.30.0`            | 编辑 FSM                                       |
-| protobufjs       | `^8.0.3`             | Apollo proto codec                             |
-| proj4            | `^2.20.8`            | UTM ↔ WGS84                                    |
+| 依赖 / Package   | 版本（package.json） | 说明                                   |
+| ---------------- | -------------------- | -------------------------------------- |
+| Node.js          | ≥ 22.22.1            | `package.json` engines 要求            |
+| pnpm             | ≥ 11.5.2             | `packageManager: pnpm@11.5.2`          |
+| TypeScript       | `^6.0.3`             | tsconfig.json + tsconfig.electron.json |
+| Vite             | `^8.0.16`            | dev / build / preview                  |
+| Electron         | `^42.3.3`            | 桌面壳                                 |
+| electron-builder | `^26.15.2`           | 打包 dmg/AppImage/exe                  |
+| MapLibre GL      | `^5.24.0`            | WebGL 渲染                             |
+| Zustand / zundo  | `^5.0.14` / `^2.3.0` | 数据中心 + 撤销                        |
+| XState           | `^5.32.0`            | 编辑 FSM                               |
+| protobufjs       | `^8.6.1`             | Apollo proto codec                     |
+| proj4            | `^2.20.8`            | UTM ↔ WGS84                            |
 
 ## 操作步骤 / Steps
 
@@ -57,7 +57,7 @@ pnpm dev
 pnpm electron:dev
 ```
 
-`package.json:16` 的脚本逻辑：
+`package.json` 中 `electron:dev` 的脚本逻辑：
 
 ```mermaid
 flowchart LR
@@ -90,37 +90,44 @@ pnpm package:mac       # dmg（x64 + arm64 双架构）
 pnpm package:win       # nsis exe
 ```
 
-`electron-builder` 配置在仓库根 `electron-builder.yml`（如有）或 `package.json` 的 `build` 字段中（按版本而定）。CI 流水线 `.github/workflows/desktop.yml` 在打 tag 时自动跑三平台。
+`electron-builder` 配置在仓库根 `electron-builder.yml`（如有）或 `package.json` 的 `build` 字段中（按版本而定）。CI 流水线 `.github/workflows/ci.yml` 会先构建 web/docs/hardened Electron assets，再用 `pnpm exec electron-builder ... --publish never` 打包桌面产物；本地 `package:*` 脚本会先跑 `build:desktop`。
 
 ### 6. 文档站
 
 ```bash
-pnpm docs:dev          # http://localhost:5173/apollo-map-studio/
+pnpm docs:dev          # localhost:5173
 pnpm docs:build
 pnpm docs:preview
 ```
+
+本地 `docs:dev` 默认使用根路径 `/`。如需预览 GitHub Pages 等子路径部署，显式设置 `VITEPRESS_BASE=/apollo-map-studio/ pnpm docs:dev`。
 
 VitePress 配置在 `docs/.vitepress/config.ts`。
 
 ## 选项与参数表 / Options Table
 
-| 命令 / Script         | 调用                                                     | 用途                                    |
-| --------------------- | -------------------------------------------------------- | --------------------------------------- |
-| `pnpm dev`            | `vite`                                                   | 浏览器开发，端口 5173                   |
-| `pnpm build`          | `vite build`                                             | 输出 `dist/`                            |
-| `pnpm preview`        | `vite preview`                                           | 本地预览生产构建                        |
-| `pnpm build:electron` | `tsc -p tsconfig.electron.json`                          | 编译 main / preload 到 `dist-electron/` |
-| `pnpm build:desktop`  | `pnpm build:web && pnpm build:electron`                  | Web + Electron 全量构建                 |
-| `pnpm electron:dev`   | concurrently vite + electron                             | 桌面 HMR                                |
-| `pnpm electron:start` | build:desktop + electron .                               | 离线/生产                               |
-| `pnpm package`        | `electron-builder --dir --publish never`                 | 不签名、不打包发行                      |
-| `pnpm package:linux`  | `electron-builder --linux --x64`                         | AppImage / deb / rpm                    |
-| `pnpm package:mac`    | `electron-builder --mac --x64 --arm64`                   | dmg                                     |
-| `pnpm package:win`    | `electron-builder --win --x64`                           | nsis exe                                |
-| `pnpm typecheck`      | `tsc --noEmit && tsc -p tsconfig.electron.json --noEmit` | 双 tsconfig 校验                        |
-| `pnpm lint`           | `eslint .`                                               | flat config，react-hooks 严格           |
-| `pnpm test`           | `vitest run`                                             | 单元 / 集成                             |
-| `pnpm bench`          | `vitest bench --run`                                     | 性能基线                                |
+| 命令 / Script                    | 调用                                                                                                            | 用途                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `pnpm dev`                       | `vite`                                                                                                          | 浏览器开发，端口 5173                   |
+| `pnpm build`                     | `pnpm build:web && pnpm build:docs:desktop`                                                                     | 输出 `dist/` 与 `dist/docs`             |
+| `pnpm build:web`                 | `vite build`                                                                                                    | 输出 renderer 到 `dist/`                |
+| `pnpm preview`                   | `vite preview`                                                                                                  | 本地预览生产构建                        |
+| `pnpm build:electron`            | sync public key + clean + `tsc -p tsconfig.electron.json`                                                       | 编译 main / preload 到 `dist-electron/` |
+| `pnpm build:electron:hardened`   | `build:electron` + harden script                                                                                | 加密受保护 Electron 模块                |
+| `pnpm verify:electron-hardening` | verifier script                                                                                                 | 校验 sealed modules / loader / manifest |
+| `pnpm build:desktop`             | `build && build:electron:hardened && verify:electron-hardening`                                                 | Web + docs + hardened Electron 全量构建 |
+| `pnpm electron:dev`              | concurrently vite + electron                                                                                    | 桌面 HMR                                |
+| `pnpm electron:start`            | build:desktop + electron .                                                                                      | 离线/生产                               |
+| `pnpm package`                   | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --dir --publish never`               | 不签名、不打包发行                      |
+| `pnpm package:linux`             | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --linux --x64 --publish never`       | AppImage / deb / rpm                    |
+| `pnpm package:mac`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --mac --x64 --arm64 --publish never` | dmg                                     |
+| `pnpm package:win`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --win --x64 --publish never`         | nsis exe                                |
+| `pnpm typecheck`                 | renderer + config + Electron tsconfigs                                                                          | 三套 tsconfig 校验                      |
+| `pnpm lint`                      | `eslint . && react-doctor`                                                                                      | flat config + UI 结构检查               |
+| `pnpm test`                      | `vitest run`                                                                                                    | 单元 / 集成                             |
+| `pnpm test:electron`             | `node scripts/run-electron-tests.mjs`                                                                           | Electron 主进程测试                     |
+| `pnpm bench`                     | `vitest bench --run --maxWorkers=1`                                                                             | 稳定性能基线                            |
+| `pnpm bench:fast`                | `vitest bench --run --maxWorkers=100%`                                                                          | 快速本地性能摸底                        |
 
 ## 键盘鼠标速查表 / Shortcut Cheatsheet
 
@@ -157,7 +164,7 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install
 
 ### Q5. `pnpm test` 报 `import.meta.glob is not a function`
 
-确认 `vitest` 版本 `^4.1.4`，`@vitejs/plugin-react` `^6.0.1`。proto loader 用了 `import.meta.glob('/src/proto/**/*.proto', { query: '?raw', eager: true })`（`src/io/proto/loader.ts:18-22`），低版本 vitest 的 vite 集成不支持 `query`。
+确认 `vitest` 版本与 Vite 8 兼容。proto loader 用了 `import.meta.glob('/src/proto/**/*.proto', { query: '?raw', eager: true })`，低版本 vitest 的 vite 集成不支持 `query`。
 
 ## 发行版下载 / Release downloads
 
@@ -167,15 +174,13 @@ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm install
 - `Apollo-Map-Studio-<version>.dmg`
 - `Apollo-Map-Studio-<version>-Setup.exe`
 
-签名策略见 `.github/workflows/desktop.yml`。
+签名策略见 `.github/workflows/ci.yml` 的 desktop package job。
 
 ## 相关源码 / Source links
 
-- `package.json:9-33` — scripts
-- `package.json:95-100` — `pnpm.onlyBuiltDependencies`
+- `package.json` — scripts / engines / pnpm onlyBuiltDependencies
 - `tsconfig.electron.json` — Electron 主进程编译目标
-- `.github/workflows/ci.yml` — typecheck / lint / format / test / bench
-- `.github/workflows/desktop.yml` — 跨平台打包
+- `.github/workflows/ci.yml` — typecheck / lint / format / test / bench / docs / desktop package
 
 ## 相关文档 / See also
 

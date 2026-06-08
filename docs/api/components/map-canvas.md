@@ -143,7 +143,7 @@ sequenceDiagram
 
 - [WorkspaceLayout](./workspace-layout.md) — 父组件
 - [`useColdLayer`](/api/hooks) / [`useHotLayer`](/api/hooks) / [`useMapEventRouter`](/api/hooks) — 关键 hook 文档
-- [`spatial.worker.ts`](/api/core) — worker 协议
+- [`spatial.worker.ts`](/api/core/) — worker 协议
 - [架构](/architecture/) — 冷热图层流水线、Phase E 增量装饰
 
 ## 英文镜像

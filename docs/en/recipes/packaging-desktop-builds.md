@@ -29,7 +29,7 @@ Produce installers for all three platforms locally:
 
 ## Prerequisites
 
-- Node 20+, pnpm 10+.
+- Node 22.22.1+, pnpm 11.5.2.
 - macOS packages MUST be built on macOS (signing is local-only).
 - Windows can cross-build from Linux (unsigned). Signed NSIS requires
   Windows + cert token.

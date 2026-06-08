@@ -182,4 +182,4 @@ Measured: 1000 entities × 30 vertices / 30 edges average, < 1 ms per call.
   matched against another lane's 'start' triggers pred/succ
 - [hooks/useDrawCommit](/en/api/hooks/use-draw-commit) — feeds snap result as
   the last drawPoint on commit
-- [config/mapConstants](/en/api/config) — thresholds like `SNAP_RADIUS_PX`
+- [config/mapConstants](/en/api/config/) — thresholds like `SNAP_RADIUS_PX`

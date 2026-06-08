@@ -180,40 +180,58 @@ for the full schema. Highlights:
 
 `.github/workflows/ci.yml`:
 
-### 8.1 `check` job (ubuntu)
+### 8.1 Quality, build, and benchmark jobs
 
 ```yaml
-- pnpm typecheck
-- pnpm lint
-- pnpm format:check
-- pnpm build:web
-- pnpm docs:build
-- pnpm test
-- pnpm bench --outputJson bench-results.json
-- node scripts/check-bench-budget.mjs bench-results.json
+quality:
+  - pnpm typecheck
+  - pnpm lint
+  - pnpm format:check
+  - pnpm test
+  - pnpm test:electron
+  - CI=true pnpm run react-doctor
+benchmarks:
+  - pnpm bench --outputJson bench-results.json
+  - node scripts/check-bench-budget.mjs bench-results.json
+web-build:
+  - pnpm build:web
+docs-build:
+  - pnpm docs:build
+desktop-build:
+  - download apollo-map-studio-web
+  - pnpm build:docs:desktop
+  - pnpm build:electron:hardened
+  - pnpm verify:electron-hardening
 ```
 
-Uploads `dist/` as a web artifact.
+`web-build` uploads `dist/`; `desktop-build` downloads that web
+artifact, builds `dist/docs` plus hardened `dist-electron/`, and uploads the
+desktop build artifact.
 
 ### 8.2 `desktop-package` matrix
 
 ```yaml
 matrix:
   include:
-    - { os: ubuntu-latest, package-script: package:linux, artifact: apollo-map-studio-linux }
-    - { os: macos-latest, package-script: package:mac, artifact: apollo-map-studio-macos }
-    - { os: windows-latest, package-script: package:win, artifact: apollo-map-studio-windows }
+    - { os: ubuntu-latest, builder-args: --linux --x64, artifact-name: apollo-map-studio-linux }
+    - {
+        os: macos-latest,
+        builder-args: --mac --x64 --arm64,
+        artifact-name: apollo-map-studio-macos,
+      }
+    - { os: windows-latest, builder-args: --win --x64, artifact-name: apollo-map-studio-windows }
 ```
 
-`needs: check` — desktop packaging only runs once typecheck / test /
-bench have passed.
+`desktop-package` depends on `desktop-build`, downloads
+`apollo-map-studio-desktop-build`, and runs
+`pnpm exec electron-builder &#36;&#123;&#123; matrix.builder-args &#125;&#125; --publish never`.
 
 Env:
 
 - `CSC_IDENTITY_AUTO_DISCOVERY: false` — do not search the local
   keychain for signing certs.
-- `GH_TOKEN: secrets.GITHUB_TOKEN` — available to electron-builder,
-  but `publish: never` in the YAML keeps uploads off.
+- `NODE_OPTIONS: --no-deprecation` — suppress Electron Builder Node
+  deprecation noise during packaging.
 
 ### 8.3 `github-release` (tag only)
 
@@ -221,15 +239,16 @@ Env:
 if: startsWith(github.ref, 'refs/tags/v')
 ```
 
-Downloads all artifacts, zips the web bundle, and runs
-`softprops/action-gh-release@v3` to publish a GitHub Release with
-`.dmg` / `.zip` / `.deb` / `.AppImage` / `.exe`.
+`github-release` depends on `quality`, `benchmarks`, `web-build`,
+`docs-build`, and `desktop-package`. Tag pushes download all artifacts, zip
+the web bundle, and run `softprops/action-gh-release@v3` to publish `.dmg` /
+`.zip` / `.deb` / `.AppImage` / `.exe`.
 
 ## 9. Concurrency
 
 ```yaml
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: &#36;&#123;&#123; github.workflow &#125;&#125;-&#36;&#123;&#123; github.ref &#125;&#125;
   cancel-in-progress: true
 ```
 
@@ -238,27 +257,33 @@ queue short.
 
 ## 10. Local scripts (package.json)
 
-| Script                    | Purpose                                                  |
-| ------------------------- | -------------------------------------------------------- |
-| `dev`                     | `vite` — browser dev                                     |
-| `build`                   | `vite build` — renderer prod                             |
-| `build:web`               | alias for `build`, CI uses it                            |
-| `build:electron`          | `tsc -p tsconfig.electron.json`                          |
-| `build:desktop`           | `build:web && build:electron`                            |
-| `electron:dev`            | concurrently vite + wait-on + electron + HMR             |
-| `electron:start`          | `build:desktop && electron .`                            |
-| `package`                 | `--dir` — local bundle without installer                 |
-| `package:linux`           | `electron-builder --linux --x64 --publish never`         |
-| `package:mac`             | `--mac --x64 --arm64 --publish never`                    |
-| `package:win`             | `--win --x64 --publish never`                            |
-| `docs:dev`                | `vitepress dev docs`                                     |
-| `docs:build`              | `vitepress build docs`                                   |
-| `docs:preview`            | `vitepress preview docs`                                 |
-| `test`                    | `vitest run`                                             |
-| `bench`                   | `vitest bench --run`                                     |
-| `typecheck`               | `tsc --noEmit && tsc -p tsconfig.electron.json --noEmit` |
-| `lint` / `lint:fix`       | `eslint .`                                               |
-| `format` / `format:check` | `prettier`                                               |
+| Script                      | Purpose                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `dev`                       | `vite` — browser dev                                                                                            |
+| `build`                     | `build:web && build:docs:desktop`                                                                               |
+| `build:web`                 | `vite build` — renderer prod                                                                                    |
+| `build:docs:desktop`        | VitePress build into `dist/docs` for the desktop package                                                        |
+| `build:electron`            | sync public key + clean + `tsc -p tsconfig.electron.json`                                                       |
+| `build:electron:hardened`   | `build:electron` plus sealed protected Electron modules                                                         |
+| `verify:electron-hardening` | verifies sealed modules, loader, and integrity manifest                                                         |
+| `build:desktop`             | `build && build:electron:hardened && verify:electron-hardening`                                                 |
+| `electron:dev`              | concurrently vite + wait-on + electron + HMR                                                                    |
+| `electron:start`            | `build:desktop && electron .`                                                                                   |
+| `package`                   | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --dir --publish never`               |
+| `package:linux`             | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --linux --x64 --publish never`       |
+| `package:mac`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --mac --x64 --arm64 --publish never` |
+| `package:win`               | `build:desktop && cross-env NODE_OPTIONS=--no-deprecation electron-builder --win --x64 --publish never`         |
+| `docs:dev`                  | `vitepress dev docs`                                                                                            |
+| `docs:build`                | `vitepress build docs`                                                                                          |
+| `docs:preview`              | `vitepress preview docs`                                                                                        |
+| `test`                      | `vitest run`                                                                                                    |
+| `test:electron`             | `node scripts/run-electron-tests.mjs`                                                                           |
+| `bench`                     | `vitest bench --run --maxWorkers=1`                                                                             |
+| `bench:fast`                | `vitest bench --run --maxWorkers=100%`                                                                          |
+| `typecheck`                 | renderer + config + Electron tsconfigs                                                                          |
+| `lint` / `lint:fix`         | `eslint .` (`lint` also runs react-doctor)                                                                      |
+| `react-doctor`              | UI structural check, blocking errors in CI                                                                      |
+| `format` / `format:check`   | `prettier`                                                                                                      |
 
 ## 11. Footprint and timing
 

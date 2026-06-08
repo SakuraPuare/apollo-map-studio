@@ -21,7 +21,7 @@ description: 新增 ams-* token、语义命名、迁移策略、Tailwind 4 @them
 
 ## 前置条件 (Prerequisites)
 
-- 已读 [Design System](../design)。
+- 已读 [Design System](../design/)。
 - 知道 Tailwind 4 的 `@theme` 语法。
 - 项目用 `@tailwindcss/vite` 插件加载 `src/index.css`。
 

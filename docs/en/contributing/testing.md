@@ -13,9 +13,11 @@ where coverage is zero, either delete or test.
 
 - Unit tests live in `__tests__/` next to the code they test.
 - Benchmarks live in `*.bench.ts` next to the code.
-- End-to-end (Playwright / Cypress) is on the roadmap, not yet enabled.
+- Web E2E lives in `tests/e2e/` and uses Playwright + Chromium for browser/renderer workflows.
+- Electron E2E lives in `electron-e2e/` and uses Playwright Electron to launch the real desktop shell.
+- `pnpm test:electron` is not E2E; it runs main/preload/license unit tests with `node --test`.
 
-CI runs `pnpm test`, ~6 seconds.
+Regular CI runs `pnpm test` and `pnpm test:electron`; Web/Electron E2E are targeted or release-before checks unless the workflow explicitly adds them.
 :::
 
 ## Command cheat-sheet
@@ -27,7 +29,15 @@ pnpm test --watch                            # watch
 pnpm test --reporter=verbose                 # per-it output
 pnpm test --coverage                         # v8 coverage
 pnpm test --update                           # update snapshots (rare)
+pnpm test:e2e                                # Web E2E: Chromium + Vite test server
+pnpm test:e2e:ci                             # Install Chromium/deps, then run Web E2E
+pnpm test:electron                           # Electron main/preload/license unit tests
+pnpm test:electron:e2e                       # Electron desktop E2E
 ```
+
+On Linux without `DISPLAY`, Electron E2E needs `xvfb-run`. The script uses it
+automatically when available; otherwise install xvfb or run
+`xvfb-run -a pnpm test:electron:e2e`.
 
 ## Layout convention
 

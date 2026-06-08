@@ -214,7 +214,7 @@ See [`licenseStore`](./store/license-store.md) for the full table; simplified:
 Main-process code uses its own tsconfig:
 
 - `module: "commonjs"` — Electron main is CJS only.
-- `target: "ES2022"` — Node 20 supports the full set.
+- `target: "ES2022"` — Node 22 supports the full set.
 - Output: `dist-electron/`.
 
 ### `electron-builder.yml`

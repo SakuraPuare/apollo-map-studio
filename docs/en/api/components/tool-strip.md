@@ -113,5 +113,5 @@ None. Every interaction is propagated upward via callbacks.
 
 - [WorkspaceLayout](./workspace-layout.md) — parent
 - [MenuBar](./menu-bar.md) / [CommandPalette](./command-palette.md) — sibling Action Registry outlets
-- [`editorMachine`](/en/api/core) — `SELECT_TOOL` / `DEFAULT_MODE` / `CONNECT_LANES` events
+- [`editorMachine`](/en/api/core/) — `SELECT_TOOL` / `DEFAULT_MODE` / `CONNECT_LANES` events
 - [Architecture overview](/en/architecture/) — Action Registry design, ams-\* design tokens

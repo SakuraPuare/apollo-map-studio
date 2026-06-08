@@ -34,7 +34,7 @@ Vite dev mode loads workers as ES modules: `new Worker(new URL('...', import.met
 
 ### Mitigation
 
-- Use `pnpm dev` (always served via http://localhost:5173).
+- Use `pnpm dev` (always served via localhost:5173).
 - For desktop, use the packaged Electron exe — never open dist/index.html directly.
 
 ### Permanent fix

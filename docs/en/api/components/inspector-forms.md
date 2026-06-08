@@ -217,6 +217,6 @@ sequenceDiagram
 
 - [WorkspaceLayout](./workspace-layout.md) → InspectorPanelContent → `LazyEntityForm`
 - [`mapStore.updateEntity`](/en/api/store/store-map)
-- [`entityOps`](/en/api/lib) — R2 anti-corruption layer
+- [`entityOps`](/en/api/lib/) — R2 anti-corruption layer
 - [LaneRefList](./lane-ref-list.md) — clickable lane-id pill list inside the inspector
 - [Architecture overview](/en/architecture/) — anti-corruption layer + R1 validation gate

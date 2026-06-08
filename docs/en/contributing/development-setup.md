@@ -14,7 +14,7 @@ Electron debugging and platform-specific notes.
 git clone <repo>
 cd apollo-map-studio
 pnpm install
-pnpm dev   # http://localhost:5173
+pnpm dev   # localhost:5173
 ```
 
 Get the web editor running before touching Electron.
@@ -22,8 +22,8 @@ Get the web editor running before touching Electron.
 
 ## Required
 
-- **Node.js 20+** — `node -v` must report `v20.x` or higher.
-- **pnpm 10+** — `pnpm -v` must report `10.x` or higher.
+- **Node.js 22.22.1+** — `node -v` must report `v22.22.1` or higher.
+- **pnpm 11.5.2** — `pnpm -v` must report `11.5.2`.
 - **Git 2.40+** — Husky 9 needs a modern git.
 - **OS** — Linux / macOS / Windows. WSL2 is recommended on Windows.
 
@@ -39,17 +39,17 @@ local consistency.
 
 ```bash
 curl -fsSL https://fnm.vercel.app/install | bash
-fnm install 20
-fnm use 20
+fnm install 22.22.1
+fnm use 22.22.1
 corepack enable
-corepack prepare pnpm@10 --activate
+corepack prepare pnpm@11.5.2 --activate
 ```
 
 ### Or: volta
 
 ```bash
 curl https://get.volta.sh | bash
-volta install node@20
+volta install node@22.22.1
 volta install pnpm
 ```
 
@@ -69,7 +69,7 @@ pnpm test            # ~6s
 pnpm dev             # vite, default 5173
 ```
 
-Open http://localhost:5173. You should see the editor (empty map is
+Open localhost:5173. You should see the editor (empty map is
 expected).
 
 ### Verify Husky
@@ -145,7 +145,7 @@ Alternatively set `core.autocrlf=input` in git.
 
 ### macOS
 
-- Native ARM Node 20 on Apple Silicon works as is.
+- Native ARM Node 22 on Apple Silicon works as is.
 - Native deps (keytar etc., not used here) need Rosetta; current deps
   are pure JS.
 - Desktop packaging: see
@@ -254,8 +254,8 @@ chmod +x .husky/pre-commit
 Not officially supported, but works:
 
 ```bash
-# Any Node 20 + pnpm 10 image runs
-docker run -it --rm -v "$PWD":/app -w /app node:20 bash
+# Any Node 22.22.1+ + pnpm 11.5.2 image runs
+docker run -it --rm -v "$PWD":/app -w /app node:22 bash
 corepack enable
 pnpm install
 pnpm test

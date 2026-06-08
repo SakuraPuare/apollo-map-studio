@@ -126,7 +126,7 @@ return (
 ## 跨页参考
 
 - [WorkspaceLayout](./workspace-layout.md) — 始终挂载于根
-- [`taskProgressStore`](/api/store) — 启动/结束任务 API
+- [`taskProgressStore`](/api/store/) — 启动/结束任务 API
 - 调用方：`src/io/mapIO.ts` / `src/io/apolloIOBridge.ts` / `src/io/apolloIO.worker.ts` / `src/core/workers/spatialBridge.ts`
 
 ## 英文镜像
@@ -143,7 +143,7 @@ return (
 | [MapCanvas](./map-canvas.md)             | 通过 `mapStore.entities` 间接联动（修改后冷层 round-trip 重渲染）   |
 | [LayerTree](./layer-tree.md)             | 通过 `mapStore` 共享实体状态                                        |
 | [InspectorForms](./inspector-forms.md)   | 通过 `editorMachine.context.selectedEntityId` 同步选中实体          |
-| [Action Registry](/api/core)             | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
+| [Action Registry](/api/core/)            | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
 
 ::: tip 维护建议
 当组件之间需要**直接 prop 传递**时，先问自己：能不能改放到 store？如果该数据被 ≥3 个组件读取，store 通常更合适；2 个之间则 props 更轻量。

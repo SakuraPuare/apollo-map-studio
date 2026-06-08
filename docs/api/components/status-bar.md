@@ -110,7 +110,7 @@ interface StatusBarProps {
 
 - [WorkspaceLayout](./workspace-layout.md) — 父组件
 - [`uiStore`](/api/store/store-ui) — `gridEnabled` / `snapEnabled` / `cursorLngLat` / `currentZoom` / `appMode`
-- [`apolloMapStore`](/api/store) — `info`
+- [`apolloMapStore`](/api/store/) — `info`
 - [架构](/architecture/) — Design tokens
 
 ## 英文镜像

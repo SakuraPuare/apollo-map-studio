@@ -1,20 +1,20 @@
 ---
 title: electron/preload.cts — contextBridge IPC 桥
-description: 通过 contextBridge.exposeInMainWorld 暴露 apolloMapStudio / apolloMapStudioLicense；唯一对渲染端可见的 IPC 表面。
+description: 通过 contextBridge.exposeInMainWorld 暴露 apolloMapStudio / apolloMapStudioLicense；封装 app、窗口、native menu 与 license IPC。
 ---
 
 # `electron/preload.cts` — contextBridge IPC 桥
 
-> 源码：`electron/preload.cts` · 47 行 · CommonJS 模块（`.cts`）
+> 源码：`electron/preload.cts` · 93 行 · CommonJS 模块（`.cts`）
 
 ## 用途
 
 `preload.cts` 在 Chromium sandbox 内运行（`sandbox: true`），可访问 Electron 的安全子集（`ipcRenderer` 等）。它通过 `contextBridge.exposeInMainWorld` 把两个对象注入到渲染端的 `window`：
 
-1. `window.apolloMapStudio` —— 平台 / 版本元数据（只读）
+1. `window.apolloMapStudio` —— app 信息、Help、窗口控制、窗口状态订阅、native menu action 订阅
 2. `window.apolloMapStudioLicense` —— 许可证 IPC 客户端
 
-渲染端通过 `src/lib/license-bridge.ts` 包装这些 window 对象，把"可能不存在"（浏览器构建）的边界处理掉。
+渲染端通过 `src/lib/app-bridge.ts` 与 `src/lib/license-bridge.ts` 包装这些 window 对象，把"可能不存在"（浏览器构建）的边界处理掉。
 
 ## contextBridge 暴露 #1: `apolloMapStudio`
 
@@ -26,14 +26,40 @@ contextBridge.exposeInMainWorld('apolloMapStudio', {
     electron: process.versions.electron,
     node: process.versions.node,
   },
+  getAppInfo() {
+    return ipcRenderer.invoke(APP_IPC.GET_INFO);
+  },
+  openHelp() {
+    return ipcRenderer.invoke(APP_IPC.OPEN_HELP);
+  },
+  getWindowState() {
+    return ipcRenderer.invoke(APP_IPC.GET_WINDOW_STATE);
+  },
+  minimizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_MINIMIZE);
+  },
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_TOGGLE_MAXIMIZE);
+  },
+  closeWindow() {
+    return ipcRenderer.invoke(APP_IPC.WINDOW_CLOSE);
+  },
+  onWindowStateChange(handler) {
+    // register app:window-state listener, return unsubscribe
+  },
+  onNativeMenuAction(handler) {
+    // register app:native-menu-action listener, return unsubscribe
+  },
 });
 ```
 
-只读元数据，给关于面板 / debug 信息使用：
+app/runtime、Help、窗口控制与 native menu action 的最小桥接面，给 `appBridge` 使用：
 
 ```ts
 window.apolloMapStudio?.platform; // 'darwin' | 'linux' | 'win32'
 window.apolloMapStudio?.versions; // { chrome: '120.0...', electron: '41.0.0', node: '20...' }
+await window.apolloMapStudio?.getAppInfo?.();
+await window.apolloMapStudio?.openHelp?.();
 ```
 
 注意：渲染端通过 `?.` 安全访问—— 浏览器构建里 `window.apolloMapStudio` 不存在。
@@ -89,7 +115,7 @@ contextBridge.exposeInMainWorld('apolloMapStudioLicense', licenseApi);
 
 | Window 对象                                    | 渲染端类型                                    | 主进程实现                                   |
 | ---------------------------------------------- | --------------------------------------------- | -------------------------------------------- |
-| `window.apolloMapStudio`                       | （未导出，inline 类型）                       | `process.platform` / `process.versions`      |
+| `window.apolloMapStudio`                       | `src/lib/app-bridge.ts` inline 类型           | app/window/native menu IPC                   |
 | `window.apolloMapStudioLicense.getState`       | `() => Promise<LicenseState>`                 | `LicenseManager.refresh()`                   |
 | `window.apolloMapStudioLicense.getMachineCode` | `() => Promise<string>`                       | `MachineCodeResult.code`                     |
 | `window.apolloMapStudioLicense.activate`       | `(code: string) => Promise<ActivationResult>` | `LicenseManager.activate(code)`              |
@@ -120,13 +146,16 @@ Sandbox preload 不能暴露完整 `EventEmitter`（contextBridge 不序列化�
 
 ## 测试覆盖
 
-无独立单测 —— 整个 contextBridge 表面在端到端 / Spectron 测试中验证。
+`pnpm test:electron` 中的 preload 单测覆盖 contextBridge 暴露面、IPC 路由和订阅过滤；`pnpm test:electron:e2e` 进一步在真实桌面壳中验证 renderer 可见的 preload bridge。
 
 ## 调用方
 
-唯一调用方：[`license-bridge`](../lib/license-bridge.md) —— 把 `window.apolloMapStudioLicense?.xxx ?? fallback()` 的边界封装好。
+主要调用方：
 
-UI 组件不应直接 `window.apolloMapStudioLicense.xxx`——应通过 `licenseBridge` 间接调用。
+- `src/lib/app-bridge.ts` —— 封装 `window.apolloMapStudio` 的 app/runtime、Help、窗口和 native menu action API。
+- [`license-bridge`](../lib/license-bridge.md) —— 把 `window.apolloMapStudioLicense?.xxx ?? fallback()` 的边界封装好。
+
+UI 组件不应直接访问这些 `window` 对象，应通过 `appBridge` / `licenseBridge` 间接调用。
 
 ## 源码索引
 
@@ -136,9 +165,10 @@ UI 组件不应直接 `window.apolloMapStudioLicense.xxx`——应通过 `licens
 | 3     | type imports（仅类型，不进入 runtime） |
 | 5     | `STATUS_BROADCAST_CHANNEL` 常量        |
 | 6–11  | `LICENSE_IPC` 通道常量                 |
-| 13–20 | `apolloMapStudio` 暴露                 |
-| 22–45 | `licenseApi` 对象                      |
-| 47    | `apolloMapStudioLicense` 暴露          |
+| 13–24 | `APP_IPC` / `LICENSE_IPC` 通道常量     |
+| 29–59 | `apolloMapStudio` 暴露                 |
+| 63–91 | `licenseApi` 对象                      |
+| 93    | `apolloMapStudioLicense` 暴露          |
 
 ## 参见
 

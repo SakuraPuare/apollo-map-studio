@@ -123,5 +123,5 @@ Behavior:
 ## Cross-references
 
 - [WorkspaceLayout](./workspace-layout.md) — parent (the modal lives at the root)
-- [`settingsStore`](/en/api/store) — data source
+- [`settingsStore`](/en/api/store/) — data source
 - [MapOutline](./map-outline.md) — embeds `MapMetadataForm` (covered there)

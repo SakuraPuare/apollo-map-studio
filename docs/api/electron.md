@@ -214,7 +214,7 @@ sequenceDiagram
 主进程代码用独立 tsconfig：
 
 - `module: "commonjs"` —— Electron main 仅 CJS
-- `target: "ES2022"` —— Node 20 全部支持
+- `target: "ES2022"` —— Node 22 全部支持
 - 输出目录 `dist-electron/`
 
 ### `electron-builder.yml`

@@ -112,5 +112,5 @@ After import, three sections render (Source / Header / Bounds). The form is **re
 
 - [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → MapOutline (`activeTab='explorer'`)
 - [LayerTree](./layer-tree.md) — complementary, editable view
-- [`apolloMapStore`](/en/api/store) — source of header / bounds / info
+- [`apolloMapStore`](/en/api/store/) — source of header / bounds / info
 - [`mapStore`](/en/api/store/store-map) — source of entities

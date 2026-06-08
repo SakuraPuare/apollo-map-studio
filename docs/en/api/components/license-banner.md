@@ -140,5 +140,5 @@ switch (state.status) {
 
 - [WorkspaceLayout](./workspace-layout.md) — parent
 - [ActivationDialog](./activation-dialog.md) — actual activation flow
-- [`licenseStore`](/en/api/store) — state machine
+- [`licenseStore`](/en/api/store/) — state machine
 - `useLicenseSync` → `src/hooks/useLicense.ts`

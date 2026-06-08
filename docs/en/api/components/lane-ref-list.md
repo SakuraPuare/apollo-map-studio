@@ -107,5 +107,5 @@ Non-empty:
 ## Cross-references
 
 - [InspectorForms](./inspector-forms.md) — caller
-- [`editorMachine`](/en/api/core) — `SELECT_ENTITY` event
+- [`editorMachine`](/en/api/core/) — `SELECT_ENTITY` event
 - [`mapStore`](/en/api/store/store-map) — `entities` lookup

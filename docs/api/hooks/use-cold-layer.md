@@ -31,7 +31,7 @@ mapStore.entities ──▶ useColdLayer.scheduleSync (RAF) ──▶ bridge.sen
                                        cold GeoJSONSource.setData / updateData
 ```
 
-详细分层见 [`Architecture: Cold Layer`](/architecture)。
+详细分层见 [`Architecture: Cold Layer`](/architecture/)。
 
 ## 签名
 
@@ -244,7 +244,7 @@ hook 卸载与 bridge dispose 都依靠 `MapCanvas` 的 effect。
 - [`useHotLayer`](./use-hot-layer.md)
 - [SpatialWorkerBridge](../core/spatial-bridge.md)
 - [Worker protocol](../core/worker-protocol.md)
-- [Architecture: Cold layer pipeline](/architecture)
+- [Architecture: Cold layer pipeline](/architecture/)
 
 ## 源码索引
 

@@ -183,7 +183,7 @@ flowchart LR
 
 ## Test coverage
 
-Test file locations per component (see [contributing guide](/en/contributing)):
+Test file locations per component (see [contributing guide](/en/contributing/)):
 
 | Component             | Tests                                                          |
 | --------------------- | -------------------------------------------------------------- |

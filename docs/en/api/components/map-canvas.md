@@ -155,7 +155,7 @@ incremental decoration optimization.
 
 - [WorkspaceLayout](./workspace-layout.md) — parent component
 - [`useColdLayer`](/en/api/hooks) / [`useHotLayer`](/en/api/hooks) / [`useMapEventRouter`](/en/api/hooks) — key hook docs
-- [`spatial.worker.ts`](/en/api/core) — worker protocol
+- [`spatial.worker.ts`](/en/api/core/) — worker protocol
 - [Architecture overview](/en/architecture/) — cold/hot pipeline, Phase E incremental decoration
 
 ## Hook ordering rationale

@@ -126,7 +126,7 @@ The `ams-indeterminate` keyframes live in `src/index.css`.
 ## Cross-references
 
 - [WorkspaceLayout](./workspace-layout.md) — always mounted at the root
-- [`taskProgressStore`](/en/api/store) — start/finish API
+- [`taskProgressStore`](/en/api/store/) — start/finish API
 - Callers: `src/io/mapIO.ts` / `src/io/apolloIOBridge.ts` / `src/io/apolloIO.worker.ts` / `src/core/workers/spatialBridge.ts`
 
 ## Collaboration with other components

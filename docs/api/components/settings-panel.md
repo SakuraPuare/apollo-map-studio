@@ -123,7 +123,7 @@ function NumInput(props: {
 ## 跨页参考
 
 - [WorkspaceLayout](./workspace-layout.md) — 父组件（modal 在最外层）
-- [`settingsStore`](/api/store) — 数据源
+- [`settingsStore`](/api/store/) — 数据源
 - [MapOutline](./map-outline.md) — 嵌入了 `MapMetadataForm`（本页姊妹 docs 中介绍）
 
 ## 英文镜像
@@ -140,7 +140,7 @@ function NumInput(props: {
 | [MapCanvas](./map-canvas.md)             | 通过 `mapStore.entities` 间接联动（修改后冷层 round-trip 重渲染）   |
 | [LayerTree](./layer-tree.md)             | 通过 `mapStore` 共享实体状态                                        |
 | [InspectorForms](./inspector-forms.md)   | 通过 `editorMachine.context.selectedEntityId` 同步选中实体          |
-| [Action Registry](/api/core)             | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
+| [Action Registry](/api/core/)            | 共享同一份 `ACTION_DEFS`；新增交互通常加 action，而不是组件特化逻辑 |
 
 ::: tip 维护建议
 当组件之间需要**直接 prop 传递**时，先问自己：能不能改放到 store？如果该数据被 ≥3 个组件读取，store 通常更合适；2 个之间则 props 更轻量。

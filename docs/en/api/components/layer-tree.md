@@ -162,6 +162,6 @@ Each row is 39px:
 
 - [WorkspaceLayout](./workspace-layout.md) → SidebarPanel → LayerTree (`activeTab='layers'`)
 - [`mapStore.reparentEntity`](/en/api/store/store-map)
-- [`entityOps`](/en/api/lib) — R2 anti-corruption layer entrypoint
+- [`entityOps`](/en/api/lib/) — R2 anti-corruption layer entrypoint
 - [Architecture overview](/en/architecture/) — anti-corruption layer
 - [InspectorForms](./inspector-forms.md) — detail editing for the selected entity

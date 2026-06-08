@@ -174,4 +174,4 @@ pred/succ 的关键。
   另一条 lane 的 'start' 派生 pred/succ
 - [hooks/useDrawCommit](/api/hooks/use-draw-commit) — commit 时把 snap 结果作为
   drawPoints 最后一个点
-- [config/mapConstants](/api/config) — `SNAP_RADIUS_PX` 等阈值
+- [config/mapConstants](/api/config/) — `SNAP_RADIUS_PX` 等阈值

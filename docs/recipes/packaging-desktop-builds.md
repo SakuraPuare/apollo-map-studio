@@ -29,7 +29,7 @@ description: pnpm package:linux/mac/win 用法、electron-builder.yml 配置、�
 
 ## 前置条件 (Prerequisites)
 
-- Node 20+, pnpm 10+。
+- Node 22.22.1+, pnpm 11.5.2。
 - macOS 包必须在 macOS 上打（电子签名只能本机做）。
 - Windows 包可在 Linux 上交叉打（无签名时）；但 NSIS code signing 需
   Windows + 证书 token。

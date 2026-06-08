@@ -336,11 +336,11 @@ Types: `electron/license/types.cts` (canonical) and
 
 ## 14. Tests
 
-- Renderer side: `isDesktopBuild()` returns false in tests; license
-  API uses the fallback. No Electron dependency.
-- Main process: no spectron/playwright-electron yet.
-- Manual smoke test: `pnpm package`'s output in `release/` is
-  launched and exercises an import → export round trip.
+- Renderer/Vitest: browser tests keep using the license fallback for renderer stores, hooks, and UI branches.
+- Electron unit tests: `pnpm test:electron` compiles `electron/**/*.cts` and runs main/preload/license tests with `node --test`.
+- Electron E2E: `pnpm test:electron:e2e` uses Playwright Electron to launch the real desktop shell and covers the preload bridge, window controls, native menu callback wiring, Help/About, and the basic license activation dialog flow.
+- Linux without `DISPLAY` needs `xvfb-run`; the script uses it automatically when available and prints an install hint when it is missing.
+- Before release, still run a manual smoke on the `pnpm package` output to cover the packaged/hardened artifact import → export path.
 
 ## 15. Source map
 

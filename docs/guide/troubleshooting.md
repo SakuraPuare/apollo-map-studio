@@ -33,7 +33,7 @@ Vite 在 dev 模式下以模块化 worker 加载，`new Worker(new URL('...', im
 
 ### 立即缓解
 
-- 用 `pnpm dev`，永远走 http://localhost:5173。
+- 用 `pnpm dev`，永远走 localhost:5173。
 - 桌面端用打包后的 Electron exe，不要直接打开 dist/index.html。
 
 ### 根治
