@@ -149,10 +149,16 @@ export default tseslint.config(
     rules: { 'max-lines': 'off' },
   },
   {
-    files: ['tests/e2e/**/*.ts', 'e2e/**/*.ts'],
+    // Playwright specs and fixtures: the `use` fixture callback and
+    // empty-object destructuring are Playwright API, not React, so the
+    // hook and restricted-syntax caps do not apply here.
+    files: ['tests/e2e/**/*.ts', 'e2e/**/*.ts', 'electron-e2e/**/*.ts'],
     rules: {
       'react-hooks/rules-of-hooks': 'off',
       'react-refresh/only-export-components': 'off',
+      'no-empty-pattern': 'off',
+      'max-params': 'off',
+      'no-restricted-syntax': 'off',
     },
   },
   // WorkspaceLayout is the application shell: it wires global stores,
