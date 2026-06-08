@@ -128,7 +128,7 @@ function renderLane(
   const laneBase: Record<string, unknown> = { ...base, color: laneColor };
   const leftW = entity.leftSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
   const rightW = entity.rightSamples[0]?.width ?? DEFAULT_LANE_HALF_WIDTH;
-  const explicitEdges = explicitLaneBoundaryEdges(entity);
+  const explicitEdges = explicitLaneBoundaryEdges(entity, centerPts);
   const leftEdge = explicitEdges?.left ?? offsetPolylineDeg(centerPts, leftW, 'left');
   const rightEdge = explicitEdges?.right ?? offsetPolylineDeg(centerPts, rightW, 'right');
   const fillGeometry = laneFillGeometry({

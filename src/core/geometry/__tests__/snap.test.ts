@@ -6,15 +6,22 @@
  * so the projection round-trip stays sub-cm.
  */
 import { describe, it, expect } from 'vitest';
-import { collectCandidates, collectSnapGuidePoints, findSnapTarget, pixelsToMeters } from '../snap';
+import {
+  collectCandidates,
+  collectSnapGuidePoints,
+  findSnapMatchFromCandidates,
+  findSnapTarget,
+  pixelsToMeters,
+} from '../snap';
 import type { MapEntity } from '@/types/entities';
-import type { JunctionEntity, LaneEntity, ParkingSpaceEntity } from '@/types/apollo';
-import type { PolygonEntity, RectEntity } from '@/types/entities';
+import type { JunctionEntity, LaneEntity, ParkingSpaceEntity, SignalEntity } from '@/types/apollo';
+import type { BezierEntity, CatmullRomEntity, PolygonEntity, RectEntity } from '@/types/entities';
 
 const ORIGIN_LNG = 116.4;
 const ORIGIN_LAT = 39.9;
 
 function laneAt(id: string, points: [number, number][]): LaneEntity {
+  const start = points[0] ?? [ORIGIN_LNG, ORIGIN_LAT];
   return {
     id,
     entityType: 'lane',
@@ -23,7 +30,7 @@ function laneAt(id: string, points: [number, number][]): LaneEntity {
         {
           lineSegment: { points: points.map(([x, y]) => ({ x, y })) },
           s: 0,
-          startPosition: { x: points[0]![0], y: points[0]![1] },
+          startPosition: { x: start[0], y: start[1] },
           heading: 0,
           length: 0,
         },
@@ -86,6 +93,13 @@ describe('pixelsToMeters', () => {
 });
 
 describe('collectCandidates', () => {
+  it('ignores empty lane geometry', () => {
+    const lane = laneAt('lane-empty', []);
+    const { vertices, edges } = collectCandidates([lane], null);
+    expect(vertices).toHaveLength(0);
+    expect(edges).toHaveLength(0);
+  });
+
   it('emits ONLY lane endpoints (not interior vertices), with role tags', () => {
     // Topology contract: only lane start/end can become predecessor /
     // successor. Interior vertex snapping would create coincident
@@ -120,6 +134,46 @@ describe('collectCandidates', () => {
     expect(edges).toHaveLength(4);
     expect(edges[3]!.a).toEqual(polygon.points[3]);
     expect(edges[3]!.b).toEqual(polygon.points[0]);
+  });
+
+  it('emits all drawing polyline vertices and open edges via generic points fallback', () => {
+    const catmull: CatmullRomEntity = {
+      id: 'cat-1',
+      entityType: 'catmullRom',
+      points: [
+        { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+        { x: ORIGIN_LNG + 0.0002, y: ORIGIN_LAT + 0.0001 },
+      ],
+    };
+
+    const { vertices, edges } = collectCandidates([catmull], null);
+
+    expect(vertices.map((v) => v.vertexIndex)).toEqual([0, 1, 2]);
+    expect(vertices.every((v) => v.endpointRole == null)).toBe(true);
+    expect(edges).toHaveLength(2);
+    expect(edges[1]).toMatchObject({ entityId: 'cat-1', entityType: 'catmullRom' });
+  });
+
+  it('emits Bezier anchor points via generic anchors fallback', () => {
+    const bezier: BezierEntity = {
+      id: 'bezier-1',
+      entityType: 'bezier',
+      anchors: [
+        { point: { x: ORIGIN_LNG, y: ORIGIN_LAT }, handleIn: null, handleOut: null },
+        {
+          point: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+          handleIn: null,
+          handleOut: null,
+        },
+      ],
+    };
+
+    const { vertices, edges } = collectCandidates([bezier], null);
+
+    expect(vertices.map((v) => v.point)).toEqual(bezier.anchors.map((a) => a.point));
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ entityId: 'bezier-1', entityType: 'bezier' });
   });
 
   it('emits rotated rectangle corners and edges', () => {
@@ -163,6 +217,90 @@ describe('collectCandidates', () => {
     expect(edges).toHaveLength(4);
     expect(guides).toHaveLength(4);
     expect(vertices.map((v) => v.point)).not.toContain(parkingSpace.polygon.points[4]);
+  });
+
+  it('uses polygon points for Apollo areas without source rectangles', () => {
+    const signal: SignalEntity = {
+      id: 'signal-1',
+      entityType: 'signal',
+      boundary: {
+        points: [
+          { x: ORIGIN_LNG, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+          { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+        ],
+      },
+      subsignals: [],
+      type: 'SINGLE',
+      overlapIds: [],
+      stopLines: [],
+      signInfo: [],
+    };
+
+    const { vertices, edges } = collectCandidates([signal], null);
+
+    expect(vertices.map((v) => v.point)).toEqual(signal.boundary.points);
+    expect(edges).toHaveLength(3);
+    expect(edges[2]!.a).toEqual(signal.boundary.points[2]);
+    expect(edges[2]!.b).toEqual(signal.boundary.points[0]);
+  });
+
+  it('handles empty generic point and anchor entities without candidates', () => {
+    const catmull: CatmullRomEntity = { id: 'cat-empty', entityType: 'catmullRom', points: [] };
+    const bezier: BezierEntity = { id: 'bezier-empty', entityType: 'bezier', anchors: [] };
+
+    const { vertices, edges } = collectCandidates([catmull, bezier], null);
+
+    expect(vertices).toHaveLength(0);
+    expect(edges).toHaveLength(0);
+  });
+
+  it('handles empty polygon collectors without candidates', () => {
+    const polygon: PolygonEntity = { id: 'poly-empty', entityType: 'polygon', points: [] };
+
+    const { vertices, edges } = collectCandidates([polygon], null);
+
+    expect(vertices).toHaveLength(0);
+    expect(edges).toHaveLength(0);
+  });
+
+  it('collects all Apollo polygon-style snap sources and arcs', () => {
+    const tri = [
+      { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+      { x: ORIGIN_LNG, y: ORIGIN_LAT + 0.0001 },
+    ];
+    const entities = [
+      { id: 'pnc-1', entityType: 'pncJunction', polygon: { points: tri } },
+      { id: 'lot-1', entityType: 'parkingLot', polygon: { points: tri } },
+      { id: 'cross-1', entityType: 'crosswalk', polygon: { points: tri } },
+      { id: 'clear-1', entityType: 'clearArea', polygon: { points: tri } },
+      { id: 'area-1', entityType: 'area', polygon: { points: tri } },
+      { id: 'speed-1', entityType: 'speedControl', polygon: { points: tri } },
+      {
+        id: 'arc-1',
+        entityType: 'arc',
+        start: tri[0],
+        mid: tri[1],
+        end: tri[2],
+      },
+    ] as MapEntity[];
+
+    const { vertices, edges } = collectCandidates(entities, null);
+
+    expect(vertices).toHaveLength(21);
+    expect(edges).toHaveLength(20);
+    expect(vertices.map((v) => v.entityType)).toEqual(
+      expect.arrayContaining([
+        'pncJunction',
+        'parkingLot',
+        'crosswalk',
+        'clearArea',
+        'area',
+        'speedControl',
+        'arc',
+      ]),
+    );
   });
 
   it('exposes only control points for object move snapping', () => {
@@ -227,6 +365,126 @@ describe('findSnapTarget', () => {
     expect(target).toBeNull();
   });
 
+  it('returns null for a non-positive search radius', () => {
+    const target = findSnapMatchFromCandidates(
+      { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      {
+        vertices: [
+          {
+            point: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+            entityId: 'candidate-1',
+            entityType: 'polyline',
+            vertexIndex: 0,
+          },
+        ],
+        edges: [],
+      },
+      0,
+    );
+
+    expect(target).toBeNull();
+  });
+
+  it('filters near-point candidate collection across all snap source geometry variants', () => {
+    const tri = [
+      { x: ORIGIN_LNG, y: ORIGIN_LAT },
+      { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+      { x: ORIGIN_LNG, y: ORIGIN_LAT + 0.0001 },
+    ];
+    const entities = [
+      { id: 'pnc-1', entityType: 'pncJunction', polygon: { points: tri } },
+      {
+        id: 'parking-1',
+        entityType: 'parkingSpace',
+        polygon: { points: tri },
+      },
+      { id: 'lot-1', entityType: 'parkingLot', polygon: { points: tri } },
+      { id: 'cross-1', entityType: 'crosswalk', polygon: { points: tri } },
+      { id: 'clear-1', entityType: 'clearArea', polygon: { points: tri } },
+      { id: 'area-1', entityType: 'area', polygon: { points: tri } },
+      { id: 'speed-1', entityType: 'speedControl', polygon: { points: tri } },
+      { id: 'signal-1', entityType: 'signal', boundary: { points: tri } },
+      { id: 'poly-1', entityType: 'polygon', points: tri },
+      {
+        id: 'rect-1',
+        entityType: 'rect',
+        p1: tri[0],
+        p2: tri[1],
+        rotation: 0,
+      },
+      { id: 'arc-1', entityType: 'arc', start: tri[0], mid: tri[1], end: tri[2] },
+      { id: 'cat-1', entityType: 'catmullRom', points: tri },
+      {
+        id: 'bezier-1',
+        entityType: 'bezier',
+        anchors: tri.map((point) => ({ point, handleIn: null, handleOut: null })),
+      },
+      { id: 'unknown-1', entityType: 'unknownShape' },
+    ] as MapEntity[];
+
+    const target = findSnapTarget({ x: ORIGIN_LNG, y: ORIGIN_LAT }, entities, 12, null);
+
+    expect(target).toMatchObject({
+      kind: 'vertex',
+      entityId: 'pnc-1',
+      entityType: 'pncJunction',
+    });
+  });
+
+  it('uses source rectangle geometry during near-point prefiltering', () => {
+    const parkingSpace: ParkingSpaceEntity = {
+      id: 'parking-source-rect',
+      entityType: 'parkingSpace',
+      polygon: {
+        points: [
+          { x: ORIGIN_LNG + 1, y: ORIGIN_LAT + 1 },
+          { x: ORIGIN_LNG + 1.0001, y: ORIGIN_LAT + 1 },
+          { x: ORIGIN_LNG + 1.0001, y: ORIGIN_LAT + 1.0001 },
+        ],
+      },
+      heading: 0,
+      overlapIds: [],
+      _sourceRect: {
+        p1: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+        p2: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT + 0.0001 },
+        rotation: 0,
+      },
+    };
+
+    const target = findSnapTarget({ x: ORIGIN_LNG, y: ORIGIN_LAT }, [parkingSpace], 12, null);
+
+    expect(target).toMatchObject({
+      kind: 'vertex',
+      entityId: 'parking-source-rect',
+      entityType: 'parkingSpace',
+    });
+    expect(target!.point).toEqual({ x: ORIGIN_LNG, y: ORIGIN_LAT });
+  });
+
+  it('applies excludeId before near-point prefiltering and still considers matching neighbors', () => {
+    const laneA = laneAt('lane-a', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + 0.001, ORIGIN_LAT],
+    ]);
+    const laneB = laneAt('lane-b', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + 0.001, ORIGIN_LAT],
+    ]);
+
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG, y: ORIGIN_LAT },
+      [laneA, laneB],
+      12,
+      'lane-a',
+    );
+
+    expect(target).toMatchObject({
+      kind: 'vertex',
+      entityId: 'lane-b',
+      endpointRole: 'start',
+    });
+  });
+
   it('snaps to a nearby endpoint', () => {
     const lane = laneAt('lane-1', [
       [ORIGIN_LNG, ORIGIN_LAT],
@@ -256,6 +514,113 @@ describe('findSnapTarget', () => {
     // Snapped point should land back on the segment (lat == origin).
     expect(target!.point.y).toBeCloseTo(ORIGIN_LAT, 7);
     expect(target!.point.x).toBeCloseTo(midLng, 7);
+  });
+
+  it('returns distance in meters from candidate matches', () => {
+    const offsetLat = 3 / 111320;
+    const match = findSnapMatchFromCandidates(
+      { x: ORIGIN_LNG, y: ORIGIN_LAT + offsetLat },
+      {
+        vertices: [],
+        edges: [
+          {
+            a: { x: ORIGIN_LNG - 0.0001, y: ORIGIN_LAT },
+            b: { x: ORIGIN_LNG + 0.0001, y: ORIGIN_LAT },
+            entityId: 'edge-1',
+            entityType: 'polyline',
+          },
+        ],
+      },
+      12,
+    );
+
+    expect(match).not.toBeNull();
+    expect(match!.target.kind).toBe('edge');
+    expect(match!.distanceMeters).toBeCloseTo(3, 6);
+  });
+
+  it('projects degenerate edge candidates as point snaps in edge pass', () => {
+    const match = findSnapMatchFromCandidates(
+      { x: ORIGIN_LNG, y: ORIGIN_LAT + 1 / 111320 },
+      {
+        vertices: [],
+        edges: [
+          {
+            a: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+            b: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+            entityId: 'edge-1',
+            entityType: 'polyline',
+          },
+        ],
+      },
+      2,
+    );
+
+    expect(match).not.toBeNull();
+    expect(match!.target).toMatchObject({
+      kind: 'edge',
+      entityId: 'edge-1',
+      entityType: 'polyline',
+    });
+    expect(match!.target.point.x).toBeCloseTo(ORIGIN_LNG, 12);
+    expect(match!.target.point.y).toBeCloseTo(ORIGIN_LAT, 12);
+  });
+
+  it('clamps edge projection to segment endpoints', () => {
+    const lane = laneAt('lane-1', [
+      [ORIGIN_LNG, ORIGIN_LAT],
+      [ORIGIN_LNG + FIVE_M_LNG * 10, ORIGIN_LAT],
+    ]);
+
+    const target = findSnapTarget(
+      { x: ORIGIN_LNG + FIVE_M_LNG * 12, y: ORIGIN_LAT },
+      [lane],
+      12,
+      null,
+    );
+
+    expect(target).not.toBeNull();
+    expect(target!.kind).toBe('vertex');
+    expect(target!.endpointRole).toBe('end');
+    expect(target!.point.x).toBeCloseTo(ORIGIN_LNG + FIVE_M_LNG * 10, 12);
+  });
+
+  it('clamps edge-only projections before the start and after the end', () => {
+    const before = findSnapMatchFromCandidates(
+      { x: ORIGIN_LNG - FIVE_M_LNG, y: ORIGIN_LAT },
+      {
+        vertices: [],
+        edges: [
+          {
+            a: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+            b: { x: ORIGIN_LNG + FIVE_M_LNG * 2, y: ORIGIN_LAT },
+            entityId: 'edge-1',
+            entityType: 'polyline',
+          },
+        ],
+      },
+      12,
+    );
+    expect(before).not.toBeNull();
+    expect(before!.target.point.x).toBeCloseTo(ORIGIN_LNG, 12);
+
+    const after = findSnapMatchFromCandidates(
+      { x: ORIGIN_LNG + FIVE_M_LNG * 3, y: ORIGIN_LAT },
+      {
+        vertices: [],
+        edges: [
+          {
+            a: { x: ORIGIN_LNG, y: ORIGIN_LAT },
+            b: { x: ORIGIN_LNG + FIVE_M_LNG * 2, y: ORIGIN_LAT },
+            entityId: 'edge-1',
+            entityType: 'polyline',
+          },
+        ],
+      },
+      12,
+    );
+    expect(after).not.toBeNull();
+    expect(after!.target.point.x).toBeCloseTo(ORIGIN_LNG + FIVE_M_LNG * 2, 12);
   });
 
   it('vertex wins over edge when both are in range', () => {

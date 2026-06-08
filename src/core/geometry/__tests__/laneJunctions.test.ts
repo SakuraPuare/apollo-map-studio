@@ -3,6 +3,17 @@ import type { LaneEntity } from '@/types/apollo';
 import type { BezierAnchor, LngLat } from '@/core/geometry/interpolate';
 import { createApolloEntity, compileApolloFeatures, pointsToCurve } from '../apolloCompile';
 import { applyLaneJunctions } from '../laneJunctions';
+import { decorateBoundary } from '../laneJunctions/boundaryDecor';
+import {
+  buildLaneFeatureMap,
+  cloneFeature,
+  endpointDirection,
+  laneEndpointsFromEntity,
+  sideJoinOffset,
+  syncPolygonFromEdges,
+  updateLineEndpoint,
+  type LaneEndpoint,
+} from '../laneJunctions/internal';
 
 const DEG_TO_M = 111320;
 const LAT = 30;
@@ -123,6 +134,17 @@ function polygonEndpoint(
   const index =
     side === 'left' ? (isStart ? 0 : leftLen - 1) : isStart ? leftLen + rightLen - 1 : leftLen;
   return ring[index] as LngLat;
+}
+
+function lineFeature(
+  coords: LngLat[],
+  props: Record<string, unknown> = {},
+): GeoJSON.Feature<GeoJSON.LineString> {
+  return {
+    type: 'Feature',
+    properties: props,
+    geometry: { type: 'LineString', coordinates: coords },
+  };
 }
 
 describe('applyLaneJunctions', () => {
@@ -559,6 +581,331 @@ describe('applyLaneJunctions', () => {
     expect(leftDecor[1]!.properties?.boundaryType).toBe('DOTTED_YELLOW');
     expect(leftDecor[1]!.properties?.dashed).toBe(true);
     expect(leftDecor[1]!.properties?.dotted).toBe(true);
+  });
+});
+
+describe('lane junction internals and boundary decoration edge cases', () => {
+  it('trims folded sparse endpoints after a stitch join lands behind the terminal segment', () => {
+    const line = lineFeature([
+      [0, LAT],
+      [0.1 / mPerLng, LAT],
+      [10 / mPerLng, LAT],
+    ]);
+
+    updateLineEndpoint({
+      feature: line,
+      isStart: true,
+      joinPt: [1 / mPerLng, LAT],
+      dir: [1, 0],
+      cosLat,
+    });
+
+    expect(line.geometry.coordinates).toHaveLength(2);
+    expect(line.geometry.coordinates[0]).toEqual([1 / mPerLng, LAT]);
+    expect(line.geometry.coordinates[1]).toEqual([10 / mPerLng, LAT]);
+  });
+
+  it('leaves endpoint coordinates untouched when optional refs cannot be updated', () => {
+    const empty = lineFeature([]);
+    updateLineEndpoint({
+      feature: undefined,
+      isStart: true,
+      joinPt: [116, LAT],
+      dir: [1, 0],
+      cosLat,
+    });
+    updateLineEndpoint({
+      feature: empty,
+      isStart: true,
+      joinPt: [116, LAT],
+      dir: [1, 0],
+      cosLat,
+    });
+
+    expect(empty.geometry.coordinates).toEqual([]);
+
+    const polygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [[[116, LAT]]] },
+    };
+
+    syncPolygonFromEdges(undefined);
+    syncPolygonFromEdges({ polygon });
+
+    expect(polygon.geometry.coordinates).toEqual([[[116, LAT]]]);
+
+    const emptyPolygon: GeoJSON.Feature<GeoJSON.Polygon> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [[[116, LAT]]] },
+    };
+    syncPolygonFromEdges({
+      polygon: emptyPolygon,
+      left: lineFeature([]),
+      right: lineFeature([]),
+    });
+
+    expect(emptyPolygon.geometry.coordinates).toEqual([[]]);
+  });
+
+  it('uses same-side exact joins for start-start endpoints and falls back to bevel for parallel offsets', () => {
+    const startA: LaneEndpoint = {
+      id: 'a',
+      isStart: true,
+      pts: [
+        { x: 0, y: 0 },
+        { x: 1 / mPerLng, y: 0 },
+      ],
+      leftWidth: 3,
+      rightWidth: 3,
+      trimBoundaryOnStitch: true,
+    };
+    const startB: LaneEndpoint = {
+      ...startA,
+      id: 'b',
+      pts: [
+        { x: 0, y: 0 },
+        { x: 0, y: 1 / mPerLat },
+      ],
+    };
+    const parallelB: LaneEndpoint = {
+      ...startA,
+      id: 'parallel',
+      leftWidth: 5,
+      rightWidth: 5,
+    };
+    const endB: LaneEndpoint = {
+      ...startA,
+      id: 'endB',
+      isStart: false,
+    };
+    const shallowTurnB: LaneEndpoint = {
+      ...startA,
+      id: 'shallowTurn',
+      isStart: false,
+    };
+    const narrowShallowTurnB: LaneEndpoint = {
+      ...shallowTurnB,
+      leftWidth: 0.5,
+    };
+    const shallowTurnDir: [number, number] = [
+      Math.cos((-30 * Math.PI) / 180),
+      Math.sin((-30 * Math.PI) / 180),
+    ];
+    const narrowShallowTurnDir: [number, number] = [
+      Math.cos((-15.5 * Math.PI) / 180),
+      Math.sin((-15.5 * Math.PI) / 180),
+    ];
+
+    const exact = sideJoinOffset('left', startA, startB, [1, 0], [0, 1]);
+    const bevel = sideJoinOffset('left', startA, parallelB, [1, 0], [1, 0]);
+    const continuousBevel = sideJoinOffset('right', startA, endB, [1, 0], [1, 0]);
+    const shallowOuterBevel = sideJoinOffset('left', startA, shallowTurnB, [1, 0], shallowTurnDir);
+    const cappedByBevel = sideJoinOffset(
+      'left',
+      { ...startA, leftWidth: 0.1 },
+      narrowShallowTurnB,
+      [1, 0],
+      narrowShallowTurnDir,
+    );
+
+    expect(exact).toEqual([-3, 3]);
+    expect(bevel[0]).toBeCloseTo(0, 10);
+    expect(bevel[1]).toBeCloseTo(4, 10);
+    expect(continuousBevel[0]).toBeCloseTo(0, 10);
+    expect(continuousBevel[1]).toBeCloseTo(-3, 10);
+    expect(shallowOuterBevel[0]).toBeCloseTo(0.8038, 4);
+    expect(shallowOuterBevel[1]).toBeCloseTo(3, 10);
+    expect(cappedByBevel[0]).toBeCloseTo(0.0668, 4);
+    expect(cappedByBevel[1]).toBeCloseTo(0.2909, 4);
+  });
+
+  it('reports trim decisions for source tools, dense samples, degenerate curves, and default widths', () => {
+    const sparse = makeLane('sparse', [
+      [116, LAT],
+      [116.001, LAT],
+    ]);
+    const dense = makeLane(
+      'dense',
+      Array.from({ length: 7 }, (_, i) => [116 + i * 0.00001, LAT] as LngLat),
+    );
+    const arc = createApolloEntity(
+      'lane',
+      'drawArc',
+      [
+        [116, LAT],
+        [116.0005, LAT + 0.0002],
+        [116.001, LAT],
+      ],
+      [],
+      { laneHalfWidth: WIDTH },
+    ) as LaneEntity;
+    const noSamples: LaneEntity = {
+      ...sparse,
+      id: 'noSamples',
+      leftSamples: [],
+      rightSamples: [],
+    };
+    const degenerate: LaneEntity = {
+      ...sparse,
+      id: 'degenerate',
+      centralCurve: pointsToCurve([{ x: 116, y: LAT }]),
+    };
+
+    expect(
+      laneEndpointsFromEntity(sparse).map((endpoint) => endpoint.trimBoundaryOnStitch),
+    ).toEqual([true, true]);
+    expect(laneEndpointsFromEntity(dense).map((endpoint) => endpoint.trimBoundaryOnStitch)).toEqual(
+      [false, false],
+    );
+    expect(laneEndpointsFromEntity(arc).map((endpoint) => endpoint.trimBoundaryOnStitch)).toEqual([
+      false,
+      false,
+    ]);
+    expect(laneEndpointsFromEntity(noSamples)[0]).toMatchObject({
+      leftWidth: 1.75,
+      rightWidth: 1.75,
+    });
+    expect(laneEndpointsFromEntity(degenerate)).toEqual([]);
+  });
+
+  it('normalizes decoration segments, duplicate offsets, fallback color, and curb priority', () => {
+    const lane = makeLane('decor', [
+      [116, LAT],
+      [116 + 30 / mPerLng, LAT],
+    ]);
+    lane.leftBoundary.boundaryType = [
+      { s: 10, types: ['UNKNOWN'] },
+      { s: 10 + 1e-5, types: ['CURB', 'SOLID_WHITE'] },
+      { s: 20, types: ['UNKNOWN', 'SOLID_WHITE'] },
+      { s: 30, types: ['SOLID_YELLOW'] },
+    ];
+    const boundary = lineFeature(
+      [
+        [116, LAT],
+        [116 + 30 / mPerLng, LAT],
+      ],
+      { color: '#123456' },
+    );
+
+    const decor = decorateBoundary(lane, 'left', boundary);
+
+    expect(decor.map((feature) => feature.properties?.boundaryType)).toEqual([
+      'UNKNOWN',
+      'CURB',
+      'SOLID_WHITE',
+    ]);
+    expect(decor[0]!.properties).toMatchObject({
+      boundarySegmentIndex: 0,
+      boundaryVariantIndex: 0,
+      color: '#123456',
+    });
+    expect(decor[1]!.properties).toMatchObject({
+      boundarySegmentIndex: 1,
+      boundaryType: 'CURB',
+      color: '#9aa6b2',
+    });
+    expect(decor[2]!.properties).toMatchObject({
+      boundarySegmentIndex: 2,
+      boundaryType: 'SOLID_WHITE',
+      color: '#ffffff',
+    });
+    expect(decor[0]!.geometry.coordinates[0]![0]).toBeCloseTo(116, 10);
+    expect(decor[1]!.geometry.coordinates[0]![0]).toBeCloseTo(116 + 10 / mPerLng, 10);
+    expect(decor[2]!.geometry.coordinates.at(-1)![0]).toBeCloseTo(116 + 30 / mPerLng, 10);
+  });
+
+  it('skips degenerate boundary decoration inputs and handles missing boundary metadata', () => {
+    const lane = makeLane('decor', [
+      [116, LAT],
+      [116.001, LAT],
+    ]);
+    const withoutLeftBoundary = { id: lane.id };
+
+    expect(decorateBoundary(lane, 'left', undefined)).toEqual([]);
+    expect(decorateBoundary(lane, 'left', lineFeature([[116, LAT]]))).toEqual([]);
+    expect(
+      decorateBoundary(
+        lane,
+        'left',
+        lineFeature([
+          [116, LAT],
+          [116, LAT],
+        ]),
+      ),
+    ).toEqual([]);
+
+    const decor = decorateBoundary(
+      withoutLeftBoundary,
+      'left',
+      lineFeature(
+        [
+          [116, LAT],
+          [116.001, LAT],
+        ],
+        { color: '#654321' },
+      ),
+    );
+
+    expect(decor).toHaveLength(1);
+    expect(decor[0]!.properties).toMatchObject({
+      boundaryType: 'UNKNOWN',
+      color: '#654321',
+    });
+
+    const fallbackDecor = decorateBoundary(
+      withoutLeftBoundary,
+      'left',
+      lineFeature([
+        [116, LAT],
+        [116.001, LAT],
+      ]),
+    );
+
+    expect(fallbackDecor[0]!.properties?.color).toBe('#4a9eff');
+  });
+
+  it('builds lane feature refs defensively and normalizes zero-length endpoint directions', () => {
+    const laneFeature = lineFeature(
+      [
+        [116, LAT],
+        [116.001, LAT],
+      ],
+      { entityType: 'lane', id: 'laneA', role: 'laneEdgeLeft' },
+    );
+    const map = buildLaneFeatureMap([
+      lineFeature([[0, 0]], { entityType: 'road', id: 'roadA', role: 'laneEdgeLeft' }),
+      lineFeature([[0, 0]], { entityType: 'lane', role: 'laneEdgeLeft' }),
+      {
+        type: 'Feature',
+        properties: { entityType: 'lane', id: 'pointLane' },
+        geometry: { type: 'Point', coordinates: [116, LAT] },
+      },
+      laneFeature,
+    ]);
+    const endpoint: LaneEndpoint = {
+      id: 'flat',
+      isStart: true,
+      pts: [
+        { x: 116, y: LAT },
+        { x: 116, y: LAT },
+      ],
+      leftWidth: WIDTH,
+      rightWidth: WIDTH,
+      trimBoundaryOnStitch: true,
+    };
+    const pointFeature: GeoJSON.Feature<GeoJSON.Point> = {
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: [116, LAT] },
+    };
+
+    expect(map.size).toBe(2);
+    expect(map.get('laneA')?.left).toBe(laneFeature);
+    expect(map.get('pointLane')).toEqual({});
+    expect(cloneFeature(pointFeature)).toBe(pointFeature);
+    expect(endpointDirection(endpoint, cosLat)).toEqual([0, 1]);
   });
 });
 

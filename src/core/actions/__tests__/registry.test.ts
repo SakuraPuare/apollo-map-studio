@@ -9,7 +9,10 @@ import {
   getCommandPaletteActions,
   getCommandPaletteActionsForMode,
   getKeyBindingActions,
+  getMenuNames,
+  getToolAction,
   getToolStripSlotActions,
+  isMacPlatform,
   matchesKeybinding,
 } from '../registry';
 import { _resetIsMacCache } from '../registry/helpers';
@@ -51,6 +54,10 @@ describe('Action Registry', () => {
       'connectLanes',
       'boundaryBrush',
     ]);
+  });
+
+  it('returns undefined for an unregistered draw tool lookup', () => {
+    expect(getToolAction('missingDrawTool' as DrawTool)).toBeUndefined();
   });
 
   // ── Coverage checks ─────────────────────────────────────
@@ -126,21 +133,60 @@ describe('Action Registry', () => {
   it('View menu filters mode-scoped workspace panels', () => {
     const drawingIds = getMenuActionsForMode('View', 'drawing').map((a) => a.id);
     const sceneIds = getMenuActionsForMode('View', 'scene').map((a) => a.id);
+    expect(drawingIds).toContain('resetLayout');
+    expect(sceneIds).toContain('resetLayout');
     expect(drawingIds).not.toContain('view:timeline');
+    expect(drawingIds).not.toContain('view:scenarios');
     expect(sceneIds).toContain('view:timeline');
+    expect(sceneIds).toContain('view:scenarios');
+  });
+
+  it('returns only always-available non-workspace actions for a missing menu mode filter', () => {
+    expect(getMenuActionsForMode('Tools', 'drawing')).toEqual([]);
+    expect(getMenuActionsForMode('File', 'scene').map((a) => a.id)).toEqual(
+      getMenuActions('File').map((a) => a.id),
+    );
+  });
+
+  it('collects menu names from actions that declare menus', () => {
+    expect(getMenuNames()).toEqual(['File', 'Edit', 'View', 'About']);
   });
 
   it('command palette filters mode-scoped workspace panels', () => {
     const drawingIds = getCommandPaletteActionsForMode('drawing').map((a) => a.id);
     const sceneIds = getCommandPaletteActionsForMode('scene').map((a) => a.id);
+    expect(drawingIds).toContain('undo');
+    expect(sceneIds).toContain('undo');
     expect(drawingIds).not.toContain('view:timeline');
+    expect(drawingIds).not.toContain('view:scenarios');
     expect(sceneIds).toContain('view:timeline');
+    expect(sceneIds).toContain('view:scenarios');
   });
 
   it('resolves workspace actions after contributions are bootstrapped', () => {
     const actionIds = getActionDefs().map((a) => a.id);
     for (const view of getWorkspaceViewDefs()) {
       expect(actionIds).toContain(view.actionId);
+    }
+  });
+
+  it('derives workspace view actions with stable View menu invariants', () => {
+    const actionsById = getActionMap();
+
+    for (const view of getWorkspaceViewDefs()) {
+      const action = actionsById.get(view.actionId);
+
+      expect(action, view.actionId).toBeDefined();
+      expect(action).toMatchObject({
+        id: view.actionId,
+        label: view.label,
+        category: 'view',
+        inCommandPalette: true,
+        menu: 'View',
+        menuOrder: view.menuOrder,
+        isToggle: true,
+      });
+      expect(action?.icon).toBe(view.icon);
     }
   });
 
@@ -218,12 +264,17 @@ describe('Action Registry', () => {
 
   it('matchesKeybinding works for simple key', () => {
     expect(matchesKeybinding(fakeEvent({ key: 'v' }), { key: 'v' })).toBe(true);
+    expect(matchesKeybinding(fakeEvent({ key: 'V' }), { key: 'v' })).toBe(true);
     expect(matchesKeybinding(fakeEvent({ key: 'v' }), { key: 'b' })).toBe(false);
+    expect(matchesKeybinding(fakeEvent({ key: 'v', altKey: true }), { key: 'v' })).toBe(false);
   });
 
   it('matchesKeybinding works for ctrl+key', () => {
     expect(
       matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true }), { key: 'z', ctrl: true }),
+    ).toBe(true);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'z', metaKey: true }), { key: 'z', ctrl: true }),
     ).toBe(true);
     expect(matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true }), { key: 'z' })).toBe(false);
   });
@@ -242,6 +293,26 @@ describe('Action Registry', () => {
         ctrl: true,
       }),
     ).toBe(false);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'z', ctrlKey: true, altKey: true }), {
+        key: 'z',
+        ctrl: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('matchesKeybinding requires every declared modifier and rejects extras', () => {
+    expect(matchesKeybinding(fakeEvent({ key: 'x', altKey: true }), { key: 'x', alt: true })).toBe(
+      true,
+    );
+    expect(matchesKeybinding(fakeEvent({ key: 'x' }), { key: 'x', alt: true })).toBe(false);
+    expect(matchesKeybinding(fakeEvent({ key: 'x' }), { key: 'x', shift: true })).toBe(false);
+    expect(
+      matchesKeybinding(fakeEvent({ key: 'x', ctrlKey: true, metaKey: true }), {
+        key: 'x',
+        ctrl: true,
+      }),
+    ).toBe(true);
   });
 
   // ── All draw tools are registered ───────────────────────
@@ -280,8 +351,13 @@ describe('Action Registry', () => {
       _resetIsMacCache();
     });
 
-    function stubPlatform(platform: string, ua = '') {
-      vi.stubGlobal('navigator', { platform, userAgent: ua });
+    function stubPlatform(platform: string, ua = '', userAgentDataPlatform?: string) {
+      vi.stubGlobal('navigator', {
+        platform,
+        userAgent: ua,
+        userAgentData:
+          userAgentDataPlatform === undefined ? undefined : { platform: userAgentDataPlatform },
+      });
     }
 
     it('keeps Mac glyphs verbatim on macOS', () => {
@@ -313,6 +389,45 @@ describe('Action Registry', () => {
       stubPlatform('Win32');
       expect(formatShortcut(undefined)).toBe('');
       expect(formatShortcut('')).toBe('');
+    });
+
+    it('uses navigator.userAgentData platform before legacy platform fields', () => {
+      stubPlatform('Win32', 'Windows', 'macOS');
+      expect(isMacPlatform()).toBe(true);
+      expect(formatShortcut('⌘K')).toBe('⌘K');
+    });
+
+    it('detects Apple mobile and desktop Safari user agents from legacy fields', () => {
+      stubPlatform('iPad', '');
+      expect(isMacPlatform()).toBe(true);
+
+      _resetIsMacCache();
+      stubPlatform('Linux armv8l', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
+      expect(formatShortcut('⌘S')).toBe('⌘S');
+    });
+
+    it('memoises the platform until the test reset hook clears it', () => {
+      stubPlatform('Win32');
+      expect(isMacPlatform()).toBe(false);
+
+      stubPlatform('MacIntel');
+      expect(isMacPlatform()).toBe(false);
+      expect(formatShortcut('⌘S')).toBe('Ctrl+S');
+
+      _resetIsMacCache();
+      expect(isMacPlatform()).toBe(true);
+      expect(formatShortcut('⌘S')).toBe('⌘S');
+    });
+
+    it('treats a missing navigator as non-Mac and caches that result', () => {
+      vi.stubGlobal('navigator', undefined);
+      expect(isMacPlatform()).toBe(false);
+
+      stubPlatform('MacIntel');
+      expect(formatShortcut('⌘S')).toBe('Ctrl+S');
+
+      _resetIsMacCache();
+      expect(formatShortcut('⌘S')).toBe('⌘S');
     });
   });
 

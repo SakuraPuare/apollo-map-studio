@@ -127,4 +127,21 @@ describe('laneCorridorPolygon', () => {
       { x: 116.0, y: 39.901 },
     ]);
   });
+
+  it('falls back to centerline offsets when boundary curves are placeholders', () => {
+    const centerline = [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ];
+    const lane = makeLane(centerline);
+    lane.leftBoundary.curve = pointsToCurve(centerline);
+    lane.rightBoundary.curve = pointsToCurve(centerline);
+
+    const ring = laneCorridorPolygon(lane);
+
+    expect(ring).toHaveLength(5);
+    expect(ring[0]).toEqual(ring[ring.length - 1]);
+    expect(ring.some((point) => point.y > 39.9)).toBe(true);
+    expect(ring.some((point) => point.y < 39.9)).toBe(true);
+  });
 });

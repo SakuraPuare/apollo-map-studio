@@ -18,6 +18,16 @@ export function curvePoints(curve: Curve | undefined): GeoPoint[] {
   return out;
 }
 
+function samePolyline(a: GeoPoint[], b: GeoPoint[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (left.x !== right.x || left.y !== right.y) return false;
+  }
+  return true;
+}
+
 function distanceSqDeg(a: GeoPoint, b: GeoPoint): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -55,12 +65,15 @@ function boundaryArea2Deg(left: GeoPoint[], right: GeoPoint[]): number {
  * editor-created lanes leave them empty, and some tests/legacy fixtures store
  * centerline placeholders in boundary.curve.
  */
-export function explicitLaneBoundaryEdges(lane: LaneEntity): LaneBoundaryEdges | null {
+export function explicitLaneBoundaryEdges(
+  lane: LaneEntity,
+  centerline = curvePoints(lane.centralCurve),
+): LaneBoundaryEdges | null {
   const left = curvePoints(lane.leftBoundary.curve);
   const right = curvePoints(lane.rightBoundary.curve);
   if (left.length < 2 || right.length < 2) return null;
+  if (samePolyline(left, right)) return null;
 
-  const centerline = curvePoints(lane.centralCurve);
   const orientedLeft = orientToCenterline(left, centerline);
   const orientedRight = orientToCenterline(right, centerline);
   if (Math.abs(boundaryArea2Deg(orientedLeft, orientedRight)) <= 1e-18) return null;

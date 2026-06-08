@@ -1,4 +1,9 @@
-import type { SerializedEntity, WorkerRequest, WorkerResponse } from './protocol';
+import type {
+  EntityFeatureGroup,
+  SerializedEntity,
+  WorkerRequest,
+  WorkerResponse,
+} from './protocol';
 import {
   buildFeatureCollection,
   featureGroupsForState,
@@ -65,11 +70,30 @@ function deltaIdsFor(req: Extract<WorkerRequest, { type: 'INCREMENTAL' }>, affec
   return deltaIds;
 }
 
+function cancelPendingSyncs(state: SpatialState) {
+  for (const requestId of state.pendingSyncs.keys()) state.cancelledSyncs.add(requestId);
+  state.pendingSyncs.clear();
+}
+
+function changedGroupsForDelta(
+  state: SpatialState,
+  features: GeoJSON.Feature[],
+  deltaIds: Set<string>,
+): EntityFeatureGroup[] {
+  const changed = groupFeaturesByEntity(features).filter((group) => deltaIds.has(group.id));
+  const emitted = new Set(changed.map((group) => group.id));
+  for (const id of deltaIds) {
+    if (!emitted.has(id) && state.entityMap.has(id)) changed.push({ id, features: [] });
+  }
+  return changed;
+}
+
 function handleSync(
   state: SpatialState,
   req: { requestId: string; entities: SerializedEntity[]; excludeId?: string | null },
   respond: Respond,
 ) {
+  cancelPendingSyncs(state);
   syncEntities(state, req.entities);
   buildFeatureCollection(state, req.excludeId);
   respond({
@@ -80,6 +104,8 @@ function handleSync(
 }
 
 function handleSyncBegin(state: SpatialState, req: Extract<WorkerRequest, { type: 'SYNC_BEGIN' }>) {
+  cancelPendingSyncs(state);
+  state.cancelledSyncs.delete(req.requestId);
   state.pendingSyncs.set(req.requestId, {
     entities: [],
     total: req.total,
@@ -89,6 +115,7 @@ function handleSyncBegin(state: SpatialState, req: Extract<WorkerRequest, { type
 
 function handleSyncChunk(state: SpatialState, req: Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>) {
   const pending = state.pendingSyncs.get(req.requestId);
+  if (!pending && state.cancelledSyncs.has(req.requestId)) return;
   if (!pending) throw new Error(`Unknown spatial SYNC request ${req.requestId}`);
   pending.entities.push(...req.entities);
   pending.total = req.total;
@@ -100,6 +127,14 @@ function handleSyncFinish(
   respond: Respond,
 ) {
   const pending = state.pendingSyncs.get(req.requestId);
+  if (!pending && state.cancelledSyncs.delete(req.requestId)) {
+    respond({
+      type: 'COLD_READY',
+      requestId: req.requestId,
+      groups: featureGroupsForState(state),
+    });
+    return;
+  }
   if (!pending) throw new Error(`Unknown spatial SYNC request ${req.requestId}`);
   state.pendingSyncs.delete(req.requestId);
   if (pending.entities.length !== pending.total) {
@@ -119,6 +154,7 @@ function handleIncremental(
   req: Extract<WorkerRequest, { type: 'INCREMENTAL' }>,
   respond: Respond,
 ) {
+  cancelPendingSyncs(state);
   const affected = new Set<string>();
   collectPreMutationDependents(state, req, affected);
   applyIncrementalMutations(state, req);
@@ -126,7 +162,7 @@ function handleIncremental(
 
   const deltaIds = deltaIdsFor(req, affected);
   const fc = buildFeatureCollection(state, req.excludeId, affected.size > 0 ? affected : null);
-  const changed = groupFeaturesByEntity(fc.features).filter((g) => deltaIds.has(g.id));
+  const changed = changedGroupsForDelta(state, fc.features, deltaIds);
 
   respond({
     type: 'COLD_DELTA',

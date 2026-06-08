@@ -94,6 +94,9 @@ export function registerWorkspacePanelView(
   view: Omit<WorkspacePanelViewDef, 'kind'>,
   options: RegisterOptions = {},
 ): void {
+  if (!workspacePanels.has(view.panelId)) {
+    throw new Error(`Unknown workspace panel: ${view.panelId}`);
+  }
   if (workspacePanelViews.has(view.id)) {
     if (options.duplicate === 'ignore') return;
     throw new Error(`Duplicate workspace panel view: ${view.id}`);

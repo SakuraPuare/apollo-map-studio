@@ -49,8 +49,10 @@ export function laneFillGeometry({
     leftEdge.length === rightEdge.length
       ? laneSegmentRingsFromEdges(leftCoords, rightCoords)
       : laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
-  const stableRings = laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
-  const decisionRings = rings.length > 0 ? rings : stableRings;
+  const decisionRings =
+    rings.length > 0
+      ? rings
+      : laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
   if (
     decisionRings.length === 0 ||
     !shouldSegmentSyntheticLaneFill({
@@ -64,6 +66,7 @@ export function laneFillGeometry({
   ) {
     return wholeGeometry;
   }
+  const stableRings = laneSegmentRingsFromCenterline(centerPts, leftWidthMeters, rightWidthMeters);
   return (
     unionPolygonGeometry(stableRings.length > 0 ? stableRings : decisionRings) ?? wholeGeometry
   );

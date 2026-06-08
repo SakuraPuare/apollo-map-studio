@@ -27,6 +27,7 @@ export interface SpatialState {
   decorationCache: Map<string, GeoJSON.Feature[]>;
   junctionGraph: LaneJunctionGraph;
   pendingSyncs: Map<string, { entities: MapEntity[]; total: number; excludeId?: string | null }>;
+  cancelledSyncs: Set<string>;
   laneCount: number;
 }
 
@@ -39,6 +40,7 @@ export function createSpatialState(): SpatialState {
     decorationCache: new Map(),
     junctionGraph: new LaneJunctionGraph(),
     pendingSyncs: new Map(),
+    cancelledSyncs: new Set(),
     laneCount: 0,
   };
 }
@@ -53,8 +55,66 @@ function resetSpatialState(state: SpatialState) {
   state.laneCount = 0;
 }
 
-function createSpatialItem(entity: MapEntity): SpatialItem {
-  const [minX, minY, maxX, maxY] = entityBBox(entity);
+function extendCoords(
+  coords: GeoJSON.Position[],
+  bounds: [number, number, number, number],
+): [number, number, number, number] {
+  let [minX, minY, maxX, maxY] = bounds;
+  for (const coord of coords) {
+    const x = coord[0]!;
+    const y = coord[1]!;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+function extendGeometryBounds(
+  geometry: GeoJSON.Geometry | null,
+  bounds: [number, number, number, number],
+): [number, number, number, number] {
+  if (!geometry) return bounds;
+  switch (geometry.type) {
+    case 'Point':
+      return extendCoords([geometry.coordinates], bounds);
+    case 'LineString':
+    case 'MultiPoint':
+      return extendCoords(geometry.coordinates, bounds);
+    case 'Polygon':
+    case 'MultiLineString':
+      return geometry.coordinates.reduce(
+        (nextBounds, ring) => extendCoords(ring, nextBounds),
+        bounds,
+      );
+    case 'MultiPolygon':
+      return geometry.coordinates.reduce(
+        (polygonBounds, polygon) =>
+          polygon.reduce((ringBounds, ring) => extendCoords(ring, ringBounds), polygonBounds),
+        bounds,
+      );
+    case 'GeometryCollection':
+      return geometry.geometries.reduce(
+        (nextBounds, child) => extendGeometryBounds(child, nextBounds),
+        bounds,
+      );
+  }
+}
+
+function featureBounds(features: GeoJSON.Feature[]): [number, number, number, number] | null {
+  let bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const feature of features) bounds = extendGeometryBounds(feature.geometry, bounds);
+  return bounds[0] === Infinity ? null : bounds;
+}
+
+function isFiniteBounds(bounds: [number, number, number, number]): boolean {
+  return bounds.every(Number.isFinite) && bounds[0] <= bounds[2] && bounds[1] <= bounds[3];
+}
+
+function createSpatialItem(entity: MapEntity, features: GeoJSON.Feature[]): SpatialItem | null {
+  const [minX, minY, maxX, maxY] = featureBounds(features) ?? entityBBox(entity);
+  if (!isFiniteBounds([minX, minY, maxX, maxY])) return null;
   return {
     minX,
     minY,
@@ -75,10 +135,13 @@ function addLaneToGraph(state: SpatialState, entity: MapEntity) {
 
 export function insertEntity(state: SpatialState, entity: MapEntity) {
   state.entityMap.set(entity.id, entity);
-  const item = createSpatialItem(entity);
-  state.itemMap.set(entity.id, item);
-  state.tree.insert(item);
-  state.featureCache.set(entity.id, compileColdFeatures(entity));
+  const features = compileColdFeatures(entity);
+  const item = createSpatialItem(entity, features);
+  if (item) {
+    state.itemMap.set(entity.id, item);
+    state.tree.insert(item);
+  }
+  state.featureCache.set(entity.id, features);
   addLaneToGraph(state, entity);
 }
 
@@ -104,10 +167,13 @@ export function syncEntities(state: SpatialState, entities: MapEntity[]) {
 
   for (const entity of entities) {
     state.entityMap.set(entity.id, entity);
-    const item = createSpatialItem(entity);
-    state.itemMap.set(entity.id, item);
-    items.push(item);
-    state.featureCache.set(entity.id, compileColdFeatures(entity));
+    const features = compileColdFeatures(entity);
+    const item = createSpatialItem(entity, features);
+    if (item) {
+      state.itemMap.set(entity.id, item);
+      items.push(item);
+    }
+    state.featureCache.set(entity.id, features);
     addLaneToGraph(state, entity);
   }
 

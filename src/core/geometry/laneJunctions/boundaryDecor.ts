@@ -182,16 +182,22 @@ function boundaryPaint(type: BoundaryLineType, fallbackColor: string): BoundaryP
 function lineFeature(
   coords: LngLat[],
   props: Record<string, unknown>,
+  id?: string,
 ): GeoJSON.Feature<GeoJSON.LineString> {
   return {
     type: 'Feature',
+    id,
     properties: props,
     geometry: { type: 'LineString', coordinates: coords },
   };
 }
 
 export function decorateBoundary(
-  lane: LaneEntity,
+  lane: {
+    id: string;
+    leftBoundary?: LaneEntity['leftBoundary'];
+    rightBoundary?: LaneEntity['rightBoundary'];
+  },
   side: 'left' | 'right',
   boundaryFeature: GeoJSON.Feature<GeoJSON.LineString> | undefined,
 ): GeoJSON.Feature<GeoJSON.LineString>[] {
@@ -208,8 +214,10 @@ export function decorateBoundary(
   const segments = boundarySegments(boundary, projected.total);
   const out: GeoJSON.Feature<GeoJSON.LineString>[] = [];
 
-  for (const segment of segments) {
-    const segCoords = sliceLineByS(coords, segment.startS, segment.endS);
+  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+    const segment = segments[segmentIndex]!;
+    const isFullSpan = segment.startS <= 1e-4 && segment.endS >= projected.total - 1e-4;
+    const segCoords = isFullSpan ? coords : sliceLineByS(coords, segment.startS, segment.endS);
     if (!segCoords || segCoords.length < 2) continue;
 
     const paint = boundaryPaint(segment.type, baseColor);
@@ -223,19 +231,24 @@ export function decorateBoundary(
 
     variants.forEach((variant, index) => {
       out.push(
-        lineFeature(variant, {
-          id: lane.id,
-          entityType: 'lane',
-          role: 'laneBoundaryDecor',
-          boundarySide: side,
-          boundaryType: segment.type,
-          boundarySegmentIndex: index,
-          color: paint.color,
-          lineWidth: paint.lineWidth,
-          lineOpacity: paint.lineOpacity,
-          ...(paint.dashed ? { dashed: true } : {}),
-          ...(paint.dotted ? { dotted: true } : {}),
-        }),
+        lineFeature(
+          variant,
+          {
+            id: lane.id,
+            entityType: 'lane',
+            role: 'laneBoundaryDecor',
+            boundarySide: side,
+            boundaryType: segment.type,
+            boundarySegmentIndex: segmentIndex,
+            boundaryVariantIndex: index,
+            color: paint.color,
+            lineWidth: paint.lineWidth,
+            lineOpacity: paint.lineOpacity,
+            ...(paint.dashed ? { dashed: true } : {}),
+            ...(paint.dotted ? { dotted: true } : {}),
+          },
+          `${lane.id}:laneBoundaryDecor:${side}:${segmentIndex}:${index}`,
+        ),
       );
     });
   }

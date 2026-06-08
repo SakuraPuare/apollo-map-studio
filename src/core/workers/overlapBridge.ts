@@ -23,6 +23,51 @@ interface PendingEntry {
   timer: ReturnType<typeof setTimeout>;
 }
 
+type OverlapStats = OverlapResponse['stats'];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isOverlapStats(value: unknown): value is OverlapStats {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.pairsTested === 'number' &&
+    typeof value.pairsMatched === 'number' &&
+    typeof value.overlapsCreated === 'number' &&
+    typeof value.overlapsRemoved === 'number' &&
+    typeof value.durationMs === 'number'
+  );
+}
+
+function isMapEntityLike(value: unknown): value is MapEntity {
+  return isRecord(value) && typeof value.id === 'string' && typeof value.entityType === 'string';
+}
+
+function isChangeEntry(value: unknown): value is [string, MapEntity] {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === 'string' &&
+    isMapEntityLike(value[1])
+  );
+}
+
+function isOverlapResponse(value: unknown): value is OverlapResponse {
+  if (!isRecord(value)) return false;
+  const changes = value.changes;
+  const removedOverlapIds = value.removedOverlapIds;
+  return (
+    value.type === 'RECONCILE_RESULT' &&
+    typeof value.requestId === 'string' &&
+    Array.isArray(changes) &&
+    changes.every(isChangeEntry) &&
+    Array.isArray(removedOverlapIds) &&
+    removedOverlapIds.every((id) => typeof id === 'string') &&
+    isOverlapStats(value.stats)
+  );
+}
+
 export class OverlapWorkerBridge {
   private worker: Worker;
   private pending = new Map<string, PendingEntry>();
@@ -34,15 +79,16 @@ export class OverlapWorkerBridge {
       type: 'module',
     });
     this.worker.onmessage = (e: MessageEvent<OverlapResponse>) => {
-      const { requestId } = e.data;
-      const entry = this.pending.get(requestId);
+      const msg = e.data;
+      if (!isOverlapResponse(msg)) return;
+      const entry = this.pending.get(msg.requestId);
       if (!entry) return;
       clearTimeout(entry.timer);
-      this.pending.delete(requestId);
+      this.pending.delete(msg.requestId);
       entry.resolve({
-        changes: new Map(e.data.changes),
-        removedOverlapIds: new Set(e.data.removedOverlapIds),
-        stats: e.data.stats,
+        changes: new Map(msg.changes),
+        removedOverlapIds: new Set(msg.removedOverlapIds),
+        stats: msg.stats,
       });
     };
     this.worker.onerror = (e) => {

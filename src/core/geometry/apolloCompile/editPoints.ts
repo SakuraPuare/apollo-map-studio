@@ -54,25 +54,34 @@ function firstCurvePoints(curves: readonly Curve[] | undefined): GeoPoint[] | nu
   return curves?.[0]?.segments[0]?.lineSegment.points ?? null;
 }
 
-function withFirstCurvePoints(curves: Curve[], points: GeoPoint[]): Curve[] {
+function withFirstCurvePoints(curves: Curve[], points: GeoPoint[]): Curve[] | null {
   const next = [...curves];
-  const first = next[0]!;
+  const first = next[0];
+  if (!first) return null;
   const segments = [...first.segments];
-  segments[0] = { ...segments[0]!, lineSegment: { points } };
+  const firstSegment = segments[0];
+  if (!firstSegment) return null;
+  segments[0] = { ...firstSegment, lineSegment: { points } };
   next[0] = { ...first, segments };
   return next;
 }
 
+function hasPolygonPoints(
+  entity: ApolloEntity,
+): entity is ApolloEntity & { polygon: { points: GeoPoint[] } } {
+  return (
+    POLYGON_EDIT_TYPES.has(entity.entityType) &&
+    'polygon' in entity &&
+    Array.isArray(entity.polygon?.points)
+  );
+}
+
 function getPolygonEditPoints(entity: ApolloEntity): GeoPoint[] | null {
-  return POLYGON_EDIT_TYPES.has(entity.entityType) && 'polygon' in entity
-    ? entity.polygon.points
-    : null;
+  return hasPolygonPoints(entity) ? entity.polygon.points : null;
 }
 
 function setPolygonEditPoints(entity: ApolloEntity, points: GeoPoint[]): ApolloEntity | null {
-  return POLYGON_EDIT_TYPES.has(entity.entityType) && 'polygon' in entity
-    ? ({ ...entity, polygon: { points } } as ApolloEntity)
-    : null;
+  return hasPolygonPoints(entity) ? ({ ...entity, polygon: { points } } as ApolloEntity) : null;
 }
 
 function getRoadEditPoints(entity: Extract<ApolloEntity, { entityType: 'road' }>): GeoPoint[] {
@@ -147,22 +156,26 @@ export function setAllApolloEditPoints(entity: ApolloEntity, points: GeoPoint[])
 
   switch (entity.entityType) {
     case 'barrierGate': {
-      if (entity.stopLines.length > 0)
-        return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
+      const stopLines = withFirstCurvePoints(entity.stopLines, points);
+      if (stopLines) return { ...entity, stopLines };
       return { ...entity, polygon: { points } } as typeof entity;
     }
     case 'signal': {
-      if (entity.stopLines.length > 0)
-        return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
+      const stopLines = withFirstCurvePoints(entity.stopLines, points);
+      if (stopLines) return { ...entity, stopLines };
       return { ...entity, boundary: { points } } as typeof entity;
     }
     case 'lane':
       return setLaneEditPoints(entity, points);
     case 'stopSign':
-    case 'yieldSign':
-      return { ...entity, stopLines: withFirstCurvePoints(entity.stopLines, points) };
-    case 'speedBump':
-      return { ...entity, position: withFirstCurvePoints(entity.position, points) };
+    case 'yieldSign': {
+      const stopLines = withFirstCurvePoints(entity.stopLines, points);
+      return stopLines ? { ...entity, stopLines } : entity;
+    }
+    case 'speedBump': {
+      const position = withFirstCurvePoints(entity.position, points);
+      return position ? { ...entity, position } : entity;
+    }
     case 'road':
       return setRoadEditPoints(entity, points);
     default:

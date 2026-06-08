@@ -16,6 +16,11 @@
  *            first section's first outer edge as the editable polyline.
  */
 import { describe, it, expect } from 'vitest';
+import {
+  DEFAULT_LANE_BOUNDARY_TYPE,
+  DEFAULT_LANE_HALF_WIDTH,
+  DEFAULT_LANE_SPEED_LIMIT_MPS,
+} from '@/config/mapConstants';
 import { compileApolloFeatures, createApolloEntity, pointsToCurve } from '../apolloCompile';
 import { laneFillGeometry } from '../apolloCompile/laneFillGeometry';
 import {
@@ -23,7 +28,17 @@ import {
   moveApolloEntity,
   setAllApolloEditPoints,
 } from '../apolloCompile/editPoints';
-import type { Curve, LaneEntity, RoadEntity, SignalEntity } from '@/types/apollo';
+import type {
+  AreaEntity,
+  BarrierGateEntity,
+  Curve,
+  LaneEntity,
+  RoadEntity,
+  SignalEntity,
+  SpeedBumpEntity,
+  StopSignEntity,
+  YieldSignEntity,
+} from '@/types/apollo';
 import type { BezierAnchor } from '@/core/geometry/interpolate';
 
 const pt = (x: number, y: number) => ({ x, y });
@@ -575,6 +590,237 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
       [116.01, 39.879],
       [116.01100000000001, 39.879],
     ]);
+  });
+});
+
+describe('Apollo compile renderer branch gaps — degenerate controls and areas', () => {
+  it('keeps a boundary-only signal selectable from a single boundary point without deriving rotation', () => {
+    const signal: SignalEntity = {
+      id: 'sig_point_only',
+      entityType: 'signal',
+      boundary: { points: [{ x: 7, y: 9, z: 3 }] },
+      subsignals: [],
+      type: 'MIX_3_VERTICAL',
+      overlapIds: [],
+      stopLines: [],
+      signInfo: [],
+    };
+
+    const features = compileApolloFeatures(signal);
+
+    expect(features).toHaveLength(1);
+    expect(features[0]?.geometry.type).toBe('Point');
+    expect((features[0]?.geometry as GeoJSON.Point).coordinates).toEqual([7, 9]);
+    expect(features[0]?.properties).toMatchObject({
+      role: 'label',
+      icon: 'icon-signal',
+      labelSize: 22,
+    });
+    expect(features[0]?.properties).not.toHaveProperty('iconRotate');
+  });
+
+  it.each([
+    [
+      'stopSign',
+      {
+        id: 'stop_empty',
+        entityType: 'stopSign',
+        stopLines: [],
+        type: 'ONE_WAY',
+        overlapIds: [],
+      } satisfies StopSignEntity,
+    ],
+    [
+      'yieldSign',
+      {
+        id: 'yield_empty',
+        entityType: 'yieldSign',
+        stopLines: [],
+        overlapIds: [],
+      } satisfies YieldSignEntity,
+    ],
+    [
+      'barrierGate',
+      {
+        id: 'barrier_empty',
+        entityType: 'barrierGate',
+        type: 'ROD',
+        polygon: { points: [pt(0, 0), pt(1, 0), pt(1, 1)] },
+        stopLines: [],
+        overlapIds: [],
+      } satisfies BarrierGateEntity,
+    ],
+  ] as const)('does not draw fallback geometry for %s without stop lines', (_label, entity) => {
+    expect(compileApolloFeatures(entity)).toEqual([]);
+  });
+
+  it.each([
+    [
+      'stopSign',
+      'icon-stop',
+      {
+        id: 'stop_point',
+        entityType: 'stopSign',
+        stopLines: [pointsToCurve([pt(1, 2)])],
+        type: 'ONE_WAY',
+        overlapIds: [],
+      } satisfies StopSignEntity,
+    ],
+    [
+      'yieldSign',
+      'icon-yield',
+      {
+        id: 'yield_point',
+        entityType: 'yieldSign',
+        stopLines: [pointsToCurve([pt(3, 4)])],
+        overlapIds: [],
+      } satisfies YieldSignEntity,
+    ],
+    [
+      'barrierGate',
+      'icon-barrier',
+      {
+        id: 'barrier_point',
+        entityType: 'barrierGate',
+        type: 'FENCE',
+        polygon: { points: [] },
+        stopLines: [pointsToCurve([pt(5, 6)])],
+        overlapIds: [],
+      } satisfies BarrierGateEntity,
+    ],
+    [
+      'speedBump',
+      'icon-speed-bump',
+      {
+        id: 'speed_point',
+        entityType: 'speedBump',
+        position: [pointsToCurve([pt(7, 8)])],
+        overlapIds: [],
+      } satisfies SpeedBumpEntity,
+    ],
+  ] as const)(
+    'emits only a selectable label for single-point %s geometry',
+    (_label, icon, entity) => {
+      const features = compileApolloFeatures(entity);
+
+      expect(features.filter((feature) => feature.geometry.type === 'LineString')).toEqual([]);
+      expect(features).toHaveLength(1);
+      expect(features[0]?.geometry.type).toBe('Point');
+      expect(features[0]?.properties).toMatchObject({ role: 'label', icon });
+    },
+  );
+
+  it.each(['Driveable', 'UnDriveable', 'Custom1', 'Custom2', 'Custom3'] as const)(
+    'renders %s areas with the same polygon styling',
+    (type) => {
+      const area: AreaEntity = {
+        id: `area_${type}`,
+        entityType: 'area',
+        type,
+        polygon: { points: [pt(0, 0), pt(2, 0), pt(1, 1)] },
+        overlapIds: [],
+      };
+
+      const features = compileApolloFeatures(area);
+
+      expect(features).toHaveLength(1);
+      expect(features[0]?.geometry.type).toBe('Polygon');
+      expect(features[0]?.properties).toMatchObject({
+        entityType: 'area',
+        fillOpacity: 0.25,
+        lineWidth: 1.5,
+      });
+    },
+  );
+});
+
+describe('Apollo compile factory branch gaps — defaults and degenerate draw results', () => {
+  it('uses lane defaults when options and source draw info are absent', () => {
+    const lane = createApolloEntity('lane', 'drawPolyline', [], [], {
+      entities: new Map(),
+    }) as LaneEntity;
+
+    expect(lane.turn).toBe('NO_TURN');
+    expect(lane.length).toBe(0);
+    expect(lane.speedLimit).toBe(DEFAULT_LANE_SPEED_LIMIT_MPS);
+    expect(lane.leftSamples).toEqual([{ s: 0, width: DEFAULT_LANE_HALF_WIDTH }]);
+    expect(lane.rightSamples).toEqual([{ s: 0, width: DEFAULT_LANE_HALF_WIDTH }]);
+    expect(lane.leftBoundary.boundaryType).toEqual([{ s: 0, types: [DEFAULT_LANE_BOUNDARY_TYPE] }]);
+    expect(lane.rightBoundary.boundaryType).toEqual([
+      { s: 0, types: [DEFAULT_LANE_BOUNDARY_TYPE] },
+    ]);
+    expect(lane.centralCurve.segments[0]?.lineSegment.points).toEqual([]);
+    expect(lane._source).toBeUndefined();
+  });
+
+  it('keeps an underspecified drawn signal as a single-point stop line without template geometry', () => {
+    const signal = createApolloEntity('signal', 'drawPolyline', [[1, 2]], [], {
+      entities: new Map(),
+    }) as SignalEntity;
+
+    expect(signal.boundary.points).toEqual([]);
+    expect(signal.subsignals).toEqual([]);
+    expect(signal.stopLines[0]?.segments[0]?.lineSegment.points).toEqual([pt(1, 2)]);
+    expect(signal._source).toBeUndefined();
+
+    const features = compileApolloFeatures(signal);
+    expect(features).toHaveLength(1);
+    expect(features[0]?.geometry.type).toBe('Point');
+    expect((features[0]?.geometry as GeoJSON.Point).coordinates).toEqual([1, 2]);
+    expect(features[0]?.properties).not.toHaveProperty('iconRotate');
+  });
+
+  it('records source metadata for arc, Catmull-Rom, and rotated-rectangle factories', () => {
+    const stop = createApolloEntity(
+      'stopSign',
+      'drawArc',
+      [
+        [0, 0],
+        [1, 1],
+        [2, 0],
+      ],
+      [],
+      { entities: new Map() },
+    ) as StopSignEntity;
+    const bump = createApolloEntity(
+      'speedBump',
+      'drawCatmullRom',
+      [
+        [0, 0],
+        [1, 1],
+        [2, 0],
+      ],
+      [],
+      { entities: new Map() },
+    ) as SpeedBumpEntity;
+    const area = createApolloEntity(
+      'area',
+      'drawRotatedRect',
+      [
+        [0, 0],
+        [2, 0],
+        [0, 1],
+      ],
+      [],
+      { entities: new Map() },
+    ) as AreaEntity;
+
+    expect(stop._source).toMatchObject({
+      drawTool: 'drawArc',
+      arcPoints: [pt(0, 0), pt(1, 1), pt(2, 0)],
+    });
+    expect(stop.stopLines[0]?.segments[0]?.lineSegment.points.length).toBeGreaterThan(3);
+    expect(bump._source).toMatchObject({
+      drawTool: 'drawCatmullRom',
+      points: [pt(0, 0), pt(1, 1), pt(2, 0)],
+    });
+    expect(bump.position[0]?.segments[0]?.lineSegment.points.length).toBeGreaterThan(3);
+    expect(area._sourceRect).toEqual({
+      p1: pt(0, -1),
+      p2: pt(2, 1),
+      rotation: -0,
+    });
+    expect(area.polygon.points).toHaveLength(5);
   });
 });
 

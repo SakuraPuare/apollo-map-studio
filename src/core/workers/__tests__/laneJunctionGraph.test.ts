@@ -41,6 +41,10 @@ function makeLane(id: string, points: GeoPoint[]): LaneEntity {
   };
 }
 
+type GraphInternals = {
+  keyToLanes: Map<string, Set<string>>;
+};
+
 describe('endpointKeyOf', () => {
   it('quantizes to 6 decimal places', () => {
     expect(endpointKeyOf({ x: 116.123456789, y: 30.987654321 })).toBe('116.123457,30.987654');
@@ -75,6 +79,26 @@ describe('laneEndpointKeys', () => {
       { x: 116.001, y: 30.0 },
     ]);
     expect(laneEndpointKeys(lane)).toEqual(['116.000000,30.000000', '116.001000,30.000000']);
+  });
+
+  it('ignores repeated identical centerline points when deriving endpoints', () => {
+    const lane = makeLane('a', [
+      { x: 116.0, y: 30.0 },
+      { x: 116.0, y: 30.0 },
+      { x: 116.0005, y: 30.0001 },
+      { x: 116.0005, y: 30.0001 },
+      { x: 116.001, y: 30.0 },
+    ]);
+    expect(laneEndpointKeys(lane)).toEqual(['116.000000,30.000000', '116.001000,30.000000']);
+  });
+
+  it('returns null when every centerline point is identical', () => {
+    const lane = makeLane('a', [
+      { x: 116.0, y: 30.0 },
+      { x: 116.0, y: 30.0 },
+      { x: 116.0, y: 30.0 },
+    ]);
+    expect(laneEndpointKeys(lane)).toBeNull();
   });
 
   it('returns null for a degenerate (single-point) centerline', () => {
@@ -140,6 +164,7 @@ describe('LaneJunctionGraph', () => {
     g.removeLane('a');
     expect(g.has('a')).toBe(false);
     expect(g.size()).toBe(1);
+    expect(g.getDependents('a').size).toBe(0);
     expect(g.getDependents('b').size).toBe(0);
   });
 
@@ -158,6 +183,37 @@ describe('LaneJunctionGraph', () => {
     // a no longer participates at p1 or p2
     g.addLane('b', ['p1', 'p3']);
     expect(g.getDependents('b')).toEqual(new Set(['a']));
+    expect(g.getDependents('a')).toEqual(new Set(['b']));
+  });
+
+  it('can remove repeatedly and re-add a lane without stale endpoint memberships', () => {
+    const g = new LaneJunctionGraph();
+    g.addLane('a', ['p1', 'p2']);
+    g.addLane('oldProbe', ['p1', 'p9']);
+
+    g.removeLane('a');
+    g.removeLane('a');
+    expect(g.has('a')).toBe(false);
+    expect(g.getDependents('a').size).toBe(0);
+    expect(g.getDependents('oldProbe').size).toBe(0);
+
+    g.addLane('a', ['p3', 'p4']);
+    expect(g.has('a')).toBe(true);
+    expect(g.getDependents('oldProbe').size).toBe(0);
+
+    g.addLane('newProbe', ['p4', 'p5']);
+    expect(g.getDependents('a')).toEqual(new Set(['newProbe']));
+    expect(g.getDependents('newProbe')).toEqual(new Set(['a']));
+  });
+
+  it('getDependents tolerates a missing endpoint bucket', () => {
+    const g = new LaneJunctionGraph();
+    g.addLane('a', ['p1', 'p2']);
+    g.addLane('b', ['p2', 'p3']);
+
+    const keyToLanes = Reflect.get(g, 'keyToLanes') as GraphInternals['keyToLanes'];
+    keyToLanes.delete('p1');
+
     expect(g.getDependents('a')).toEqual(new Set(['b']));
   });
 

@@ -89,6 +89,11 @@ export interface SnapMatch {
   distanceMeters: number;
 }
 
+interface SnapSourceGeometry {
+  points: GeoPoint[];
+  collector?: CandidateCollector;
+}
+
 // ─── Pixel ↔ meters at current zoom ────────────────────────────────────────
 
 /**
@@ -364,6 +369,122 @@ export function collectCandidates(
   return { vertices, edges };
 }
 
+function snapSourceGeometry(entity: MapEntity): SnapSourceGeometry | null {
+  const collector = SNAP_COLLECTORS[entity.entityType as keyof typeof SNAP_COLLECTORS];
+
+  switch (entity.entityType) {
+    case 'lane':
+      return { points: laneCenterPoints(entity as LaneEntity), collector };
+    case 'junction':
+      return {
+        points: polygonControlPoints(entity, (entity as JunctionEntity).polygon.points),
+        collector,
+      };
+    case 'pncJunction':
+      return {
+        points: polygonControlPoints(entity, (entity as PNCJunctionEntity).polygon.points),
+        collector,
+      };
+    case 'parkingSpace':
+      return {
+        points: polygonControlPoints(entity, (entity as ParkingSpaceEntity).polygon.points),
+        collector,
+      };
+    case 'parkingLot':
+      return { points: (entity as ParkingLotEntity).polygon.points, collector };
+    case 'crosswalk':
+      return {
+        points: polygonControlPoints(entity, (entity as CrosswalkEntity).polygon.points),
+        collector,
+      };
+    case 'clearArea':
+      return {
+        points: polygonControlPoints(entity, (entity as ClearAreaEntity).polygon.points),
+        collector,
+      };
+    case 'area':
+      return {
+        points: polygonControlPoints(entity, (entity as AreaEntity).polygon.points),
+        collector,
+      };
+    case 'speedControl':
+      return { points: (entity as SpeedControlEntity).polygon.points, collector };
+    case 'signal':
+      return { points: (entity as SignalEntity).boundary.points, collector };
+    case 'polygon':
+      return { points: (entity as PolygonEntity).points, collector };
+    case 'rect':
+      return { points: rectPoints(entity as RectEntity), collector };
+    case 'arc': {
+      const arc = entity as ArcEntity;
+      return { points: [arc.start, arc.mid, arc.end], collector };
+    }
+    default:
+      if ('points' in entity && Array.isArray(entity.points)) {
+        return { points: entity.points };
+      }
+      if ('anchors' in entity && Array.isArray(entity.anchors)) {
+        return { points: entity.anchors.map((a) => a.point) };
+      }
+      return null;
+  }
+}
+
+function pointsMayIntersectRadius(
+  points: GeoPoint[],
+  point: GeoPoint,
+  radiusXDeg: number,
+  radiusYDeg: number,
+): boolean {
+  if (points.length === 0) return false;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const candidate of points) {
+    if (candidate.x < minX) minX = candidate.x;
+    if (candidate.y < minY) minY = candidate.y;
+    if (candidate.x > maxX) maxX = candidate.x;
+    if (candidate.y > maxY) maxY = candidate.y;
+  }
+
+  return (
+    point.x >= minX - radiusXDeg &&
+    point.x <= maxX + radiusXDeg &&
+    point.y >= minY - radiusYDeg &&
+    point.y <= maxY + radiusYDeg
+  );
+}
+
+function collectCandidatesNearPoint(
+  entities: Iterable<MapEntity>,
+  point: GeoPoint,
+  radiusMeters: number,
+  excludeId: string | null,
+): SnapCandidates {
+  const vertices: VertexCandidate[] = [];
+  const edges: EdgeCandidate[] = [];
+  const cosLat = Math.cos((point.y * Math.PI) / 180);
+  const radiusXDeg = radiusMeters / Math.max(1e-9, cosLat * DEG_TO_M);
+  const radiusYDeg = radiusMeters / DEG_TO_M;
+
+  for (const entity of entities) {
+    if (excludeId && entity.id === excludeId) continue;
+    const source = snapSourceGeometry(entity);
+    if (!source || !pointsMayIntersectRadius(source.points, point, radiusXDeg, radiusYDeg)) {
+      continue;
+    }
+    if (source.collector) {
+      source.collector(entity, vertices, edges);
+    } else {
+      collectGenericCandidates(entity, vertices, edges);
+    }
+  }
+
+  return { vertices, edges };
+}
+
 export function collectSnapGuidePoints(entity: MapEntity): GeoPoint[] {
   // Move snapping should only use editable control points, not edge midpoints.
   // Edge projections stay available in the generic draw snap path.
@@ -436,8 +557,11 @@ export function findSnapTarget(
   excludeId: string | null = null,
 ): SnapTarget | null {
   return (
-    findSnapMatchFromCandidates(point, collectCandidates(entities, excludeId), radiusMeters)
-      ?.target ?? null
+    findSnapMatchFromCandidates(
+      point,
+      collectCandidatesNearPoint(entities, point, radiusMeters, excludeId),
+      radiusMeters,
+    )?.target ?? null
   );
 }
 

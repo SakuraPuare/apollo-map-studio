@@ -19,6 +19,7 @@ export class SpatialWorkerBridge {
   private pending = new Map<string, PendingEntry>();
   private counter = 0;
   private disposed = false;
+  private latestStateRequestId: string | null = null;
 
   constructor() {
     this.worker = new Worker(new URL('./spatial.worker.ts', import.meta.url), { type: 'module' });
@@ -54,6 +55,9 @@ export class SpatialWorkerBridge {
     if (this.disposed) return Promise.reject(new Error('Worker disposed'));
     const requestId = `req_${++this.counter}`;
     const messagePromise = this.registerPending<T>(requestId, timeout);
+    if (request.type === 'SYNC' || request.type === 'INCREMENTAL') {
+      this.markLatestStateRequest(requestId);
+    }
     if (request.type === 'SYNC' && request.entities.length > SYNC_ENTITY_CHUNK_SIZE) {
       void this.postChunkedSync(requestId, request).catch((error: unknown) => {
         this.rejectPending(requestId, error);
@@ -93,27 +97,45 @@ export class SpatialWorkerBridge {
       excludeId: request.excludeId,
     } satisfies Extract<WorkerRequest, { type: 'SYNC_BEGIN' }>);
 
-    const chunks = Array.from(chunkArray(request.entities, SYNC_ENTITY_CHUNK_SIZE));
-    // Sequential: each chunk must be posted in order with a yield between them.
-    await chunks.reduce(
-      (chain, chunk) =>
-        chain.then(() => {
-          this.worker.postMessage({
-            type: 'SYNC_CHUNK',
-            requestId,
-            entities: chunk.items,
-            offset: chunk.offset,
-            total,
-          } satisfies Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>);
-          return this.yieldToMain();
-        }),
-      Promise.resolve(),
-    );
+    await Promise.resolve();
+    for (const chunk of chunkArray(request.entities, SYNC_ENTITY_CHUNK_SIZE)) {
+      if (!this.isCurrentStateRequest(requestId)) {
+        this.rejectPending(requestId, new Error(`Worker request ${requestId} superseded`));
+        return;
+      }
+      this.worker.postMessage({
+        type: 'SYNC_CHUNK',
+        requestId,
+        entities: chunk.items,
+        offset: chunk.offset,
+        total,
+      } satisfies Extract<WorkerRequest, { type: 'SYNC_CHUNK' }>);
+      await this.yieldToMain();
+    }
 
+    if (!this.isCurrentStateRequest(requestId)) {
+      this.rejectPending(requestId, new Error(`Worker request ${requestId} superseded`));
+      return;
+    }
     this.worker.postMessage({
       type: 'SYNC_FINISH',
       requestId,
     } satisfies Extract<WorkerRequest, { type: 'SYNC_FINISH' }>);
+  }
+
+  private isCurrentStateRequest(requestId: string): boolean {
+    return !this.disposed && this.latestStateRequestId === requestId && this.pending.has(requestId);
+  }
+
+  private markLatestStateRequest(requestId: string): void {
+    const previousRequestId = this.latestStateRequestId;
+    this.latestStateRequestId = requestId;
+    if (previousRequestId && previousRequestId !== requestId) {
+      this.rejectPending(
+        previousRequestId,
+        new Error(`Worker request ${previousRequestId} superseded`),
+      );
+    }
   }
 
   private rejectPending(requestId: string, error: unknown): void {

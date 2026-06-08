@@ -3,9 +3,14 @@
  *
  * 覆盖：基本求交 / 退化输入 / 多块结果选最大 / 不相交 / 包含关系.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { intersectPolygons, largestRing } from '../polyClip';
 import type { GeoPoint } from '@/types/entities';
+
+afterEach(() => {
+  vi.doUnmock('polygon-clipping');
+  vi.restoreAllMocks();
+});
 
 function rect(x0: number, y0: number, x1: number, y1: number): GeoPoint[] {
   return [
@@ -62,6 +67,29 @@ describe('intersectPolygons', () => {
     const out = intersectPolygons(closed, open);
     expect(out.length).toBe(1);
     expect(out[0]!.length).toBe(4);
+  });
+
+  it('logs and returns empty when polygon clipping throws on malformed geometry', async () => {
+    vi.resetModules();
+    vi.doMock('polygon-clipping', () => ({
+      default: {
+        intersection: vi.fn(() => {
+          throw new Error('bad polygon');
+        }),
+      },
+    }));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { intersectPolygons: mockedIntersectPolygons } = await import('../polyClip');
+
+    expect(mockedIntersectPolygons(rect(0, 0, 1, 1), rect(0, 0, 1, 1))).toEqual([]);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[polyClip] intersection failed; returning empty',
+      expect.objectContaining({
+        inputA: 4,
+        inputB: 4,
+        error: expect.any(Error),
+      }),
+    );
   });
 });
 

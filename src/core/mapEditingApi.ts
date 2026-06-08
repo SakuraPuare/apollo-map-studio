@@ -9,6 +9,7 @@ import { rotatedRectFromPoints } from '@/core/geometry/interpolate';
 import { anchorToData } from '@/core/geometry/anchorConvert';
 import { coordsToPoints, toGeoPoint } from '@/core/geometry/coords';
 import {
+  areDrawPointsNear,
   DRAW_FINISH_CLUSTER_METERS,
   normalizePolylineDrawPoints,
 } from '@/core/geometry/drawPoints';
@@ -24,7 +25,8 @@ import type {
   PolylineEntity,
   RectEntity,
 } from '@/types/entities';
-import type { MapElementType } from '@/core/elements';
+import { ELEMENT_MAP, type MapElementType } from '@/core/elements';
+import type { DrawTool } from '@/core/fsm/editorMachine';
 import type { BoundaryLineType } from '@/types/apollo';
 
 export interface MapEditingSession {
@@ -43,6 +45,54 @@ interface CreateDrawnEntityOptions {
   entities?: ReadonlyMap<string, MapEntity>;
 }
 
+const MIN_POLYGON_AREA_DEGREES = 1e-18;
+
+function triangleArea(a: LngLat, b: LngLat, c: LngLat): number {
+  return Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2;
+}
+
+function polygonArea(points: LngLat[]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    area += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(area) / 2;
+}
+
+function countDistinctPoints(points: LngLat[]): number {
+  const distinct: LngLat[] = [];
+  for (const point of points) {
+    if (distinct.every((candidate) => !areDrawPointsNear(candidate, point))) {
+      distinct.push(point);
+    }
+  }
+  return distinct.length;
+}
+
+function hasNonDegenerateArc(points: LngLat[]): boolean {
+  if (points.length < 3) return false;
+  const [a, b, c] = points as [LngLat, LngLat, LngLat, ...LngLat[]];
+  if (areDrawPointsNear(a, b) || areDrawPointsNear(b, c) || areDrawPointsNear(a, c)) return false;
+  return triangleArea(a, b, c) > MIN_POLYGON_AREA_DEGREES;
+}
+
+function hasNonDegenerateRotatedRect(points: LngLat[]): boolean {
+  if (points.length < 3) return false;
+  const [a, b, c] = points as [LngLat, LngLat, LngLat, ...LngLat[]];
+  if (areDrawPointsNear(a, b)) return false;
+  return triangleArea(a, b, c) > MIN_POLYGON_AREA_DEGREES;
+}
+
+function hasNonDegeneratePolygon(points: LngLat[]): boolean {
+  return countDistinctPoints(points) >= 3 && polygonArea(points) > MIN_POLYGON_AREA_DEGREES;
+}
+
+function hasNonDegenerateBezier(anchors: BezierAnchor[]): boolean {
+  return countDistinctPoints(anchors.map((anchor) => anchor.point)) >= 2;
+}
+
 export function hasDrawableGeometry(
   state: string,
   points: LngLat[],
@@ -50,12 +100,19 @@ export function hasDrawableGeometry(
 ): boolean {
   const drawPoints = normalizePolylineDrawPoints(state, points);
   return (
-    (state === 'drawBezier' && anchors.length >= 2) ||
-    (state === 'drawArc' && drawPoints.length >= 3) ||
-    (state === 'drawRotatedRect' && drawPoints.length >= 3) ||
-    (state === 'drawPolygon' && drawPoints.length >= 3) ||
+    (state === 'drawBezier' && hasNonDegenerateBezier(anchors)) ||
+    (state === 'drawArc' && hasNonDegenerateArc(drawPoints)) ||
+    (state === 'drawRotatedRect' && hasNonDegenerateRotatedRect(drawPoints)) ||
+    (state === 'drawPolygon' && hasNonDegeneratePolygon(drawPoints)) ||
     ((state === 'drawPolyline' || state === 'drawCatmullRom') && drawPoints.length >= 2)
   );
+}
+
+function isDrawToolCompatibleWithElement(
+  element: MapElementType,
+  state: string,
+): state is DrawTool {
+  return ELEMENT_MAP.get(element)?.tools.includes(state as DrawTool) ?? false;
 }
 
 function finishClusterMetersForElement(
@@ -137,6 +194,7 @@ export function createDrawnEntity(
   if (!hasDrawableGeometry(state, drawPoints, anchors)) return null;
 
   if (element) {
+    if (!isDrawToolCompatibleWithElement(element, state)) return null;
     return createApolloEntity(element, state, drawPoints, anchors, {
       laneHalfWidth: options?.laneHalfWidth,
       laneSpeedLimit: options?.laneSpeedLimit,

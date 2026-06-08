@@ -5,6 +5,8 @@ import type {
   LaneEntity,
   OverlapEntity,
   CrosswalkEntity,
+  ParkingLotEntity,
+  SpeedControlEntity,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 import { reconcileOverlaps } from '../reconcile';
@@ -70,6 +72,25 @@ function makeCrosswalk(id: string, points: { x: number; y: number }[]): Crosswal
     entityType: 'crosswalk',
     polygon: { points },
     overlapIds: [],
+  };
+}
+
+function makeParkingLot(id: string, points: { x: number; y: number }[]): ParkingLotEntity {
+  return {
+    id,
+    entityType: 'parkingLot',
+    polygon: { points },
+    overlapIds: [],
+  };
+}
+
+function makeSpeedControl(id: string, points: { x: number; y: number }[]): SpeedControlEntity {
+  return {
+    id,
+    entityType: 'speedControl',
+    name: id,
+    polygon: { points },
+    speedLimit: 8,
   };
 }
 
@@ -151,6 +172,66 @@ describe('reconcileOverlaps', () => {
     expect(updatedLane?.overlapIds).toContain(expectedId);
     const updatedJunction = patch.changes.get('Junction_1') as JunctionEntity | undefined;
     expect(updatedJunction?.overlapIds).toContain(expectedId);
+  });
+
+  it('does not derive overlaps for parkingLot or speedControl polygons crossing a lane', () => {
+    const lane = makeLane('Lane_1', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ]);
+    const parkingLot = makeParkingLot('ParkingLot_1', [
+      { x: 116.0001, y: 39.8999 },
+      { x: 116.0003, y: 39.8999 },
+      { x: 116.0003, y: 39.9001 },
+      { x: 116.0001, y: 39.9001 },
+    ]);
+    const speedControl = makeSpeedControl('SpeedControl_1', [
+      { x: 116.0002, y: 39.8999 },
+      { x: 116.0004, y: 39.8999 },
+      { x: 116.0004, y: 39.9001 },
+      { x: 116.0002, y: 39.9001 },
+    ]);
+
+    const patch = reconcileOverlaps(buildMap(lane, parkingLot, speedControl), { mode: 'full' });
+
+    expect([...patch.changes.values()].filter((e) => e.entityType === 'overlap')).toEqual([]);
+    expect(patch.changes.has(lane.id)).toBe(false);
+    expect(patch.changes.has(parkingLot.id)).toBe(false);
+    expect(patch.changes.has(speedControl.id)).toBe(false);
+    expect(patch.stats.pairsMatched).toBe(0);
+  });
+
+  it('does not expand incremental reconcile scope for dirty parkingLot or speedControl entities', () => {
+    const lane = makeLane('Lane_1', [
+      { x: 116.0, y: 39.9 },
+      { x: 116.0005, y: 39.9 },
+    ]);
+    const parkingLot = makeParkingLot('ParkingLot_1', [
+      { x: 116.0001, y: 39.8999 },
+      { x: 116.0003, y: 39.8999 },
+      { x: 116.0003, y: 39.9001 },
+      { x: 116.0001, y: 39.9001 },
+    ]);
+    const speedControl = makeSpeedControl('SpeedControl_1', [
+      { x: 116.0002, y: 39.8999 },
+      { x: 116.0004, y: 39.8999 },
+      { x: 116.0004, y: 39.9001 },
+      { x: 116.0002, y: 39.9001 },
+    ]);
+    const entities = buildMap(lane, parkingLot, speedControl);
+    const index = new SpatialIndex();
+    index.build(entities);
+
+    const patch = reconcileOverlaps(
+      entities,
+      { mode: 'incremental', dirtyIds: new Set([parkingLot.id, speedControl.id]) },
+      index,
+    );
+
+    expect(patch.changes.size).toBe(0);
+    expect(patch.removedOverlapIds.size).toBe(0);
+    expect(patch.stats.pairsTested).toBe(0);
+    expect(patch.stats.pairsMatched).toBe(0);
   });
 
   it('drops a derived overlap when geometry no longer intersects', () => {

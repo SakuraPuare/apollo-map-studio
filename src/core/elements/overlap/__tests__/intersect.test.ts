@@ -100,6 +100,13 @@ describe('polylineIntersectsPolygon', () => {
 });
 
 describe('polylinePolygonCrossings', () => {
+  it('returns no crossings for degenerate lines or polygons', () => {
+    const square: GeoPoint[] = [p(0, 0), p(4, 0), p(4, 4), p(0, 4)];
+
+    expect(polylinePolygonCrossings([p(0, 0)], square)).toEqual([]);
+    expect(polylinePolygonCrossings([p(0, 0), p(1, 1)], [p(0, 0), p(1, 0)])).toEqual([]);
+  });
+
   it('returns sorted crossings of horizontal cut', () => {
     const square: GeoPoint[] = [p(0, 0), p(4, 0), p(4, 4), p(0, 4)];
     const line: GeoPoint[] = [p(-1, 2), p(5, 2)];

@@ -646,6 +646,41 @@ describe('drawBezier', () => {
     expect(ctx.bezierAnchors).toHaveLength(0);
   });
 
+  it('MOUSE_MOVE in a restored dragging state with no anchors is safe', () => {
+    const baseContext = makeActor().getSnapshot().context as EditorContext;
+    const restoredState = editorMachine.resolveState({
+      value: 'drawBezier',
+      context: {
+        ...baseContext,
+        isDraggingHandle: true,
+        bezierAnchors: [],
+        previewPoint: null,
+      },
+    });
+    const actor = createActor(editorMachine, {
+      snapshot: editorMachine.getPersistedSnapshot(restoredState),
+    });
+    actor.start();
+
+    actor.send({ type: 'MOUSE_MOVE', point: PT(3, 4) });
+
+    const ctx = actor.getSnapshot().context as EditorContext;
+    expect(ctx.bezierAnchors).toEqual([]);
+    expect(ctx.previewPoint).toEqual(PT(3, 4));
+    expect(ctx.isDraggingHandle).toBe(true);
+  });
+
+  it('MOUSE_UP with no anchors is safe', () => {
+    const actor = gotoDrawState('drawBezier');
+
+    actor.send({ type: 'MOUSE_UP', point: PT(1, 1) });
+
+    const ctx = actor.getSnapshot().context as EditorContext;
+    expect(actor.getSnapshot().value).toBe('drawBezier');
+    expect(ctx.bezierAnchors).toEqual([]);
+    expect(ctx.isDraggingHandle).toBe(false);
+  });
+
   it('DOUBLE_CLICK with >= 2 anchors → idle', () => {
     const actor = gotoDrawState('drawBezier');
     actor.send({ type: 'MOUSE_DOWN', point: PT(0, 0) });

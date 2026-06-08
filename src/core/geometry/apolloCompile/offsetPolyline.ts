@@ -381,3 +381,13 @@ function collapseOffsetLoops(points: GeoPoint[], cosLat: number): GeoPoint[] {
 
   return projected.map((point) => unprojectPoint(point, cosLat));
 }
+
+export const __offsetPolylineInternals = {
+  dedupeProjected,
+  segmentIntersection,
+  lineIntersection,
+  projectedLength,
+  denseJoin,
+  rebuildDenseOffset,
+  collapseOffsetLoops,
+};

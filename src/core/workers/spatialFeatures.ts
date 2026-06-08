@@ -7,7 +7,8 @@ function featureKey(feature: GeoJSON.Feature, fallbackIndex: number): string | n
 }
 
 function withUniqueFeatureIds(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
-  const seen = new Set<string | number>();
+  if (!needsFeatureIdRewrite(features)) return features;
+  seen.clear();
   return features.map((feature, index) => {
     const base = featureKey(feature, index);
     let id = base;
@@ -19,6 +20,21 @@ function withUniqueFeatureIds(features: GeoJSON.Feature[]): GeoJSON.Feature[] {
     return feature.id === id ? feature : { ...feature, id };
   });
 }
+
+function needsFeatureIdRewrite(features: GeoJSON.Feature[]): boolean {
+  for (let index = 0; index < features.length; index++) {
+    const feature = features[index]!;
+    const base = featureKey(feature, index);
+    if (feature.id !== base) return true;
+
+    for (let priorIndex = 0; priorIndex < index; priorIndex++) {
+      if (featureKey(features[priorIndex]!, priorIndex) === base) return true;
+    }
+  }
+  return false;
+}
+
+const seen = new Set<string | number>();
 
 /**
  * Group features by `properties.id` for the delta encoding path.
