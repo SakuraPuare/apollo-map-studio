@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Quality (${{ matrix.task }})
@@ -28,8 +31,10 @@ jobs:
             command: pnpm format:check
           - task: Unit tests
             command: pnpm test
+          - task: Electron tests
+            command: pnpm test:electron
           - task: React Doctor
-            command: CI=true npx react-doctor@latest . --fail-on error
+            command: CI=true pnpm run react-doctor
 
     steps:
       - name: Checkout repository
@@ -38,12 +43,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -64,12 +69,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -79,7 +84,6 @@ jobs:
         run: pnpm bench --outputJson bench-results.json
 
       - name: Perf budget guard
-        continue-on-error: true
         run: node scripts/check-bench-budget.mjs bench-results.json
 
       - name: Upload benchmark report
@@ -101,12 +105,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -134,12 +138,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -153,6 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: web-build
+    if: github.event_name != 'pull_request'
 
     steps:
       - name: Checkout repository
@@ -161,12 +166,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -203,6 +208,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     needs: desktop-build
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
@@ -224,12 +230,12 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11.5.2
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 22.22.1
           cache: pnpm
 
       - name: Install dependencies
@@ -246,7 +252,6 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload desktop artifacts
         uses: actions/upload-artifact@v7
