@@ -88,13 +88,19 @@ function decodePrivateKey(value, sourceLabel) {
   }
   pem = normalizePem(pem.replace(/\\n/g, '\n'));
 
+  let privateKey;
   try {
-    createPrivateKey({ key: pem, format: 'pem' });
+    privateKey = createPrivateKey({ key: pem, format: 'pem' });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${sourceLabel} is not a valid PEM private key: ${message}`, {
       cause: error,
     });
+  }
+  if (privateKey.asymmetricKeyType !== 'ed25519') {
+    throw new Error(
+      `${sourceLabel} must be an Ed25519 private key, got ${privateKey.asymmetricKeyType ?? 'unknown'}`,
+    );
   }
   return pem;
 }
@@ -153,6 +159,11 @@ export function readLicensePrivateKeyPem({ keyPath, allowLegacyFile = true, envP
 
 export function derivePublicKeyPem(privateKeyPem) {
   const privateKey = createPrivateKey({ key: privateKeyPem, format: 'pem' });
+  if (privateKey.asymmetricKeyType !== 'ed25519') {
+    throw new Error(
+      `license private key must be Ed25519, got ${privateKey.asymmetricKeyType ?? 'unknown'}`,
+    );
+  }
   const publicKey = createPublicKey(privateKey);
   return normalizePem(publicKey.export({ type: 'spki', format: 'pem' }).toString());
 }
