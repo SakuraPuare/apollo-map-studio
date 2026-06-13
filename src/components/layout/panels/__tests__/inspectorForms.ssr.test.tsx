@@ -36,7 +36,12 @@ import type {
   YieldSignEntity,
 } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
-import type { ScenarioEgo, ScenarioObstacle, ScenarioTrafficLight } from '@/types/scenario';
+import type {
+  ScenarioDoc,
+  ScenarioEgo,
+  ScenarioObstacle,
+  ScenarioTrafficLight,
+} from '@/types/scenario';
 
 const jsxCapture = vi.hoisted(() => ({
   elements: [] as Array<{ type: unknown; props: Record<string, unknown> }>,
@@ -549,7 +554,7 @@ function seedActiveScenarioFixture(
     obstacles: overrides.obstacles ?? [scenarioObstacle()],
     trafficLights: overrides.trafficLights ?? [scenarioTrafficLight()],
     raw: {},
-  } as const;
+  } satisfies ScenarioDoc;
   useScenarioStore.setState({
     loaded: [{ key: 'scenario-1', filename: 'scenario.json', doc }],
     activeKey: 'scenario-1',
