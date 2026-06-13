@@ -224,11 +224,11 @@ test('license API exposes only the expected bridge shape', () => {
   assert.equal(typeof api.activate, 'function');
   assert.equal(typeof api.deactivate, 'function');
   assert.equal(typeof api.onChange, 'function');
-  assert.equal((api.getState as Function).length, 0);
-  assert.equal((api.getMachineCode as Function).length, 0);
-  assert.equal((api.activate as Function).length, 1);
-  assert.equal((api.deactivate as Function).length, 0);
-  assert.equal((api.onChange as Function).length, 1);
+  assert.equal((api.getState as (...args: never[]) => unknown).length, 0);
+  assert.equal((api.getMachineCode as (...args: never[]) => unknown).length, 0);
+  assert.equal((api.activate as (...args: never[]) => unknown).length, 1);
+  assert.equal((api.deactivate as (...args: never[]) => unknown).length, 0);
+  assert.equal((api.onChange as (...args: never[]) => unknown).length, 1);
 
   for (const forbidden of [
     'token',
