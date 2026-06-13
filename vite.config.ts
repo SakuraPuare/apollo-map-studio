@@ -131,6 +131,7 @@ export default defineConfig(({ mode }) => ({
       '**/.tmp/**',
       '**/e2e/**',
       '**/tests/e2e/**',
+      '**/electron-e2e/**',
       '**/electron/**/*.test.cts',
       '**/electron/**/*.spec.cts',
     ],
