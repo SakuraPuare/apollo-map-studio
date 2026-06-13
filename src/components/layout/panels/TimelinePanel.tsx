@@ -129,16 +129,20 @@ function TransportControls({
 }: TransportControlsProps) {
   return (
     <div className="h-9 flex items-center gap-2 px-3 border-b border-white/[0.07] shrink-0">
-      <IconButton onClick={onSkipBack}>
+      <IconButton ariaLabel="Step back" onClick={onSkipBack}>
         <FaBackwardStep className="size-4" />
       </IconButton>
-      <IconButton onClick={onTogglePlay} prominent>
+      <IconButton
+        ariaLabel={isPlaying ? 'Pause playback' : 'Play playback'}
+        onClick={onTogglePlay}
+        prominent
+      >
         {isPlaying ? <FaPause className="size-4" /> : <FaPlay className="size-4" />}
       </IconButton>
-      <IconButton onClick={onStop}>
+      <IconButton ariaLabel="Stop playback" onClick={onStop}>
         <FaStop className="size-4" />
       </IconButton>
-      <IconButton onClick={onSkipForward}>
+      <IconButton ariaLabel="Step forward" onClick={onSkipForward}>
         <FaForwardStep className="size-4" />
       </IconButton>
 
@@ -166,16 +170,20 @@ function TransportControls({
 
 function IconButton({
   children,
+  ariaLabel,
   onClick,
   prominent,
 }: {
   children: React.ReactNode;
+  ariaLabel: string;
   onClick: () => void;
   prominent?: boolean;
 }) {
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
+      title={ariaLabel}
       onClick={onClick}
       className={clsx(
         prominent ? 'p-1.5' : 'p-1',

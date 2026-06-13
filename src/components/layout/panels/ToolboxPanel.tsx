@@ -16,16 +16,27 @@ import {
 import { useMapStore } from '@/store/mapStore';
 import { useTaskProgressStore } from '@/store/taskProgressStore';
 
-type BusyTool = 'simplify' | 'derive' | 'overlap';
+export type BusyTool = 'simplify' | 'derive' | 'overlap';
 type ResultTone = 'ok' | 'warn' | 'error';
 
-interface ToolResultMessage {
+export interface ToolResultMessage {
   tone: ResultTone;
   title: string;
   detail: string;
 }
 
 const DEFAULT_TOLERANCE_METERS = '0.25';
+
+interface ToolboxPanelViewProps {
+  stats: ReturnType<typeof collectGeometryStats>;
+  toleranceMeters: string;
+  busyTool: BusyTool | null;
+  result: ToolResultMessage | null;
+  onToleranceMetersChange: (value: string) => void;
+  onSimplify: (toleranceMeters: number) => void;
+  onRederive: () => void;
+  onOverlap: () => void;
+}
 
 export function ToolboxPanel() {
   const entities = useMapStore((s) => s.entities);
@@ -34,6 +45,30 @@ export function ToolboxPanel() {
   const [busyTool, setBusyTool] = useState<BusyTool | null>(null);
   const [result, setResult] = useState<ToolResultMessage | null>(null);
 
+  return (
+    <ToolboxPanelView
+      stats={stats}
+      toleranceMeters={toleranceMeters}
+      busyTool={busyTool}
+      result={result}
+      onToleranceMetersChange={setToleranceMeters}
+      onSimplify={(tolerance) => void runSimplify(tolerance, setBusyTool, setResult)}
+      onRederive={() => void runRederive(setBusyTool, setResult)}
+      onOverlap={() => void runOverlap(setBusyTool, setResult)}
+    />
+  );
+}
+
+export function ToolboxPanelView({
+  stats,
+  toleranceMeters,
+  busyTool,
+  result,
+  onToleranceMetersChange,
+  onSimplify,
+  onRederive,
+  onOverlap,
+}: ToolboxPanelViewProps) {
   const parsedTolerance = Number(toleranceMeters);
   const toleranceValid = Number.isFinite(parsedTolerance) && parsedTolerance > 0;
   const disabled = busyTool !== null;
@@ -63,7 +98,7 @@ export function ToolboxPanel() {
               step="0.01"
               value={toleranceValid ? parsedTolerance : 0.25}
               disabled={disabled}
-              onChange={(event) => setToleranceMeters(event.target.value)}
+              onChange={(event) => onToleranceMetersChange(event.target.value)}
               className="w-full accent-cyan-400"
             />
           </label>
@@ -75,7 +110,7 @@ export function ToolboxPanel() {
             step="0.05"
             value={toleranceMeters}
             disabled={disabled}
-            onChange={(event) => setToleranceMeters(event.target.value)}
+            onChange={(event) => onToleranceMetersChange(event.target.value)}
             className="h-7 rounded border border-white/10 bg-zinc-900 px-2 text-right font-mono text-[11px] text-zinc-200 outline-none focus:border-cyan-400/60"
           />
         </div>
@@ -83,7 +118,7 @@ export function ToolboxPanel() {
           icon={<FaCompress className="size-3.5" />}
           label={busyTool === 'simplify' ? '处理中' : '应用下采样'}
           disabled={disabled || !toleranceValid}
-          onClick={() => void runSimplify(parsedTolerance, setBusyTool, setResult)}
+          onClick={() => onSimplify(parsedTolerance)}
         />
       </ToolSection>
 
@@ -93,13 +128,13 @@ export function ToolboxPanel() {
             icon={<FaRotate className="size-3.5" />}
             label={busyTool === 'derive' ? '处理中' : '重算派生字段'}
             disabled={disabled}
-            onClick={() => void runRederive(setBusyTool, setResult)}
+            onClick={onRederive}
           />
           <ToolButton
             icon={<FaArrowsRotate className="size-3.5" />}
             label={busyTool === 'overlap' ? '处理中' : '重算 Overlap'}
             disabled={disabled}
-            onClick={() => void runOverlap(setBusyTool, setResult)}
+            onClick={onOverlap}
           />
         </div>
       </ToolSection>

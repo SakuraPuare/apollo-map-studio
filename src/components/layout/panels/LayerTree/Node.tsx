@@ -32,34 +32,27 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
   const isEntity = data.kind === 'entity';
 
   const selectOrToggle = () => {
-    if (isEntity) {
-      node.select();
-      if (node.isInternal) node.toggle();
-      return;
-    }
-    if (node.isInternal) node.toggle();
+    selectOrToggleLayerTreeNode(node);
   };
 
   const handleVisibilityToggle = (e: MouseEvent) => {
     e.stopPropagation();
-    if (isGroup && groupKey) toggleLayerVisible(groupKey);
+    toggleLayerTreeGroupVisible(data, toggleLayerVisible);
   };
 
   const handleLockToggle = (e: MouseEvent) => {
     e.stopPropagation();
-    if (isGroup && groupKey) toggleLayerLocked(groupKey);
+    toggleLayerTreeGroupLocked(data, toggleLayerLocked);
   };
 
   const handleDelete = (e: MouseEvent) => {
     e.stopPropagation();
-    if (isLocked) return;
-    if (isEntity && data.entityId) removeEntity(data.entityId);
+    deleteLayerTreeEntity(data, isLocked, removeEntity);
   };
 
   const handleUnparent = (e: MouseEvent) => {
     e.stopPropagation();
-    if (isLocked) return;
-    if (isEntity && data.entityId) reparentEntity(data.entityId, { kind: 'none' });
+    detachLayerTreeEntity(data, isLocked, reparentEntity);
   };
 
   return (
@@ -99,6 +92,52 @@ export function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
       />
     </div>
   );
+}
+
+type NodeControlApi = Pick<
+  NodeRendererProps<TreeNode>['node'],
+  'data' | 'isInternal' | 'select' | 'toggle'
+>;
+
+export function selectOrToggleLayerTreeNode(node: NodeControlApi) {
+  if (node.data.kind === 'entity') {
+    node.select();
+    if (node.isInternal) node.toggle();
+    return;
+  }
+  if (node.isInternal) node.toggle();
+}
+
+export function toggleLayerTreeGroupVisible(
+  data: TreeNode,
+  toggleLayerVisible: (type: string) => void,
+) {
+  if (data.kind === 'group' && data.entityType) toggleLayerVisible(data.entityType);
+}
+
+export function toggleLayerTreeGroupLocked(
+  data: TreeNode,
+  toggleLayerLocked: (type: string) => void,
+) {
+  if (data.kind === 'group' && data.entityType) toggleLayerLocked(data.entityType);
+}
+
+export function deleteLayerTreeEntity(
+  data: TreeNode,
+  isLocked: boolean,
+  removeEntity: (entityId: string) => void,
+) {
+  if (isLocked) return;
+  if (data.kind === 'entity' && data.entityId) removeEntity(data.entityId);
+}
+
+export function detachLayerTreeEntity(
+  data: TreeNode,
+  isLocked: boolean,
+  reparentEntity: (entityId: string, target: { kind: 'none' }) => void,
+) {
+  if (isLocked) return;
+  if (data.kind === 'entity' && data.entityId) reparentEntity(data.entityId, { kind: 'none' });
 }
 
 function nodeRowClass({

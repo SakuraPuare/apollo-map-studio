@@ -28,46 +28,21 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
   const treeData = useMemo(() => buildTree(entities), [entities]);
 
   const createRoad = useCallback(() => {
-    if (isEntityTypeLocked(layerStates, 'road')) return;
-    const road = makeRoad(entities);
-    addEntity(road);
-    onSelect?.(road.id);
+    createLayerTreeRoad(entities, layerStates, addEntity, onSelect);
   }, [addEntity, entities, layerStates, onSelect]);
 
   const createRSU = useCallback(() => {
-    if (isEntityTypeLocked(layerStates, 'rsu')) return;
-    const rsu = makeRSU(entities);
-    addEntity(rsu);
-    onSelect?.(rsu.id);
+    createLayerTreeRSU(entities, layerStates, addEntity, onSelect);
   }, [addEntity, entities, layerStates, onSelect]);
 
   const handleSelect = useCallback(
-    (nodes: NodeApi<TreeNode>[]) => {
-      const first = nodes[0]?.data;
-      if (first?.kind === 'entity' && first.entityId) {
-        onSelect?.(first.entityId);
-      } else {
-        onSelect?.(null);
-      }
-    },
+    (nodes: NodeApi<TreeNode>[]) => selectLayerTreeNode(nodes, onSelect),
     [onSelect],
   );
 
   const checkDisableDrop = useCallback(
-    (args: { parentNode: NodeApi<TreeNode> | null; dragNodes: NodeApi<TreeNode>[] }) => {
-      const drag = args.dragNodes[0]?.data;
-      const parent = args.parentNode?.data;
-      if (!drag || drag.kind !== 'entity' || !drag.entityId) return true;
-      if (!parent) return true;
-
-      const target = parent.parentTarget;
-      if (!target) return true;
-
-      const child = entities.get(drag.entityId);
-      if (!child) return true;
-      if (isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return true;
-      return !canReparent(child, target, entities);
-    },
+    (args: { parentNode: NodeApi<TreeNode> | null; dragNodes: NodeApi<TreeNode>[] }) =>
+      layerTreeDisableDrop(args, entities, layerStates),
     [entities, layerStates],
   );
 
@@ -78,17 +53,7 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
       parentId: string | null;
       parentNode: NodeApi<TreeNode> | null;
     }) => {
-      const drag = args.dragNodes[0]?.data;
-      const parent = args.parentNode?.data;
-      if (!drag || drag.kind !== 'entity' || !drag.entityId) return;
-      const target = parent?.parentTarget;
-      if (!target) return;
-      const child = entities.get(drag.entityId);
-      if (!child || isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return;
-      const result = reparentEntity(drag.entityId, target);
-      if (result.rejected) {
-        console.warn('[LayerTree] reparent rejected:', result.rejected);
-      }
+      moveLayerTreeEntity(args, entities, layerStates, reparentEntity);
     },
     [entities, layerStates, reparentEntity],
   );
@@ -110,14 +75,95 @@ export function LayerTree({ onSelect, selectedId }: LayerTreeProps) {
           selectedId={selectedId}
           onSelect={handleSelect}
           onMove={handleMove}
-          disableDrag={(node) =>
-            node.kind !== 'entity' || isEntityTypeLocked(layerStates, node.entityType ?? '')
-          }
+          disableDrag={(node) => layerTreeDisableDrag(node, layerStates)}
           disableDrop={checkDisableDrop}
         />
       )}
     </div>
   );
+}
+
+export function createLayerTreeRoad(
+  entities: ReadonlyMap<string, MapEntity>,
+  layerStates: LayerStates,
+  addEntity: (entity: MapEntity) => void,
+  onSelect?: (entityId: string | null) => void,
+) {
+  if (isEntityTypeLocked(layerStates, 'road')) return;
+  const road = makeRoad(entities);
+  addEntity(road);
+  onSelect?.(road.id);
+}
+
+export function createLayerTreeRSU(
+  entities: ReadonlyMap<string, MapEntity>,
+  layerStates: LayerStates,
+  addEntity: (entity: MapEntity) => void,
+  onSelect?: (entityId: string | null) => void,
+) {
+  if (isEntityTypeLocked(layerStates, 'rsu')) return;
+  const rsu = makeRSU(entities);
+  addEntity(rsu);
+  onSelect?.(rsu.id);
+}
+
+export function selectLayerTreeNode(
+  nodes: NodeApi<TreeNode>[],
+  onSelect?: (entityId: string | null) => void,
+) {
+  const first = nodes[0]?.data;
+  if (first?.kind === 'entity' && first.entityId) {
+    onSelect?.(first.entityId);
+  } else {
+    onSelect?.(null);
+  }
+}
+
+export function layerTreeDisableDrag(node: TreeNode, layerStates: LayerStates): boolean {
+  return node.kind !== 'entity' || isEntityTypeLocked(layerStates, node.entityType ?? '');
+}
+
+export function layerTreeDisableDrop(
+  args: { parentNode: NodeApi<TreeNode> | null; dragNodes: NodeApi<TreeNode>[] },
+  entities: ReadonlyMap<string, MapEntity>,
+  layerStates: LayerStates,
+): boolean {
+  const drag = args.dragNodes[0]?.data;
+  const parent = args.parentNode?.data;
+  if (!drag || drag.kind !== 'entity' || !drag.entityId) return true;
+  if (!parent) return true;
+
+  const target = parent.parentTarget;
+  if (!target) return true;
+
+  const child = entities.get(drag.entityId);
+  if (!child) return true;
+  if (isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return true;
+  return !canReparent(child, target, entities);
+}
+
+export function moveLayerTreeEntity(
+  args: {
+    dragIds: string[];
+    dragNodes: NodeApi<TreeNode>[];
+    parentId: string | null;
+    parentNode: NodeApi<TreeNode> | null;
+  },
+  entities: ReadonlyMap<string, MapEntity>,
+  layerStates: LayerStates,
+  reparentEntity: (childId: string, target: ParentTarget) => { rejected?: string },
+) {
+  const drag = args.dragNodes[0]?.data;
+  const parent = args.parentNode?.data;
+  if (!drag || drag.kind !== 'entity' || !drag.entityId) return;
+  const target = parent?.parentTarget;
+  if (!target) return;
+  const child = entities.get(drag.entityId);
+  if (!child || isReparentBlockedByLayerLocks(child, target, layerStates, entities)) return;
+  const result = reparentEntity(drag.entityId, target);
+  if (result.rejected) {
+    console.warn('[LayerTree] reparent rejected:', result.rejected);
+  }
 }
 
 function makeRoad(entities: ReadonlyMap<string, MapEntity>): RoadEntity {

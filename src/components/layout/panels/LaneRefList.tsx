@@ -17,6 +17,24 @@ interface LaneRefListProps {
   short?: boolean;
 }
 
+interface LaneRefSelectionActor {
+  send: (event: { type: 'SELECT_ENTITY'; id: string }) => void;
+}
+
+export function laneRefDisplayLabel(id: string, short = true): string {
+  return short && id.length > 12 ? `…${id.slice(-6)}` : id;
+}
+
+export function selectLaneRef(
+  id: string,
+  actorRef: LaneRefSelectionActor,
+  entities: ReadonlyMap<string, unknown> = useMapStore.getState().entities,
+): boolean {
+  if (!entities.has(id)) return false;
+  actorRef.send({ type: 'SELECT_ENTITY', id });
+  return true;
+}
+
 export function LaneRefList({ ids, short = true }: LaneRefListProps) {
   const actorRef = useEditorActor();
 
@@ -25,15 +43,14 @@ export function LaneRefList({ ids, short = true }: LaneRefListProps) {
   }
 
   const handleClick = (id: string) => {
-    if (!useMapStore.getState().entities.has(id)) return;
-    actorRef.send({ type: 'SELECT_ENTITY', id });
+    selectLaneRef(id, { send: (event) => actorRef.send(event) });
   };
 
   return (
     <div className="flex flex-wrap gap-1">
       {ids.map((id) => {
         const exists = useMapStore.getState().entities.has(id);
-        const display = short && id.length > 12 ? `…${id.slice(-6)}` : id;
+        const display = laneRefDisplayLabel(id, short);
         return (
           <button
             key={id}

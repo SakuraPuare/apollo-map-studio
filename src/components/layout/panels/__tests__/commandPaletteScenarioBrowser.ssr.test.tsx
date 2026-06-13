@@ -1,4 +1,6 @@
 import React from 'react';
+import type * as JsxDevRuntime from 'react/jsx-dev-runtime';
+import type * as JsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerBuiltinWorkspaceContributions } from '@/components/layout/workspaceContributions';
@@ -16,6 +18,50 @@ import { CommandPalette } from '../CommandPalette';
 import { ScenarioBrowser } from '../ScenarioBrowser';
 
 registerBuiltinWorkspaceContributions();
+
+const jsxCapture = vi.hoisted(() => ({
+  elements: [] as Array<{ type: unknown; props: Record<string, unknown> }>,
+}));
+
+const scenarioLoaderMock = vi.hoisted(() => ({
+  loadScenariosFromPicker: vi.fn(),
+  saveActiveScenario: vi.fn(),
+  newScenarioFromUI: vi.fn(),
+}));
+
+function recordCapturedElement(type: unknown, props: unknown): void {
+  if (typeof type !== 'string' || typeof props !== 'object' || props === null) return;
+  jsxCapture.elements.push({ type, props: props as Record<string, unknown> });
+}
+
+vi.mock('react/jsx-runtime', async () => {
+  const actual = await vi.importActual<typeof JsxRuntime>('react/jsx-runtime');
+
+  const jsx: typeof actual.jsx = (type, props, key) => {
+    recordCapturedElement(type, props);
+    return actual.jsx(type, props, key);
+  };
+  const jsxs: typeof actual.jsxs = (type, props, key) => {
+    recordCapturedElement(type, props);
+    return actual.jsxs(type, props, key);
+  };
+
+  return { ...actual, jsx, jsxs };
+});
+
+vi.mock('react/jsx-dev-runtime', async () => {
+  const actual = await vi.importActual<typeof JsxDevRuntime>('react/jsx-dev-runtime');
+
+  const jsxDEV: typeof actual.jsxDEV = (...args) => {
+    const [type, props] = args;
+    recordCapturedElement(type, props);
+    return actual.jsxDEV(...args);
+  };
+
+  return { ...actual, jsxDEV };
+});
+
+vi.mock('@/io/scenario/scenarioLoader', () => scenarioLoaderMock);
 
 const initialUIState = useUIStore.getState();
 
@@ -40,6 +86,11 @@ function mockClientStoreSnapshot() {
 
 function render(node: React.ReactElement) {
   return renderToStaticMarkup(node);
+}
+
+function renderForCapture(node: React.ReactElement) {
+  jsxCapture.elements = [];
+  return render(node);
 }
 
 function renderPalette() {
@@ -124,12 +175,56 @@ function loadScenarioBrowserFixtures() {
   });
 }
 
+function textContent(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(textContent).join('');
+  if (React.isValidElement(value)) {
+    return textContent((value.props as { children?: unknown }).children);
+  }
+  return '';
+}
+
+function capturedElement(
+  type: string,
+  predicate: (props: Record<string, unknown>) => boolean,
+): { props: Record<string, unknown> } {
+  const element = jsxCapture.elements.find(
+    (candidate) => candidate.type === type && predicate(candidate.props),
+  );
+  if (!element) throw new Error(`expected captured ${type}`);
+  return element;
+}
+
+function capturedButtonByText(text: string): { props: Record<string, unknown> } {
+  return capturedElement('button', (props) => textContent(props.children).includes(text));
+}
+
+function capturedButtonByLabel(label: string): { props: Record<string, unknown> } {
+  return capturedElement('button', (props) => props['aria-label'] === label);
+}
+
+async function clickCapturedButton(button: { props: Record<string, unknown> }) {
+  const onClick = button.props.onClick;
+  if (typeof onClick !== 'function') throw new Error('expected button click handler');
+  await onClick();
+}
+
+function changeCapturedSelect(select: { props: Record<string, unknown> }, value: string) {
+  const onChange = select.props.onChange;
+  if (typeof onChange !== 'function') throw new Error('expected select change handler');
+  onChange({ target: { value } });
+}
+
 beforeEach(() => {
   useUIStore.setState(initialUIState, true);
   resetScenarioStore();
   vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
   _resetIsMacCache();
   mockClientStoreSnapshot();
+  jsxCapture.elements = [];
+  scenarioLoaderMock.loadScenariosFromPicker.mockReset();
+  scenarioLoaderMock.saveActiveScenario.mockReset();
+  scenarioLoaderMock.newScenarioFromUI.mockReset();
 });
 
 afterEach(() => {
@@ -220,5 +315,65 @@ describe('ScenarioBrowser SSR integration', () => {
     expect(html).toContain('empty-scene.json');
     expect(html).not.toContain('障碍物 (0)');
     expect(html).not.toContain('car_alpha');
+  });
+
+  it('invokes toolbar load, new, save, and format handlers without browser E2E', async () => {
+    loadScenarioBrowserFixtures();
+    scenarioLoaderMock.loadScenariosFromPicker
+      .mockResolvedValueOnce({ loaded: 2, failed: [] })
+      .mockResolvedValueOnce({ loaded: 1, failed: [{ filename: 'bad.json' }] })
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error('picker failed'));
+    scenarioLoaderMock.newScenarioFromUI
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('new failed'));
+    scenarioLoaderMock.saveActiveScenario.mockReturnValueOnce(true).mockReturnValueOnce(false);
+
+    renderForCapture(<ScenarioBrowser />);
+
+    const formatSelect = capturedElement(
+      'select',
+      (props) => props['aria-label'] === '新建场景格式',
+    );
+    changeCapturedSelect(formatSelect, 'classic');
+
+    const loadButton = capturedButtonByText('打开场景');
+    await clickCapturedButton(loadButton);
+    await clickCapturedButton(loadButton);
+    await clickCapturedButton(loadButton);
+    await clickCapturedButton(loadButton);
+    expect(scenarioLoaderMock.loadScenariosFromPicker).toHaveBeenCalledTimes(4);
+
+    const newButton = capturedButtonByText('新建');
+    await clickCapturedButton(newButton);
+    await clickCapturedButton(newButton);
+    await clickCapturedButton(newButton);
+    expect(scenarioLoaderMock.newScenarioFromUI).toHaveBeenCalledTimes(3);
+    expect(scenarioLoaderMock.newScenarioFromUI).toHaveBeenCalledWith('openscenario');
+
+    const saveButton = capturedButtonByText('导出');
+    await clickCapturedButton(saveButton);
+    await clickCapturedButton(saveButton);
+    expect(scenarioLoaderMock.saveActiveScenario).toHaveBeenCalledTimes(2);
+  });
+
+  it('invokes scenario row remove/select and obstacle selection handlers from captured SSR props', async () => {
+    loadScenarioBrowserFixtures();
+    renderForCapture(<ScenarioBrowser />);
+
+    await clickCapturedButton(capturedButtonByText('scene-b.json'));
+    expect(useScenarioStore.getState().activeKey).toBe('scene-b');
+    expect(useScenarioStore.getState().selectedObstacleUid).toBeNull();
+
+    await clickCapturedButton(capturedButtonByLabel('移除 scene-b.json'));
+    expect(useScenarioStore.getState().loaded.map((entry) => entry.key)).toEqual(['scene-a']);
+    expect(useScenarioStore.getState().activeKey).toBe('scene-a');
+
+    await clickCapturedButton(capturedButtonByText('person_beta'));
+    expect(useScenarioStore.getState().selectedObstacleUid).toBe('ob-2');
+
+    await clickCapturedButton(capturedButtonByText('car_alpha'));
+    expect(useScenarioStore.getState().selectedObstacleUid).toBeNull();
   });
 });
