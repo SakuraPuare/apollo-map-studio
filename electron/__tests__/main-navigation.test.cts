@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -20,6 +22,7 @@ type MainModule = {
 type WindowOpenHandler = (details: { url: string }) => { action: 'deny' };
 type NavigationEventName = 'will-navigate' | 'will-redirect';
 type NavigationListener = (event: NavigationEvent, url: string) => void;
+type ProtocolHandler = (request: { url: string }) => Promise<unknown> | unknown;
 type NavigationEvent = {
   defaultPrevented: boolean;
   preventDefault(): void;
@@ -49,7 +52,11 @@ const moduleWithLoad = Module as ModuleWithLoad;
 const originalLoad = moduleWithLoad._load;
 
 let appMock: MockApp;
+let fetchUrls: string[];
 let openExternalUrls: string[];
+let protocolHandlers: Record<string, ProtocolHandler>;
+let registeredSchemes: unknown[];
+let tempRoots: string[];
 
 function createMockApp(): MockApp {
   return {
@@ -93,9 +100,138 @@ function createMockApp(): MockApp {
   };
 }
 
+function createMockBrowserWindowClass() {
+  class MockBrowserWindow {
+    static windows: MockBrowserWindow[] = [];
+
+    static fromWebContents() {
+      return null;
+    }
+
+    static getAllWindows() {
+      return MockBrowserWindow.windows;
+    }
+
+    webContents = {
+      send() {
+        // Test stub.
+      },
+      setWindowOpenHandler() {
+        // Test stub.
+      },
+      on() {
+        // Test stub.
+      },
+      openDevTools() {
+        // Test stub.
+      },
+    };
+
+    private destroyed = false;
+    private maximized = false;
+    private minimized = false;
+
+    constructor() {
+      MockBrowserWindow.windows.push(this);
+    }
+
+    once(_event: string, listener: () => void) {
+      listener();
+    }
+
+    on() {
+      // Test stub.
+    }
+
+    show() {
+      // Test stub.
+    }
+
+    close() {
+      this.destroyed = true;
+    }
+
+    destroy() {
+      this.destroyed = true;
+    }
+
+    focus() {
+      // Test stub.
+    }
+
+    restore() {
+      this.minimized = false;
+    }
+
+    minimize() {
+      this.minimized = true;
+    }
+
+    maximize() {
+      this.maximized = true;
+    }
+
+    unmaximize() {
+      this.maximized = false;
+    }
+
+    isDestroyed() {
+      return this.destroyed;
+    }
+
+    isMinimized() {
+      return this.minimized;
+    }
+
+    isMaximized() {
+      return this.maximized;
+    }
+
+    isFullScreen() {
+      return false;
+    }
+
+    isFocused() {
+      return true;
+    }
+
+    loadURL() {
+      return Promise.resolve();
+    }
+
+    loadFile() {
+      return Promise.resolve();
+    }
+  }
+
+  return MockBrowserWindow;
+}
+
+function createTempDocsRoot() {
+  const root = mkdtempSync(path.join(tmpdir(), 'apms-docs-protocol-'));
+  tempRoots.push(root);
+
+  const docsRoot = path.join(root, 'dist', 'docs');
+  mkdirSync(path.join(docsRoot, 'guide'), { recursive: true });
+  writeFileSync(path.join(docsRoot, 'index.html'), '<h1>Docs</h1>');
+  writeFileSync(path.join(docsRoot, '404.html'), '<h1>Not found</h1>');
+  writeFileSync(path.join(docsRoot, 'guide.html'), '<h1>Guide</h1>');
+  writeFileSync(path.join(docsRoot, 'guide', 'index.html'), '<h1>Guide index</h1>');
+
+  return { root, docsRoot };
+}
+
+function waitForReadySideEffects() {
+  return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 beforeEach(() => {
   appMock = createMockApp();
+  fetchUrls = [];
   openExternalUrls = [];
+  protocolHandlers = {};
+  registeredSchemes = [];
+  tempRoots = [];
   delete process.env.APOLLO_MAP_STUDIO_E2E;
   delete process.env.APOLLO_MAP_STUDIO_USER_DATA_DIR;
   delete process.env.ELECTRON_RENDERER_URL;
@@ -106,16 +242,11 @@ beforeEach(() => {
     isMain: boolean,
   ) {
     if (request === 'electron') {
+      const BrowserWindow = createMockBrowserWindowClass();
+
       return {
         app: appMock,
-        BrowserWindow: {
-          fromWebContents() {
-            return null;
-          },
-          getAllWindows() {
-            return [];
-          },
-        },
+        BrowserWindow,
         dialog: {
           showErrorBox() {
             // Test stub.
@@ -144,16 +275,17 @@ beforeEach(() => {
           },
         },
         net: {
-          fetch() {
+          fetch(url: string) {
+            fetchUrls.push(url);
             return Promise.resolve(null);
           },
         },
         protocol: {
-          handle() {
-            // Test stub.
+          handle(scheme: string, handler: ProtocolHandler) {
+            protocolHandlers[scheme] = handler;
           },
-          registerSchemesAsPrivileged() {
-            // Test stub.
+          registerSchemesAsPrivileged(schemes: unknown[]) {
+            registeredSchemes = schemes;
           },
         },
         shell: {
@@ -164,6 +296,26 @@ beforeEach(() => {
         },
       };
     }
+    if (request === './access-guard-runtime.cjs') {
+      return {
+        checkAccessGuardAccess() {
+          return { allowed: true };
+        },
+      };
+    }
+    if (request === './license/manager.cjs') {
+      return {
+        LicenseManager: class {
+          start() {
+            // Test stub.
+          }
+
+          stop() {
+            // Test stub.
+          }
+        },
+      };
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
 });
@@ -171,6 +323,9 @@ beforeEach(() => {
 afterEach(() => {
   moduleWithLoad._load = originalLoad;
   delete loadCjs.cache[mainPath];
+  for (const root of tempRoots) {
+    rmSync(root, { recursive: true, force: true });
+  }
   delete process.env.APOLLO_MAP_STUDIO_E2E;
   delete process.env.APOLLO_MAP_STUDIO_USER_DATA_DIR;
   delete process.env.ELECTRON_RENDERER_URL;
@@ -180,6 +335,65 @@ function loadMain(): MainModule {
   delete loadCjs.cache[mainPath];
   return loadCjs(mainPath) as MainModule;
 }
+
+test('app protocol is registered as a secure fetchable docs protocol', () => {
+  loadMain();
+
+  assert.deepEqual(registeredSchemes, [
+    {
+      scheme: 'apollo-map-studio',
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        stream: true,
+      },
+    },
+  ]);
+});
+
+test('app protocol serves docs from the docs root and falls back for escapes', async () => {
+  const { docsRoot, root } = createTempDocsRoot();
+  appMock.getAppPath = () => root;
+  appMock.requestSingleInstanceLock = () => true;
+  loadMain();
+  await waitForReadySideEffects();
+
+  const handler = protocolHandlers['apollo-map-studio'];
+  if (!handler) {
+    throw new Error('app protocol handler was registered');
+  }
+  const protocolHandler = handler;
+
+  async function fetchUrl(url: string) {
+    fetchUrls = [];
+    await protocolHandler({ url });
+    assert.equal(fetchUrls.length, 1);
+    const fetchedUrl = fetchUrls[0];
+    assert.equal(typeof fetchedUrl, 'string');
+    return fetchedUrl;
+  }
+
+  const indexUrl = pathToFileURL(path.join(docsRoot, 'index.html')).toString();
+  const guideUrl = pathToFileURL(path.join(docsRoot, 'guide.html')).toString();
+  const guideIndexUrl = pathToFileURL(path.join(docsRoot, 'guide', 'index.html')).toString();
+  const fallbackUrl = pathToFileURL(path.join(docsRoot, '404.html')).toString();
+
+  assert.equal(await fetchUrl('apollo-map-studio://app/'), indexUrl);
+  assert.equal(await fetchUrl('apollo-map-studio://app/docs'), indexUrl);
+  assert.equal(await fetchUrl('apollo-map-studio://app/docs/index.html'), indexUrl);
+  assert.equal(await fetchUrl('apollo-map-studio://app/docs/guide'), guideUrl);
+  assert.equal(await fetchUrl('apollo-map-studio://app/docs/guide/'), guideIndexUrl);
+
+  for (const url of [
+    'apollo-map-studio://app/docs/missing',
+    'apollo-map-studio://app/docs/%2e%2e/%2e%2e/package.json',
+    'apollo-map-studio://app/docs/%E0%A4%A',
+    'not-a-url',
+  ]) {
+    assert.equal(await fetchUrl(url), fallbackUrl);
+  }
+});
 
 function createNavigationEvent(): NavigationEvent {
   const event: NavigationEvent = {

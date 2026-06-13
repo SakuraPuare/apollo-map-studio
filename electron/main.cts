@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   app,
@@ -71,6 +71,14 @@ let helpWindow: BrowserWindow | null = null;
 
 function getFirstExistingPath(candidates: string[]) {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
+function isExistingFile(filePath: string) {
+  try {
+    return statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function getAppIconPath() {
@@ -185,8 +193,16 @@ function resolveContainedPath(rootPath: string, relativePath: string) {
 
 function getDocsProtocolFilePath(url: string) {
   const docsRootPath = getDocsRootPath();
-  const requestUrl = new URL(url);
-  let pathname = decodeURIComponent(requestUrl.pathname);
+  const fallbackPath = path.join(docsRootPath, '404.html');
+  let requestUrl: URL;
+  let pathname: string;
+
+  try {
+    requestUrl = new URL(url);
+    pathname = decodeURIComponent(requestUrl.pathname);
+  } catch {
+    return fallbackPath;
+  }
 
   if (pathname === '/') {
     pathname = '/docs/index.html';
@@ -203,18 +219,18 @@ function getDocsProtocolFilePath(url: string) {
   const requestedPath = resolveContainedPath(docsRootPath, relativePath);
 
   if (!requestedPath) {
-    return path.join(docsRootPath, '404.html');
+    return fallbackPath;
   }
 
-  if (existsSync(requestedPath)) {
+  if (isExistingFile(requestedPath)) {
     return requestedPath;
   }
 
-  if (!path.extname(requestedPath) && existsSync(`${requestedPath}.html`)) {
+  if (!path.extname(requestedPath) && isExistingFile(`${requestedPath}.html`)) {
     return `${requestedPath}.html`;
   }
 
-  return path.join(docsRootPath, '404.html');
+  return fallbackPath;
 }
 
 function registerAppProtocol() {
