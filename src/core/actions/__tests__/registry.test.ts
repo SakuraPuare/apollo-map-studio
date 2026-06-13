@@ -152,6 +152,52 @@ describe('Action Registry', () => {
     expect(getMenuNames()).toEqual(['File', 'Edit', 'View', 'About']);
   });
 
+  it('keeps the top-level menu action contracts stable by mode', () => {
+    expect(getMenuActionsForMode('File', 'drawing').map((a) => a.id)).toEqual([
+      'importApollo',
+      'exportApolloBin',
+      'exportApolloText',
+      'settings',
+    ]);
+    expect(getMenuActionsForMode('Edit', 'drawing').map((a) => a.id)).toEqual([
+      'undo',
+      'redo',
+      'copySelection',
+      'pasteSelection',
+      'delete',
+      'connectLanes',
+      'boundaryBrush',
+    ]);
+    expect(getMenuActionsForMode('View', 'drawing').map((a) => a.id)).toEqual([
+      'resetLayout',
+      'view:mapEditor',
+      'view:outline',
+      'view:layers',
+      'view:search',
+      'view:inspector',
+      'view:toolbox',
+      'toggleGrid',
+      'toggleSnap',
+    ]);
+    expect(getMenuActionsForMode('View', 'scene').map((a) => a.id)).toEqual([
+      'resetLayout',
+      'view:mapEditor',
+      'view:outline',
+      'view:layers',
+      'view:search',
+      'view:inspector',
+      'view:timeline',
+      'view:toolbox',
+      'view:scenarios',
+      'toggleGrid',
+      'toggleSnap',
+    ]);
+    expect(getMenuActionsForMode('About', 'drawing').map((a) => a.id)).toEqual([
+      'about',
+      'openHelp',
+    ]);
+  });
+
   it('command palette filters mode-scoped workspace panels', () => {
     const drawingIds = getCommandPaletteActionsForMode('drawing').map((a) => a.id);
     const sceneIds = getCommandPaletteActionsForMode('scene').map((a) => a.id);
@@ -242,6 +288,50 @@ describe('Action Registry', () => {
   it('command palette does not include itself', () => {
     const cpIds = new Set(getCommandPaletteActions().map((a) => a.id));
     expect(cpIds.has('commandPalette')).toBe(false);
+  });
+
+  it('command palette exposes every executable menu action for the active mode', () => {
+    for (const mode of ['drawing', 'scene'] as const) {
+      const commandIds = new Set(getCommandPaletteActionsForMode(mode).map((a) => a.id));
+      for (const menu of getMenuNames()) {
+        for (const action of getMenuActionsForMode(menu, mode)) {
+          expect(commandIds.has(action.id), `${mode} command palette missing ${action.id}`).toBe(
+            true,
+          );
+        }
+      }
+    }
+  });
+
+  it('declares global shortcut exceptions only for actions that may run from text editing targets', () => {
+    const globalShortcutIds = getKeyBindingActions()
+      .filter((action) => action.keybinding?.global)
+      .map((action) => action.id);
+    expect(globalShortcutIds).toEqual([
+      'exportApolloBin',
+      'exportApolloText',
+      'undo',
+      'redo',
+      'toggleGrid',
+      'commandPalette',
+    ]);
+
+    for (const id of [
+      'settings',
+      'copySelection',
+      'pasteSelection',
+      'delete',
+      'defaultMode',
+      'connectLanes',
+      'boundaryBrush',
+      'tool:drawPolyline',
+      'tool:drawBezier',
+      'tool:drawArc',
+      'tool:drawRotatedRect',
+      'tool:drawPolygon',
+    ] as const) {
+      expect(getActionMap().get(id)?.keybinding?.global, id).not.toBe(true);
+    }
   });
 
   // ── Keybinding matching ─────────────────────────────────

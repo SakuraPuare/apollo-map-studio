@@ -4,7 +4,7 @@
  * so `toFixed(6)` keys match exactly.
  */
 import { describe, it, expect } from 'vitest';
-import { reconcileLaneTopology } from '../laneTopology';
+import { reconcileLaneTopology, reconcileLaneTopologyIncremental } from '../laneTopology';
 import type { JunctionEntity, LaneEntity } from '@/types/apollo';
 import type { MapEntity } from '@/types/entities';
 
@@ -377,5 +377,31 @@ describe('reconcileLaneTopology', () => {
     const b = laneAt('b', [1.00001, 0], [2, 0]);
     const { changes } = reconcileLaneTopology(makeMap(a, b));
     expect(changes.size).toBe(0);
+  });
+
+  it('incremental reconciliation returns no changes when no ids are dirty', () => {
+    const a = laneAt('a', [0, 0], [1, 0]);
+    const b = laneAt('b', [1, 0], [2, 0]);
+
+    const { changes } = reconcileLaneTopologyIncremental(makeMap(a, b), {
+      dirtyIds: new Set(),
+    });
+
+    expect(changes.size).toBe(0);
+  });
+
+  it('incremental reconciliation uses previous geometry to clear stale peers after a lane moves', () => {
+    const previousA = laneAt('a', [0, 0], [1, 0], { successorIds: ['b'] });
+    const previousB = laneAt('b', [1, 0], [2, 0], { predecessorIds: ['a'] });
+    const movedA = laneAt('a', [5, 0], [6, 0], { successorIds: ['b'] });
+    const staleB = laneAt('b', [1, 0], [2, 0], { predecessorIds: ['a'] });
+
+    const { changes } = reconcileLaneTopologyIncremental(makeMap(movedA, staleB), {
+      dirtyIds: new Set(['a']),
+      previousEntities: makeMap(previousA, previousB),
+    });
+
+    expect((changes.get('a') as LaneEntity).successorIds).toEqual([]);
+    expect((changes.get('b') as LaneEntity).predecessorIds).toEqual([]);
   });
 });

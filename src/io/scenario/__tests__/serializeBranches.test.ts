@@ -721,6 +721,101 @@ describe('serializeScenario event branch edges', () => {
   });
 });
 
+describe('serializeScenario ego branch edges', () => {
+  it('patches openscenario start, end, velocity, acceleration, and same-count waypoints in place', () => {
+    const doc = parseScenario({
+      id: 'ego-open-same-count-waypoints',
+      scenario: {
+        autoCarInfo: {
+          start: { x: 1, y: 2, heading: 0.1, laneId: 'keep-start' },
+          end: { x: 3, y: 4, laneId: 'keep-end' },
+          routingRequest: {
+            waypoint: [
+              { pose: { x: 5, y: 6, laneId: 'keep-wp-1' } },
+              { pose: { x: 7, y: 8, laneId: 'keep-wp-2' } },
+            ],
+            priority: 'keep-routing',
+          },
+          startVelocity: 0,
+          startAcceleration: 0,
+        },
+      },
+    });
+    doc.ego.start = { x: 11, y: 12, h: 0.9 };
+    doc.ego.end = { x: 13, y: 14 };
+    doc.ego.waypoints = [
+      { x: 15, y: 16 },
+      { x: 17, y: 18 },
+    ];
+    doc.ego.startVelocity = 4.5;
+    doc.ego.startAcceleration = 0.7;
+
+    const out = serializeScenario(doc) as any;
+    const autoCarInfo = out.scenario.autoCarInfo;
+
+    expect(autoCarInfo.start).toEqual({ x: 11, y: 12, heading: 0.9, laneId: 'keep-start' });
+    expect(autoCarInfo.end).toEqual({ x: 13, y: 14, laneId: 'keep-end' });
+    expect(autoCarInfo.routingRequest).toEqual({
+      waypoint: [
+        { pose: { x: 15, y: 16, laneId: 'keep-wp-1' } },
+        { pose: { x: 17, y: 18, laneId: 'keep-wp-2' } },
+      ],
+      priority: 'keep-routing',
+    });
+    expect(autoCarInfo.startVelocity).toBe(4.5);
+    expect(autoCarInfo.startAcceleration).toBe(0.7);
+  });
+
+  it('rebuilds openscenario waypoint arrays when addWaypoint changes the count', () => {
+    const doc = parseScenario({
+      id: 'ego-open-rebuild-waypoints',
+      scenario: {
+        autoCarInfo: {
+          start: { x: 1, y: 2, heading: 0.1 },
+          end: { x: 3, y: 4 },
+          routingRequest: { waypoint: [{ pose: { x: 5, y: 6, laneId: 'drop-me' } }] },
+        },
+      },
+    });
+    doc.ego.waypoints = [
+      { x: 15, y: 16 },
+      { x: 17, y: 18 },
+    ];
+
+    const out = serializeScenario(doc) as any;
+
+    expect(out.scenario.autoCarInfo.routingRequest.waypoint).toEqual([
+      { pose: { x: 15, y: 16 } },
+      { pose: { x: 17, y: 18 } },
+    ]);
+  });
+
+  it('patches classic ego start and end without adding unsupported waypoints', () => {
+    const doc = parseScenario({
+      id: 'ego-classic',
+      scenario: {
+        start: { x: 1, y: 2, heading: 0.1, laneId: 'keep-start' },
+        end: { x: 3, y: 4, laneId: 'keep-end' },
+        startVelocity: 0,
+        startAcceleration: 0,
+      },
+    });
+    doc.ego.start = { x: 21, y: 22, h: 1.2 };
+    doc.ego.end = { x: 23, y: 24 };
+    doc.ego.waypoints = [{ x: 25, y: 26 }];
+    doc.ego.startVelocity = 6;
+    doc.ego.startAcceleration = 0.3;
+
+    const out = serializeScenario(doc) as any;
+
+    expect(out.scenario.start).toEqual({ x: 21, y: 22, heading: 1.2, laneId: 'keep-start' });
+    expect(out.scenario.end).toEqual({ x: 23, y: 24, laneId: 'keep-end' });
+    expect(out.scenario.startVelocity).toBe(6);
+    expect(out.scenario.startAcceleration).toBe(0.3);
+    expect(out.scenario.routingRequest).toBeUndefined();
+  });
+});
+
 describe('serializeScenario traffic light and append/prune boundaries', () => {
   it('does not create absent openscenario holders when there is nothing to append', () => {
     const noAutoCarInfo = parseScenario({

@@ -103,6 +103,15 @@ describe('lane boundary paint', () => {
     expect(result!.lane.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['CURB'] }]);
   });
 
+  it('paints the right boundary without changing the left boundary', () => {
+    const result = paintLaneBoundaryTypeAtPoint(makeLane(), [116.0005, 29.999973], 'DOUBLE_YELLOW');
+
+    expect(result).not.toBeNull();
+    expect(result!.hit.side).toBe('right');
+    expect(result!.lane.leftBoundary.boundaryType).toEqual([{ s: 0, types: ['SOLID_WHITE'] }]);
+    expect(result!.lane.rightBoundary.boundaryType).toEqual([{ s: 0, types: ['DOUBLE_YELLOW'] }]);
+  });
+
   it('renders one decor line per boundary type segment', () => {
     const lane = setLaneBoundaryTypeAtS(
       setLaneBoundaryTypeAtS(makeLane(), 'left', 24, 'DOTTED_WHITE'),

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { makeProjection, utmProjString } from '@/io/proto/projection';
 import { parseScenario } from '../parse';
+import type { PosedScenario } from '../scenarioSampler';
 import { buildScenarioFeatures, obstacleColor } from '../scenarioFeatures';
+import { worldToLngLat } from '../scenarioProjection';
 
 const proj = makeProjection(utmProjString(50, 'N'));
 
@@ -96,5 +98,77 @@ describe('buildScenarioFeatures', () => {
     // 因此特征只需携带稳定 uid，不再烘焙 selected 布尔。
     expect(f.obstacleBoxes.features[0]!.properties!.uid).toBe(uid);
     expect(f.obstacleBoxes.features[0]!.properties!.selected).toBeUndefined();
+  });
+
+  it('falls back to the unknown obstacle color for unsupported kinds', () => {
+    expect(obstacleColor('constructionCone')).toBe(obstacleColor('unknown'));
+  });
+
+  it('omits trajectory line and vertex features when an obstacle has fewer than two path points', () => {
+    const doc = fixture();
+    doc.obstacles[0]!.trajectory = [doc.obstacles[0]!.trajectory[0]!];
+
+    const f = buildScenarioFeatures(proj, doc);
+
+    expect(f.obstacleBoxes.features).toHaveLength(1);
+    expect(f.trajectories.features).toEqual([]);
+    expect(f.trajectoryVertices.features).toEqual([]);
+  });
+
+  it('uses posed obstacle and ego positions for dynamic features while keeping static trajectories', () => {
+    const doc = fixture();
+    const ob = doc.obstacles[0]!;
+    const posedObstacle = { x: 423320, y: 4438820, h: Math.PI / 2 };
+    const posedEgo = { x: 423350, y: 4438850, h: 0.25 };
+    const posed: PosedScenario = {
+      obstacles: [{ uid: ob.uid, position: posedObstacle }],
+      trafficLights: [],
+      ego: { position: posedEgo },
+    };
+
+    const f = buildScenarioFeatures(proj, doc, posed);
+    const label = f.obstacleLabels.features[0]!.geometry as GeoJSON.Point;
+    const heading = f.obstacleHeading.features[0]!.geometry as GeoJSON.LineString;
+    const staticTrajectory = f.trajectories.features[0]!.geometry as GeoJSON.LineString;
+    const egoCurrent = f.egoCurrent.features[0]!.geometry as GeoJSON.Point;
+
+    expect(label.coordinates).toEqual(worldToLngLat(proj, posedObstacle));
+    expect(heading.coordinates[0]).toEqual(worldToLngLat(proj, posedObstacle));
+    expect(staticTrajectory.coordinates[0]).toEqual(worldToLngLat(proj, ob.trajectory[0]!));
+    expect(egoCurrent.coordinates).toEqual(worldToLngLat(proj, posedEgo));
+  });
+
+  it('falls back to the document obstacle pose when posed data omits that uid', () => {
+    const doc = fixture();
+    const ob = doc.obstacles[0]!;
+    const posed: PosedScenario = {
+      obstacles: [{ uid: 'other-obstacle', position: { x: 1, y: 2, h: 3 } }],
+      trafficLights: [],
+      ego: null,
+    };
+
+    const f = buildScenarioFeatures(proj, doc, posed);
+    const label = f.obstacleLabels.features[0]!.geometry as GeoJSON.Point;
+
+    expect(label.coordinates).toEqual(worldToLngLat(proj, ob.position));
+    expect(f.egoCurrent.features).toEqual([]);
+  });
+
+  it('uses posed traffic light colors and falls back to neutral for unsupported colors', () => {
+    const doc = fixture();
+    const tl = doc.trafficLights[0]!;
+    const posed: PosedScenario = {
+      obstacles: [],
+      trafficLights: [{ uid: tl.uid, color: 'BLUE' as never, blink: false }],
+      ego: null,
+    };
+
+    const f = buildScenarioFeatures(proj, doc, posed);
+
+    expect(f.trafficLights.features[0]!.properties).toMatchObject({
+      uid: tl.uid,
+      color: '#9ca3af',
+      initialColor: 'GREEN',
+    });
   });
 });
