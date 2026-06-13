@@ -28,7 +28,39 @@ import {
   diffLaneFormAgainstEntity,
   shouldPersistLaneForm,
 } from '../InspectorForms';
-import type { LaneEntity } from '@/types/apollo';
+import { applyAreaFormValuesToEntity, areaFormValuesFromEntity } from '../InspectorForms/area';
+import {
+  applyBarrierGateFormValuesToEntity,
+  barrierGateFormValuesFromEntity,
+} from '../InspectorForms/barrierGate';
+import {
+  applyJunctionFormValuesToEntity,
+  junctionFormValuesFromEntity,
+} from '../InspectorForms/junction';
+import {
+  applyParkingSpaceFormValuesToEntity,
+  parkingSpaceFormValuesFromEntity,
+} from '../InspectorForms/parkingSpace';
+import { applyRoadFormValuesToEntity, roadFormValuesFromEntity } from '../InspectorForms/road';
+import {
+  applySignalFormValuesToEntity,
+  applySignalSubsignalTypeToEntity,
+  signalFormValuesFromEntity,
+} from '../InspectorForms/signal';
+import {
+  applyStopSignFormValuesToEntity,
+  stopSignFormValuesFromEntity,
+} from '../InspectorForms/stopSign';
+import type {
+  AreaEntity,
+  BarrierGateEntity,
+  JunctionEntity,
+  LaneEntity,
+  ParkingSpaceEntity,
+  RoadEntity,
+  SignalEntity,
+  StopSignEntity,
+} from '@/types/apollo';
 
 // Minimal in-memory lane fixture. Keep trivially constructible so the
 // test stays readable — only the fields the sync contract touches
@@ -74,6 +106,117 @@ function makeLane(overrides: Partial<LaneEntity> = {}): LaneEntity {
     rightRoadSamples: [],
     ...overrides,
   } as LaneEntity;
+}
+
+function trianglePolygon() {
+  return {
+    points: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+    ],
+  };
+}
+
+function lineCurve() {
+  return {
+    segments: [
+      {
+        lineSegment: {
+          points: [
+            { x: 0, y: 0 },
+            { x: 2, y: 0 },
+          ],
+        },
+        s: 0,
+        startPosition: { x: 0, y: 0 },
+        heading: 0,
+        length: 2,
+      },
+    ],
+  };
+}
+
+function makeJunction(overrides: Partial<JunctionEntity> = {}): JunctionEntity {
+  return {
+    id: 'junction-1',
+    entityType: 'junction',
+    polygon: trianglePolygon(),
+    overlapIds: [],
+    ...overrides,
+  };
+}
+
+function makeParkingSpace(overrides: Partial<ParkingSpaceEntity> = {}): ParkingSpaceEntity {
+  return {
+    id: 'parking-space-1',
+    entityType: 'parkingSpace',
+    polygon: trianglePolygon(),
+    heading: Math.PI / 2,
+    overlapIds: [],
+    ...overrides,
+  };
+}
+
+function makeSignal(overrides: Partial<SignalEntity> = {}): SignalEntity {
+  return {
+    id: 'signal-1',
+    entityType: 'signal',
+    boundary: trianglePolygon(),
+    subsignals: [
+      { id: 'subsignal-1', type: 'CIRCLE', location: { x: 0, y: 0, z: 4.8 } },
+      { id: 'subsignal-2', type: 'ARROW_LEFT', location: { x: 1, y: 0, z: 4.4 } },
+    ],
+    type: 'MIX_3_VERTICAL',
+    overlapIds: [],
+    stopLines: [lineCurve()],
+    signInfo: [],
+    ...overrides,
+  };
+}
+
+function makeStopSign(overrides: Partial<StopSignEntity> = {}): StopSignEntity {
+  return {
+    id: 'stop-sign-1',
+    entityType: 'stopSign',
+    stopLines: [lineCurve()],
+    overlapIds: [],
+    ...overrides,
+  };
+}
+
+function makeRoad(overrides: Partial<RoadEntity> = {}): RoadEntity {
+  return {
+    id: 'road-1',
+    entityType: 'road',
+    sections: [{ id: 'section-1', laneIds: ['lane-1', 'lane-2'] }],
+    junctionId: 'junction-1',
+    ...overrides,
+  };
+}
+
+function makeArea(overrides: Partial<AreaEntity> = {}): AreaEntity {
+  return {
+    id: 'area-1',
+    entityType: 'area',
+    type: 'Driveable',
+    polygon: trianglePolygon(),
+    overlapIds: [],
+    name: 'Loading Bay',
+    ...overrides,
+  };
+}
+
+function makeBarrierGate(overrides: Partial<BarrierGateEntity> = {}): BarrierGateEntity {
+  return {
+    id: 'barrier-gate-1',
+    entityType: 'barrierGate',
+    type: 'FENCE',
+    polygon: trianglePolygon(),
+    stopLines: [lineCurve()],
+    overlapIds: [],
+    ...overrides,
+  };
 }
 
 describe('R1: InspectorForms reactive lane sync', () => {
@@ -422,7 +565,127 @@ import {
   areaTypeOptions,
   barrierGateSchema,
   barrierGateTypeOptions,
+  junctionSchema,
+  parkingSpaceSchema,
+  roadSchema,
+  signalSchema,
+  stopSignSchema,
 } from '@/lib/schemas';
+
+describe('Simple Apollo inspector form helpers', () => {
+  it('derives form defaults and optional enum fallbacks', () => {
+    expect(junctionFormValuesFromEntity(makeJunction())).toEqual({ type: 'UNKNOWN' });
+    expect(stopSignFormValuesFromEntity(makeStopSign())).toEqual({
+      type: 'UNKNOWN_STOP_SIGN',
+    });
+    expect(roadFormValuesFromEntity(makeRoad())).toEqual({ type: 'UNKNOWN_ROAD' });
+    expect(parkingSpaceFormValuesFromEntity(makeParkingSpace())).toEqual({ heading: 90 });
+    expect(areaFormValuesFromEntity(makeArea({ name: undefined }))).toEqual({
+      type: 'Driveable',
+      name: '',
+    });
+    expect(
+      signalFormValuesFromEntity(
+        makeSignal({
+          signInfo: [{ type: 'NO_RIGHT_TURN_ON_RED' }, { type: 'UNKNOWN' as never }],
+        }),
+      ),
+    ).toEqual({ type: 'MIX_3_VERTICAL', signInfo: ['NO_RIGHT_TURN_ON_RED'] });
+    expect(barrierGateFormValuesFromEntity(makeBarrierGate())).toEqual({ type: 'FENCE' });
+  });
+
+  it('writes enum edits and skips fallback or no-op writes', () => {
+    expect(applyJunctionFormValuesToEntity(makeJunction(), { type: 'UNKNOWN' })).toBeNull();
+    expect(applyJunctionFormValuesToEntity(makeJunction(), { type: 'CROSS_ROAD' })?.type).toBe(
+      'CROSS_ROAD',
+    );
+
+    expect(
+      applyStopSignFormValuesToEntity(makeStopSign(), { type: 'UNKNOWN_STOP_SIGN' }),
+    ).toBeNull();
+    expect(applyStopSignFormValuesToEntity(makeStopSign(), { type: 'ALL_WAY' })?.type).toBe(
+      'ALL_WAY',
+    );
+
+    expect(applyRoadFormValuesToEntity(makeRoad(), { type: 'UNKNOWN_ROAD' })).toBeNull();
+    expect(applyRoadFormValuesToEntity(makeRoad(), { type: 'PARK' })?.type).toBe('PARK');
+
+    expect(applyBarrierGateFormValuesToEntity(makeBarrierGate(), { type: 'FENCE' })).toBeNull();
+    expect(applyBarrierGateFormValuesToEntity(makeBarrierGate(), { type: 'ROD' })?.type).toBe(
+      'ROD',
+    );
+  });
+
+  it('writes area text edits and parking heading edits', () => {
+    const area = makeArea();
+    const renamed = applyAreaFormValuesToEntity(area, {
+      ...areaFormValuesFromEntity(area),
+      type: 'Custom2',
+      name: '  Loading Zone  ',
+    });
+    expect(renamed).toMatchObject({ type: 'Custom2', name: 'Loading Zone' });
+    expect(
+      applyAreaFormValuesToEntity(renamed!, {
+        ...areaFormValuesFromEntity(renamed!),
+        name: '   ',
+      })?.name,
+    ).toBeUndefined();
+    expect(applyAreaFormValuesToEntity(area, areaFormValuesFromEntity(area))).toBeNull();
+
+    const parking = makeParkingSpace();
+    const rotated = applyParkingSpaceFormValuesToEntity(parking, { heading: -45 });
+    expect(rotated?.heading).toBeCloseTo(-Math.PI / 4);
+    expect(
+      applyParkingSpaceFormValuesToEntity(parking, parkingSpaceFormValuesFromEntity(parking)),
+    ).toBeNull();
+    expect(applyParkingSpaceFormValuesToEntity(parking, {})).toBeNull();
+  });
+
+  it('writes signal sign-info, layout, and subsignal edits', () => {
+    const signal = makeSignal();
+    const withFlag = applySignalFormValuesToEntity(signal, {
+      ...signalFormValuesFromEntity(signal),
+      signInfo: ['NO_RIGHT_TURN_ON_RED'],
+    });
+    expect(withFlag?.signInfo).toEqual([{ type: 'NO_RIGHT_TURN_ON_RED' }]);
+    expect(
+      applySignalFormValuesToEntity(withFlag!, signalFormValuesFromEntity(withFlag!)),
+    ).toBeNull();
+
+    const unsupported = makeSignal({ signInfo: [{ type: 'UNKNOWN' as never }] });
+    expect(
+      applySignalFormValuesToEntity(unsupported, signalFormValuesFromEntity(unsupported))?.signInfo,
+    ).toEqual([]);
+
+    const relaidOut = applySignalFormValuesToEntity(signal, {
+      ...signalFormValuesFromEntity(signal),
+      type: 'MIX_2_HORIZONTAL',
+    });
+    expect(relaidOut?.type).toBe('MIX_2_HORIZONTAL');
+    expect(relaidOut?.boundary.points).toHaveLength(4);
+    expect(relaidOut?.subsignals).toHaveLength(2);
+
+    const editedSubsignal = applySignalSubsignalTypeToEntity(signal, 1, 'ARROW_RIGHT');
+    expect(editedSubsignal?.subsignals.map((s) => s.type)).toEqual(['CIRCLE', 'ARROW_RIGHT']);
+    expect(applySignalSubsignalTypeToEntity(signal, 0, 'CIRCLE')).toBeNull();
+    expect(applySignalSubsignalTypeToEntity(signal, 99, 'CIRCLE')).toBeNull();
+  });
+
+  it('rejects invalid input across simple Apollo schemas', () => {
+    expect(junctionSchema.safeParse({ type: 'BOGUS' }).success).toBe(false);
+    expect(stopSignSchema.safeParse({ type: 'YIELD' }).success).toBe(false);
+    expect(roadSchema.safeParse({ type: 'DIRT' }).success).toBe(false);
+    expect(parkingSpaceSchema.safeParse({ heading: 181 }).success).toBe(false);
+    expect(parkingSpaceSchema.safeParse({ heading: -181 }).success).toBe(false);
+    expect(
+      signalSchema.safeParse({
+        type: 'MIX_3_VERTICAL',
+        signInfo: ['None'],
+      }).success,
+    ).toBe(false);
+    expect(signalSchema.safeParse({ type: 'MISSING', signInfo: [] }).success).toBe(false);
+  });
+});
 
 describe('Area + BarrierGate inspector schemas', () => {
   it('areaTypeOptions matches proto-aligned AreaType values', () => {

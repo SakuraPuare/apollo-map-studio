@@ -9,8 +9,16 @@ import { zodResolverZ4 } from './resolver';
 
 const JUNCTION_TYPE_FALLBACK: JunctionFormValues['type'] = 'UNKNOWN';
 
-function formValuesFromJunction(entity: JunctionEntity): JunctionFormValues {
+export function junctionFormValuesFromEntity(entity: JunctionEntity): JunctionFormValues {
   return { type: entity.type ?? JUNCTION_TYPE_FALLBACK };
+}
+
+export function applyJunctionFormValuesToEntity(
+  entity: JunctionEntity,
+  value: Partial<JunctionFormValues>,
+): JunctionEntity | null {
+  if (shouldSkipOptionalEnumWrite(value.type, entity.type, JUNCTION_TYPE_FALLBACK)) return null;
+  return { ...entity, type: value.type };
 }
 
 export function JunctionForm({ entity }: { entity: JunctionEntity }) {
@@ -18,15 +26,15 @@ export function JunctionForm({ entity }: { entity: JunctionEntity }) {
   const methods = useForm<JunctionFormValues>({
     resolver: zodResolverZ4<JunctionFormValues>(junctionSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromJunction(entity),
+    defaultValues: junctionFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromJunction);
+  const entityRef = useEntityFormSync(entity, methods, junctionFormValuesFromEntity);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, JUNCTION_TYPE_FALLBACK)) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
+      const next = applyJunctionFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);

@@ -7,12 +7,24 @@ import type { ParkingSpaceEntity } from '@/types/apollo';
 import { useEntityFormSync } from './formSync';
 import { zodResolverZ4 } from './resolver';
 
-function headingDegrees(entity: ParkingSpaceEntity): number {
+export function headingDegrees(entity: ParkingSpaceEntity): number {
   return parseFloat(((entity.heading * 180) / Math.PI).toFixed(2));
 }
 
-function formValuesFromParkingSpace(entity: ParkingSpaceEntity): ParkingSpaceFormValues {
+export function parkingSpaceFormValuesFromEntity(
+  entity: ParkingSpaceEntity,
+): ParkingSpaceFormValues {
   return { heading: headingDegrees(entity) };
+}
+
+export function applyParkingSpaceFormValuesToEntity(
+  entity: ParkingSpaceEntity,
+  value: Partial<ParkingSpaceFormValues>,
+): ParkingSpaceEntity | null {
+  if (value.heading == null) return null;
+  const nextHeadingRad = (value.heading * Math.PI) / 180;
+  if (nextHeadingRad === entity.heading) return null;
+  return { ...entity, heading: nextHeadingRad };
 }
 
 export function ParkingSpaceForm({ entity }: { entity: ParkingSpaceEntity }) {
@@ -20,17 +32,15 @@ export function ParkingSpaceForm({ entity }: { entity: ParkingSpaceEntity }) {
   const methods = useForm<ParkingSpaceFormValues>({
     resolver: zodResolverZ4<ParkingSpaceFormValues>(parkingSpaceSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromParkingSpace(entity),
+    defaultValues: parkingSpaceFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromParkingSpace);
+  const entityRef = useEntityFormSync(entity, methods, parkingSpaceFormValuesFromEntity);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (value.heading == null) return;
-      const nextHeadingRad = (value.heading * Math.PI) / 180;
-      if (nextHeadingRad === liveEntity.heading) return;
-      updateEntity(liveEntity.id, { ...liveEntity, heading: nextHeadingRad });
+      const next = applyParkingSpaceFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);

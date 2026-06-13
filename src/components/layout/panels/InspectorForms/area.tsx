@@ -7,8 +7,25 @@ import type { AreaEntity } from '@/types/apollo';
 import { useEntityFormSync } from './formSync';
 import { zodResolverZ4 } from './resolver';
 
-function formValuesFromArea(entity: AreaEntity): AreaFormValues {
+export function areaFormValuesFromEntity(entity: AreaEntity): AreaFormValues {
   return { type: entity.type, name: entity.name ?? '' };
+}
+
+export function applyAreaFormValuesToEntity(
+  entity: AreaEntity,
+  value: Partial<AreaFormValues>,
+): AreaEntity | null {
+  const nextType = value.type;
+  const rawName = (value.name ?? '').trim();
+  const nextName = rawName.length > 0 ? rawName : undefined;
+  const typeChanged = nextType !== undefined && nextType !== entity.type;
+  const nameChanged = nextName !== entity.name;
+  if (!typeChanged && !nameChanged) return null;
+  return {
+    ...entity,
+    type: typeChanged ? (nextType as AreaEntity['type']) : entity.type,
+    name: nextName,
+  };
 }
 
 export function AreaForm({ entity }: { entity: AreaEntity }) {
@@ -16,24 +33,15 @@ export function AreaForm({ entity }: { entity: AreaEntity }) {
   const methods = useForm<AreaFormValues>({
     resolver: zodResolverZ4<AreaFormValues>(areaSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromArea(entity),
+    defaultValues: areaFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromArea);
+  const entityRef = useEntityFormSync(entity, methods, areaFormValuesFromEntity);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      const nextType = value.type;
-      const rawName = (value.name ?? '').trim();
-      const nextName = rawName.length > 0 ? rawName : undefined;
-      const typeChanged = nextType !== undefined && nextType !== liveEntity.type;
-      const nameChanged = nextName !== liveEntity.name;
-      if (!typeChanged && !nameChanged) return;
-      updateEntity(liveEntity.id, {
-        ...liveEntity,
-        type: typeChanged ? (nextType as AreaEntity['type']) : liveEntity.type,
-        name: nextName,
-      });
+      const next = applyAreaFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);

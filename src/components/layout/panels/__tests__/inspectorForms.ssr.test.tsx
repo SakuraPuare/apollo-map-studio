@@ -1,4 +1,6 @@
 import React from 'react';
+import type * as JsxDevRuntime from 'react/jsx-dev-runtime';
+import type * as JsxRuntime from 'react/jsx-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { z } from 'zod';
@@ -7,7 +9,7 @@ import { ScenarioEgoForm } from '../InspectorForms/ScenarioEgoForm';
 import { ScenarioObstacleForm } from '../InspectorForms/ScenarioObstacleForm';
 import { ScenarioTrafficLightForm } from '../InspectorForms/ScenarioTrafficLightForm';
 import { TrajectoryEditor, WaypointEditor } from '../InspectorForms/scenarioPointEditors';
-import { LaneRef, LaneRefList } from '../LaneRefList';
+import { LaneRef, LaneRefList, laneRefDisplayLabel, selectLaneRef } from '../LaneRefList';
 import { SchemaForm } from '../SchemaForm';
 import { EditorProvider } from '@/context/EditorContext';
 import type { EntitySchema } from '@/types/inspectorSchema';
@@ -36,6 +38,42 @@ import type {
 import type { MapEntity } from '@/types/entities';
 import type { ScenarioEgo, ScenarioObstacle, ScenarioTrafficLight } from '@/types/scenario';
 
+const jsxCapture = vi.hoisted(() => ({
+  elements: [] as Array<{ type: unknown; props: Record<string, unknown> }>,
+}));
+
+function recordCapturedElement(type: unknown, props: unknown): void {
+  if (typeof type !== 'string' || typeof props !== 'object' || props === null) return;
+  jsxCapture.elements.push({ type, props: props as Record<string, unknown> });
+}
+
+vi.mock('react/jsx-runtime', async () => {
+  const actual = await vi.importActual<typeof JsxRuntime>('react/jsx-runtime');
+
+  const jsx: typeof actual.jsx = (type, props, key) => {
+    recordCapturedElement(type, props);
+    return actual.jsx(type, props, key);
+  };
+  const jsxs: typeof actual.jsxs = (type, props, key) => {
+    recordCapturedElement(type, props);
+    return actual.jsxs(type, props, key);
+  };
+
+  return { ...actual, jsx, jsxs };
+});
+
+vi.mock('react/jsx-dev-runtime', async () => {
+  const actual = await vi.importActual<typeof JsxDevRuntime>('react/jsx-dev-runtime');
+
+  const jsxDEV: typeof actual.jsxDEV = (...args) => {
+    const [type, props] = args;
+    recordCapturedElement(type, props);
+    return actual.jsxDEV(...args);
+  };
+
+  return { ...actual, jsxDEV };
+});
+
 const initialUIState = useUIStore.getState();
 
 function render(node: React.ReactElement) {
@@ -52,6 +90,11 @@ function renderWithClientStoreSnapshot(node: React.ReactElement) {
     _subscribe: unknown,
     getSnapshot: () => unknown,
   ) => getSnapshot()) as typeof React.useSyncExternalStore);
+  return render(node);
+}
+
+function renderForCapture(node: React.ReactElement) {
+  jsxCapture.elements = [];
   return render(node);
 }
 
@@ -485,6 +528,92 @@ function scenarioTrafficLight(): ScenarioTrafficLight {
   };
 }
 
+function activeScenarioDoc() {
+  const state = useScenarioStore.getState();
+  const entry = state.loaded.find((candidate) => candidate.key === state.activeKey);
+  if (!entry) throw new Error('expected active scenario fixture');
+  return entry.doc;
+}
+
+function seedActiveScenarioFixture(
+  overrides: Partial<{
+    ego: ScenarioEgo;
+    obstacles: ScenarioObstacle[];
+    trafficLights: ScenarioTrafficLight[];
+  }> = {},
+) {
+  const doc = {
+    format: 'openscenario',
+    meta: { id: 'scenario-1', tags: [] },
+    ego: overrides.ego ?? scenarioEgo(),
+    obstacles: overrides.obstacles ?? [scenarioObstacle()],
+    trafficLights: overrides.trafficLights ?? [scenarioTrafficLight()],
+    raw: {},
+  } as const;
+  useScenarioStore.setState({
+    loaded: [{ key: 'scenario-1', filename: 'scenario.json', doc }],
+    activeKey: 'scenario-1',
+    selectedObstacleUid: doc.obstacles[0]?.uid ?? null,
+    selectedTrafficLightUid: doc.trafficLights[0]?.uid ?? null,
+    selectedKind: 'obstacle',
+  });
+  return doc;
+}
+
+function capturedElement(
+  type: string,
+  predicate: (props: Record<string, unknown>) => boolean,
+): { props: Record<string, unknown> } {
+  const element = jsxCapture.elements.find(
+    (candidate) => candidate.type === type && predicate(candidate.props),
+  );
+  if (!element) throw new Error(`expected captured ${type}`);
+  return element;
+}
+
+function capturedInputByLabel(label: string): { props: Record<string, unknown> } {
+  return capturedElement('input', (props) => props['aria-label'] === label);
+}
+
+function capturedSelectByLabel(label: string): { props: Record<string, unknown> } {
+  return capturedElement('select', (props) => props['aria-label'] === label);
+}
+
+function capturedButtonByText(text: string): { props: Record<string, unknown> } {
+  return capturedElement('button', (props) => textContent(props.children).includes(text));
+}
+
+function capturedButtonByLabel(label: string): { props: Record<string, unknown> } {
+  return capturedElement('button', (props) => props['aria-label'] === label);
+}
+
+function textContent(value: unknown): string {
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(textContent).join('');
+  if (React.isValidElement(value)) {
+    return textContent((value.props as { children?: unknown }).children);
+  }
+  return '';
+}
+
+function changeCapturedInput(input: { props: Record<string, unknown> }, value: string) {
+  const onChange = input.props.onChange;
+  if (typeof onChange !== 'function') throw new Error('expected input change handler');
+  onChange({ target: { value } });
+}
+
+function changeCapturedSelect(select: { props: Record<string, unknown> }, value: string) {
+  const onChange = select.props.onChange;
+  if (typeof onChange !== 'function') throw new Error('expected select change handler');
+  onChange({ target: { value } });
+}
+
+function clickCapturedButton(button: { props: Record<string, unknown> }) {
+  const onClick = button.props.onClick;
+  if (typeof onClick !== 'function') throw new Error('expected button click handler');
+  onClick();
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
   useUIStore.setState(initialUIState, true);
@@ -499,6 +628,7 @@ beforeEach(() => {
     selectedKind: null,
   });
   useScenarioStore.temporal.getState().clear();
+  jsxCapture.elements = [];
 });
 
 describe('SchemaForm SSR rendering', () => {
@@ -539,6 +669,27 @@ describe('Apollo inspector SSR rendering', () => {
     expect(html).toContain('aria-disabled="true"');
     expect(html).toContain('Layer is locked');
     expect(html).toContain('opacity-60');
+  });
+
+  it('marks advanced inspector forms disabled when pnc junction or overlap layers are locked', () => {
+    useUIStore.getState().setLayerLocked('pncJunction', true);
+    const pncHtml = renderWithClientStoreSnapshot(<EntityForm entity={pncJunction()} />);
+
+    expect(pncHtml).toContain('<fieldset');
+    expect(pncHtml).toContain('disabled=""');
+    expect(pncHtml).toContain('Layer is locked');
+    expect(pncHtml).toContain('Passage Groups');
+    expect(pncHtml).toContain('+ Passage Group');
+
+    useUIStore.getState().setLayerLocked('pncJunction', false);
+    useUIStore.getState().setLayerLocked('overlap', true);
+    const overlapHtml = renderWithClientStoreSnapshot(<EntityForm entity={overlap()} />);
+
+    expect(overlapHtml).toContain('<fieldset');
+    expect(overlapHtml).toContain('disabled=""');
+    expect(overlapHtml).toContain('Layer is locked');
+    expect(overlapHtml).toContain('Lane × Lane Semantics');
+    expect(overlapHtml).toContain('Region Overlaps');
   });
 
   it('renders SignalForm attributes, subsignals, and sign-info checkboxes', () => {
@@ -758,6 +909,41 @@ describe('Apollo inspector SSR rendering', () => {
     expect(html).toContain('—');
   });
 
+  it('renders editable Apollo forms with empty aggregate and optional enum fallbacks', () => {
+    const cases: Array<[MapEntity, string[]]> = [
+      [
+        { ...junction(), type: undefined, overlapIds: [] },
+        ['junction_0000000001', 'Unknown', 'Overlaps', '—'],
+      ],
+      [{ ...parkingSpace(), overlapIds: [] }, ['parking_space_0000000001', 'Overlaps', '—']],
+      [
+        {
+          ...road(),
+          type: undefined,
+          sections: [{ id: 'empty_section', laneIds: [] }],
+          junctionId: null,
+        },
+        ['road_0000000001', 'Unknown', 'Sections', 'Total Lanes', 'Junction', '—'],
+      ],
+      [
+        { ...barrierGate(), stopLines: [], overlapIds: [] },
+        ['barrier_gate_0000000001', 'Stop Lines', 'Overlaps', '—'],
+      ],
+      [
+        { ...stopSign(), type: undefined, stopLines: [], overlapIds: [] },
+        ['stop_sign_0000000001', 'Unknown', 'Stop Lines', 'Overlaps', '—'],
+      ],
+    ];
+
+    for (const [entity, expected] of cases) {
+      const html = render(<EntityForm entity={entity} />);
+      expect(html).toContain('Attributes');
+      for (const text of expected) {
+        expect(html).toContain(text);
+      }
+    }
+  });
+
   it('renders read-only Apollo forms with empty and non-empty aggregates', () => {
     const cases: Array<[MapEntity, string[]]> = [
       [crosswalk(), ['crosswalk_0000000001', 'Vertices', '3', 'Overlaps']],
@@ -958,6 +1144,130 @@ describe('Scenario inspector form SSR rendering', () => {
     expect(obstacleHtml).toContain('添加顶点');
     expect(obstacleHtml).not.toContain('点 1 X');
   });
+
+  it('invokes ego numeric and waypoint handlers against the scenario store', () => {
+    seedActiveScenarioFixture();
+    renderForCapture(<ScenarioEgoForm ego={activeScenarioDoc().ego} />);
+
+    changeCapturedInput(capturedInputByLabel('X'), '101');
+    expect(activeScenarioDoc().ego.start.x).toBe(101);
+
+    changeCapturedInput(capturedInputByLabel('朝向 (rad)'), '1.5');
+    expect(activeScenarioDoc().ego.start.h).toBe(1.5);
+
+    changeCapturedInput(capturedInputByLabel('初速 (m/s)'), '8.25');
+    expect(activeScenarioDoc().ego.startVelocity).toBe(8.25);
+
+    changeCapturedInput(capturedInputByLabel('点 1 X'), '55');
+    expect(activeScenarioDoc().ego.waypoints[0]?.x).toBe(55);
+
+    changeCapturedInput(capturedInputByLabel('点 1 Y'), 'bad');
+    expect(activeScenarioDoc().ego.waypoints[0]?.y).toBe(6);
+
+    clickCapturedButton(capturedButtonByText('添加途经点'));
+    expect(activeScenarioDoc().ego.waypoints.at(-1)).toEqual({ x: 10, y: 11 });
+
+    clickCapturedButton(capturedButtonByLabel('删除点 1'));
+    expect(activeScenarioDoc().ego.waypoints[0]).toEqual({ x: 10, y: 11 });
+  });
+
+  it('invokes obstacle field, trajectory, event, and remove handlers against the scenario store', () => {
+    seedActiveScenarioFixture();
+    renderForCapture(<ScenarioObstacleForm obstacle={activeScenarioDoc().obstacles[0]!} />);
+
+    changeCapturedSelect(capturedSelectByLabel('类型'), 'pedestrian');
+    expect(activeScenarioDoc().obstacles[0]?.kind).toBe('pedestrian');
+
+    changeCapturedInput(capturedInputByLabel('X'), '31');
+    expect(activeScenarioDoc().obstacles[0]?.position.x).toBe(31);
+
+    changeCapturedInput(capturedInputByLabel('长'), '6.2');
+    expect(activeScenarioDoc().obstacles[0]?.dimensions.length).toBe(6.2);
+
+    changeCapturedInput(capturedInputByLabel('初速 (m/s)'), '4.75');
+    expect(activeScenarioDoc().obstacles[0]?.initialSpeed).toBe(4.75);
+
+    changeCapturedInput(capturedInputByLabel('点 1 X'), '13');
+    expect(activeScenarioDoc().obstacles[0]?.trajectory[0]?.x).toBe(13);
+
+    clickCapturedButton(capturedButtonByText('添加顶点'));
+    expect(activeScenarioDoc().obstacles[0]?.trajectory.at(-1)).toEqual({ x: 25, y: 27 });
+
+    changeCapturedSelect(capturedSelectByLabel('触发类型'), 'relativeDistance');
+    expect(activeScenarioDoc().obstacles[0]?.events[0]?.trigger).toMatchObject({
+      kind: 'relativeDistance',
+      rule: 'greaterOrEqual',
+      value: 5,
+    });
+
+    changeCapturedInput(capturedInputByLabel('触发值'), '12');
+    expect(activeScenarioDoc().obstacles[0]?.events[0]?.trigger).toMatchObject({ value: 12 });
+
+    changeCapturedSelect(capturedSelectByLabel('动作类型'), 'laneChange');
+    expect(activeScenarioDoc().obstacles[0]?.events[0]?.action).toMatchObject({
+      kind: 'laneChange',
+      relativeTargetLane: 1,
+    });
+
+    changeCapturedInput(capturedInputByLabel('相对目标车道'), '-2');
+    expect(activeScenarioDoc().obstacles[0]?.events[1]?.action).toMatchObject({
+      kind: 'laneChange',
+      relativeTargetLane: -2,
+    });
+
+    clickCapturedButton(capturedButtonByText('添加事件'));
+    expect(activeScenarioDoc().obstacles[0]?.events).toHaveLength(3);
+
+    clickCapturedButton(capturedButtonByLabel('删除事件 1'));
+    expect(activeScenarioDoc().obstacles[0]?.events[0]?.uid).toBe('event_lane_1');
+
+    clickCapturedButton(capturedButtonByText('删除障碍物'));
+    expect(activeScenarioDoc().obstacles).toEqual([]);
+  });
+
+  it('invokes traffic light field, timing, and remove handlers against the scenario store', () => {
+    seedActiveScenarioFixture();
+    renderForCapture(<ScenarioTrafficLightForm light={activeScenarioDoc().trafficLights[0]!} />);
+
+    changeCapturedInput(capturedInputByLabel('Signal ID'), 'signal_next');
+    expect(activeScenarioDoc().trafficLights[0]?.signalId).toBe('signal_next');
+
+    changeCapturedInput(capturedInputByLabel('X'), '110');
+    expect(activeScenarioDoc().trafficLights[0]?.location.x).toBe(110);
+
+    changeCapturedSelect(capturedSelectByLabel('颜色'), 'GREEN');
+    expect(activeScenarioDoc().trafficLights[0]?.initialColor).toBe('GREEN');
+
+    changeCapturedSelect(capturedSelectByLabel('触发'), 'TIME');
+    expect(activeScenarioDoc().trafficLights[0]?.triggerType).toBe('TIME');
+
+    changeCapturedInput(capturedInputByLabel('触发值'), '44');
+    expect(activeScenarioDoc().trafficLights[0]?.triggerValue).toBe(44);
+
+    changeCapturedSelect(capturedSelectByLabel('阶段 1 颜色'), 'YELLOW');
+    expect(activeScenarioDoc().trafficLights[0]?.stateGroup[0]?.color).toBe('YELLOW');
+
+    changeCapturedInput(capturedInputByLabel('阶段 1 保持秒数'), '15.5');
+    expect(activeScenarioDoc().trafficLights[0]?.stateGroup[0]?.keepTime).toBe(15.5);
+
+    changeCapturedInput(capturedInputByLabel('阶段 1 保持秒数'), 'not-number');
+    expect(activeScenarioDoc().trafficLights[0]?.stateGroup[0]?.keepTime).toBe(15.5);
+
+    clickCapturedButton(capturedButtonByText('添加阶段'));
+    expect(activeScenarioDoc().trafficLights[0]?.stateGroup.at(-1)).toEqual({
+      color: 'GREEN',
+      keepTime: 10,
+    });
+
+    clickCapturedButton(capturedButtonByLabel('删除阶段 1'));
+    expect(activeScenarioDoc().trafficLights[0]?.stateGroup[0]).toEqual({
+      color: 'GREEN',
+      keepTime: 8,
+    });
+
+    clickCapturedButton(capturedButtonByText('删除红绿灯'));
+    expect(activeScenarioDoc().trafficLights).toEqual([]);
+  });
 });
 
 describe('LaneRef SSR rendering', () => {
@@ -979,5 +1289,17 @@ describe('LaneRef SSR rendering', () => {
 
     const fullHtml = render(<LaneRefList ids={['lane_0000000001']} short={false} />);
     expect(fullHtml).toContain('lane_0000000001');
+  });
+
+  it('formats lane labels and sends selection only for existing references', () => {
+    const actorRef = { send: vi.fn() };
+    const entities = new Map<string, unknown>([['lane_0000000001', {}]]);
+
+    expect(laneRefDisplayLabel('lane_0000000001')).toBe('…000001');
+    expect(laneRefDisplayLabel('lane_0000000001', false)).toBe('lane_0000000001');
+    expect(selectLaneRef('lane_missing', actorRef, entities)).toBe(false);
+    expect(actorRef.send).not.toHaveBeenCalled();
+    expect(selectLaneRef('lane_0000000001', actorRef, entities)).toBe(true);
+    expect(actorRef.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: 'lane_0000000001' });
   });
 });

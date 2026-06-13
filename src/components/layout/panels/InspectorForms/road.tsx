@@ -9,8 +9,16 @@ import { zodResolverZ4 } from './resolver';
 
 const ROAD_TYPE_FALLBACK: RoadFormValues['type'] = 'UNKNOWN_ROAD';
 
-function formValuesFromRoad(entity: RoadEntity): RoadFormValues {
+export function roadFormValuesFromEntity(entity: RoadEntity): RoadFormValues {
   return { type: entity.type ?? ROAD_TYPE_FALLBACK };
+}
+
+export function applyRoadFormValuesToEntity(
+  entity: RoadEntity,
+  value: Partial<RoadFormValues>,
+): RoadEntity | null {
+  if (shouldSkipOptionalEnumWrite(value.type, entity.type, ROAD_TYPE_FALLBACK)) return null;
+  return { ...entity, type: value.type };
 }
 
 export function RoadForm({ entity }: { entity: RoadEntity }) {
@@ -18,16 +26,16 @@ export function RoadForm({ entity }: { entity: RoadEntity }) {
   const methods = useForm<RoadFormValues>({
     resolver: zodResolverZ4<RoadFormValues>(roadSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromRoad(entity),
+    defaultValues: roadFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromRoad);
+  const entityRef = useEntityFormSync(entity, methods, roadFormValuesFromEntity);
   const totalLaneCount = entity.sections.reduce((sum, s) => sum + s.laneIds.length, 0);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, ROAD_TYPE_FALLBACK)) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
+      const next = applyRoadFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);

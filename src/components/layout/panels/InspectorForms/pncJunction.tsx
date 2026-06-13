@@ -156,7 +156,7 @@ function PassageBlock({ passage, available, onChange, onRemove }: PassageBlockPr
   );
 }
 
-function makeBlankPassage(existingIds: string[]): Passage {
+export function makeBlankPassage(existingIds: string[]): Passage {
   return {
     id: nextSubId(SUB_PREFIX.passage, existingIds),
     laneIds: [],
@@ -167,7 +167,7 @@ function makeBlankPassage(existingIds: string[]): Passage {
   };
 }
 
-function addPassageGroup(groups: PassageGroup[]): PassageGroup[] {
+export function addPassageGroup(groups: PassageGroup[]): PassageGroup[] {
   return [
     ...groups,
     {
@@ -180,21 +180,32 @@ function addPassageGroup(groups: PassageGroup[]): PassageGroup[] {
   ];
 }
 
-function updatePassageInGroup(groups: PassageGroup[], gid: string, next: Passage): PassageGroup[] {
+export function removePassageGroup(groups: PassageGroup[], gid: string): PassageGroup[] {
+  return groups.filter((g) => g.id !== gid);
+}
+
+export function updatePassageInGroup(
+  groups: PassageGroup[],
+  gid: string,
+  next: Passage,
+): PassageGroup[] {
   return groups.map((g) =>
     g.id === gid ? { ...g, passages: g.passages.map((p) => (p.id === next.id ? next : p)) } : g,
   );
 }
 
-function addPassageToGroup(groups: PassageGroup[], gid: string): PassageGroup[] {
+export function addPassageToGroup(groups: PassageGroup[], gid: string): PassageGroup[] {
+  const existingPassageIds = groups.flatMap((g) => g.passages.map((p) => p.id));
   return groups.map((g) =>
-    g.id === gid
-      ? { ...g, passages: [...g.passages, makeBlankPassage(g.passages.map((p) => p.id))] }
-      : g,
+    g.id === gid ? { ...g, passages: [...g.passages, makeBlankPassage(existingPassageIds)] } : g,
   );
 }
 
-function removePassageFromGroup(groups: PassageGroup[], gid: string, pid: string): PassageGroup[] {
+export function removePassageFromGroup(
+  groups: PassageGroup[],
+  gid: string,
+  pid: string,
+): PassageGroup[] {
   return groups.map((g) =>
     g.id === gid ? { ...g, passages: g.passages.filter((p) => p.id !== pid) } : g,
   );
@@ -222,7 +233,7 @@ function PassageGroupsSection({ groups, available, onGroupsChange }: PassageGrou
         <div key={group.id} className="border border-white/10 rounded p-2 mb-2 bg-zinc-900/40">
           <PassageGroupHeader
             group={group}
-            onRemove={() => onGroupsChange(groups.filter((g) => g.id !== group.id))}
+            onRemove={() => onGroupsChange(removePassageGroup(groups, group.id))}
           />
           {group.passages.map((p) => (
             <PassageBlock

@@ -23,7 +23,7 @@ function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
-function describeObject(o: ObjectOverlapInfo): string {
+export function describeObject(o: ObjectOverlapInfo): string {
   if (o.objectType === 'lane') {
     const { startS, endS } = o.laneOverlapInfo;
     const range =
@@ -35,6 +35,39 @@ function describeObject(o: ObjectOverlapInfo): string {
   return `${o.objectType} ${shortId(o.objectId)}`;
 }
 
+export function applyLaneMergeOverride(
+  entity: OverlapEntity,
+  objectIndex: number,
+  isMerge: boolean,
+): OverlapEntity {
+  const target = entity.objects[objectIndex];
+  if (!target || target.objectType !== 'lane') return entity;
+
+  const objects: ObjectOverlapInfo[] = entity.objects.map((o, i) => {
+    if (i !== objectIndex || o.objectType !== 'lane') return o;
+    return {
+      ...o,
+      laneOverlapInfo: { ...o.laneOverlapInfo, isMerge },
+    };
+  });
+  return withOverride({ ...entity, objects }, laneIsMergeOverridePath(objectIndex));
+}
+
+export function releaseLaneMergeOverride(
+  entity: OverlapEntity,
+  objectIndex: number,
+): OverlapEntity {
+  return clearOverride(entity, laneIsMergeOverridePath(objectIndex));
+}
+
+export function pinRegionOverlaps(entity: OverlapEntity): OverlapEntity {
+  return withOverride(entity, REGION_OVERLAPS_OVERRIDE_PATH);
+}
+
+export function releaseRegionOverlaps(entity: OverlapEntity): OverlapEntity {
+  return clearOverride(entity, REGION_OVERLAPS_OVERRIDE_PATH);
+}
+
 export function OverlapForm({ entity }: { entity: OverlapEntity }) {
   const updateEntity = useMapStore((s) => s.updateEntity);
 
@@ -42,19 +75,11 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
   const isPinned = (i: number) => (entity._userOverrides ?? []).includes(overridePathFor(i));
 
   const onMergeChange = (i: number, next: boolean) => {
-    const objects: ObjectOverlapInfo[] = entity.objects.map((o, j) => {
-      if (j !== i || o.objectType !== 'lane') return o;
-      return {
-        ...o,
-        laneOverlapInfo: { ...o.laneOverlapInfo, isMerge: next },
-      };
-    });
-    const draft: OverlapEntity = { ...entity, objects };
-    updateEntity(entity.id, withOverride(draft, overridePathFor(i)));
+    updateEntity(entity.id, applyLaneMergeOverride(entity, i, next));
   };
 
   const onUnpin = (i: number) => {
-    updateEntity(entity.id, clearOverride(entity, overridePathFor(i)));
+    updateEntity(entity.id, releaseLaneMergeOverride(entity, i));
   };
 
   const laneObjects: { o: Extract<ObjectOverlapInfo, { objectType: 'lane' }>; i: number }[] = [];
@@ -82,10 +107,8 @@ export function OverlapForm({ entity }: { entity: OverlapEntity }) {
       {entity.regionOverlaps.length > 0 && (
         <RegionOverlapsSection
           entity={entity}
-          onPin={() => updateEntity(entity.id, withOverride(entity, REGION_OVERLAPS_OVERRIDE_PATH))}
-          onUnpin={() =>
-            updateEntity(entity.id, clearOverride(entity, REGION_OVERLAPS_OVERRIDE_PATH))
-          }
+          onPin={() => updateEntity(entity.id, pinRegionOverlaps(entity))}
+          onUnpin={() => updateEntity(entity.id, releaseRegionOverlaps(entity))}
         />
       )}
     </form>

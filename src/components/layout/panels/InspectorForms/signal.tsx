@@ -19,7 +19,7 @@ type SignInfoFlag = (typeof signInfoTypeOptions)[number];
 
 const SIGN_INFO_TYPE_SET: ReadonlySet<string> = new Set(signInfoTypeOptions);
 
-function signInfoFlags(entity: SignalEntity): SignInfoFlag[] {
+export function signInfoFlagsFromEntity(entity: SignalEntity): SignInfoFlag[] {
   const result: SignInfoFlag[] = [];
   for (const s of entity.signInfo) {
     if (SIGN_INFO_TYPE_SET.has(s.type)) result.push(s.type as SignInfoFlag);
@@ -27,8 +27,38 @@ function signInfoFlags(entity: SignalEntity): SignInfoFlag[] {
   return result;
 }
 
-function formValuesFromSignal(entity: SignalEntity): SignalFormValues {
-  return { type: entity.type, signInfo: signInfoFlags(entity) };
+export function signalFormValuesFromEntity(entity: SignalEntity): SignalFormValues {
+  return { type: entity.type, signInfo: signInfoFlagsFromEntity(entity) };
+}
+
+export function applySignalFormValuesToEntity(
+  entity: SignalEntity,
+  value: Partial<SignalFormValues>,
+): SignalEntity | null {
+  if (value.type && value.type !== entity.type) {
+    return regenerateSignalGeometry({ ...entity, type: value.type });
+  }
+
+  const nextFlags = (value.signInfo ?? []).filter((t): t is SignInfoFlag => typeof t === 'string');
+  const liveFlags = entity.signInfo.map((s) => s.type);
+  if (!arraysShallowEqual(nextFlags, liveFlags)) {
+    return {
+      ...entity,
+      signInfo: nextFlags.map((t) => ({ type: t as SignInfoType })),
+    };
+  }
+  return null;
+}
+
+export function applySignalSubsignalTypeToEntity(
+  entity: SignalEntity,
+  index: number,
+  type: SubsignalType,
+): SignalEntity | null {
+  const current = entity.subsignals[index];
+  if (!current || current.type === type) return null;
+  const subsignals = entity.subsignals.map((s, i) => (i === index ? { ...s, type } : s));
+  return { ...entity, subsignals };
 }
 
 export function SignalForm({ entity }: { entity: SignalEntity }) {
@@ -36,29 +66,16 @@ export function SignalForm({ entity }: { entity: SignalEntity }) {
   const methods = useForm<SignalFormValues>({
     resolver: zodResolverZ4<SignalFormValues>(signalSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromSignal(entity),
+    defaultValues: signalFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromSignal);
+  const entityRef = useEntityFormSync(entity, methods, signalFormValuesFromEntity);
   const selectedSignInfo = methods.watch('signInfo') ?? [];
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (value.type && value.type !== liveEntity.type) {
-        updateEntity(liveEntity.id, regenerateSignalGeometry({ ...liveEntity, type: value.type }));
-        return;
-      }
-
-      const nextFlags = (value.signInfo ?? []).filter(
-        (t): t is SignInfoFlag => typeof t === 'string',
-      );
-      const liveFlags = liveEntity.signInfo.map((s) => s.type);
-      if (!arraysShallowEqual(nextFlags, liveFlags)) {
-        updateEntity(liveEntity.id, {
-          ...liveEntity,
-          signInfo: nextFlags.map((t) => ({ type: t as SignInfoType })),
-        });
-      }
+      const next = applySignalFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);
@@ -73,8 +90,8 @@ export function SignalForm({ entity }: { entity: SignalEntity }) {
 
   const updateSubsignalType = (index: number, type: SubsignalType) => {
     const live = entityRef.current;
-    const next = live.subsignals.map((s, i) => (i === index ? { ...s, type } : s));
-    updateEntity(live.id, { ...live, subsignals: next });
+    const next = applySignalSubsignalTypeToEntity(live, index, type);
+    if (next) updateEntity(live.id, next);
   };
 
   const regenerateGeometry = () => {

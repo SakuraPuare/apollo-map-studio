@@ -9,8 +9,18 @@ import { zodResolverZ4 } from './resolver';
 
 const STOP_SIGN_TYPE_FALLBACK: StopSignFormValues['type'] = 'UNKNOWN_STOP_SIGN';
 
-function formValuesFromStopSign(entity: StopSignEntity): StopSignFormValues {
+export function stopSignFormValuesFromEntity(entity: StopSignEntity): StopSignFormValues {
   return { type: entity.type ?? STOP_SIGN_TYPE_FALLBACK };
+}
+
+export function applyStopSignFormValuesToEntity(
+  entity: StopSignEntity,
+  value: Partial<StopSignFormValues>,
+): StopSignEntity | null {
+  if (shouldSkipOptionalEnumWrite(value.type, entity.type, STOP_SIGN_TYPE_FALLBACK)) {
+    return null;
+  }
+  return { ...entity, type: value.type };
 }
 
 export function StopSignForm({ entity }: { entity: StopSignEntity }) {
@@ -18,17 +28,15 @@ export function StopSignForm({ entity }: { entity: StopSignEntity }) {
   const methods = useForm<StopSignFormValues>({
     resolver: zodResolverZ4<StopSignFormValues>(stopSignSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromStopSign(entity),
+    defaultValues: stopSignFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromStopSign);
+  const entityRef = useEntityFormSync(entity, methods, stopSignFormValuesFromEntity);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (shouldSkipOptionalEnumWrite(value.type, liveEntity.type, STOP_SIGN_TYPE_FALLBACK)) {
-        return;
-      }
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
+      const next = applyStopSignFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);

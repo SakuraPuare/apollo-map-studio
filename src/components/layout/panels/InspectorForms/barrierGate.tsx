@@ -11,8 +11,16 @@ import type { BarrierGateEntity } from '@/types/apollo';
 import { useEntityFormSync } from './formSync';
 import { zodResolverZ4 } from './resolver';
 
-function formValuesFromBarrierGate(entity: BarrierGateEntity): BarrierGateFormValues {
+export function barrierGateFormValuesFromEntity(entity: BarrierGateEntity): BarrierGateFormValues {
   return { type: entity.type };
+}
+
+export function applyBarrierGateFormValuesToEntity(
+  entity: BarrierGateEntity,
+  value: Partial<BarrierGateFormValues>,
+): BarrierGateEntity | null {
+  if (!value.type || value.type === entity.type) return null;
+  return { ...entity, type: value.type };
 }
 
 export function BarrierGateForm({ entity }: { entity: BarrierGateEntity }) {
@@ -20,15 +28,15 @@ export function BarrierGateForm({ entity }: { entity: BarrierGateEntity }) {
   const methods = useForm<BarrierGateFormValues>({
     resolver: zodResolverZ4<BarrierGateFormValues>(barrierGateSchema),
     mode: 'onChange',
-    defaultValues: formValuesFromBarrierGate(entity),
+    defaultValues: barrierGateFormValuesFromEntity(entity),
   });
-  const entityRef = useEntityFormSync(entity, methods, formValuesFromBarrierGate);
+  const entityRef = useEntityFormSync(entity, methods, barrierGateFormValuesFromEntity);
 
   useEffect(() => {
     const subscription = methods.watch((value) => {
       const liveEntity = entityRef.current;
-      if (!value.type || value.type === liveEntity.type) return;
-      updateEntity(liveEntity.id, { ...liveEntity, type: value.type });
+      const next = applyBarrierGateFormValuesToEntity(liveEntity, value);
+      if (next) updateEntity(liveEntity.id, next);
     });
     return () => subscription.unsubscribe();
   }, [entityRef, methods, updateEntity]);
