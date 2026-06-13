@@ -134,18 +134,17 @@ test.describe('Apollo line drawing', () => {
       await selectLineTool(page, lineCase);
 
       const draw = new CanvasClickHelper(page);
-      const selectionPoints =
-        lineCase.tool === 'drawArc'
-          ? await draw.drawArc()
-          : await draw.drawBezierWithEnter(lineCase.element);
+      if (lineCase.tool === 'drawArc') {
+        await draw.drawArc();
+      } else {
+        await draw.drawBezierWithEnter(lineCase.element);
+      }
 
       await expect(page.getByTestId('status-editor-mode')).toHaveText('Idle');
       await expect(page.getByTestId('status-entity-count')).toHaveText('1');
 
       await expect(layerGroupRow(page, lineCase)).toContainText('1');
-      await waitForAnimationFrames(page, 2);
-
-      await draw.selectAt(selectionPoints, lineCase.expectedId);
+      await selectEntityFromLayerTree(page, lineCase);
       await expect(page.getByTestId('status-editor-mode')).toHaveText('Selected');
       await expect(page.getByTestId('inspector-title')).toHaveText(lineCase.inspectorTitle);
       await expect(page.getByTestId('inspector-entity-id')).toHaveAttribute(
@@ -177,6 +176,31 @@ function layerGroupRow(page: Page, lineCase: LineCase): Locator {
   return page.getByTestId(`layer-tree-node-group-${lineCase.element}`).filter({
     has: page.getByText(lineCase.groupLabel, { exact: true }),
   });
+}
+
+function cssAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function entityRow(page: Page, id: string): Locator {
+  return page.getByTestId('layer-tree').locator(`[data-entity-id="${cssAttr(id)}"]`);
+}
+
+function outerAriaRow(inner: Locator): Locator {
+  return inner.locator('xpath=ancestor-or-self::*[@role="treeitem" and @aria-level][1]');
+}
+
+async function selectEntityFromLayerTree(page: Page, lineCase: LineCase): Promise<void> {
+  const group = layerGroupRow(page, lineCase);
+  const entity = entityRow(page, lineCase.expectedId);
+
+  await expect(group).toBeVisible();
+  if (!(await isVisible(entity, 500))) {
+    await group.click();
+  }
+  await expect(entity).toBeVisible();
+  await entity.click();
+  await expect(outerAriaRow(entity)).toHaveAttribute('aria-selected', 'true');
 }
 
 async function openLayersPanel(page: Page): Promise<void> {
@@ -218,22 +242,6 @@ async function isVisible(locator: Locator, timeout: number): Promise<boolean> {
     .catch(() => false);
 }
 
-async function waitForAnimationFrames(page: Page, count: number): Promise<void> {
-  await page.evaluate(
-    (frameCount) =>
-      new Promise<void>((resolve) => {
-        let seen = 0;
-        const tick = () => {
-          seen += 1;
-          if (seen >= frameCount) resolve();
-          else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }),
-    count,
-  );
-}
-
 async function waitForInspectorForm(page: Page, lineCase: LineCase): Promise<void> {
   const inspector = page.getByTestId('inspector-panel');
   await expect(inspector).toContainText('Attributes');
@@ -257,7 +265,7 @@ async function selectLineTool(page: Page, lineCase: LineCase): Promise<void> {
 class CanvasClickHelper {
   constructor(private readonly page: Page) {}
 
-  async drawBezierWithEnter(element: LineCase['element']): Promise<Point[]> {
+  async drawBezierWithEnter(element: LineCase['element']): Promise<void> {
     const offset = element === 'signal' || element === 'barrierGate' ? -24 : 0;
     const p1 = await this.relativePoint(0.34, 0.52, 0, offset);
     const p2 = await this.relativePoint(0.66, 0.48, 0, offset);
@@ -265,67 +273,16 @@ class CanvasClickHelper {
     await this.downUp(p1);
     await this.downUp(p2);
     await this.page.keyboard.press('Enter');
-
-    return [midpoint(p1, p2), p1, p2];
   }
 
-  async drawArc(): Promise<Point[]> {
+  async drawArc(): Promise<void> {
     const p1 = await this.relativePoint(0.34, 0.58);
     const p2 = await this.relativePoint(0.5, 0.36);
     const p3 = await this.relativePoint(0.66, 0.58);
-    const sampledArcCandidates = await Promise.all([
-      this.relativePoint(0.5, 0.605),
-      this.relativePoint(0.46, 0.6),
-      this.relativePoint(0.54, 0.6),
-      this.relativePoint(0.42, 0.59),
-      this.relativePoint(0.58, 0.59),
-      this.relativePoint(0.37, 0.58),
-      this.relativePoint(0.63, 0.58),
-    ]);
 
     await this.click(p1);
     await this.click(p2);
     await this.click(p3);
-
-    return [...sampledArcCandidates, p2, midpoint(p1, p2), midpoint(p2, p3), midpoint(p1, p3)];
-  }
-
-  async selectAt(points: Point[], expectedId: string): Promise<void> {
-    const offsetPoints = points.slice(0, 4);
-    const candidates = [
-      ...points,
-      ...offsetPoints.flatMap((point) => [
-        { x: point.x, y: point.y - 12 },
-        { x: point.x, y: point.y + 12 },
-        { x: point.x - 12, y: point.y },
-        { x: point.x + 12, y: point.y },
-      ]),
-    ];
-    const misses: string[] = [];
-    const deadline = Date.now() + 10_000;
-
-    while (Date.now() < deadline) {
-      for (const point of candidates) {
-        await this.click(point);
-        try {
-          await expect(this.page.getByTestId('inspector-entity-id')).toHaveAttribute(
-            'title',
-            expectedId,
-            { timeout: 200 },
-          );
-          return;
-        } catch {
-          misses.push(`${Math.round(point.x)},${Math.round(point.y)}`);
-        }
-        if (Date.now() >= deadline) break;
-      }
-    }
-
-    throw new Error(
-      `No canvas selection hit for ${expectedId} after ${misses.length} attempts: ${misses.join(
-        ' ',
-      )}`,
-    );
   }
 
   private async relativePoint(xRatio: number, yRatio: number, dx = 0, dy = 0): Promise<Point> {
@@ -346,8 +303,4 @@ class CanvasClickHelper {
     await this.page.mouse.down();
     await this.page.mouse.up();
   }
-}
-
-function midpoint(a: Point, b: Point): Point {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }

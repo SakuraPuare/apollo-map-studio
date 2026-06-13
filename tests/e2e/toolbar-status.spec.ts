@@ -9,6 +9,8 @@ test.describe('ToolStrip and StatusBar interactions', () => {
         localStorage.clear();
         sessionStorage.clear();
         localStorage.setItem('ams.webLicense.v1', JSON.stringify({ trialStart: Date.now() }));
+        localStorage.setItem('apollo-map-studio:gridEnabled', 'true');
+        localStorage.setItem('apollo-map-studio:snapEnabled', 'false');
       } catch {
         /* about:blank can deny storage before the app origin is active. */
       }
@@ -88,6 +90,7 @@ test.describe('ToolStrip and StatusBar interactions', () => {
     await expect(gridStatus).toHaveAttribute('data-enabled', 'true');
     await expect(snapButton).toHaveAttribute('aria-pressed', 'false');
     await expect(snapStatus).toHaveAttribute('data-enabled', 'false');
+    await expect(snapStatus).toHaveAttribute('aria-label', 'Snap disabled');
 
     await gridButton.click();
     await snapButton.click();
@@ -98,6 +101,16 @@ test.describe('ToolStrip and StatusBar interactions', () => {
     await expect(snapButton).toHaveAttribute('aria-pressed', 'true');
     await expect(snapStatus).toHaveAttribute('data-enabled', 'true');
     await expect(snapStatus).toHaveAttribute('aria-label', 'Snap enabled');
+
+    await gridButton.click();
+    await snapButton.click();
+
+    await expect(gridButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(gridStatus).toHaveAttribute('data-enabled', 'true');
+    await expect(gridStatus).toHaveAttribute('aria-label', 'Grid enabled');
+    await expect(snapButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(snapStatus).toHaveAttribute('data-enabled', 'false');
+    await expect(snapStatus).toHaveAttribute('aria-label', 'Snap disabled');
   });
 
   test('opens command palette from the toolbar button', async ({ page }) => {

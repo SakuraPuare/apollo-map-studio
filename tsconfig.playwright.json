@@ -7,8 +7,7 @@
   "include": [
     "playwright.config.ts",
     "playwright.electron.config.ts",
-    "tests/e2e/helpers/**/*.ts",
-    "tests/e2e/line-drawing.spec.ts",
+    "tests/e2e/**/*.ts",
     "electron-e2e/**/*.ts",
     "electron-e2e/**/*.d.ts"
   ]

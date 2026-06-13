@@ -7,10 +7,13 @@ export interface ConsoleGuard {
 }
 
 const ignoredWarningPatterns = [
+  /\[vite\]\s+(connected|connecting)/i,
   /^Automatic fallback to software WebGL has been deprecated/i,
-  /^.*SwiftShader.*automatic fallback to software WebGL.*$/i,
-  /^.*GPU stall due to ReadPixels.*$/i,
   /^WebGL performance caveat/i,
+  /SwiftShader.*(automatic fallback to software WebGL|WebGL|ANGLE|software|deprecated)/i,
+  /^.*GPU stall due to ReadPixels.*$/i,
+  /^SwiftShader device/i,
+  /^Passthrough is not supported, GL is swiftshader/i,
 ];
 
 function formatConsoleMessage(message: ConsoleMessage): string {

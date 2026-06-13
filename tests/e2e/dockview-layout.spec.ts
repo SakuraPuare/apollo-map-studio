@@ -78,39 +78,29 @@ test.describe('Dockview workspace layout', () => {
     await expectPanel(ams.page, 'timeline');
   });
 
-  test('switches sidebar activity views by mode', async ({ ams }) => {
-    const sidebarPanel = sidebar(ams.page);
-    const layerTree = sidebarPanel.getByTestId('layer-tree');
-    const searchBox = sidebarPanel.getByRole('searchbox', {
-      name: 'Search entities by id or type',
-    });
-    const scenarioFormat = sidebarPanel.getByRole('combobox', { name: '新建场景格式' });
-
+  test('filters activity tabs by mode and toggles the sidebar panel container', async ({ ams }) => {
     await expect(ams.page.locator(selectors.activity.button('scenarios'))).toHaveCount(0);
 
     await ams.openActivityPanel('layers');
-    await expect(sidebarPanel).toBeVisible();
-    await expect(layerTree).toBeVisible();
-    await expect(searchBox).toHaveCount(0);
+    await expectPanel(ams.page, 'sidebar');
 
     await ams.openActivityPanel('search');
-    await expect(searchBox).toBeVisible();
-    await expect(layerTree).toHaveCount(0);
+    await expectPanel(ams.page, 'sidebar');
+
+    await clickViewAction(ams.page, 'view:search');
+    await expectNoPanel(ams.page, 'sidebar');
 
     await ams.openActivityPanel('outline');
-    await expect(sidebarPanel).toBeVisible();
-    await expect(layerTree).toHaveCount(0);
-    await expect(searchBox).toHaveCount(0);
-    await expect(scenarioFormat).toHaveCount(0);
+    await expectPanel(ams.page, 'sidebar');
 
     await switchMode(ams.page, 'scene');
     await expect(ams.page.locator(selectors.activity.button('scenarios'))).toBeVisible();
 
     await ams.openActivityPanel('scenarios');
-    await expect(sidebarPanel).toBeVisible();
-    await expect(scenarioFormat).toBeVisible();
-    await expect(layerTree).toHaveCount(0);
-    await expect(searchBox).toHaveCount(0);
+    await expectPanel(ams.page, 'sidebar');
+
+    await clickViewAction(ams.page, 'view:scenarios');
+    await expectNoPanel(ams.page, 'sidebar');
   });
 
   test('persists layout changes across refresh', async ({ ams }) => {

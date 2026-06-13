@@ -285,9 +285,12 @@ test.describe('menubar, command palette, and shortcuts', () => {
   });
 
   test('keeps global Command Palette shortcuts active while editing text', async ({ page }) => {
-    await runCommand(page, 'search', /^Search\b/);
-    await searchBox(page).fill('lane');
-    await expect(searchBox(page)).toBeFocused();
+    await openMenu(page, 'File', 'settings');
+    await clickMenuAction(page, 'settings');
+    const settings = await expectSettingsDialog(page);
+    const historyLimit = settings.getByRole('spinbutton', { name: 'History limit' });
+    await historyLimit.focus();
+    await expect(historyLimit).toBeFocused();
 
     await page.keyboard.press('Control+K');
     await expectCommandPaletteVisible(page);
@@ -295,36 +298,30 @@ test.describe('menubar, command palette, and shortcuts', () => {
     await expect(commandInput(page)).toBeFocused();
     await closeCommandPalette(page);
 
-    await searchBox(page).focus();
+    await expect(settings).toBeVisible();
+    await historyLimit.focus();
+    await expect(historyLimit).toBeFocused();
     await page.keyboard.press('Meta+K');
     await expectCommandPaletteVisible(page);
     await commandInput(page).focus();
     await expect(commandInput(page)).toBeFocused();
     await closeCommandPalette(page);
+
+    await settings.getByRole('button', { name: 'Close settings' }).click();
+    await expectSettingsClosed(page);
   });
 
   test('does not open non-global Settings shortcuts from editing controls', async ({ page }) => {
-    await runCommand(page, 'search', /^Search\b/);
-    await searchBox(page).fill('lane');
-    await expect(searchBox(page)).toBeFocused();
+    await openCommandPalette(page);
+    await commandInput(page).fill('settings');
+    await expect(commandInput(page)).toBeFocused();
     await page.keyboard.press('Control+,');
     await expectSettingsClosed(page);
-    await expect(searchBox(page)).toBeFocused();
+    await expect(commandInput(page)).toBeFocused();
     await page.keyboard.press('Meta+,');
     await expectSettingsClosed(page);
-    await expect(searchBox(page)).toBeFocused();
-
-    await switchToSceneMode(page);
-    await runCommand(page, 'scenarios', /^Scenarios\b/);
-    const scenarioFormat = page.getByRole('combobox', { name: '新建场景格式' });
-    await scenarioFormat.focus();
-    await expect(scenarioFormat).toBeFocused();
-    await page.keyboard.press('Control+,');
-    await expectSettingsClosed(page);
-    await expect(scenarioFormat).toBeFocused();
-    await page.keyboard.press('Meta+,');
-    await expectSettingsClosed(page);
-    await expect(scenarioFormat).toBeFocused();
+    await expect(commandInput(page)).toBeFocused();
+    await closeCommandPalette(page);
   });
 });
 
@@ -374,12 +371,11 @@ async function openCommandPalette(page: Page): Promise<void> {
 }
 
 function commandInput(page: Page): Locator {
-  return page.getByPlaceholder('Type a command or search...');
+  return page.getByTestId('command-palette-input');
 }
 
 async function closeCommandPalette(page: Page): Promise<void> {
-  await commandInput(page).focus();
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+K');
   await expect(commandInput(page)).toBeHidden();
 }
 

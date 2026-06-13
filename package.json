@@ -35,7 +35,7 @@
     "test": "vitest run",
     "test:electron": "node scripts/run-electron-tests.mjs",
     "test:electron:e2e": "node scripts/run-electron-e2e.mjs",
-    "test:e2e": "playwright test tests/e2e/line-drawing.spec.ts --project=chromium",
+    "test:e2e": "playwright test --project=chromium",
     "test:e2e:ci": "playwright install --with-deps chromium && pnpm test:e2e",
     "bench": "vitest bench --run --maxWorkers=1",
     "bench:fast": "vitest bench --run --maxWorkers=100%",

@@ -408,6 +408,7 @@ async function directChildState(parent: Locator, childId: string): Promise<{ att
     const parentLevel = Number(rows[parentIndex]?.getAttribute('aria-level'));
     for (let index = parentIndex + 1; index < rows.length; index += 1) {
       const row = rows[index];
+      if (!row) continue;
       const level = Number(row.getAttribute('aria-level'));
       if (level <= parentLevel) return { attached: false };
       const entity = row.querySelector<HTMLElement>('[data-entity-id]');

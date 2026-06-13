@@ -219,7 +219,12 @@ async function installDownloadTextCapture(page: Page): Promise<void> {
       return url;
     };
 
-    const originalCreateElement = Document.prototype.createElement;
+    type CreateElement = (
+      this: Document,
+      tagName: string,
+      options?: ElementCreationOptions,
+    ) => Element;
+    const originalCreateElement = Document.prototype.createElement as CreateElement;
     Document.prototype.createElement = function createElement(
       this: Document,
       tagName: string,

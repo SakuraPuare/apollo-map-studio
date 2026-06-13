@@ -8,6 +8,9 @@ const REMOVED_LAYOUT_KEYS_KEY = '__ams_settings_about_projection_e2e_removed_lay
 const DRAWING_LAYOUT_KEY = 'apollo-map-studio:layout:drawing';
 const SCENE_LAYOUT_KEY = 'apollo-map-studio:layout:scene';
 const SENTINEL_LAYOUT = '{"sentinel":"settings-reset-e2e"}';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+type WebLicenseScenario = 'activated' | 'trial' | 'expired_trial';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(
@@ -214,6 +217,59 @@ test.describe('Settings, About, and projection picker dialogs', () => {
     await expect(aboutDialog(page)).toBeHidden();
   });
 
+  test('shows web license UI for activated, trial, and read-only states', async ({ page }) => {
+    await setWebLicenseScenario(page, 'activated');
+    await expect(page.getByTestId('license-status')).toContainText('activated');
+    await expect(page.getByText(/Licensed .* 5d remaining/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Manage license' })).toBeVisible();
+    await openAboutFromMenu(page);
+    await expectAboutLicenseRows(page, {
+      status: 'Activated',
+      access: 'Editing enabled',
+      expiry: /Expires .* remaining/,
+      licenseName: 'E2E Activated License',
+      licenseId: 'e2e-activated',
+    });
+    await aboutDialog(page).getByRole('button', { name: 'Manage License' }).click();
+    await expect(page.getByTestId('activation-dialog')).toBeVisible();
+    await expect(page.getByTestId('activation-status')).toContainText('status: activated');
+    await expect(page.getByTestId('activation-dialog')).toContainText(
+      'Activated · E2E Activated License',
+    );
+    await page.getByTestId('activation-close').click();
+
+    await setWebLicenseScenario(page, 'trial');
+    await expect(page.getByTestId('license-status')).toContainText('trial');
+    await expect(page.getByText(/Trial: 2d remaining/)).toBeVisible();
+    await page.getByRole('button', { name: 'Activate' }).click();
+    await expect(page.getByTestId('activation-dialog')).toBeVisible();
+    await expect(page.getByTestId('activation-status')).toContainText('status: trial');
+    await page.getByTestId('activation-close').click();
+    await openAboutFromMenu(page);
+    await expectAboutLicenseRows(page, {
+      status: 'Trial',
+      access: 'Editing enabled',
+      expiry: /Expires .* remaining/,
+    });
+    await aboutDialog(page).getByTestId('about-close-header').click();
+
+    await setWebLicenseScenario(page, 'expired_trial');
+    await expect(page.getByTestId('license-status')).toContainText('expired_trial');
+    await expect(
+      page.getByText('Trial expired — read-only mode. Activate to continue editing.'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Activate' }).click();
+    await expect(page.getByTestId('activation-dialog')).toBeVisible();
+    await expect(page.getByTestId('activation-status')).toContainText('status: expired_trial');
+    await page.getByTestId('activation-close').click();
+    await openAboutFromMenu(page);
+    await expectAboutLicenseRows(page, {
+      status: 'Trial expired',
+      access: 'Read-only',
+      expiry: /^Expired /,
+    });
+  });
+
   test('accepts projection preset, UTM, and custom PROJ inputs', async ({ page }) => {
     const presetFilename = 'projection-preset.pb.txt';
     const utmFilename = 'projection-utm.pb.txt';
@@ -249,6 +305,34 @@ test.describe('Settings, About, and projection picker dialogs', () => {
     await submit.click();
     await expect(dialog).toBeHidden();
     await expectImportedMap(page, customFilename, /PROJ: .*\+lat_0=37\.413082.*\+lon_0=-122\.13/);
+  });
+
+  test('handles projection picker cancel and invalid custom projection errors', async ({
+    page,
+  }) => {
+    const cancelFilename = 'projection-cancel.pb.txt';
+    const invalidFilename = 'projection-invalid.pb.txt';
+
+    let dialog = await openProjectionPicker(page, cancelFilename);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    await expectImportedMap(page, cancelFilename, /PROJ: .*\+zone=50/);
+
+    const importFailure = page.waitForEvent('console', {
+      predicate: (message) =>
+        message.type() === 'error' && message.text().includes('[mapIO] import failed'),
+    });
+    dialog = await openProjectionPicker(page, invalidFilename);
+    await dialog.getByRole('button', { name: 'Custom PROJ' }).click();
+    await dialog.getByRole('textbox', { name: 'PROJ.4 string' }).fill('not-a-proj');
+    await expect(resolvedProjection(dialog)).toHaveText('not-a-proj');
+    await dialog.getByRole('button', { name: 'Use this projection' }).click();
+    await expect(dialog).toBeHidden();
+    await importFailure;
+    await expect(
+      page.getByTestId('status-apollo-map').filter({ hasText: invalidFilename }),
+    ).toHaveCount(0);
+    await expectImportedMap(page, cancelFilename, /PROJ: .*\+zone=50/);
   });
 });
 
@@ -291,15 +375,22 @@ async function openSettings(page: Page): Promise<void> {
 }
 
 async function openAboutFromMenu(page: Page): Promise<void> {
-  await runMenuAction(page, 'About', 'about');
-  await expect(aboutDialog(page)).toBeVisible();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await runMenuAction(page, 'About', 'about');
+    try {
+      await expect(aboutDialog(page)).toBeVisible({ timeout: 2_000 });
+      return;
+    } catch (error) {
+      if (attempt === 1) throw error;
+    }
+  }
 }
 
 async function runMenuAction(page: Page, menu: string, actionId: string): Promise<void> {
   await page.getByTestId(`menu-${menu.toLowerCase()}`).click();
   const item = page.getByTestId(`menuitem-${actionId}`);
   await expect(item).toBeVisible();
-  await item.dispatchEvent('click');
+  await item.click();
 }
 
 async function expectAboutDialogContent(page: Page): Promise<void> {
@@ -308,13 +399,89 @@ async function expectAboutDialogContent(page: Page): Promise<void> {
   await expect(dialog.getByRole('heading', { name: 'Apollo Map Studio' })).toBeVisible();
   await expect(dialog.getByTestId('about-version-value-version')).toHaveText(/^v(?!\.\.\.).+/);
   await expect(dialog.getByTestId('about-version-value-runtime')).toHaveText('Web');
+  await expect(dialog.getByTestId('about-version-value-platform')).toHaveText(/.+/);
+  await expect(dialog.getByTestId('about-version-value-chrome')).toHaveText(/\d/);
   await expect(dialog.getByRole('heading', { name: 'License & Activation' })).toBeVisible();
   await expect(dialog.getByTestId('about-license-value-status')).toHaveText('Activated');
   await expect(dialog.getByTestId('about-license-value-access')).toHaveText('Editing enabled');
+  await expect(dialog.getByTestId('about-license-value-trial-expiry')).toHaveText(
+    'Perpetual license',
+  );
   await expect(dialog.getByTestId('about-license-value-license-name')).toHaveText(
     'E2E Mock License',
   );
+  await expect(dialog.getByTestId('about-license-value-license-id')).toHaveText('e2e');
   await expect(dialog.getByTestId('about-license-value-device-code')).toHaveText('WEB-BROWSER');
+}
+
+async function expectAboutLicenseRows(
+  page: Page,
+  expected: {
+    status: string;
+    access: string;
+    expiry: string | RegExp;
+    licenseName?: string;
+    licenseId?: string;
+  },
+): Promise<void> {
+  const dialog = aboutDialog(page);
+  await expect(dialog.getByTestId('about-license-value-status')).toHaveText(expected.status);
+  await expect(dialog.getByTestId('about-license-value-access')).toHaveText(expected.access);
+  await expect(dialog.getByTestId('about-license-value-trial-expiry')).toHaveText(expected.expiry);
+  await expect(dialog.getByTestId('about-license-value-device-code')).toHaveText('WEB-BROWSER');
+  if (expected.licenseName) {
+    await expect(dialog.getByTestId('about-license-value-license-name')).toHaveText(
+      expected.licenseName,
+    );
+  } else {
+    await expect(dialog.getByTestId('about-license-row-license-name')).toHaveCount(0);
+  }
+  if (expected.licenseId) {
+    await expect(dialog.getByTestId('about-license-value-license-id')).toHaveText(
+      expected.licenseId,
+    );
+  } else {
+    await expect(dialog.getByTestId('about-license-row-license-id')).toHaveCount(0);
+  }
+}
+
+async function setWebLicenseScenario(page: Page, scenario: WebLicenseScenario): Promise<void> {
+  await page.evaluate(
+    ({ licenseKey, selectedScenario, dayMs }) => {
+      const now = Date.now();
+      if (selectedScenario === 'activated') {
+        const expires = now + 5 * dayMs;
+        localStorage.setItem(
+          licenseKey,
+          JSON.stringify({
+            trialStart: now - dayMs,
+            activation: {
+              license: {
+                id: 'e2e-activated',
+                name: 'E2E Activated License',
+                issued: now - 2 * dayMs,
+                expires,
+              },
+              expires,
+              activatedAt: now - dayMs,
+            },
+          }),
+        );
+        return;
+      }
+
+      localStorage.setItem(
+        licenseKey,
+        JSON.stringify({
+          trialStart: now - (selectedScenario === 'trial' ? 5 * dayMs : 8 * dayMs),
+        }),
+      );
+    },
+    { licenseKey: WEB_LICENSE_KEY, selectedScenario: scenario, dayMs: DAY_MS },
+  );
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expectWorkspaceReady(page);
 }
 
 async function openProjectionPicker(page: Page, filename: string): Promise<Locator> {

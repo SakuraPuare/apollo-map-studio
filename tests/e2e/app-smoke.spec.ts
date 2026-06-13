@@ -1,4 +1,6 @@
-import { expect, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { installConsoleGuard, type ConsoleGuard } from './helpers/consoleGuard';
+import { expectMapLibreCanvasPainted, waitForMapLibreCanvas } from './helpers/mapLibre';
 
 type PanelId = 'map' | 'sidebar' | 'inspector' | 'toolbox' | 'timeline';
 
@@ -6,9 +8,6 @@ const AMS_STORAGE_PREFIX = 'apollo-map-studio:';
 const DRAWING_LAYOUT_KEY = 'apollo-map-studio:layout:drawing';
 const GRID_ENABLED_KEY = 'apollo-map-studio:gridEnabled';
 const WEB_LICENSE_KEY = 'ams.webLicense.v1';
-const MAP_BACKGROUND = [26, 26, 46] as const;
-const CANVAS_SELECTOR =
-  '[data-testid="map-canvas"] canvas.maplibregl-canvas[data-testid="maplibre-canvas"], [data-testid="maplibre-canvas"]';
 
 const DEFAULT_PANELS: Array<{ id: PanelId; title: string }> = [
   { id: 'map', title: 'Map Editor' },
@@ -17,25 +16,11 @@ const DEFAULT_PANELS: Array<{ id: PanelId; title: string }> = [
   { id: 'toolbox', title: 'Toolbox' },
 ];
 
-const BENIGN_WARNING_PATTERNS = [
-  /\[vite\]\s+(connected|connecting)/i,
-  /^Automatic fallback to software WebGL has been deprecated/i,
-  /^WebGL performance caveat/i,
-  /SwiftShader.*(automatic fallback to software WebGL|WebGL|ANGLE|software|deprecated)/i,
-  /SwiftShader device/i,
-  /Passthrough is not supported, GL is swiftshader/i,
-  /GL Driver Message .*GPU stall due to ReadPixels/i,
-];
-
-interface ConsoleGuard {
-  assertClean(): void;
-}
-
 test.describe('app startup smoke', () => {
   let guard: ConsoleGuard;
 
   test.beforeEach(async ({ page }) => {
-    guard = installConsoleGuard(page);
+    guard = installConsoleGuard(page, { failOnWarnings: true });
     await installAppSmokeInit(page);
   });
 
@@ -61,8 +46,8 @@ test.describe('app startup smoke', () => {
     await expect(page.getByTestId('license-status')).toHaveText(/^(trial|activated)$/);
 
     await expectDefaultDockview(page);
-    const initialCanvas = await waitForPaintedMapCanvas(page);
-    await expectNonBackgroundCanvasPixels(page, initialCanvas);
+    const initialCanvas = await waitForMapLibreCanvas(page, { requireWebGl: true });
+    await expectMapLibreCanvasPainted(page, initialCanvas);
 
     await clickViewAction(page, 'view:toolbox');
     await expect(page.getByTestId('workspace-panel-toolbox')).toHaveCount(0);
@@ -80,8 +65,8 @@ test.describe('app startup smoke', () => {
     await expectDockviewTitle(page, 'Inspector');
     await expect(page.getByTestId('status-toggle-grid')).toHaveAttribute('data-enabled', 'true');
 
-    const restoredCanvas = await waitForPaintedMapCanvas(page);
-    await expectNonBackgroundCanvasPixels(page, restoredCanvas);
+    const restoredCanvas = await waitForMapLibreCanvas(page, { requireWebGl: true });
+    await expectMapLibreCanvasPainted(page, restoredCanvas);
     await expect(page.getByRole('heading', { name: 'Access Denied' })).toHaveCount(0);
   });
 });
@@ -118,40 +103,6 @@ async function installAppSmokeInit(page: Page): Promise<void> {
     },
     { prefix: AMS_STORAGE_PREFIX, gridKey: GRID_ENABLED_KEY, licenseKey: WEB_LICENSE_KEY },
   );
-}
-
-function installConsoleGuard(page: Page): ConsoleGuard {
-  const failures: string[] = [];
-
-  page.on('pageerror', (error) => {
-    failures.push(`pageerror: ${error.stack ?? error.message}`);
-  });
-
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      failures.push(formatConsoleMessage(message));
-      return;
-    }
-
-    if (
-      message.type() === 'warning' &&
-      !BENIGN_WARNING_PATTERNS.some((pattern) => pattern.test(message.text()))
-    ) {
-      failures.push(formatConsoleMessage(message));
-    }
-  });
-
-  return {
-    assertClean() {
-      expect(failures, failures.join('\n')).toEqual([]);
-    },
-  };
-}
-
-function formatConsoleMessage(message: ConsoleMessage): string {
-  const location = message.location();
-  const where = location.url ? ` (${location.url}:${location.lineNumber})` : '';
-  return `${message.type()}: ${message.text()}${where}`;
 }
 
 async function waitForWorkspaceReady(page: Page): Promise<void> {
@@ -191,85 +142,6 @@ async function clickViewAction(page: Page, actionId: string): Promise<void> {
   await expect(item).toBeEnabled();
   await item.click();
   await expect(item).toHaveCount(0);
-}
-
-async function waitForPaintedMapCanvas(page: Page): Promise<Locator> {
-  await expect(page.getByTestId('workspace-panel-map')).toBeVisible();
-
-  const canvas = page.locator(CANVAS_SELECTOR).first();
-  await expect(canvas).toBeVisible();
-
-  await page.waitForFunction((selector) => {
-    const node = document.querySelector<HTMLCanvasElement>(selector);
-    if (!node) return false;
-
-    const first = node.getBoundingClientRect();
-    if (first.width <= 100 || first.height <= 100 || node.width <= 100 || node.height <= 100) {
-      return false;
-    }
-
-    return new Promise<boolean>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const second = node.getBoundingClientRect();
-          const gl = node.getContext('webgl2') ?? node.getContext('webgl');
-          resolve(
-            second.width === first.width &&
-              second.height === first.height &&
-              Boolean(
-                gl &&
-                !gl.isContextLost() &&
-                gl.drawingBufferWidth > 100 &&
-                gl.drawingBufferHeight > 100,
-              ),
-          );
-        });
-      });
-    });
-  }, CANVAS_SELECTOR);
-
-  return canvas;
-}
-
-async function expectNonBackgroundCanvasPixels(page: Page, canvas: Locator): Promise<void> {
-  await expect
-    .poll(async () => hasNonBackgroundCanvasPixels(page, canvas), { timeout: 10_000 })
-    .toBe(true);
-}
-
-async function hasNonBackgroundCanvasPixels(page: Page, canvas: Locator): Promise<boolean> {
-  const pngBase64 = (await canvas.screenshot({ type: 'png' })).toString('base64');
-
-  return page.evaluate(
-    async ({ base64, background }) => {
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-      const probe = document.createElement('canvas');
-      probe.width = bitmap.width;
-      probe.height = bitmap.height;
-
-      const context = probe.getContext('2d', { willReadFrequently: true });
-      if (!context) return false;
-
-      context.drawImage(bitmap, 0, 0);
-      const { data } = context.getImageData(0, 0, probe.width, probe.height);
-      let changed = 0;
-
-      for (let index = 0; index < data.length; index += 16) {
-        if ((data[index + 3] ?? 0) < 240) continue;
-        const delta =
-          Math.abs((data[index] ?? 0) - background[0]) +
-          Math.abs((data[index + 1] ?? 0) - background[1]) +
-          Math.abs((data[index + 2] ?? 0) - background[2]);
-
-        if (delta > 24) changed += 1;
-        if (changed >= 64) return true;
-      }
-
-      return false;
-    },
-    { base64: pngBase64, background: MAP_BACKGROUND },
-  );
 }
 
 async function waitForSavedLayout(

@@ -3,7 +3,14 @@ import { expect, test } from './fixtures/app';
 
 type Point = { x: number; y: number };
 type CanvasTarget = Point & { xRatio: number; yRatio: number };
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5173';
+const BASE_URL =
+  process.env.PLAYWRIGHT_BASE_URL ??
+  `http://127.0.0.1:${
+    process.env.PLAYWRIGHT_PREVIEW_PORT ??
+    process.env.PLAYWRIGHT_DEV_SERVER_PORT ??
+    process.env.E2E_PORT ??
+    4173
+  }`;
 type DownloadTextRecord = {
   filename: string;
   href: string;
@@ -76,6 +83,18 @@ test.describe('scene authoring', () => {
     expect(staticPoint.x).toBeGreaterThan(bicyclePoint.x);
     await selectSceneObjectAt(page, canvas, bicyclePoint, 'bicycle');
     await selectSceneObjectAt(page, canvas, staticPoint, 'staticObstacle');
+    await expectScenarioBrowserSummary(page, {
+      obstacleCount: 4,
+      trafficLightCount: 0,
+      obstacleRows: ['1 · vehicle', '2 · pedestrian', '3 · bicycle', '4 · staticObstacle'],
+    });
+    await expectTimelineTracks(page, [
+      'Ego',
+      '1 · vehicle',
+      '2 · pedestrian',
+      '3 · bicycle',
+      '4 · staticObstacle',
+    ]);
 
     const trafficLightPoint = await placeSceneObject(
       page,
@@ -87,26 +106,82 @@ test.describe('scene authoring', () => {
     );
     await selectSceneObjectAt(page, canvas, staticPoint, 'staticObstacle');
     await selectSceneObjectAt(page, canvas, trafficLightPoint, 'Signal ID');
-    await editAndDeleteSelectedTrafficLight(page);
+    await editSelectedTrafficLight(page);
+    await expectScenarioBrowserSummary(page, {
+      obstacleCount: 4,
+      trafficLightCount: 1,
+      obstacleRows: ['1 · vehicle', '2 · pedestrian', '3 · bicycle', '4 · staticObstacle'],
+    });
+    await expectTimelineTracks(page, ['Signal Signal_E2E_Edited']);
 
     await selectSceneObjectAt(page, canvas, pedestrianPoint, 'pedestrian');
-    await editAndDeleteSelectedObstacle(page);
+    await editSelectedObstacle(page);
+    await expectScenarioBrowserSummary(page, {
+      obstacleCount: 4,
+      trafficLightCount: 1,
+      obstacleRows: ['2 · pedestrian'],
+    });
 
     const egoStartPoint = await setEgoPoint(page, canvas, 'setEgoStart', 0.42, 0.34);
     await setEgoPoint(page, canvas, 'setEgoEnd', 0.68, 0.34);
     await setEgoPoint(page, canvas, 'addWaypoint', 0.55, 0.3);
     await selectSceneObjectAt(page, canvas, egoStartPoint, '起点 (世界米)');
+    const canvasEgoSnapshot = await expectEgoInspectorReflectsCanvasEdits(page);
+
+    await installDownloadTextCapture(page);
+    const canvasEgoExport = await exportCurrentScenario(page);
+    assertExportedEgoMatchesSnapshot(canvasEgoExport, canvasEgoSnapshot);
+
     await editSelectedEgo(page);
 
     await selectSceneObjectAt(page, canvas, vehiclePoint, 'vehicle');
     await drawTrajectoryOnSelectedVehicle(page, canvas);
+    await expectScenarioBrowserSummary(page, {
+      obstacleCount: 4,
+      trafficLightCount: 1,
+      obstacleRows: ['1 · vehicle'],
+      moving: true,
+    });
+    await expectTimelineKeyframe(page, 'move @ 0.00s');
 
-    await installDownloadTextCapture(page);
-    await page.getByRole('button', { name: /^导出$/ }).click();
-    await expect(page.getByText('已导出当前场景')).toBeVisible();
-
-    const exported = await readLatestExport(page);
+    const exported = await exportCurrentScenario(page);
     assertExportedScene(exported);
+  });
+
+  test('cancels draft trajectories and double-click commits a new vehicle when none is selected', async ({
+    ams,
+    page,
+  }) => {
+    await ams.gotoWorkspace();
+    await ams.switchMode('scene');
+    await ams.expectStatusField('app-mode', '场景');
+
+    const canvas = await CanvasClickHelper.create(page);
+    await loadBlankScenario(ams);
+    await canvas.waitForScenarioFit();
+    await installDownloadTextCapture(page);
+
+    await selectSceneTool(page, 'drawTrajectory');
+    await canvas.clickRatio(0.3, 0.48);
+    await canvas.clickRatio(0.4, 0.48);
+    await page.keyboard.press('Escape');
+    await canvas.waitForScenarioRender();
+
+    await canvas.clickRatio(0.46, 0.45);
+    await canvas.clickRatio(0.56, 0.42);
+    await canvas.dblclickRatio(0.66, 0.46);
+    await canvas.waitForScenarioRender();
+
+    const panel = inspector(page);
+    await expect(panel).toContainText('vehicle');
+    await expect(panel).toContainText('轨迹顶点 (世界米)');
+    await expect(panel.getByLabel(/^点 1 X$/)).toBeVisible();
+    await expect(panel.getByLabel(/^点 2 X$/)).toBeVisible();
+    await expect(panel.getByLabel(/^点 3 X$/)).toBeVisible();
+    await expect(panel.getByLabel(/^点 4 X$/)).toHaveCount(0);
+
+    const exported = await exportCurrentScenario(page);
+    assertSingleNewVehicleTrajectory(exported, 3);
   });
 });
 
@@ -282,21 +357,18 @@ async function selectSceneObjectAt(
   throw new Error(`Could not select scene object with Inspector text: ${expectedInspectorText}`);
 }
 
-async function editAndDeleteSelectedObstacle(page: Page) {
+async function editSelectedObstacle(page: Page) {
   const panel = inspector(page);
-  await panel.getByLabel(/^类型$/).selectOption('unknown');
-  await expect(panel.getByLabel(/^类型$/)).toHaveValue('unknown');
+  await panel.getByLabel(/^类型$/).selectOption('pedestrian');
+  await expect(panel.getByLabel(/^类型$/)).toHaveValue('pedestrian');
 
   await fillNumber(panel.getByLabel(/^X$/), '440111');
   await fillNumber(panel.getByLabel(/^长$/), '3.5');
   await fillNumber(panel.getByLabel(/^初速 \(m\/s\)$/), '4.2');
-  await expectInspectorToContain(page, 'unknown');
-
-  await panel.getByRole('button', { name: /^删除障碍物$/ }).click();
-  await expect(panel).toContainText('选择障碍物 / 红绿灯 / 主车以查看属性');
+  await expectInspectorToContain(page, 'pedestrian');
 }
 
-async function editAndDeleteSelectedTrafficLight(page: Page) {
+async function editSelectedTrafficLight(page: Page) {
   const panel = inspector(page);
   await fillText(panel.getByLabel(/^Signal ID$/), 'Signal_E2E_Edited');
   await panel.getByLabel(/^颜色$/).selectOption('YELLOW');
@@ -307,9 +379,7 @@ async function editAndDeleteSelectedTrafficLight(page: Page) {
   await fillNumber(panel.getByLabel(/^阶段 1 保持秒数$/), '8');
   await panel.getByRole('button', { name: /^添加阶段$/ }).click();
   await expect(panel.getByLabel(/^阶段 3 颜色$/)).toBeVisible();
-
-  await panel.getByRole('button', { name: /^删除红绿灯$/ }).click();
-  await expect(panel).toContainText('选择障碍物 / 红绿灯 / 主车以查看属性');
+  await expect(panel.getByLabel(/^Signal ID$/)).toHaveValue('Signal_E2E_Edited');
 }
 
 async function editSelectedEgo(page: Page) {
@@ -327,6 +397,41 @@ async function editSelectedEgo(page: Page) {
   await fillNumber(motion.getByLabel(/^初加速度$/), '0.4');
   await fillNumber(panel.getByLabel(/^点 1 X$/), '440045');
   await fillNumber(panel.getByLabel(/^点 1 Y$/), '4410030');
+}
+
+type EgoInspectorSnapshot = {
+  start: Point & { h: number };
+  end: Point;
+  waypoint: Point;
+};
+
+async function expectEgoInspectorReflectsCanvasEdits(page: Page): Promise<EgoInspectorSnapshot> {
+  const panel = inspector(page);
+  const start = formSection(panel, '起点 (世界米)');
+  const end = formSection(panel, '终点 (世界米)');
+
+  const snapshot = {
+    start: {
+      x: await readNumber(start.getByLabel(/^X$/)),
+      y: await readNumber(start.getByLabel(/^Y$/)),
+      h: await readNumber(start.getByLabel(/^朝向 \(rad\)$/)),
+    },
+    end: {
+      x: await readNumber(end.getByLabel(/^X$/)),
+      y: await readNumber(end.getByLabel(/^Y$/)),
+    },
+    waypoint: {
+      x: await readNumber(panel.getByLabel(/^点 1 X$/)),
+      y: await readNumber(panel.getByLabel(/^点 1 Y$/)),
+    },
+  };
+
+  expect(snapshot.start).not.toMatchObject({ x: 440000, y: 4410000 });
+  expect(snapshot.end).not.toMatchObject({ x: 440080, y: 4410040 });
+  expect(snapshot.waypoint.x).toBeGreaterThan(0);
+  expect(snapshot.waypoint.y).toBeGreaterThan(0);
+  expect(snapshot.start.h).toBe(0);
+  return snapshot;
 }
 
 async function drawTrajectoryOnSelectedVehicle(page: Page, canvas: CanvasClickHelper) {
@@ -357,6 +462,62 @@ async function expectInspectorToContain(page: Page, text: string) {
   await expect.poll(() => inspectorText(page), { timeout: 10_000 }).toContain(text);
 }
 
+async function expectScenarioBrowserSummary(
+  page: Page,
+  expected: {
+    obstacleCount: number;
+    trafficLightCount: number;
+    obstacleRows: string[];
+    moving?: boolean;
+  },
+) {
+  await page.getByTestId('activity-scenarios').click();
+  const browser = page.getByTestId('workspace-panel-sidebar');
+  await expect(browser).toContainText('scene-authoring-e2e.json');
+  await expect(browser).toContainText(
+    new RegExp(
+      `scene-authoring-e2e\\.json\\s*${expected.obstacleCount}\\s*${expected.trafficLightCount}`,
+    ),
+  );
+  await expect(browser).toContainText(`障碍物 (${expected.obstacleCount})`);
+  for (const row of expected.obstacleRows) {
+    await expect(
+      browser.getByRole('button', { name: new RegExp(escapeRegExp(row)) }),
+    ).toBeVisible();
+  }
+  if (expected.moving) {
+    await expect(browser.getByRole('button', { name: /1 · vehicle.*动/ })).toBeVisible();
+  }
+}
+
+async function expectTimelineTracks(page: Page, trackNames: string[]) {
+  const timeline = await ensureTimelinePanelVisible(page);
+  for (const name of trackNames) {
+    await expect(timeline.getByText(name, { exact: true })).toBeVisible();
+  }
+}
+
+async function expectTimelineKeyframe(page: Page, title: string) {
+  const timeline = await ensureTimelinePanelVisible(page);
+  await expect(timeline.locator(`[title="${cssAttr(title)}"]`)).toBeVisible();
+}
+
+async function ensureTimelinePanelVisible(page: Page): Promise<Locator> {
+  const timeline = page.getByTestId('workspace-panel-timeline');
+  if (await timeline.isVisible().catch(() => false)) return timeline;
+  await page.getByRole('button', { name: /^Timeline$/ }).click();
+  await expect(timeline).toBeVisible({ timeout: 10_000 });
+  return timeline;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function cssAttr(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function formSection(panel: Locator, title: string): Locator {
   return panel.getByText(title, { exact: true }).locator('xpath=..');
 }
@@ -364,6 +525,13 @@ function formSection(panel: Locator, title: string): Locator {
 async function fillNumber(locator: Locator, value: string) {
   await locator.fill(value);
   await expect(locator).toHaveValue(value);
+}
+
+async function readNumber(locator: Locator): Promise<number> {
+  await expect(locator).toBeVisible();
+  const value = Number(await locator.inputValue());
+  expect(Number.isFinite(value)).toBe(true);
+  return value;
 }
 
 async function fillText(locator: Locator, value: string) {
@@ -431,13 +599,25 @@ async function installDownloadTextCapture(page: Page) {
   });
 }
 
-async function readLatestExport(page: Page): Promise<unknown> {
+async function exportCurrentScenario(page: Page): Promise<unknown> {
+  const before = await downloadCount(page);
+  await page.getByRole('button', { name: /^导出$/ }).click();
+  await expect(page.getByText('已导出当前场景')).toBeVisible();
+  return readLatestExport(page, before);
+}
+
+async function downloadCount(page: Page): Promise<number> {
+  return page.evaluate(() => window.__sceneAuthoringE2E?.downloads.length ?? 0);
+}
+
+async function readLatestExport(page: Page, previousCount: number): Promise<unknown> {
   await page.waitForFunction(
-    () => {
+    (count) => {
       const downloads = window.__sceneAuthoringE2E?.downloads ?? [];
       const latest = downloads[downloads.length - 1];
-      return Boolean(latest?.text || latest?.error);
+      return downloads.length > count && Boolean(latest?.text || latest?.error);
     },
+    previousCount,
     { timeout: 10_000 },
   );
   const record = await page.evaluate(() => {
@@ -451,19 +631,75 @@ async function readLatestExport(page: Page): Promise<unknown> {
   return JSON.parse(record?.text ?? '');
 }
 
+function assertExportedEgoMatchesSnapshot(exported: unknown, snapshot: EgoInspectorSnapshot) {
+  const root = asRecord(exported);
+  const scenario = asRecord(root.scenario);
+  const autoCarInfo = asRecord(scenario.autoCarInfo);
+  const start = asRecord(autoCarInfo.start);
+  const end = asRecord(autoCarInfo.end);
+  const routingRequest = asRecord(autoCarInfo.routingRequest);
+  const waypoint = asArray(routingRequest.waypoint).map(asRecord);
+
+  expect(Number(start.x)).toBeCloseTo(snapshot.start.x, 5);
+  expect(Number(start.y)).toBeCloseTo(snapshot.start.y, 5);
+  expect(Number(start.heading)).toBeCloseTo(snapshot.start.h, 5);
+  expect(Number(end.x)).toBeCloseTo(snapshot.end.x, 5);
+  expect(Number(end.y)).toBeCloseTo(snapshot.end.y, 5);
+  expect(waypoint).toHaveLength(1);
+  expect(Number(asRecord(waypoint[0]?.pose).x)).toBeCloseTo(snapshot.waypoint.x, 5);
+  expect(Number(asRecord(waypoint[0]?.pose).y)).toBeCloseTo(snapshot.waypoint.y, 5);
+}
+
+function assertSingleNewVehicleTrajectory(exported: unknown, vertexCount: number) {
+  const root = asRecord(exported);
+  const scenario = asRecord(root.scenario);
+  const entities = asRecord(scenario.entities);
+  const objects = asArray(entities.scenarioObjects).map(asRecord);
+  expect(objects.map(entityKind)).toEqual(['vehicle']);
+
+  const storyboard = asRecord(scenario.storyboard);
+  const init = asRecord(storyboard.init);
+  const actions = asRecord(init.actions);
+  const privates = asArray(actions.privates).map(asRecord);
+  expect(privates).toHaveLength(1);
+  const privateActions = asArray(asRecord(privates[0]).privateActions).map(asRecord);
+  const routingActionHolder = privateActions.find((entry) => 'routingAction' in entry);
+  expect(routingActionHolder).toBeTruthy();
+  const routingAction = asRecord(asRecord(routingActionHolder).routingAction);
+  const followTrajectoryAction = asRecord(routingAction.followTrajectoryAction);
+  const trajectoryRef = asRecord(followTrajectoryAction.trajectoryRef);
+  const trajectory = asRecord(trajectoryRef.trajectory);
+  const shape = asRecord(trajectory.shape);
+  const polyline = asRecord(shape.polyline);
+  expect(asArray(polyline.vertices)).toHaveLength(vertexCount);
+}
+
 function assertExportedScene(exported: unknown) {
   const root = asRecord(exported);
   const scenario = asRecord(root.scenario);
   const entities = asRecord(scenario.entities);
   const objects = asArray(entities.scenarioObjects).map(asRecord);
   const kinds = objects.map(entityKind);
-  expect(kinds).toEqual(['vehicle', 'bicycle', 'staticObstacle']);
+  expect(kinds).toEqual(['vehicle', 'pedestrian', 'bicycle', 'staticObstacle']);
   const exportedVehicle = objects.find((object) => entityKind(object) === 'vehicle');
   expect(exportedVehicle).toBeTruthy();
   const exportedVehicleName = String(asRecord(exportedVehicle).name);
+  const exportedPedestrian = objects.find((object) => entityKind(object) === 'pedestrian');
+  expect(exportedPedestrian).toBeTruthy();
+  const exportedPedestrianName = String(asRecord(exportedPedestrian).name);
+  const pedestrianObject = asRecord(asRecord(exportedPedestrian).entityObject);
+  const pedestrian = asRecord(pedestrianObject.pedestrian);
+  const pedestrianBox = asRecord(pedestrian.boundingBox);
+  expect(asRecord(pedestrianBox.dimensions)).toMatchObject({ length: 3.5 });
 
   const roadNetwork = asRecord(scenario.roadNetwork);
-  expect(asArray(roadNetwork.trafficLights)).toHaveLength(0);
+  const trafficLights = asArray(roadNetwork.trafficLights).map(asRecord);
+  expect(trafficLights).toHaveLength(1);
+  expect(trafficLights[0]).toMatchObject({ id: 'Signal_E2E_Edited', triggerValue: 12 });
+  expect(asRecord(trafficLights[0]?.initialState)).toMatchObject({ color: 'YELLOW' });
+  const stateGroup = asArray(trafficLights[0]?.stateGroup).map(asRecord);
+  expect(stateGroup).toHaveLength(3);
+  expect(stateGroup[0]).toMatchObject({ color: 'RED', keepTime: 8 });
 
   const autoCarInfo = asRecord(scenario.autoCarInfo);
   expect(asRecord(autoCarInfo.start)).toMatchObject({ x: 440010, y: 4410010, heading: 1.57 });
@@ -482,6 +718,23 @@ function assertExportedScene(exported: unknown) {
   expect(privates.map((entry) => asRecord(entry.entityRef).entityRef).sort()).toEqual(
     [...liveNames].sort(),
   );
+  const pedestrianPrivate = privates.find(
+    (entry) => asRecord(entry.entityRef).entityRef === exportedPedestrianName,
+  );
+  expect(pedestrianPrivate).toBeTruthy();
+  const pedestrianActions = asArray(asRecord(pedestrianPrivate).privateActions).map(asRecord);
+  const pedestrianTeleport = asRecord(pedestrianActions.find((entry) => 'teleportAction' in entry));
+  const pedestrianWorldPosition = asRecord(
+    asRecord(asRecord(pedestrianTeleport.teleportAction).position).worldPosition,
+  );
+  expect(pedestrianWorldPosition).toMatchObject({ x: 440111 });
+  const pedestrianSpeed = asRecord(
+    pedestrianActions.find((entry) => 'longitudinalAction' in entry),
+  );
+  const speedAction = asRecord(asRecord(pedestrianSpeed.longitudinalAction).speedAction);
+  const speedActionTarget = asRecord(speedAction.speedActionTarget);
+  expect(asRecord(speedActionTarget.absoluteTargetSpeed)).toMatchObject({ value: 4.2 });
+
   const vehiclePrivate = privates.find(
     (entry) => asRecord(entry.entityRef).entityRef === exportedVehicleName,
   );
@@ -577,9 +830,20 @@ class CanvasClickHelper {
     return { ...point, xRatio, yRatio };
   }
 
+  async dblclickRatio(xRatio: number, yRatio: number): Promise<CanvasTarget> {
+    const point = await this.relativePoint(xRatio, yRatio);
+    await this.dblclick(point);
+    return { ...point, xRatio, yRatio };
+  }
+
   async click(point: Point): Promise<void> {
     await this.expectPointInsideCanvas(point);
     await this.page.mouse.click(point.x, point.y);
+  }
+
+  async dblclick(point: Point): Promise<void> {
+    await this.expectPointInsideCanvas(point);
+    await this.page.mouse.dblclick(point.x, point.y);
   }
 
   async pointForTarget(target: CanvasTarget): Promise<Point> {

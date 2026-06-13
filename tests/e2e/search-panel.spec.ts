@@ -26,9 +26,9 @@ test.describe('SearchPanel E2E', () => {
     await expect(resultRow(page, 'RSU_1')).toContainText('rsu');
     await expect(resultRow(page, 'road_1')).toHaveCount(0);
 
-    await search.fill('polyline');
+    await search.fill('lane');
     await expectMatchCount(page, '1 match');
-    await expect(resultRow(page, 'fixture_alpha')).toContainText('polyline');
+    await expect(resultRow(page, 'lane_1')).toContainText('lane');
     await expect(resultRow(page, 'RSU_1')).toHaveCount(0);
     await expect(resultRows(page)).toHaveCount(1);
 
@@ -88,23 +88,36 @@ async function createSearchFixtures(page: Page): Promise<void> {
   await tree.getByRole('button', { name: /^RSU$/ }).click();
   await expect(page.getByTestId('inspector-entity-id')).toHaveAttribute('title', 'RSU_1');
 
-  await addTypeOnlySearchFixture(page);
+  await drawLaneSearchFixture(page);
   await expect(page.getByTestId('status-entity-count')).toHaveText('3');
+  await selectLayerEntity(page, 'rsu', 'RSU_1');
 }
 
-async function addTypeOnlySearchFixture(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const mapStorePath = '/src/store/mapStore.ts';
-    const { useMapStore } = await import(mapStorePath);
-    useMapStore.getState().addEntity({
-      id: 'fixture_alpha',
-      entityType: 'polyline',
-      points: [
-        { x: 116.391, y: 39.907 },
-        { x: 116.392, y: 39.908 },
-      ],
-    });
-  });
+async function drawLaneSearchFixture(page: Page): Promise<void> {
+  await page.getByTestId('element-lane').click();
+  await page.getByTestId('draw-tool-lane-drawBezier').click();
+  await expect(page.getByTestId('draw-tool-lane-drawBezier')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  const canvas = page.getByTestId('maplibre-canvas').first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Map canvas did not have a bounding box');
+
+  await drawPoint(page, box.x + box.width * 0.35, box.y + box.height * 0.52);
+  await drawPoint(page, box.x + box.width * 0.65, box.y + box.height * 0.48);
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByTestId('status-editor-mode')).toHaveText('Idle');
+  await expect(page.getByTestId('status-entity-count')).toHaveText('3');
+  await selectLayerEntity(page, 'lane', 'lane_1');
+}
+
+async function drawPoint(page: Page, x: number, y: number): Promise<void> {
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.up();
 }
 
 async function openSearchView(ams: {
@@ -140,11 +153,13 @@ async function selectLayerEntity(page: Page, entityType: string, entityId: strin
 
   const group = tree.getByTestId(`layer-tree-node-group-${entityType}`);
   await expect(group).toBeVisible();
-  await group.click();
 
   const entity = tree
     .getByTestId(`layer-tree-node-entity-${entityType}`)
     .filter({ has: page.getByText(entityId, { exact: true }) });
+  if (!(await isVisible(entity, 500))) {
+    await group.click();
+  }
   await expect(entity).toBeVisible();
   await entity.click();
   await expect(page.getByTestId('inspector-entity-id')).toHaveAttribute('title', entityId);

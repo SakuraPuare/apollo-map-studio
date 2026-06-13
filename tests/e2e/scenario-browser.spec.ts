@@ -262,6 +262,14 @@ test.describe('ScenarioBrowser scene E2E', () => {
     await expectScenarioRow(browser, 'untitled-openscenario.json', { active: true, counts: '0 0' });
     await expect(browser.getByRole('button', { name: /^导出$/ })).toBeEnabled();
 
+    await browser.getByRole('button', { name: /^导出$/ }).click();
+    await expect(browser.getByText('已导出当前场景')).toBeVisible();
+    await expectDownloads(ams, ['untitled-openscenario.json']);
+    const openScenarioDownloads = await expectDownloadTexts(ams.page, [
+      'untitled-openscenario.json',
+    ]);
+    expectBlankOpenScenarioExport(openScenarioDownloads[0]!.text);
+
     await format.selectOption('classic');
     await expect(format).toHaveValue('classic');
     await expectScenarioRow(browser, 'untitled-openscenario.json', { active: true, counts: '0 0' });
@@ -275,9 +283,12 @@ test.describe('ScenarioBrowser scene E2E', () => {
 
     await browser.getByRole('button', { name: /^导出$/ }).click();
     await expect(browser.getByText('已导出当前场景')).toBeVisible();
-    await expectDownloads(ams, ['untitled-classic.json']);
-    const [download] = await expectDownloadTexts(ams.page, ['untitled-classic.json']);
-    expectClassicExport(download!.text);
+    await expectDownloads(ams, ['untitled-openscenario.json', 'untitled-classic.json']);
+    const newScenarioDownloads = await expectDownloadTexts(ams.page, [
+      'untitled-openscenario.json',
+      'untitled-classic.json',
+    ]);
+    expectClassicExport(newScenarioDownloads[1]!.text);
   });
 
   test('loads scenario fixtures, switches active scenario, removes rows, and exports', async ({
@@ -633,6 +644,36 @@ function expectClassicExport(text: string): void {
   expect(array(scenario.agent)).toHaveLength(0);
   expect(array(scenario.trafficLights)).toHaveLength(0);
   expect(scenario.simulatorTime).toBe(100);
+}
+
+function expectBlankOpenScenarioExport(text: string): void {
+  const json = record(JSON.parse(text));
+  const scenario = record(json.scenario);
+  const roadNetwork = record(scenario.roadNetwork);
+  const entities = record(scenario.entities);
+  const storyboard = record(scenario.storyboard);
+  const actions = record(record(storyboard.init).actions);
+  const autoCarInfo = record(scenario.autoCarInfo);
+  const stopGroups = array(record(storyboard.stopTrigger).conditionGroups).map(record);
+  const firstCondition = record(array(stopGroups[0]!.conditions)[0]);
+  const simulationTimeCondition = record(
+    record(firstCondition.byValueCondition).simulationTimeCondition,
+  );
+
+  expect(json.id).toEqual(expect.any(String));
+  expect(json.id).not.toBe('');
+  expect(json.type).toBe('worldsim');
+  expect(json.mapId).toBe('');
+  expect(record(roadNetwork.logicFile).filepath).toBe('');
+  expect(array(roadNetwork.trafficLights)).toHaveLength(0);
+  expect(array(entities.scenarioObjects)).toHaveLength(0);
+  expect(array(actions.privates)).toHaveLength(0);
+  expect(array(storyboard.stories)).toHaveLength(0);
+  expect(simulationTimeCondition).toMatchObject({ rule: 'greaterOrEqual', value: 100 });
+  expect(record(autoCarInfo.start)).toMatchObject({ x: 0, y: 0, heading: 0 });
+  expect(record(autoCarInfo.end)).toMatchObject({ x: 0, y: 0 });
+  expect(array(record(autoCarInfo.routingRequest).waypoint)).toHaveLength(0);
+  expect(autoCarInfo.startVelocity).toBe(0);
 }
 
 function expectLoadedClassicExport(text: string): void {
