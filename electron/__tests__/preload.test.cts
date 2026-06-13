@@ -208,6 +208,41 @@ test('license API routes through expected license IPC channels and unsubscribes'
   assert.deepEqual(offRecords, onRecords);
 });
 
+test('license API exposes only the expected bridge shape', () => {
+  loadPreload();
+  const api = exposed.apolloMapStudioLicense as Record<string, unknown>;
+
+  assert.deepEqual(Object.keys(api).sort(), [
+    'activate',
+    'deactivate',
+    'getMachineCode',
+    'getState',
+    'onChange',
+  ]);
+  assert.equal(typeof api.getState, 'function');
+  assert.equal(typeof api.getMachineCode, 'function');
+  assert.equal(typeof api.activate, 'function');
+  assert.equal(typeof api.deactivate, 'function');
+  assert.equal(typeof api.onChange, 'function');
+  assert.equal((api.getState as Function).length, 0);
+  assert.equal((api.getMachineCode as Function).length, 0);
+  assert.equal((api.activate as Function).length, 1);
+  assert.equal((api.deactivate as Function).length, 0);
+  assert.equal((api.onChange as Function).length, 1);
+
+  for (const forbidden of [
+    'token',
+    'privateKey',
+    'publicKey',
+    'manager',
+    'storage',
+    'ipcRenderer',
+    'LICENSE_IPC',
+  ]) {
+    assert.equal(forbidden in api, false, `license bridge leaked ${forbidden}`);
+  }
+});
+
 test('license onChange forwards state payload and unsubscribes the registered listener', () => {
   loadPreload();
   const api = exposed.apolloMapStudioLicense as {

@@ -1,11 +1,30 @@
 import { randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
+import Module, { createRequire } from 'node:module';
+import path from 'node:path';
 import test from 'node:test';
 
 import { b64url, parseToken, safeEqual, verifyToken } from '../crypto.cjs';
+import type { LicensePayload } from '../types.cjs';
+
+type ModuleWithLoad = typeof Module & {
+  _load(request: string, parent: NodeJS.Module | null, isMain: boolean): unknown;
+};
 
 const VALID_MACHINE = 'A6N0-SMBW-ENSG-SDGT';
 const ISSUED = Date.parse('2026-05-05T00:00:00.000Z');
+const loadCjs = createRequire(__filename);
+const cryptoPath = loadCjs.resolve(path.resolve(__dirname, '..', 'crypto.cjs'));
+const moduleWithLoad = Module as ModuleWithLoad;
+
+const FIXTURE_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEANhJ5DZIbWNPgm/b3QfOOmdqnJoU7GHtLQ4ve3b8tI2I=
+-----END PUBLIC KEY-----
+`;
+const FIXTURE_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIEJ4L7s2lXHep/Slj9tN44LNRveYxS83AtScGMQ9mNuH
+-----END PRIVATE KEY-----
+`;
 
 function tokenFor(payload: Record<string, unknown>, sig = randomBytes(64)): string {
   const fullPayload = {
@@ -20,11 +39,68 @@ function tokenFor(payload: Record<string, unknown>, sig = randomBytes(64)): stri
   return `APMS1.${b64url(Buffer.from(JSON.stringify(fullPayload), 'utf8'))}.${b64url(sig)}`;
 }
 
+function fixturePayload(overrides: Partial<LicensePayload> = {}): LicensePayload {
+  return {
+    v: 1,
+    lic: 'LIC-FIXTURE-001',
+    machine: VALID_MACHINE,
+    issued: ISSUED,
+    expires: ISSUED + 365 * 24 * 60 * 60 * 1000,
+    nonce: '0123456789abcdef0123456789abcdef',
+    name: 'Fixture User',
+    features: ['draw', 'export'],
+    ...overrides,
+  };
+}
+
 test('license token parser accepts well-formed payloads but verifyToken rejects unsigned tokens', () => {
   const parsed = parseToken(tokenFor({}));
 
   assert.equal(parsed?.payload.lic, 'LIC-SECURITY-001');
   assert.equal(parsed ? verifyToken(parsed) : true, false);
+});
+
+test('license token parser verifies tokens signed by a fixture Ed25519 key', () => {
+  const originalLoad = moduleWithLoad._load;
+  moduleWithLoad._load = function patchedLoad(
+    request: string,
+    parent: NodeJS.Module | null,
+    isMain: boolean,
+  ) {
+    if (request === './public-key.cjs') {
+      return {
+        APP_PEPPER: 'apms.test.fixture-pepper',
+        LICENSE_PUBLIC_KEY_PEM: FIXTURE_PUBLIC_KEY_PEM,
+        TOKEN_PREFIX: 'APMS1',
+      };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    delete loadCjs.cache[cryptoPath];
+    const crypto = loadCjs(cryptoPath) as typeof import('../crypto.cjs');
+    const payload = fixturePayload();
+    const token = crypto.signToken(payload, FIXTURE_PRIVATE_KEY_PEM);
+    const parsed = crypto.parseToken(token);
+
+    assert.deepEqual(parsed?.payload, payload);
+    assert.equal(parsed ? crypto.verifyToken(parsed) : false, true);
+
+    const [, , sigB64] = token.split('.');
+    assert.ok(sigB64, 'fixture token includes a signature segment');
+    const tamperedPayload = fixturePayload({ name: 'Tampered User' });
+    const tamperedToken = `APMS1.${crypto.b64url(
+      Buffer.from(JSON.stringify(tamperedPayload), 'utf8'),
+    )}.${sigB64}`;
+    const tampered = crypto.parseToken(tamperedToken);
+
+    assert.notEqual(tampered, null);
+    assert.equal(tampered ? crypto.verifyToken(tampered) : true, false);
+  } finally {
+    moduleWithLoad._load = originalLoad;
+    delete loadCjs.cache[cryptoPath];
+  }
 });
 
 test('license token parser rejects non-canonical machine codes', () => {

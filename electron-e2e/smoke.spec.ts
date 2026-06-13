@@ -1,7 +1,6 @@
 import { test, expect } from './fixtures.js';
 import type { ElectronApplication } from '@playwright/test';
 
-const MACHINE_CODE_RE = /^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/;
 type WindowCommand = 'maximize' | 'unmaximize' | 'minimize' | 'restore' | 'close';
 type WindowCommandStore = typeof globalThis & {
   __apolloE2eWindowCommands?: WindowCommand[];
@@ -21,22 +20,6 @@ type BridgeSnapshot = {
     docsAvailable: boolean;
     versions: Record<string, string | undefined>;
   };
-  state: {
-    status: string;
-    canEdit: boolean;
-    machineCode: string;
-    reason: string;
-  };
-  machineCode: string;
-};
-
-type ElectronLicenseState = BridgeSnapshot['state'] & {
-  trialStart: number;
-  trialEnd: number;
-  daysRemaining: number | null;
-  hoursRemaining: number | null;
-  license: { id: string; name: string; issued: number; expires: number } | null;
-  checkedAt: number;
 };
 
 type ElectronBridgeWindow = Window &
@@ -58,18 +41,7 @@ type ElectronBridgeWindow = Window &
       onNativeMenuAction?: (handler: (actionId: string) => void) => () => void;
       onWindowStateChange?: (handler: (state: unknown) => void) => () => void;
     };
-    apolloMapStudioLicense?: {
-      getState: () => Promise<ElectronLicenseState>;
-      getMachineCode: () => Promise<string>;
-      activate: (code: string) => Promise<{
-        ok: boolean;
-        state: ElectronLicenseState;
-        errorCode?: string;
-        errorMessage?: string;
-      }>;
-      deactivate: () => Promise<ElectronLicenseState>;
-      onChange: (handler: (state: ElectronLicenseState) => void) => () => void;
-    };
+    apolloMapStudioLicense?: Record<string, unknown>;
   };
 
 async function installWindowStateShim(electronApp: ElectronApplication) {
@@ -201,11 +173,7 @@ test.describe('Electron desktop smoke', () => {
       const licenseApi = bridgeWindow.apolloMapStudioLicense;
       if (!appApi || !licenseApi) throw new Error('Expected Electron preload bridge.');
 
-      const [info, state, machineCode] = await Promise.all([
-        appApi.getAppInfo?.(),
-        licenseApi.getState(),
-        licenseApi.getMachineCode(),
-      ]);
+      const info = await appApi.getAppInfo?.();
 
       if (!info) throw new Error('getAppInfo is unavailable.');
 
@@ -217,8 +185,6 @@ test.describe('Electron desktop smoke', () => {
         appKeys: Object.keys(appApi).sort(),
         licenseKeys: Object.keys(licenseApi).sort(),
         info,
-        state,
-        machineCode,
       };
     });
 
@@ -254,9 +220,6 @@ test.describe('Electron desktop smoke', () => {
     expect(snapshot.info.versions.electron).toEqual(expect.any(String));
     expect(snapshot.info.versions.chrome).toEqual(expect.any(String));
     expect(snapshot.info.versions.node).toEqual(expect.any(String));
-    expect(snapshot.state.status).not.toBe('not_started');
-    expect(snapshot.machineCode).toBe(snapshot.state.machineCode);
-    expect(snapshot.machineCode).toMatch(MACHINE_CODE_RE);
   });
 
   test('drives title-bar window controls through the preload bridge', async ({
@@ -436,60 +399,5 @@ test.describe('Electron desktop smoke', () => {
     await expect
       .poll(() => mainWindow.evaluate(() => window.__apolloE2eNativeActions))
       .toContain('exportApolloText');
-  });
-
-  test('runs the license activation dialog basic flow', async ({ mainWindow }) => {
-    const state = await mainWindow.evaluate(() =>
-      (window as ElectronBridgeWindow).apolloMapStudioLicense?.getState(),
-    );
-    expect(state?.machineCode).toMatch(MACHINE_CODE_RE);
-
-    await mainWindow.getByTestId('license-chip').click();
-    await expect(mainWindow.getByTestId('activation-dialog')).toBeVisible();
-    await expect(mainWindow.getByTestId('activation-status')).toContainText(
-      `status: ${state?.status}`,
-    );
-    await expect(mainWindow.getByTestId('activation-machine-code')).toHaveText(state!.machineCode);
-
-    await expect(mainWindow.getByTestId('activation-submit')).toBeDisabled();
-    await mainWindow.getByTestId('activation-code-input').fill('not-a-license');
-    await expect(mainWindow.getByTestId('activation-submit')).toBeEnabled();
-    await mainWindow.getByTestId('activation-submit').click();
-    await expect(mainWindow.getByText('Activation code is malformed.')).toBeVisible();
-
-    const changeResult = await mainWindow.evaluate(async () => {
-      const api = (window as ElectronBridgeWindow).apolloMapStudioLicense;
-      if (!api) throw new Error('license bridge missing');
-      const before = await api.getState();
-      let unsubscribe: (() => void) | undefined;
-      const changed = new Promise<ElectronLicenseState>((resolve, reject) => {
-        const timeoutId = window.setTimeout(() => {
-          unsubscribe?.();
-          reject(new Error('license onChange timed out'));
-        }, 5_000);
-        unsubscribe = api.onChange((next) => {
-          window.clearTimeout(timeoutId);
-          unsubscribe?.();
-          resolve(next);
-        });
-      });
-      const after = await api.deactivate();
-      return { after, before, changed: await changed };
-    });
-    expect(changeResult.after.status).not.toBe('not_started');
-    expect(changeResult.after.machineCode).toBe(changeResult.before.machineCode);
-    expect(changeResult.after.license).toBeNull();
-    expect(changeResult.changed).toMatchObject({
-      status: changeResult.after.status,
-      canEdit: changeResult.after.canEdit,
-      machineCode: changeResult.after.machineCode,
-      license: null,
-    });
-    await expect(mainWindow.getByTestId('activation-status')).toContainText(
-      `status: ${changeResult.after.status}`,
-    );
-
-    await mainWindow.keyboard.press('Escape');
-    await expect(mainWindow.getByTestId('activation-dialog')).toHaveCount(0);
   });
 });

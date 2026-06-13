@@ -178,6 +178,15 @@ describe('Electron hardening scripts', () => {
     );
   });
 
+  it('rejects sourcemap files during verification', async () => {
+    const root = await createBuildFixture();
+    hardenFixture(root);
+
+    writeFixtureFile(root, 'dist/assets/debug.js.map', '{"version":3}\n');
+
+    expect(() => verifyFixture(root)).toThrow('hardened build contains sourcemaps');
+  });
+
   it('rejects missing protected modules and leaked plaintext markers during verification', async () => {
     const missingRoot = await createBuildFixture();
     hardenFixture(missingRoot);
@@ -195,6 +204,17 @@ describe('Electron hardening scripts', () => {
     );
     expect(() => verifyFixture(markerRoot)).toThrow(
       'protected Electron module still contains plaintext markers (ACCESS_GUARD_BLOCKLIST): access-guard-runtime.cjs',
+    );
+  });
+
+  it('rejects protected modules that are present but not sealed during verification', async () => {
+    const root = await createBuildFixture();
+    hardenFixture(root);
+
+    writeFixtureFile(root, 'dist-electron/license/crypto.cjs', defaultProtectedSource('crypto'));
+
+    expect(() => verifyFixture(root)).toThrow(
+      'protected Electron module is not sealed: license/crypto.cjs',
     );
   });
 

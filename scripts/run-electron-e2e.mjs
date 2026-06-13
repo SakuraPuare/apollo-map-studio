@@ -5,7 +5,13 @@ import { delimiter, join } from 'node:path';
 const forwardedArgs = process.argv.slice(2);
 if (forwardedArgs[0] === '--') forwardedArgs.shift();
 
-const playwrightArgs = ['playwright', 'test', '-c', 'playwright.electron.config.ts', ...forwardedArgs];
+const playwrightArgs = [
+  'playwright',
+  'test',
+  '-c',
+  'playwright.electron.config.ts',
+  ...forwardedArgs,
+];
 const doesNotLaunchElectron = forwardedArgs.some((arg) =>
   ['--help', '-h', '--list', '--version'].includes(arg),
 );
