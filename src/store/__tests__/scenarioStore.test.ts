@@ -86,9 +86,15 @@ describe('scenarioStore: authoring actions', () => {
     const s = useScenarioStore.getState();
     s.setEgoPoint('start', { x: 10, y: 20, h: 0.5 });
     expect(active().ego.start).toMatchObject({ x: 10, y: 20, h: 0.5 });
+    s.setEgoPoint('end', { x: 30, y: 40 });
+    expect(active().ego.end).toMatchObject({ x: 30, y: 40 });
     s.addEgoWaypoint({ x: 1, y: 1 });
     s.addEgoWaypoint({ x: 2, y: 2 });
     expect(active().ego.waypoints).toHaveLength(2);
+    expect(active().ego.waypoints).toEqual([
+      { x: 1, y: 1 },
+      { x: 2, y: 2 },
+    ]);
     s.updateEgoWaypoint(0, { x: 9, y: 9 });
     expect(active().ego.waypoints[0]).toMatchObject({ x: 9, y: 9 });
     s.removeEgoWaypoint(0);

@@ -5,7 +5,7 @@ import { handleSelectedMouseDown } from '../mapEventRouter/selectionDrag';
 import { createMapEventHandlers } from '../mapEventRouter/eventHandlers';
 import { useMapStore } from '@/store/mapStore';
 import { useUIStore } from '@/store/uiStore';
-import { createEntity } from '@/lib/entityOps';
+import { createEntity, getEditPoints } from '@/lib/entityOps';
 import type { LaneEntity } from '@/types/apollo';
 import type { BezierEntity, MapEntity, PolygonEntity, PolylineEntity } from '@/types/entities';
 
@@ -387,6 +387,56 @@ describe('handleSelectedMouseDown', () => {
       { x: 3, y: 1 },
       { x: 5, y: 1 },
     ]);
+    expect(map.dragPan.disable).toHaveBeenCalled();
+    expect(map.dragPan.enable).not.toHaveBeenCalled();
+  });
+
+  it('moves a selected Apollo vertex through the map event router hot-point drag path', () => {
+    const entity = lane();
+    useMapStore.setState({ entities: new Map<string, MapEntity>([[entity.id, entity]]) });
+
+    const actor = createActor(editorMachine).start();
+    actor.send({ type: 'SELECT_ENTITY', id: entity.id });
+    const map = {
+      ...makeHitMap({
+        'hot-points': [{ properties: { index: 1, role: 'vertex' } }],
+      }),
+      dragPan: { disable: vi.fn(), enable: vi.fn() },
+      getCanvas: () => ({ style: { cursor: '' } }),
+    };
+    const handlers = createMapEventHandlers({
+      map,
+      actorRef: actor,
+      bridgeRef: { current: null },
+      mutable: {
+        mouseDownScreenPos: null,
+        centerGrabOffset: null,
+        middlePanLastScreenPos: null,
+        lastDrawInput: null,
+        boundaryBrushDragging: false,
+        lastBoundaryBrushHit: null,
+      },
+      cursorScheduler: { schedule: vi.fn(), dispose: vi.fn() },
+    } as never);
+
+    handlers.onMouseDown(makeMouseEvent() as never);
+    expect(actor.getSnapshot().value).toBe('editingPoint');
+    handlers.onMouseMove({
+      ...makeMouseEvent(),
+      lngLat: { lng: 6, lat: 7 },
+    } as never);
+    handlers.onMouseUp({
+      ...makeMouseEvent(),
+      lngLat: { lng: 6, lat: 7 },
+    } as never);
+
+    const moved = useMapStore.getState().entities.get(entity.id) as LaneEntity;
+    expect(getEditPoints(moved)).toEqual([
+      { x: 0, y: 0 },
+      { x: 6, y: 7 },
+      { x: 4, y: 0 },
+    ]);
+    expect(actor.getSnapshot().value).toBe('selected');
     expect(map.dragPan.disable).toHaveBeenCalled();
     expect(map.dragPan.enable).not.toHaveBeenCalled();
   });

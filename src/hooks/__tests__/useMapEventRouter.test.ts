@@ -21,6 +21,8 @@ import { useUIStore } from '@/store/uiStore';
 import { useMapStore } from '@/store/mapStore';
 import { workerHitTest } from '../mapEventRouter/hitTest';
 import { createMapEventHandlers, createRouterContext } from '../mapEventRouter/eventHandlers';
+import { handleMapKeyDown } from '../mapEventRouter/keyboard';
+import { createEntity, getEditPoints } from '@/lib/entityOps';
 import type { LaneEntity } from '@/types/apollo';
 import type { PolylineEntity } from '@/types/entities';
 
@@ -963,9 +965,11 @@ describe('drawing mouse button routing', () => {
       dragPointIndex: -1,
       dragPointType: 'center',
     });
+    useUIStore.getState().toggleConnectMode();
 
     handlers.onKeyDown({ key: 'Escape' } as KeyboardEvent);
 
+    expect(useUIStore.getState().connectMode).toEqual({ active: false, firstLaneId: null });
     expect(actorRef.send).toHaveBeenCalledWith({ type: 'CANCEL' });
   });
 
@@ -1121,56 +1125,141 @@ describe('cursor RAF-coalescing contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('onKeyDown routing', () => {
-  it('Escape sends CANCEL', () => {
-    const sent: Array<{ type: string }> = [];
-    const actorRef = { send: vi.fn((e) => sent.push(e)), getSnapshot: vi.fn() };
-
-    const onKeyDown = (e: { key: string }) => {
-      if (e.key === 'Escape') actorRef.send({ type: 'CANCEL' });
-      if (e.key === 'Enter') actorRef.send({ type: 'CONFIRM' });
+  function actorRef({
+    state = 'selected',
+    selectedEntityId = null,
+    dragPointIndex = -1,
+    dragPointType = 'center',
+  }: {
+    state?: string;
+    selectedEntityId?: string | null;
+    dragPointIndex?: number;
+    dragPointType?: 'vertex' | 'center' | 'handleIn' | 'handleOut' | 'rotate';
+  } = {}) {
+    return {
+      getSnapshot: vi.fn(() => ({
+        value: state,
+        context: { selectedEntityId, dragPointIndex, dragPointType },
+      })),
+      send: vi.fn(),
     };
+  }
 
-    onKeyDown({ key: 'Escape' });
-    expect(sent).toEqual([{ type: 'CANCEL' }]);
+  function keydown(key: string): KeyboardEvent {
+    return { key, target: null } as KeyboardEvent;
+  }
+
+  it('Escape sends CANCEL, clears center-drag state, and exits connect mode', () => {
+    const actor = actorRef({ selectedEntityId: 'line-1' });
+    const clearCenterGrabOffset = vi.fn();
+    useUIStore.getState().toggleConnectMode();
+
+    handleMapKeyDown(actor as never, keydown('Escape'), clearCenterGrabOffset);
+
+    expect(clearCenterGrabOffset).toHaveBeenCalledTimes(1);
+    expect(useUIStore.getState().connectMode).toEqual({ active: false, firstLaneId: null });
+    expect(actor.send).toHaveBeenCalledWith({ type: 'CANCEL' });
   });
 
   it('Enter sends CONFIRM', () => {
-    const sent: Array<{ type: string }> = [];
-    const actorRef = { send: vi.fn((e) => sent.push(e)) };
+    const actor = actorRef();
 
-    const onKeyDown = (e: { key: string }) => {
-      if (e.key === 'Escape') actorRef.send({ type: 'CANCEL' });
-      if (e.key === 'Enter') actorRef.send({ type: 'CONFIRM' });
-    };
+    handleMapKeyDown(actor as never, keydown('Enter'), vi.fn());
 
-    onKeyDown({ key: 'Enter' });
-    expect(sent).toEqual([{ type: 'CONFIRM' }]);
+    expect(actor.send).toHaveBeenCalledWith({ type: 'CONFIRM' });
   });
 
-  it('Delete is a no-op when state is not selected', () => {
-    const sent: Array<{ type: string }> = [];
-
-    // Minimal replica: only sends DELETE when state===selected + entityId
-    const onKeyDelete = (state: string, entityId: string | null) => {
-      if (state !== 'selected' || !entityId) return;
-      sent.push({ type: 'DELETE_ENTITY' });
+  it('Delete removes a selected drawing entity from the map store', () => {
+    const entity: PolylineEntity = {
+      id: 'line-delete',
+      entityType: 'polyline',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+      ],
     };
+    useMapStore.setState({ entities: new Map([[entity.id, entity]]) });
+    const actor = actorRef({ selectedEntityId: entity.id });
 
-    onKeyDelete('idle', null);
-    onKeyDelete('idle', 'some-id');
-    onKeyDelete('selected', null);
-    expect(sent).toHaveLength(0);
+    handleMapKeyDown(actor as never, keydown('Delete'), vi.fn());
+
+    expect(useMapStore.getState().entities.has(entity.id)).toBe(false);
+    expect(actor.send).toHaveBeenCalledWith({ type: 'DELETE_ENTITY' });
   });
 
-  it('Delete sends DELETE_ENTITY when state=selected and entityId present', () => {
-    const sent: Array<{ type: string }> = [];
-
-    const onKeyDelete = (state: string, entityId: string | null) => {
-      if (state !== 'selected' || !entityId) return;
-      sent.push({ type: 'DELETE_ENTITY' });
+  it('Backspace deletes the active drawing vertex and keeps the entity selected', () => {
+    const entity: PolylineEntity = {
+      id: 'line-vertex-delete',
+      entityType: 'polyline',
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+        { x: 2, y: 0 },
+      ],
     };
+    useMapStore.setState({ entities: new Map([[entity.id, entity]]) });
+    const actor = actorRef({
+      selectedEntityId: entity.id,
+      dragPointIndex: 1,
+      dragPointType: 'vertex',
+    });
 
-    onKeyDelete('selected', 'entity-123');
-    expect(sent).toEqual([{ type: 'DELETE_ENTITY' }]);
+    handleMapKeyDown(actor as never, keydown('Backspace'), vi.fn());
+
+    expect((useMapStore.getState().entities.get(entity.id) as PolylineEntity).points).toEqual([
+      { x: 0, y: 0 },
+      { x: 2, y: 0 },
+    ]);
+    expect(actor.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: entity.id });
+    expect(actor.send).not.toHaveBeenCalledWith({ type: 'DELETE_ENTITY' });
+  });
+
+  it('Delete deletes the active Apollo vertex and removes Apollo entities at minimum vertex count', () => {
+    const lane = createEntity(
+      'lane',
+      'drawPolyline',
+      [
+        [0, 0],
+        [1, 1],
+        [2, 0],
+      ],
+      [],
+    ) as LaneEntity;
+    useMapStore.setState({ entities: new Map([[lane.id, lane]]) });
+    const vertexActor = actorRef({
+      selectedEntityId: lane.id,
+      dragPointIndex: 1,
+      dragPointType: 'vertex',
+    });
+
+    handleMapKeyDown(vertexActor as never, keydown('Delete'), vi.fn());
+
+    const trimmed = useMapStore.getState().entities.get(lane.id) as LaneEntity;
+    expect(getEditPoints(trimmed)).toEqual([
+      { x: 0, y: 0 },
+      { x: 2, y: 0 },
+    ]);
+    expect(vertexActor.send).toHaveBeenCalledWith({ type: 'SELECT_ENTITY', id: lane.id });
+
+    const entityActor = actorRef({
+      selectedEntityId: lane.id,
+      dragPointIndex: 0,
+      dragPointType: 'vertex',
+    });
+    handleMapKeyDown(entityActor as never, keydown('Delete'), vi.fn());
+
+    expect(useMapStore.getState().entities.has(lane.id)).toBe(false);
+    expect(entityActor.send).toHaveBeenCalledWith({ type: 'DELETE_ENTITY' });
+  });
+
+  it('Delete is a no-op when no selected entity can be deleted', () => {
+    const idle = actorRef({ state: 'idle', selectedEntityId: 'line-1' });
+    const missing = actorRef({ state: 'selected', selectedEntityId: 'missing' });
+
+    handleMapKeyDown(idle as never, keydown('Delete'), vi.fn());
+    handleMapKeyDown(missing as never, keydown('Delete'), vi.fn());
+
+    expect(idle.send).not.toHaveBeenCalled();
+    expect(missing.send).not.toHaveBeenCalled();
   });
 });

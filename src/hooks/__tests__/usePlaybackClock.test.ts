@@ -56,17 +56,42 @@ vi.mock('@/store/playbackStore', () => ({
 
 function installAnimationFrame() {
   let nextId = 0;
-  const callbacks = new Map<number, FrameRequestCallback>();
+  let nowMs = 1000;
+  const timers = new Map<number, ReturnType<typeof setTimeout>>();
+  vi.useFakeTimers();
+  vi.stubGlobal('performance', { now: vi.fn(() => nowMs) });
   vi.stubGlobal(
     'requestAnimationFrame',
     vi.fn((callback: FrameRequestCallback) => {
       nextId += 1;
-      callbacks.set(nextId, callback);
+      const id = nextId;
+      const timer = setTimeout(() => {
+        timers.delete(id);
+        callback(nowMs);
+      }, 16);
+      timers.set(id, timer);
       return nextId;
     }),
   );
-  vi.stubGlobal('cancelAnimationFrame', vi.fn());
-  return callbacks;
+  vi.stubGlobal(
+    'cancelAnimationFrame',
+    vi.fn((id: number) => {
+      const timer = timers.get(id);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timers.delete(id);
+      }
+    }),
+  );
+  return {
+    advanceTo(nextNowMs: number) {
+      nowMs = nextNowMs;
+      vi.advanceTimersByTime(16);
+    },
+    runPending() {
+      vi.runOnlyPendingTimers();
+    },
+  };
 }
 
 beforeEach(() => {
@@ -78,10 +103,10 @@ beforeEach(() => {
   playbackStoreMock.state.speed = 1;
   playbackStoreMock.state.setCurrentTime = vi.fn();
   playbackStoreMock.state.pause = vi.fn();
-  vi.stubGlobal('performance', { now: vi.fn(() => 1000) });
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -96,7 +121,7 @@ describe('usePlaybackClock', () => {
   });
 
   it('advances playback by elapsed time and cancels the latest pending frame on cleanup', () => {
-    const callbacks = installAnimationFrame();
+    const clock = installAnimationFrame();
     playbackStoreMock.state.isPlaying = true;
     playbackStoreMock.state.currentTime = 1;
     playbackStoreMock.state.speed = 2;
@@ -104,7 +129,7 @@ describe('usePlaybackClock', () => {
     usePlaybackClock();
 
     expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
-    callbacks.get(1)?.(1500);
+    clock.advanceTo(1500);
 
     expect(playbackStoreMock.state.setCurrentTime).toHaveBeenCalledWith(2);
     expect(requestAnimationFrame).toHaveBeenCalledTimes(2);
@@ -115,17 +140,20 @@ describe('usePlaybackClock', () => {
     cleanup?.();
 
     expect(cancelAnimationFrame).toHaveBeenCalledWith(2);
+    playbackStoreMock.state.setCurrentTime.mockClear();
+    clock.runPending();
+    expect(playbackStoreMock.state.setCurrentTime).not.toHaveBeenCalled();
   });
 
   it('clamps to duration and pauses when the next tick reaches the end', () => {
-    const callbacks = installAnimationFrame();
+    const clock = installAnimationFrame();
     playbackStoreMock.state.isPlaying = true;
     playbackStoreMock.state.currentTime = 9.5;
     playbackStoreMock.state.duration = 10;
     playbackStoreMock.state.speed = 2;
 
     usePlaybackClock();
-    callbacks.get(1)?.(1500);
+    clock.advanceTo(1500);
 
     expect(playbackStoreMock.state.setCurrentTime).toHaveBeenCalledWith(10);
     expect(playbackStoreMock.state.pause).toHaveBeenCalledTimes(1);

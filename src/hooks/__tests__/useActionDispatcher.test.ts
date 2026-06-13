@@ -511,6 +511,32 @@ describe('effect installers', () => {
     expect(target.removeEventListener).toHaveBeenCalledWith('keydown', listener);
   });
 
+  it.each([
+    ['Control+K', { key: 'k', ctrlKey: true }, 'commandPalette'],
+    ['Meta+K', { key: 'k', metaKey: true }, 'commandPalette'],
+    ['Control+,', { key: ',', ctrlKey: true }, 'settings'],
+    ['Meta+,', { key: ',', metaKey: true }, 'settings'],
+    ['Control+G', { key: 'g', ctrlKey: true }, 'toggleGrid'],
+    ['Meta+G', { key: 'g', metaKey: true }, 'toggleGrid'],
+  ] as const)(
+    'maps %s through the real keybinding installer',
+    (_label, keyboardOverrides, expectedActionId) => {
+      const execute = vi.fn();
+      const target = eventTargetStub();
+      installKeyboardShortcuts(execute, target as never);
+
+      const event = fakeKeyboardEvent({
+        ctrlKey: false,
+        metaKey: false,
+        ...keyboardOverrides,
+      });
+      target.dispatch('keydown', event);
+
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledWith(expectedActionId);
+    },
+  );
+
   it('ignores non-global keyboard shortcuts while a text target is focused', () => {
     class FakeInput {}
     vi.stubGlobal('HTMLInputElement', FakeInput);
@@ -530,7 +556,7 @@ describe('effect installers', () => {
     vi.unstubAllGlobals();
   });
 
-  it('allows global keyboard shortcuts while a text target is focused', () => {
+  it('allows the global Command Palette shortcut while a text target is focused', () => {
     class FakeInput {}
     vi.stubGlobal('HTMLInputElement', FakeInput);
     const execute = vi.fn();
@@ -538,12 +564,32 @@ describe('effect installers', () => {
     installKeyboardShortcuts(execute, target as never);
 
     const event = fakeKeyboardEvent({
+      key: 'k',
       target: new FakeInput() as never,
     });
     target.dispatch('keydown', event);
 
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(execute).toHaveBeenCalledWith('undo');
+    expect(execute).toHaveBeenCalledWith('commandPalette');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('allows other global shortcut exceptions while a text target is focused', () => {
+    class FakeInput {}
+    vi.stubGlobal('HTMLInputElement', FakeInput);
+    const execute = vi.fn();
+    const target = eventTargetStub();
+    installKeyboardShortcuts(execute, target as never);
+
+    const event = fakeKeyboardEvent({
+      key: 'g',
+      target: new FakeInput() as never,
+    });
+    target.dispatch('keydown', event);
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(execute).toHaveBeenCalledWith('toggleGrid');
 
     vi.unstubAllGlobals();
   });

@@ -220,12 +220,14 @@ describe('playbackStore', () => {
     });
 
     usePlaybackStore.getState().play();
+    usePlaybackStore.getState().setSpeed(4);
     usePlaybackStore.getState().reset(-5);
 
     expect(usePlaybackStore.getState()).toMatchObject({
       currentTime: 0,
       duration: 0.001,
       isPlaying: false,
+      speed: 4,
     });
   });
 });

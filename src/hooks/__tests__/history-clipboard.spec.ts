@@ -157,6 +157,15 @@ function selectedEntityId(actor: EditorActor) {
   return actor.getSnapshot().context.selectedEntityId;
 }
 
+function expectActorIdleWithCleanDrawContext(actor: EditorActor) {
+  const snap = actor.getSnapshot();
+  expect(snap.value).toBe('idle');
+  expect(snap.context.drawPoints).toEqual([]);
+  expect(snap.context.previewPoint).toBeNull();
+  expect(snap.context.bezierAnchors).toEqual([]);
+  expect(snap.context.isDraggingHandle).toBe(false);
+}
+
 beforeEach(() => {
   clearSelectionClipboard();
   useMapStore.setState({ entities: new Map() });
@@ -229,6 +238,64 @@ describe('History and Clipboard E2E', () => {
 
     dispatchKey(keyboardTarget, 'z', { metaKey: true, shiftKey: true });
     expect(entityIds()).toEqual(['polyline_1']);
+  });
+
+  it('cancels an in-progress draw before undoing map history', () => {
+    const actor = createStartedActor();
+    const execute = createExecute(actor);
+    const source = polyline('polyline_1');
+    useMapStore.getState().addEntity(source);
+    expect(entityIds()).toEqual(['polyline_1']);
+
+    execute('tool:drawPolyline');
+    actor.send({ type: 'MOUSE_DOWN', point: [0, 0] });
+    actor.send({ type: 'MOUSE_MOVE', point: [0.001, 0] });
+    expect(actor.getSnapshot().value).toBe('drawPolyline');
+    expect(actor.getSnapshot().context.drawPoints).toEqual([[0, 0]]);
+
+    execute('undo');
+
+    expectActorIdleWithCleanDrawContext(actor);
+    expect(entityIds()).toEqual([]);
+  });
+
+  it('cancels an in-progress draw before redoing map history', () => {
+    const actor = createStartedActor();
+    const execute = createExecute(actor);
+    const source = polyline('polyline_1');
+    useMapStore.getState().addEntity(source);
+    useMapStore.temporal.getState().undo();
+    expect(entityIds()).toEqual([]);
+
+    execute('tool:drawPolyline');
+    actor.send({ type: 'MOUSE_DOWN', point: [0, 0] });
+    actor.send({ type: 'MOUSE_MOVE', point: [0.001, 0] });
+    expect(actor.getSnapshot().value).toBe('drawPolyline');
+    expect(actor.getSnapshot().context.drawPoints).toEqual([[0, 0]]);
+
+    execute('redo');
+
+    expectActorIdleWithCleanDrawContext(actor);
+    expect(entityIds()).toEqual(['polyline_1']);
+  });
+
+  it('drops the redo branch after undo followed by a new edit', () => {
+    const actor = createStartedActor();
+    const keyboardTarget = eventTargetStub();
+    installKeyboardShortcuts(createExecute(actor), keyboardTarget as never);
+
+    useMapStore.getState().addEntity(polyline('polyline_1'));
+    useMapStore.getState().addEntity(polyline('polyline_2'));
+    expect(entityIds()).toEqual(['polyline_1', 'polyline_2']);
+
+    dispatchKey(keyboardTarget, 'z', { ctrlKey: true });
+    expect(entityIds()).toEqual(['polyline_1']);
+
+    useMapStore.getState().addEntity(polyline('polyline_3'));
+    expect(entityIds()).toEqual(['polyline_1', 'polyline_3']);
+
+    dispatchKey(keyboardTarget, 'z', { ctrlKey: true, shiftKey: true });
+    expect(entityIds()).toEqual(['polyline_1', 'polyline_3']);
   });
 
   it('copies the selected entity and pastes a conflict-free id', () => {
@@ -342,6 +409,10 @@ describe('History and Clipboard E2E', () => {
     dispatchKey(keyboardTarget, 'z', { ctrlKey: true });
     expect(useMapStore.getState().entities.get(source.id)).toEqual(source);
     expect(selectedEntityId(actor)).toBeNull();
+
+    dispatchKey(keyboardTarget, 'z', { ctrlKey: true, shiftKey: true });
+    expect(useMapStore.getState().entities.has(source.id)).toBe(false);
+    expect(selectedEntityId(actor)).toBeNull();
   });
 
   it.each(['Delete', 'Backspace'] as const)(
@@ -363,6 +434,10 @@ describe('History and Clipboard E2E', () => {
 
       dispatchKey(keyboardTarget, 'z', { metaKey: true });
       expect(useMapStore.getState().entities.get(source.id)).toEqual(source);
+      expect(selectedEntityId(actor)).toBeNull();
+
+      dispatchKey(keyboardTarget, 'z', { metaKey: true, shiftKey: true });
+      expect(useMapStore.getState().entities.has(source.id)).toBe(false);
       expect(selectedEntityId(actor)).toBeNull();
     },
   );
@@ -421,7 +496,7 @@ describe('History and Clipboard E2E', () => {
     expect(selectedEntityId(actor)).toBe(source.id);
   });
 
-  it('does not run undo or redo while a text input is focused', () => {
+  it('still runs global undo and redo while a text input is focused', () => {
     class FakeInput {}
     vi.stubGlobal('HTMLInputElement', FakeInput);
 
@@ -431,27 +506,28 @@ describe('History and Clipboard E2E', () => {
     installKeyboardShortcuts(createExecute(actor), keyboardTarget as never);
 
     useMapStore.getState().addEntity(polyline('polyline_1'));
-    const blockedCtrlUndo = dispatchKey(keyboardTarget, 'z', { ctrlKey: true, target: input });
-    const blockedMetaUndo = dispatchKey(keyboardTarget, 'z', { metaKey: true, target: input });
-    expect(blockedCtrlUndo.preventDefault).not.toHaveBeenCalled();
-    expect(blockedMetaUndo.preventDefault).not.toHaveBeenCalled();
-    expect(entityIds()).toEqual(['polyline_1']);
-
-    useMapStore.temporal.getState().undo();
+    const ctrlUndo = dispatchKey(keyboardTarget, 'z', { ctrlKey: true, target: input });
+    expect(ctrlUndo.preventDefault).toHaveBeenCalledTimes(1);
     expect(entityIds()).toEqual([]);
 
-    const blockedCtrlRedo = dispatchKey(keyboardTarget, 'z', {
+    const ctrlRedo = dispatchKey(keyboardTarget, 'z', {
       ctrlKey: true,
       shiftKey: true,
       target: input,
     });
-    const blockedMetaRedo = dispatchKey(keyboardTarget, 'z', {
+    expect(ctrlRedo.preventDefault).toHaveBeenCalledTimes(1);
+    expect(entityIds()).toEqual(['polyline_1']);
+
+    const metaUndo = dispatchKey(keyboardTarget, 'z', { metaKey: true, target: input });
+    expect(metaUndo.preventDefault).toHaveBeenCalledTimes(1);
+    expect(entityIds()).toEqual([]);
+
+    const metaRedo = dispatchKey(keyboardTarget, 'z', {
       metaKey: true,
       shiftKey: true,
       target: input,
     });
-    expect(blockedCtrlRedo.preventDefault).not.toHaveBeenCalled();
-    expect(blockedMetaRedo.preventDefault).not.toHaveBeenCalled();
-    expect(entityIds()).toEqual([]);
+    expect(metaRedo.preventDefault).toHaveBeenCalledTimes(1);
+    expect(entityIds()).toEqual(['polyline_1']);
   });
 });

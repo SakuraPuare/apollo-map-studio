@@ -35,8 +35,20 @@ vi.mock('@/store/mapStore', () => ({
 vi.mock('@/store/uiStore', () => ({
   useUIStore: Object.assign(
     vi.fn(() => false),
-    { getState: vi.fn(() => ({ toggleGrid: vi.fn(), toggleSnap: vi.fn() })) },
+    {
+      getState: vi.fn(() => ({
+        appMode: 'drawing',
+        toggleGrid: vi.fn(),
+        toggleSnap: vi.fn(),
+        connectMode: { active: false },
+        boundaryBrush: { active: false },
+      })),
+    },
   ),
+}));
+
+vi.mock('@/lib/editable-guard', () => ({
+  assertEditable: vi.fn(() => true),
 }));
 
 describe('R1 undo/redo FSM closure', () => {
@@ -52,6 +64,7 @@ describe('R1 undo/redo FSM closure', () => {
       send: vi.fn((event: { type: string }) => {
         callLog.push(`send:${event.type}`);
       }),
+      getSnapshot: vi.fn(() => ({ value: 'drawPolyline', context: {} })),
     };
 
     temporalUndo.mockImplementation(() => {
@@ -61,43 +74,48 @@ describe('R1 undo/redo FSM closure', () => {
       callLog.push('temporal.redo');
     });
 
-    // Dynamic import after mocks are set up.
-    const { useActionDispatcher } = await import('../useActionDispatcher');
+    const { buildActionHandlers, createActionExecutor } = await import('../useActionDispatcher');
+    const execute = createActionExecutor(
+      buildActionHandlers({
+        actorRef: actorRef as never,
+        onOpenCommandPalette: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onOpenAbout: vi.fn(),
+        onResetLayout: vi.fn(),
+        onToggleWorkspaceView: vi.fn(),
+        getWorkspaceViewState: vi.fn(() => false),
+      }),
+    );
 
-    // Minimal React hook runner — call the hook outside of React by invoking
-    // its underlying logic. We can't run the full hook without a renderer, so
-    // we reach into the registered handlers directly via the module export
-    // and recreate the handler map manually for the undo/redo slot.
-    //
-    // Instead, re-implement the exact ordering contract this hook promises.
-    const historyWithCancel = (op: 'undo' | 'redo') => {
-      actorRef.send({ type: 'CANCEL' });
-      if (op === 'undo') temporalUndo();
-      else temporalRedo();
-    };
-
-    historyWithCancel('undo');
+    execute('undo');
     expect(callLog).toEqual(['send:CANCEL', 'temporal.undo']);
 
     callLog.length = 0;
-    historyWithCancel('redo');
+    execute('redo');
     expect(callLog).toEqual(['send:CANCEL', 'temporal.redo']);
-
-    // Keep the hook import alive so tree-shaking doesn't eliminate the mocks.
-    expect(typeof useActionDispatcher).toBe('function');
   });
 
-  it('idle-state undo still invokes temporal.undo (CANCEL is a no-op in idle)', () => {
+  it('idle-state undo still invokes temporal.undo (CANCEL is a no-op in idle)', async () => {
     const sendCalls: { type: string }[] = [];
-    const actorRef = { send: vi.fn((e) => sendCalls.push(e)) };
-
-    const historyWithCancel = (op: 'undo' | 'redo') => {
-      actorRef.send({ type: 'CANCEL' });
-      if (op === 'undo') temporalUndo();
-      else temporalRedo();
+    const actorRef = {
+      send: vi.fn((e) => sendCalls.push(e)),
+      getSnapshot: vi.fn(() => ({ value: 'idle', context: {} })),
     };
 
-    historyWithCancel('undo');
+    const { buildActionHandlers, createActionExecutor } = await import('../useActionDispatcher');
+    const execute = createActionExecutor(
+      buildActionHandlers({
+        actorRef: actorRef as never,
+        onOpenCommandPalette: vi.fn(),
+        onOpenSettings: vi.fn(),
+        onOpenAbout: vi.fn(),
+        onResetLayout: vi.fn(),
+        onToggleWorkspaceView: vi.fn(),
+        getWorkspaceViewState: vi.fn(() => false),
+      }),
+    );
+
+    execute('undo');
     expect(sendCalls).toEqual([{ type: 'CANCEL' }]);
     expect(temporalUndo).toHaveBeenCalledTimes(1);
   });
