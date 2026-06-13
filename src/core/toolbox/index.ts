@@ -3,4 +3,5 @@ export {
   rederiveEditableGeometry,
   simplifyRoadGeometry,
   type GeometryToolResult,
+  type GeometryToolStats,
 } from './geometryTools';
