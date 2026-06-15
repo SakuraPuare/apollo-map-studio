@@ -18,13 +18,13 @@ importers:
     dependencies:
       '@hookform/resolvers':
         specifier: ^5.4.0
-        version: 5.4.0(react-hook-form@7.78.0(react@19.2.7))
+        version: 5.4.0(react-hook-form@7.79.0(react@19.2.7))
       '@radix-ui/react-scroll-area':
         specifier: ^1.2.11
         version: 1.2.11(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@xstate/react':
         specifier: ^6.1.0
-        version: 6.1.0(@types/react@19.2.17)(react@19.2.7)(xstate@5.32.0)
+        version: 6.1.0(@types/react@19.2.17)(react@19.2.7)(xstate@5.32.1)
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
@@ -50,11 +50,11 @@ importers:
         specifier: ^0.15.7
         version: 0.15.7
       proj4:
-        specifier: ^2.20.8
-        version: 2.20.8
+        specifier: ^2.20.9
+        version: 2.20.9
       protobufjs:
-        specifier: ^8.6.1
-        version: 8.6.1
+        specifier: ^8.6.3
+        version: 8.6.3
       rbush:
         specifier: ^4.0.1
         version: 4.0.1
@@ -62,14 +62,14 @@ importers:
         specifier: ^19.2.7
         version: 19.2.7
       react-arborist:
-        specifier: ^3.10.1
-        version: 3.10.1(@types/node@25.9.2)(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+        specifier: ^3.10.5
+        version: 3.10.5(@types/node@25.9.2)(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       react-dom:
         specifier: ^19.2.7
         version: 19.2.7(react@19.2.7)
       react-hook-form:
-        specifier: ^7.78.0
-        version: 7.78.0(react@19.2.7)
+        specifier: ^7.79.0
+        version: 7.79.0(react@19.2.7)
       react-icons:
         specifier: ^5.6.0
         version: 5.6.0(react@19.2.7)
@@ -77,8 +77,8 @@ importers:
         specifier: ^3.6.0
         version: 3.6.0
       xstate:
-        specifier: ^5.32.0
-        version: 5.32.0
+        specifier: ^5.32.1
+        version: 5.32.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4247,8 +4247,13 @@ packages:
     resolution: {integrity: sha512-7PiHtLll5LdnKIMw100I+8xJXR5gW2QwWYkT6iJva0bXitZKa/XMrSbdmg3r2Xnaidz9Qumd0VPaMrZlF9V9sA==}
     engines: {node: '>=0.4.0'}
 
-  proj4@2.20.8:
-    resolution: {integrity: sha512-1C8sfT4xY4PAPwk0MroFBTGF4R4bzDXdmPQTGYVLsoNssrZ9odzObxS2dTeGBty8jW8KO7h16C1Hs2JP+ctfFw==}
+  proj4@2.20.9:
+    resolution: {integrity: sha512-GLBGqXaTcdWnppre3o1sMmy4DcMGSGq/ng+9k2MTNddarRK6SveINqlqYzi3xEXuy06ljY1TTrC6H9C4f360IQ==}
+    peerDependencies:
+      geotiff: '*'
+    peerDependenciesMeta:
+      geotiff:
+        optional: true
 
   promise-retry@2.0.1:
     resolution: {integrity: sha512-y+WKFlBR8BGXnsNlIHFGPZmyDf3DFMoLhaflAnyZgV6rG6xu+JwesTo2Q9R6XwYmtmwAFCkAk3e35jEdoeh/3g==}
@@ -4264,8 +4269,8 @@ packages:
   property-information@7.2.0:
     resolution: {integrity: sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg==}
 
-  protobufjs@8.6.1:
-    resolution: {integrity: sha512-s4qQPr4pU0W95iYnUInh95skjIg+3aM2sakYsw60QYanU+qWRDY2zQxOAQV6zU7ROJpSNDG9B+VSmk4dqdWWSA==}
+  protobufjs@8.6.3:
+    resolution: {integrity: sha512-alQyzT0j401LGBtwsqu6uprjR6pfNH1UJf9N6GBFMjIcd+HzTe0/HrjAbFCqun+zvnfLarrxAtMM2xvZ+kFZ5A==}
     engines: {node: '>=12.0.0'}
 
   protocol-buffers-schema@3.6.1:
@@ -4321,8 +4326,8 @@ packages:
   rbush@4.0.1:
     resolution: {integrity: sha512-IP0UpfeWQujYC8Jg162rMNc01Rf0gWMMAb2Uxus/Q0qOFw4lCcq6ZnQEZwUoJqWyUGJ9th7JjwI4yIWo+uvoAQ==}
 
-  react-arborist@3.10.1:
-    resolution: {integrity: sha512-P9WJuj2zvtNGVzaNqTKIIBeS5aDMfvXdYT9KDVOZaALHwcfGJQON+X+gbMscTdAb5frdXDHBWl677HX3XEV1PA==}
+  react-arborist@3.10.5:
+    resolution: {integrity: sha512-gbxFTLb0vCGmFOcJ/ZY2/ymCIdG4U8ok6fApsSeUWhGxUXwgtLpbylKNbSpzhjovv1D3VRFTW3OiiRs+Coh1vg==}
     peerDependencies:
       react: '>= 16.14'
       react-dom: '>= 16.14'
@@ -4350,8 +4355,8 @@ packages:
     peerDependencies:
       react: ^19.2.7
 
-  react-hook-form@7.78.0:
-    resolution: {integrity: sha512-EEZqc+N23moyzTlz61Pj+JvcXo76ICkpfOZo8JZw+sM4+wLQGh6nI2Ms+PdMOYNluFu0ghlM7B8mCzhRYtJCnA==}
+  react-hook-form@7.79.0:
+    resolution: {integrity: sha512-mhYp/MTmXvzYX6AJcJVko0rktoIhhmRnEouObj4wF5i/tCttgJvnp1+9wRkpITZjDTqpo4IOSJqu0dBlPlV/Lw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       react: ^16.8.0 || ^17 || ^18 || ^19
@@ -5232,8 +5237,8 @@ packages:
     resolution: {integrity: sha512-yMqGBqtXyeN1e3TGYvgNgDVZ3j84W4cwkOXQswghol6APgZWaff9lnbvN7MHYJOiXsvGPXtjTYJEiC9J2wv9Eg==}
     engines: {node: '>=8.0'}
 
-  xstate@5.32.0:
-    resolution: {integrity: sha512-zsk73aWGmxn9z34P0kbiod5JwTvdYRW3+IDxITq8sd9+VWwMyW7BUzpplnYy9mIEXa6V8IMDv7Hy4m0mhT5+2Q==}
+  xstate@5.32.1:
+    resolution: {integrity: sha512-IGX9q5vEOplWjVq79edfgjJfVV/lXCup9p/fQGgUabAveZrlRwWJ/mC2iZEE7wswXbWITBCoS7gmoFfcuWAwsQ==}
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -5928,10 +5933,10 @@ snapshots:
     dependencies:
       hono: 4.12.23
 
-  '@hookform/resolvers@5.4.0(react-hook-form@7.78.0(react@19.2.7))':
+  '@hookform/resolvers@5.4.0(react-hook-form@7.79.0(react@19.2.7))':
     dependencies:
       '@standard-schema/utils': 0.3.0
-      react-hook-form: 7.78.0(react@19.2.7)
+      react-hook-form: 7.79.0(react@19.2.7)
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -7147,13 +7152,13 @@ snapshots:
 
   '@xmldom/xmldom@0.8.13': {}
 
-  '@xstate/react@6.1.0(@types/react@19.2.17)(react@19.2.7)(xstate@5.32.0)':
+  '@xstate/react@6.1.0(@types/react@19.2.17)(react@19.2.7)(xstate@5.32.1)':
     dependencies:
       react: 19.2.7
       use-isomorphic-layout-effect: 1.2.1(@types/react@19.2.17)(react@19.2.7)
       use-sync-external-store: 1.6.0(react@19.2.7)
     optionalDependencies:
-      xstate: 5.32.0
+      xstate: 5.32.1
     transitivePeerDependencies:
       - '@types/react'
 
@@ -9483,7 +9488,7 @@ snapshots:
 
   progress@2.0.3: {}
 
-  proj4@2.20.8:
+  proj4@2.20.9:
     dependencies:
       mgrs: 1.0.0
       wkt-parser: 1.5.5
@@ -9506,7 +9511,7 @@ snapshots:
 
   property-information@7.2.0: {}
 
-  protobufjs@8.6.1:
+  protobufjs@8.6.3:
     dependencies:
       long: 5.3.2
 
@@ -9558,7 +9563,7 @@ snapshots:
     dependencies:
       quickselect: 3.0.0
 
-  react-arborist@3.10.1(@types/node@25.9.2)(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
+  react-arborist@3.10.5(@types/node@25.9.2)(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
     dependencies:
       react: 19.2.7
       react-dnd: 14.0.5(@types/node@25.9.2)(@types/react@19.2.17)(react@19.2.7)
@@ -9593,7 +9598,7 @@ snapshots:
       react: 19.2.7
       scheduler: 0.27.0
 
-  react-hook-form@7.78.0(react@19.2.7):
+  react-hook-form@7.79.0(react@19.2.7):
     dependencies:
       react: 19.2.7
 
@@ -10517,7 +10522,7 @@ snapshots:
 
   xmlbuilder@15.1.1: {}
 
-  xstate@5.32.0: {}
+  xstate@5.32.1: {}
 
   y18n@5.0.8: {}
 
