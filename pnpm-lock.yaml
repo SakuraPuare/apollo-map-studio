@@ -54,7 +54,7 @@ importers:
         version: 2.20.8
       protobufjs:
         specifier: ^8.6.1
-        version: 8.6.1
+        version: 8.6.6
       rbush:
         specifier: ^4.0.1
         version: 4.0.1
@@ -4342,8 +4342,8 @@ packages:
   property-information@7.2.0:
     resolution: {integrity: sha512-IAtzIB6sUiWaJYrX9smp3V46pBGbBeLFRGdh25kg1334VcBlD8HzhPeNIWQH9zhGmo2itIe25EHt9dQP7G5hmg==}
 
-  protobufjs@8.6.1:
-    resolution: {integrity: sha512-s4qQPr4pU0W95iYnUInh95skjIg+3aM2sakYsw60QYanU+qWRDY2zQxOAQV6zU7ROJpSNDG9B+VSmk4dqdWWSA==}
+  protobufjs@8.6.6:
+    resolution: {integrity: sha512-RkLIhE+Tdc2Kpq1F4Uw6OnpAXPca7B+GSDov/GqGCqNBpVyDskQ9yReZfgM+C7xw9AAix873iQZXbBWXj6NzYQ==}
     engines: {node: '>=12.0.0'}
 
   protocol-buffers-schema@3.6.1:
@@ -9642,7 +9642,7 @@ snapshots:
 
   property-information@7.2.0: {}
 
-  protobufjs@8.6.1:
+  protobufjs@8.6.6:
     dependencies:
       long: 5.3.2
 
