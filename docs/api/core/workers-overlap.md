@@ -158,8 +158,8 @@ self.onmessage = (e: MessageEvent<OverlapRequest>) => {
 | 5k       | < 1ms                         | ~30ms       |
 | 50k      | < 6ms                         | ~450ms      |
 
-worker postMessage 拷贝 5w entity（典型 30~50 MB JSON 序列化）成主要开销，
-约 100~200ms；reconcile 本身 ~250~300ms。SharedArrayBuffer 启用是未来优化点。
+worker postMessage 拷贝 5w entity（典型 30~~50 MB JSON 序列化）成主要开销，
+约 100~~200ms；reconcile 本身 ~~250~~300ms。SharedArrayBuffer 启用是未来优化点。
 
 ## 测试覆盖
 

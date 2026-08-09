@@ -64,12 +64,7 @@ export type { CrosswalkEntity, JunctionEntity };
 
 /** Drawing primitive entity types (geometry tools) */
 export type DrawingEntity =
-  | PolylineEntity
-  | CatmullRomEntity
-  | BezierEntity
-  | ArcEntity
-  | RectEntity
-  | PolygonEntity;
+  PolylineEntity | CatmullRomEntity | BezierEntity | ArcEntity | RectEntity | PolygonEntity;
 
 /** All editable entity types — drawing primitives + Apollo HD map elements */
 export type MapEntity = DrawingEntity | ApolloEntity;

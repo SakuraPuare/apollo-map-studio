@@ -277,19 +277,13 @@ beforeEach(() => {
     'window',
     Object.assign(globalThis, {
       apolloMapStudioLicense: {
-        getState: vi.fn().mockResolvedValue({
-          /* mock state */
-        }),
+        getState: vi.fn().mockResolvedValue({/* mock state */}),
         getMachineCode: vi.fn().mockResolvedValue('TEST-MACHINE'),
         activate: vi.fn().mockResolvedValue({
           ok: true,
-          state: {
-            /* ... */
-          },
+          state: {/* ... */},
         }),
-        deactivate: vi.fn().mockResolvedValue({
-          /* ... */
-        }),
+        deactivate: vi.fn().mockResolvedValue({/* ... */}),
         onChange: vi.fn().mockReturnValue(() => undefined),
       },
     }),

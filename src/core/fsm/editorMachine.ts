@@ -9,12 +9,7 @@ import type { MapElementType } from '@/core/elements';
 export type { DragPointType } from '@/types/editor';
 
 export type DrawTool =
-  | 'drawPolyline'
-  | 'drawCatmullRom'
-  | 'drawBezier'
-  | 'drawArc'
-  | 'drawRotatedRect'
-  | 'drawPolygon';
+  'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRotatedRect' | 'drawPolygon';
 
 const DRAW_STATES: readonly DrawTool[] = [
   'drawPolyline',

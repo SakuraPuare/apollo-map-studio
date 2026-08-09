@@ -11,16 +11,16 @@ Apollo Map Studio derives lane topology fields from geometry rather than relying
 
 From `src/types/apollo.ts:118-164`:
 
-| Field                     | Geometry rule                                                  |
+| Field | Geometry rule |
 | ------------------------- | -------------------------------------------------------------- | -------- | ----- |
-| `predecessorIds`          | start point coincides with another lane's end (within epsilon) |
-| `successorIds`            | end point coincides with another lane's start                  |
-| `selfReverseLaneIds`      | central curves overlap, headings opposite                      |
-| `leftNeighborForwardIds`  | left side,                                                     | Δheading | < 90° |
-| `rightNeighborForwardIds` | right side, same direction                                     |
-| `leftNeighborReverseIds`  | left side,                                                     | Δheading | > 90° |
-| `rightNeighborReverseIds` | right side, opposite direction                                 |
-| `junctionId`              | both endpoints inside a junction polygon                       |
+| `predecessorIds` | start point coincides with another lane's end (within epsilon) |
+| `successorIds` | end point coincides with another lane's start |
+| `selfReverseLaneIds` | central curves overlap, headings opposite |
+| `leftNeighborForwardIds` | left side, | Δheading | < 90° |
+| `rightNeighborForwardIds` | right side, same direction |
+| `leftNeighborReverseIds` | left side, | Δheading | > 90° |
+| `rightNeighborReverseIds` | right side, opposite direction |
+| `junctionId` | both endpoints inside a junction polygon |
 
 ## Derivation rules
 
@@ -88,17 +88,17 @@ Select a lane → right-side Inspector lists every `*Ids` array as clickable ref
 
 ## Options table
 
-| Field                     | Type           | Source            | Notes                                                     |
+| Field | Type | Source | Notes |
 | ------------------------- | -------------- | ----------------- | --------------------------------------------------------- | -------- | ----- |
-| `predecessorIds`          | `string[]`     | derived + Connect | written bidirectionally                                   |
-| `successorIds`            | `string[]`     | derived + Connect | written bidirectionally                                   |
-| `selfReverseLaneIds`      | `string[]`     | derived           | overlap + reverse                                         |
-| `leftNeighborForwardIds`  | `string[]`     | derived           |                                                           | Δheading | < 90° |
-| `rightNeighborForwardIds` | `string[]`     | derived           | same direction                                            |
-| `leftNeighborReverseIds`  | `string[]`     | derived           |                                                           | Δheading | > 90° |
-| `rightNeighborReverseIds` | `string[]`     | derived           | opposite direction                                        |
-| `junctionId`              | `string\|null` | derived           | both endpoints inside polygon                             |
-| `overlapIds`              | `string[]`     | reconcileOverlaps | see [Topology and junctions](./topology-and-junctions.md) |
+| `predecessorIds` | `string[]` | derived + Connect | written bidirectionally |
+| `successorIds` | `string[]` | derived + Connect | written bidirectionally |
+| `selfReverseLaneIds` | `string[]` | derived | overlap + reverse |
+| `leftNeighborForwardIds` | `string[]` | derived | | Δheading | < 90° |
+| `rightNeighborForwardIds` | `string[]` | derived | same direction |
+| `leftNeighborReverseIds` | `string[]` | derived | | Δheading | > 90° |
+| `rightNeighborReverseIds` | `string[]` | derived | opposite direction |
+| `junctionId` | `string\|null` | derived | both endpoints inside polygon |
+| `overlapIds` | `string[]` | reconcileOverlaps | see [Topology and junctions](./topology-and-junctions.md) |
 
 ## Shortcut cheatsheet
 

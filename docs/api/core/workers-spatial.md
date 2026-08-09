@@ -187,11 +187,11 @@ flowchart TD
 
 ## 复杂度
 
-| 操作        | 复杂度                                              |
+| 操作 | 复杂度 |
 | ----------- | --------------------------------------------------- | -------- | ------------------------------- |
-| SYNC        | O(N + L·B)：N=entities，L=lanes，B=每条 lane 边界段 |
-| INCREMENTAL | O(                                                  | affected | ·B + Δentities·feature_compile) |
-| HIT_TEST    | O(log N + k·V)：k=候选数，V=平均顶点数              |
+| SYNC | O(N + L·B)：N=entities，L=lanes，B=每条 lane 边界段 |
+| INCREMENTAL | O( | affected | ·B + Δentities·feature_compile) |
+| HIT_TEST | O(log N + k·V)：k=候选数，V=平均顶点数 |
 
 ## 测试覆盖
 

@@ -223,14 +223,14 @@ overlap-participant（junction / crosswalk / …）则用其 bbox 反查 R-tree
 
 ## 十、测试要点
 
-| 测试                   | 覆盖                                       |
+| 测试 | 覆盖 |
 | ---------------------- | ------------------------------------------ | ----- | --- |
-| `reconcile.test.ts`    | full vs incremental；id 派生稳定；arr 回写 |
-| `pairTable.test.ts`    | 各 PAIR_RULE 与 lane×lane 检测分支         |
-| `intersect.test.ts`    | 几何相交原语（包括退化输入）               |
-| `polyClip.test.ts`     | 多边形求交、largestRing                    |
-| `computeLaneS.test.ts` | 弧长前缀缓存与 invalidation                |
-| `spatialIndex.test.ts` | bbox 签名 dedup；syncDirty O(              | dirty | )   |
+| `reconcile.test.ts` | full vs incremental；id 派生稳定；arr 回写 |
+| `pairTable.test.ts` | 各 PAIR_RULE 与 lane×lane 检测分支 |
+| `intersect.test.ts` | 几何相交原语（包括退化输入） |
+| `polyClip.test.ts` | 多边形求交、largestRing |
+| `computeLaneS.test.ts` | 弧长前缀缓存与 invalidation |
+| `spatialIndex.test.ts` | bbox 签名 dedup；syncDirty O( | dirty | ) |
 
 ## 十一、FAQ
 

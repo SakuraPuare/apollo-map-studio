@@ -235,14 +235,14 @@ The spatial index keeps the "neighbour count" near constant.
 
 ## 10. Testing notes
 
-| Test                   | Covers                                                             |
+| Test | Covers |
 | ---------------------- | ------------------------------------------------------------------ | ----- | --- |
-| `reconcile.test.ts`    | full vs incremental; id derivation stability; overlapIds writeback |
-| `pairTable.test.ts`    | Each PAIR_RULE plus lane × lane branches                           |
-| `intersect.test.ts`    | Geometric intersection primitives (including degenerate input)     |
-| `polyClip.test.ts`     | Polygon intersection, `largestRing`                                |
-| `computeLaneS.test.ts` | Arc-length prefix cache + invalidation                             |
-| `spatialIndex.test.ts` | bbox-signature dedup; `syncDirty` O(                               | dirty | )   |
+| `reconcile.test.ts` | full vs incremental; id derivation stability; overlapIds writeback |
+| `pairTable.test.ts` | Each PAIR_RULE plus lane × lane branches |
+| `intersect.test.ts` | Geometric intersection primitives (including degenerate input) |
+| `polyClip.test.ts` | Polygon intersection, `largestRing` |
+| `computeLaneS.test.ts` | Arc-length prefix cache + invalidation |
+| `spatialIndex.test.ts` | bbox-signature dedup; `syncDirty` O( | dirty | ) |
 
 ## 11. FAQ
 

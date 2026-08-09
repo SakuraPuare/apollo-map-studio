@@ -53,8 +53,7 @@ export async function loadScenariosFromPicker(): Promise<LoadScenariosResult | n
 }
 
 type LoadScenarioFileResult =
-  | { entry: LoadedScenario }
-  | { failed: LoadScenariosResult['failed'][number] };
+  { entry: LoadedScenario } | { failed: LoadScenariosResult['failed'][number] };
 
 async function loadScenarioFile(file: File): Promise<LoadScenarioFileResult> {
   try {

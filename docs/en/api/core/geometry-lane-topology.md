@@ -181,15 +181,15 @@ endpoint leaves the previous-position peers' pred/succ stale.
 
 ## Complexity
 
-| Operation                          | Complexity    | Note                                                         |
+| Operation | Complexity | Note |
 | ---------------------------------- | ------------- | ------------------------------------------------------------ | ------- | ------------------- |
-| `buildTopologyIndices`             | O(N)          | N=entities count; one scan + RBush load                      |
-| `derivePredSucc` per lane          | O(1+1)        | endpoint Map lookup                                          |
-| `deriveSelfReverse` per lane       | O(K)          | K=lanes sharing sKey (typically 0–2)                         |
-| `deriveJunctionId` per lane        | O(B + S·V)    | B=junction bbox candidates; S=lane segments; V=polygon edges |
-| `deriveNeighbors` per lane         | O(C)          | C=neighbor candidates via bbox                               |
-| `reconcileLaneTopology`            | O(N + L·avgC) | full                                                         |
-| `reconcileLaneTopologyIncremental` | O(            | affected                                                     | · avgC) | dirty typically 1–3 |
+| `buildTopologyIndices` | O(N) | N=entities count; one scan + RBush load |
+| `derivePredSucc` per lane | O(1+1) | endpoint Map lookup |
+| `deriveSelfReverse` per lane | O(K) | K=lanes sharing sKey (typically 0–2) |
+| `deriveJunctionId` per lane | O(B + S·V) | B=junction bbox candidates; S=lane segments; V=polygon edges |
+| `deriveNeighbors` per lane | O(C) | C=neighbor candidates via bbox |
+| `reconcileLaneTopology` | O(N + L·avgC) | full |
+| `reconcileLaneTopologyIncremental` | O( | affected | · avgC) | dirty typically 1–3 |
 
 1000 lanes full reconcile < 10 ms (no persistent index — index is rebuilt
 each call to avoid stale-index bugs).

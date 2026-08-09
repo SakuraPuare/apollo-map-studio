@@ -71,8 +71,7 @@ This pipeline turns the computation into a **pure function**:
 
 ```ts
 export type ReconcileMode =
-  | { mode: 'incremental'; dirtyIds: ReadonlySet<string> }
-  | { mode: 'full' };
+  { mode: 'incremental'; dirtyIds: ReadonlySet<string> } | { mode: 'full' };
 
 export interface ReconcilePatch {
   changes: Map<string, MapEntity>;
@@ -242,15 +241,15 @@ reconcile still derives all objects; `mergeOneObject` then:
 
 ## Complexity
 
-| Operation                       | Complexity   | Note                                  |
+| Operation | Complexity | Note |
 | ------------------------------- | ------------ | ------------------------------------- | ---- | ------------------- |
-| `reconcileOverlaps` full        | O(L · k)     | L=lane count; k=avg neighbors (RBush) |
-| `reconcileOverlaps` incremental | O(           | dirty                                 | · k) | dirty typically 1–3 |
-| `idx.syncFromEntities`          | O(N)         | signature compare                     |
-| `idx.syncDirty`                 | O(           | dirtyIds                              | )    |                     |
-| `idx.queryBBox`                 | O(log N + k) | RBush                                 |
-| `detectLaneLanePair`            | O(M·M)       | M=segment count; typically < 100      |
-| `polylineIntersectsPolygon`     | O(M·V)       | V=polygon edges                       |
+| `reconcileOverlaps` full | O(L · k) | L=lane count; k=avg neighbors (RBush) |
+| `reconcileOverlaps` incremental | O( | dirty | · k) | dirty typically 1–3 |
+| `idx.syncFromEntities` | O(N) | signature compare |
+| `idx.syncDirty` | O( | dirtyIds | ) | |
+| `idx.queryBBox` | O(log N + k) | RBush |
+| `detectLaneLanePair` | O(M·M) | M=segment count; typically < 100 |
+| `polylineIntersectsPolygon` | O(M·V) | V=polygon edges |
 
 50k-entity scale measurements:
 

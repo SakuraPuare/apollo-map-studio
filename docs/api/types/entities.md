@@ -108,12 +108,7 @@ export interface PolygonEntity {
 
 ```ts
 export type DrawingEntity =
-  | PolylineEntity
-  | CatmullRomEntity
-  | BezierEntity
-  | ArcEntity
-  | RectEntity
-  | PolygonEntity;
+  PolylineEntity | CatmullRomEntity | BezierEntity | ArcEntity | RectEntity | PolygonEntity;
 ```
 
 被 `entityOps/typeGuards.ts` 的 `isDrawingEntity` 守卫识别（基于 `DRAWING_TYPES` set）。

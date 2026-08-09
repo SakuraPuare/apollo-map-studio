@@ -18,10 +18,7 @@ export interface SettingsSectionDef {
 }
 
 export type SettingsEntryDef =
-  | NumberSettingEntryDef
-  | BooleanSettingEntryDef
-  | SelectSettingEntryDef
-  | ActionSettingEntryDef;
+  NumberSettingEntryDef | BooleanSettingEntryDef | SelectSettingEntryDef | ActionSettingEntryDef;
 
 export interface NumberSettingEntryDef {
   kind: 'number';

@@ -194,11 +194,11 @@ Default timeout = 120 s (a 50k-entity cold sync can take > 10 s; 12× headroom).
 
 ## Complexity
 
-| Operation   | Complexity                                                    |
+| Operation | Complexity |
 | ----------- | ------------------------------------------------------------- | -------- | ------------------------------- |
-| SYNC        | O(N + L·B); N=entities, L=lanes, B=boundary segments per lane |
-| INCREMENTAL | O(                                                            | affected | ·B + Δentities·feature_compile) |
-| HIT_TEST    | O(log N + k·V); k=candidates, V=avg vertices                  |
+| SYNC | O(N + L·B); N=entities, L=lanes, B=boundary segments per lane |
+| INCREMENTAL | O( | affected | ·B + Δentities·feature_compile) |
+| HIT_TEST | O(log N + k·V); k=candidates, V=avg vertices |
 
 ## Test coverage
 

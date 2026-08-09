@@ -117,13 +117,7 @@ export type BoundaryLineType =
   | 'CURB';
 
 export type LaneType =
-  | 'NONE'
-  | 'CITY_DRIVING'
-  | 'BIKING'
-  | 'SIDEWALK'
-  | 'PARKING'
-  | 'SHOULDER'
-  | 'SHARED';
+  'NONE' | 'CITY_DRIVING' | 'BIKING' | 'SIDEWALK' | 'PARKING' | 'SHOULDER' | 'SHARED';
 
 export type LaneTurn = 'NO_TURN' | 'LEFT_TURN' | 'RIGHT_TURN' | 'U_TURN';
 
@@ -200,12 +194,7 @@ export interface LaneEntity {
 
 ```ts
 export type JunctionType =
-  | 'UNKNOWN'
-  | 'IN_ROAD'
-  | 'CROSS_ROAD'
-  | 'FORK_ROAD'
-  | 'MAIN_SIDE'
-  | 'DEAD_END';
+  'UNKNOWN' | 'IN_ROAD' | 'CROSS_ROAD' | 'FORK_ROAD' | 'MAIN_SIDE' | 'DEAD_END';
 ```
 
 ### `interface JunctionEntity`
@@ -330,12 +319,7 @@ export interface ClearAreaEntity {
 }
 
 export type StopSignType =
-  | 'UNKNOWN_STOP_SIGN'
-  | 'ONE_WAY'
-  | 'TWO_WAY'
-  | 'THREE_WAY'
-  | 'FOUR_WAY'
-  | 'ALL_WAY';
+  'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY' | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
 ```
 
 ## Road

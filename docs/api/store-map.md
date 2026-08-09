@@ -77,9 +77,7 @@ useMapStore.getState().addEntity({
   id: 'lane_42',
   entityType: 'lane',
   centralCurve: {
-    segments: [
-      /* ... */
-    ],
+    segments: [/* ... */],
   },
   // ...
 });

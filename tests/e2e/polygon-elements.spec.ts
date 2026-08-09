@@ -4,12 +4,7 @@ import { waitForMapLibreCanvas } from './helpers/mapLibre';
 type DrawTool = 'drawRotatedRect' | 'drawPolygon';
 type Point = { x: number; y: number };
 type PolygonElementType =
-  | 'junction'
-  | 'pncJunction'
-  | 'parkingSpace'
-  | 'crosswalk'
-  | 'clearArea'
-  | 'area';
+  'junction' | 'pncJunction' | 'parkingSpace' | 'crosswalk' | 'clearArea' | 'area';
 
 type PolygonCase = {
   element: PolygonElementType;

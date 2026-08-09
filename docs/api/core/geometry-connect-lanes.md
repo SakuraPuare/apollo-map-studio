@@ -139,12 +139,12 @@ return writeCenterline(lane, newPoints, source);
 
 ## 复杂度
 
-| 操作                             | 复杂度                        |
+| 操作 | 复杂度 |
 | -------------------------------- | ----------------------------- | ------------------------ |
-| `planConnection`                 | O(P) for `curvePoints` + O(1) | 距离比较                 |
-| `applyLaneConnection` (bezier)   | O(A) + O(A·S)                 | A=anchors，S=每段采样数  |
-| `applyLaneConnection` (arc)      | O(64)                         | threePointArc 默认 64 段 |
-| `applyLaneConnection` (polyline) | O(P)                          | spread                   |
+| `planConnection` | O(P) for `curvePoints` + O(1) | 距离比较 |
+| `applyLaneConnection` (bezier) | O(A) + O(A·S) | A=anchors，S=每段采样数 |
+| `applyLaneConnection` (arc) | O(64) | threePointArc 默认 64 段 |
+| `applyLaneConnection` (polyline) | O(P) | spread |
 
 ## 测试覆盖
 

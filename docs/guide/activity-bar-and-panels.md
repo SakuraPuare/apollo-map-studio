@@ -24,7 +24,7 @@ description: 左侧 Activity Bar 五个 Tab、Sidebar 切换、Dockview 面板�
 | Tab id     | 图标                 | label    | 对应面板                      |
 | ---------- | -------------------- | -------- | ----------------------------- |
 | `explorer` | 📁 FaFolderTree      | Explorer | `MapOutline`                  |
-| `layers`   | 🗂 FaLayerGroup      | Layers   | `LayerTree`                   |
+| `layers`   | 🗂 FaLayerGroup       | Layers   | `LayerTree`                   |
 | `search`   | 🔍 FaMagnifyingGlass | Search   | `SearchPanel`                 |
 | `timeline` | ⏱ FaClock            | Timeline | （切换中央 Dockview 焦点）    |
 | `settings` | ⚙ FaGear             | Settings | 直接打开 `SettingsPanel` 模态 |

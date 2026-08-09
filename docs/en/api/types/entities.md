@@ -108,12 +108,7 @@ Notes:
 
 ```ts
 export type DrawingEntity =
-  | PolylineEntity
-  | CatmullRomEntity
-  | BezierEntity
-  | ArcEntity
-  | RectEntity
-  | PolygonEntity;
+  PolylineEntity | CatmullRomEntity | BezierEntity | ArcEntity | RectEntity | PolygonEntity;
 ```
 
 Detected by the `isDrawingEntity` guard in `entityOps/typeGuards.ts` (driven by the `DRAWING_TYPES` set).

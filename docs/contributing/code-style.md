@@ -146,9 +146,7 @@ const laneCount = 12; // camelCase 变量
 function createLane() {} // camelCase 函数
 class LaneRenderer {} // PascalCase 类
 const DEFAULT_LANE_HALF_WIDTH = 1.75; // SCREAMING_SNAKE 常量
-type LaneEntity = {
-  /* ... */
-}; // PascalCase 类型
+type LaneEntity = {/* ... */}; // PascalCase 类型
 
 // ❌
 const lane_count = 12;
@@ -235,9 +233,7 @@ UI 文件一旦同时承担"取 store / 数据投影 / mutation helper / JSX 渲
 ```ts
 // ✅
 type DrawState =
-  | { kind: 'idle' }
-  | { kind: 'drawing'; points: LngLat[] }
-  | { kind: 'editing'; entityId: string };
+  { kind: 'idle' } | { kind: 'drawing'; points: LngLat[] } | { kind: 'editing'; entityId: string };
 
 function step(s: DrawState): DrawState {
   switch (s.kind) {

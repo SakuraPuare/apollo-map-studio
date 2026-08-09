@@ -117,13 +117,7 @@ export interface LaneSampleAssociation {
 }
 
 export type LaneType =
-  | 'NONE'
-  | 'CITY_DRIVING'
-  | 'BIKING'
-  | 'SIDEWALK'
-  | 'PARKING'
-  | 'SHOULDER'
-  | 'SHARED';
+  'NONE' | 'CITY_DRIVING' | 'BIKING' | 'SIDEWALK' | 'PARKING' | 'SHOULDER' | 'SHARED';
 
 export type LaneTurn = 'NO_TURN' | 'LEFT_TURN' | 'RIGHT_TURN' | 'U_TURN';
 
@@ -180,12 +174,7 @@ export interface LaneEntity {
 // ─── map_junction.proto ──────────────────────────────────────────────
 
 export type JunctionType =
-  | 'UNKNOWN'
-  | 'IN_ROAD'
-  | 'CROSS_ROAD'
-  | 'FORK_ROAD'
-  | 'MAIN_SIDE'
-  | 'DEAD_END';
+  'UNKNOWN' | 'IN_ROAD' | 'CROSS_ROAD' | 'FORK_ROAD' | 'MAIN_SIDE' | 'DEAD_END';
 
 export interface JunctionEntity {
   id: string;
@@ -279,12 +268,7 @@ export interface CrosswalkEntity {
 // ─── map_stop_sign.proto ─────────────────────────────────────────────
 
 export type StopSignType =
-  | 'UNKNOWN_STOP_SIGN'
-  | 'ONE_WAY'
-  | 'TWO_WAY'
-  | 'THREE_WAY'
-  | 'FOUR_WAY'
-  | 'ALL_WAY';
+  'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY' | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
 
 export interface StopSignEntity {
   id: string;

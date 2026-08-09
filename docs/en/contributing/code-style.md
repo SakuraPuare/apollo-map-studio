@@ -153,9 +153,7 @@ const laneCount = 12; // camelCase variable
 function createLane() {} // camelCase function
 class LaneRenderer {} // PascalCase class
 const DEFAULT_LANE_HALF_WIDTH = 1.75; // SCREAMING_SNAKE constant
-type LaneEntity = {
-  /* ... */
-}; // PascalCase type
+type LaneEntity = {/* ... */}; // PascalCase type
 
 // ❌
 const lane_count = 12;
@@ -229,9 +227,7 @@ At 3+ levels switch to a zustand store or React context. See
 ```ts
 // ✅
 type DrawState =
-  | { kind: 'idle' }
-  | { kind: 'drawing'; points: LngLat[] }
-  | { kind: 'editing'; entityId: string };
+  { kind: 'idle' } | { kind: 'drawing'; points: LngLat[] } | { kind: 'editing'; entityId: string };
 
 function step(s: DrawState): DrawState {
   switch (s.kind) {

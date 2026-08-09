@@ -171,15 +171,15 @@ flowchart TD
 
 ## 复杂度
 
-| 操作                               | 复杂度        | 备注                                                              |
+| 操作 | 复杂度 | 备注 |
 | ---------------------------------- | ------------- | ----------------------------------------------------------------- | ------- | -------------- |
-| `buildTopologyIndices`             | O(N)          | N=entities 数；扫一遍 + RBush load                                |
-| `derivePredSucc` per lane          | O(1+1)        | endpoint Map 查找                                                 |
-| `deriveSelfReverse` per lane       | O(K)          | K=同 sKey 的 lane 数（典型 0~2）                                  |
-| `deriveJunctionId` per lane        | O(B + S·V)    | B=候选 junction 数（bbox 命中）；S=lane 段数；V=junction 多边形边 |
-| `deriveNeighbors` per lane         | O(C)          | C=邻居候选数（typed bbox 内的 lane）                              |
-| `reconcileLaneTopology`            | O(N + L·avgC) | full                                                              |
-| `reconcileLaneTopologyIncremental` | O(            | affected                                                          | · avgC) | dirty 通常 1~3 |
+| `buildTopologyIndices` | O(N) | N=entities 数；扫一遍 + RBush load |
+| `derivePredSucc` per lane | O(1+1) | endpoint Map 查找 |
+| `deriveSelfReverse` per lane | O(K) | K=同 sKey 的 lane 数（典型 0~~2） |
+| `deriveJunctionId` per lane | O(B + S·V) | B=候选 junction 数（bbox 命中）；S=lane 段数；V=junction 多边形边 |
+| `deriveNeighbors` per lane | O(C) | C=邻居候选数（typed bbox 内的 lane） |
+| `reconcileLaneTopology` | O(N + L·avgC) | full |
+| `reconcileLaneTopologyIncremental` | O( | affected | · avgC) | dirty 通常 1~~3 |
 
 1000 lane 全量 < 10ms（无持久索引避免"陈旧索引"问题——每次 build）。
 

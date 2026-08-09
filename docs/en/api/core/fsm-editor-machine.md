@@ -84,12 +84,7 @@ stateDiagram-v2
 
 ```ts
 export type DrawTool =
-  | 'drawPolyline'
-  | 'drawCatmullRom'
-  | 'drawBezier'
-  | 'drawArc'
-  | 'drawRotatedRect'
-  | 'drawPolygon';
+  'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRotatedRect' | 'drawPolygon';
 ```
 
 The single "draw tool" enum; `actions/registry` and `core/elements` both

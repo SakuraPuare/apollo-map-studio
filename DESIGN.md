@@ -259,12 +259,7 @@ interface CrosswalkEntity {
 
 ```typescript
 type StopSignType =
-  | 'UNKNOWN_STOP_SIGN'
-  | 'ONE_WAY'
-  | 'TWO_WAY'
-  | 'THREE_WAY'
-  | 'FOUR_WAY'
-  | 'ALL_WAY';
+  'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY' | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
 
 interface StopSignEntity {
   id: string;
@@ -749,13 +744,9 @@ const editorMachine = setup({
     minPointsReached: ({ context }) => context.drawPoints.length >= 2,
   },
   actions: {
-    setSelection: assign({
-      /* ... */
-    }),
+    setSelection: assign({/* ... */}),
     clearSelection: assign({ selectedIds: new Set(), hoveredId: null }),
-    startDrag: assign({
-      /* 记录拖拽起点 */
-    }),
+    startDrag: assign({/* 记录拖拽起点 */}),
     updateHotLayer: ({ context, event }) => {
       /* 直接调用 map.getSource().setData() */
     },
@@ -783,45 +774,19 @@ const editorMachine = setup({
     activeHandleType: null,
   },
   states: {
-    idle: {
-      /* 状态转换定义 */
-    },
-    select: {
-      /* 状态转换定义 */
-    },
-    dragging: {
-      /* 状态转换定义 */
-    },
-    rotating: {
-      /* 状态转换定义 */
-    },
-    resizing: {
-      /* 状态转换定义 */
-    },
-    editCurve: {
-      /* 状态转换定义 */
-    },
-    drawLane: {
-      /* 状态转换定义 */
-    },
-    drawParkingSpot: {
-      /* 状态转换定义 */
-    },
-    drawSignal: {
-      /* 状态转换定义 */
-    },
-    drawCrosswalk: {
-      /* 状态转换定义 */
-    },
-    drawStopSign: {
-      /* 状态转换定义 */
-    },
-    drawJunction: {
-      /* 状态转换定义 */
-    },
-    rectSelect: {
-      /* 状态转换定义 */
-    },
+    idle: {/* 状态转换定义 */},
+    select: {/* 状态转换定义 */},
+    dragging: {/* 状态转换定义 */},
+    rotating: {/* 状态转换定义 */},
+    resizing: {/* 状态转换定义 */},
+    editCurve: {/* 状态转换定义 */},
+    drawLane: {/* 状态转换定义 */},
+    drawParkingSpot: {/* 状态转换定义 */},
+    drawSignal: {/* 状态转换定义 */},
+    drawCrosswalk: {/* 状态转换定义 */},
+    drawStopSign: {/* 状态转换定义 */},
+    drawJunction: {/* 状态转换定义 */},
+    rectSelect: {/* 状态转换定义 */},
   },
 });
 ```

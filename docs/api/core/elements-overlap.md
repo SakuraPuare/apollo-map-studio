@@ -64,8 +64,7 @@ lane 上的弧长区间 `start_s/end_s`、合流标记 `is_merge`、可选的 re
 
 ```ts
 export type ReconcileMode =
-  | { mode: 'incremental'; dirtyIds: ReadonlySet<string> }
-  | { mode: 'full' };
+  { mode: 'incremental'; dirtyIds: ReadonlySet<string> } | { mode: 'full' };
 
 export interface ReconcilePatch {
   changes: Map<string, MapEntity>;
@@ -230,15 +229,15 @@ reconcile 仍重新计算所有 derived objects，但在 `mergeOneObject` 里：
 
 ## 复杂度
 
-| 操作                            | 复杂度       | 备注                             |
+| 操作 | 复杂度 | 备注 |
 | ------------------------------- | ------------ | -------------------------------- | ---- | -------------- |
-| `reconcileOverlaps` full        | O(L · k)     | L=lane 数；k=平均邻居数（RBush） |
-| `reconcileOverlaps` incremental | O(           | dirty                            | · k) | dirty 通常 1~3 |
-| `idx.syncFromEntities`          | O(N)         | 签名比对                         |
-| `idx.syncDirty`                 | O(           | dirtyIds                         | )    |                |
-| `idx.queryBBox`                 | O(log N + k) | RBush                            |
-| `detectLaneLanePair`            | O(M·M)       | M=segment 数；典型 < 100         |
-| `polylineIntersectsPolygon`     | O(M·V)       | V=polygon 边                     |
+| `reconcileOverlaps` full | O(L · k) | L=lane 数；k=平均邻居数（RBush） |
+| `reconcileOverlaps` incremental | O( | dirty | · k) | dirty 通常 1~3 |
+| `idx.syncFromEntities` | O(N) | 签名比对 |
+| `idx.syncDirty` | O( | dirtyIds | ) | |
+| `idx.queryBBox` | O(log N + k) | RBush |
+| `detectLaneLanePair` | O(M·M) | M=segment 数；典型 < 100 |
+| `polylineIntersectsPolygon` | O(M·V) | V=polygon 边 |
 
 5w 实体规模实测：
 

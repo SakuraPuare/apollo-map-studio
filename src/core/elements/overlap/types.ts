@@ -24,8 +24,7 @@ export interface IndexNode extends BBox {
 
 /** reconcile 输入 */
 export type ReconcileMode =
-  | { mode: 'incremental'; dirtyIds: ReadonlySet<string> }
-  | { mode: 'full' };
+  { mode: 'incremental'; dirtyIds: ReadonlySet<string> } | { mode: 'full' };
 
 /** reconcile 输出（store 直接 apply） */
 export interface ReconcilePatch {

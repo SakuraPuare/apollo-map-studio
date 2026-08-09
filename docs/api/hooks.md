@@ -96,9 +96,7 @@ export function useColdLayer(map: maplibregl.Map | null): void;
 ## `useHotLayer`
 
 ```ts
-export type HotRenderState = {
-  /* 关于 FSM 飞绘点 / drag preview */
-};
+export type HotRenderState = {/* 关于 FSM 飞绘点 / drag preview */};
 export function samePoint(a: LngLat | null, b: LngLat | null): boolean;
 export function sameHotRenderState(a: HotRenderState | null, b: HotRenderState): boolean;
 export function useHotLayer(map: maplibregl.Map | null /* ... */): void;
@@ -109,9 +107,7 @@ export function useHotLayer(map: maplibregl.Map | null /* ... */): void;
 ## `useOverlayLayer`
 
 ```ts
-export type OverlayRenderState = {
-  /* 选中、snap、editPoints */
-};
+export type OverlayRenderState = {/* 选中、snap、editPoints */};
 export function buildOverlayFeatures(state: OverlayRenderState): GeoJSON.Feature[];
 export function useOverlayLayer(/* ... */): void;
 ```

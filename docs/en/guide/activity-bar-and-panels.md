@@ -24,7 +24,7 @@ description: Activity Bar tabs, Sidebar routing, the Dockview panel system, draw
 | Tab id     | Icon                 | Label    | Backing panel               |
 | ---------- | -------------------- | -------- | --------------------------- |
 | `explorer` | 📁 FaFolderTree      | Explorer | `MapOutline`                |
-| `layers`   | 🗂 FaLayerGroup      | Layers   | `LayerTree`                 |
+| `layers`   | 🗂 FaLayerGroup       | Layers   | `LayerTree`                 |
 | `search`   | 🔍 FaMagnifyingGlass | Search   | `SearchPanel`               |
 | `timeline` | ⏱ FaClock            | Timeline | (focuses central Dockview)  |
 | `settings` | ⚙ FaGear             | Settings | Opens `SettingsPanel` modal |

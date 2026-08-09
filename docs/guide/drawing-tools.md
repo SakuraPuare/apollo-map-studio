@@ -25,12 +25,7 @@ flowchart LR
 
 ```ts
 export type DrawTool =
-  | 'drawPolyline'
-  | 'drawCatmullRom'
-  | 'drawBezier'
-  | 'drawArc'
-  | 'drawRotatedRect'
-  | 'drawPolygon';
+  'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRotatedRect' | 'drawPolygon';
 ```
 
 （`editorMachine.ts:10-16`）

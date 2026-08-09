@@ -155,11 +155,11 @@ use to decide whether to derive pred/succ.
 
 ## Complexity
 
-| Function            | Complexity                                   |
+| Function | Complexity |
 | ------------------- | -------------------------------------------- | -------- | ------ | ----- | ---------- |
-| `pixelsToMeters`    | O(1)                                         |
+| `pixelsToMeters` | O(1) |
 | `collectCandidates` | O(N · V_avg); N=entities, V_avg=avg vertices |
-| `findSnapTarget`    | O(                                           | vertices | ) + O( | edges | ) per call |
+| `findSnapTarget` | O( | vertices | ) + O( | edges | ) per call |
 
 Measured: 1000 entities × 30 vertices / 30 edges average, < 1 ms per call.
 

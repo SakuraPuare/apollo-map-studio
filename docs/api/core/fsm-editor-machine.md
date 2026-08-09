@@ -78,12 +78,7 @@ stateDiagram-v2
 
 ```ts
 export type DrawTool =
-  | 'drawPolyline'
-  | 'drawCatmullRom'
-  | 'drawBezier'
-  | 'drawArc'
-  | 'drawRotatedRect'
-  | 'drawPolygon';
+  'drawPolyline' | 'drawCatmullRom' | 'drawBezier' | 'drawArc' | 'drawRotatedRect' | 'drawPolygon';
 ```
 
 唯一的"绘制工具"枚举；`actions/registry` 与 `core/elements` 都引用这个类型，

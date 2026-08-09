@@ -301,8 +301,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     const leftEdge = laneLine(features, lane.id, 'laneEdgeLeft');
     const rightEdge = laneLine(features, lane.id, 'laneEdgeRight');
     const fill = features.find((feature) => feature.geometry.type === 'Polygon') as
-      | GeoJSON.Feature<GeoJSON.Polygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon> | undefined;
 
     expect(leftEdge?.geometry.coordinates).toEqual(leftBoundary.map((point) => [point.x, point.y]));
     expect(rightEdge?.geometry.coordinates).toEqual(
@@ -354,8 +353,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     const features = compileApolloFeatures(lane);
     const fill = features.find((feature) => feature.properties?.noStroke === true) as
-      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined;
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(6);
@@ -378,8 +376,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     const features = compileApolloFeatures(lane);
     const fill = features.find((feature) => feature.properties?.noStroke === true) as
-      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined;
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(5);
@@ -403,8 +400,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
     const leftEdge = laneLine(features, lane.id, 'laneEdgeLeft');
     const rightEdge = laneLine(features, lane.id, 'laneEdgeRight');
     const fill = features.find((feature) => feature.properties?.noStroke === true) as
-      | GeoJSON.Feature<GeoJSON.Polygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon> | undefined;
 
     expect(fill?.geometry.type).toBe('Polygon');
     expect(fill!.geometry.coordinates[0]?.slice(0, leftEdge!.geometry.coordinates.length)).toEqual(
@@ -430,8 +426,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     const features = compileApolloFeatures(lane);
     const fill = features.find((feature) => feature.properties?.noStroke === true) as
-      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined;
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(12);
@@ -451,8 +446,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     const features = compileApolloFeatures(lane);
     const fill = features.find((feature) => feature.properties?.noStroke === true) as
-      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | undefined;
 
     expect(fill).toBeDefined();
     expect(geometryArea(fill!.geometry)).toBeLessThan(8);
@@ -521,8 +515,7 @@ describe('GAP #4 — imported lane boundaries render from Apollo polylines', () 
 
     const features = compileApolloFeatures(lane);
     const center = features.find((feature) => feature.properties?.role === 'laneCenter') as
-      | GeoJSON.Feature<GeoJSON.LineString>
-      | undefined;
+      GeoJSON.Feature<GeoJSON.LineString> | undefined;
     const leftEdge = laneLine(features, lane.id, 'laneEdgeLeft');
 
     expect(center?.geometry.coordinates).toEqual([

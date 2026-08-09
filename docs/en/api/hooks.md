@@ -101,9 +101,7 @@ cold GeoJSON via `setData`.
 ## `useHotLayer`
 
 ```ts
-export type HotRenderState = {
-  /* in-flight FSM draw / drag */
-};
+export type HotRenderState = {/* in-flight FSM draw / drag */};
 export function samePoint(a: LngLat | null, b: LngLat | null): boolean;
 export function sameHotRenderState(a, b): boolean;
 export function useHotLayer(map: maplibregl.Map | null /* ... */): void;
@@ -114,9 +112,7 @@ Does not go through the worker; mutates `setData` per frame.
 ## `useOverlayLayer`
 
 ```ts
-export type OverlayRenderState = {
-  /* selection, snap, editPoints */
-};
+export type OverlayRenderState = {/* selection, snap, editPoints */};
 export function buildOverlayFeatures(state: OverlayRenderState): GeoJSON.Feature[];
 export function useOverlayLayer(/* ... */): void;
 ```

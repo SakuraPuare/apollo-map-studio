@@ -132,13 +132,7 @@ export interface LaneSampleAssociation {
   width: number;
 }
 export type LaneType =
-  | 'NONE'
-  | 'CITY_DRIVING'
-  | 'BIKING'
-  | 'SIDEWALK'
-  | 'PARKING'
-  | 'SHOULDER'
-  | 'SHARED';
+  'NONE' | 'CITY_DRIVING' | 'BIKING' | 'SIDEWALK' | 'PARKING' | 'SHOULDER' | 'SHARED';
 export type LaneTurn = 'NO_TURN' | 'LEFT_TURN' | 'RIGHT_TURN' | 'U_TURN';
 export type LaneDirection = 'FORWARD' | 'BACKWARD' | 'BIDIRECTION';
 ```
@@ -191,12 +185,7 @@ during auto-recomputation. See [Derive Engine](/en/architecture/derive-engine).
 
 ```ts
 export type JunctionType =
-  | 'UNKNOWN'
-  | 'IN_ROAD'
-  | 'CROSS_ROAD'
-  | 'FORK_ROAD'
-  | 'MAIN_SIDE'
-  | 'DEAD_END';
+  'UNKNOWN' | 'IN_ROAD' | 'CROSS_ROAD' | 'FORK_ROAD' | 'MAIN_SIDE' | 'DEAD_END';
 export interface JunctionEntity {
   id: string;
   entityType: 'junction';
@@ -282,12 +271,7 @@ export interface CrosswalkEntity {
 }
 
 export type StopSignType =
-  | 'UNKNOWN_STOP_SIGN'
-  | 'ONE_WAY'
-  | 'TWO_WAY'
-  | 'THREE_WAY'
-  | 'FOUR_WAY'
-  | 'ALL_WAY';
+  'UNKNOWN_STOP_SIGN' | 'ONE_WAY' | 'TWO_WAY' | 'THREE_WAY' | 'FOUR_WAY' | 'ALL_WAY';
 export interface StopSignEntity {
   id: string;
   entityType: 'stopSign';

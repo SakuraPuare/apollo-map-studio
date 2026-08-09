@@ -52,8 +52,7 @@ export interface IndexNode extends BBox {
 }
 
 export type ReconcileMode =
-  | { mode: 'incremental'; dirtyIds: ReadonlySet<string> }
-  | { mode: 'full' };
+  { mode: 'incremental'; dirtyIds: ReadonlySet<string> } | { mode: 'full' };
 
 export interface ReconcilePatch {
   changes: Map<string, MapEntity>;
