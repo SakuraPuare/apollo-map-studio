@@ -32,8 +32,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       dockview:
-        specifier: ^6.6.1
-        version: 6.6.1(react@19.2.8)
+        specifier: ^7.0.0
+        version: 7.0.4
       dockview-react:
         specifier: 6.6.1
         version: 6.6.1(react@19.2.8)
@@ -2858,6 +2858,9 @@ packages:
   dockview-core@6.6.1:
     resolution: {integrity: sha512-WuNoO2wl3rGI8MaTuvmfgViek4WafHLD9Kf//Hw69g8TgAHSpAWr6RW15kU6U9vwtQxIi/YBxQNcIA5RzQ46Fw==}
 
+  dockview-core@7.0.4:
+    resolution: {integrity: sha512-AiIzD6ov153L/VuhqVBg5KD5oSAgJGH7L1xvzV/X+ghIEOTFfEQYEBGNd/ys+ZjQfdGRogHSeQ0v9JF/L6JrPg==}
+
   dockview-react@6.6.1:
     resolution: {integrity: sha512-zF/CQzAxjA2mlSTnDt2rbBe49uG33mvg1DPitNCPrIhhDulyiiBG1A1pRyjVx4MJbVh1xx5gAYbNRwu+mCR7CQ==}
 
@@ -2865,6 +2868,9 @@ packages:
     resolution: {integrity: sha512-vBnxWVk0f665z1Zyx598l/BMUjHD3SK5V4XorxpYGjaSREM8lLc8O6ylgKTtw+ZnCOMYOhcwov9x0ubfFazvMw==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  dockview@7.0.4:
+    resolution: {integrity: sha512-n6n9WpYZgp/WY8SgvP4hr9qh01ZXhSGIRmlhoJXxRU3f34bwxCbFyOhBArV4W8quolX8OQe1yPfAUwUUjdnZPA==}
 
   dompurify@3.4.13:
     resolution: {integrity: sha512-2vmYIoqjze2d+kakP8S/nS5shfsl587kzwEjcGlTdiksUVgFHnFCsLYDVj/JNqJVOQZGSYBTmuycv0PodwmnMQ==}
@@ -8163,6 +8169,8 @@ snapshots:
 
   dockview-core@6.6.1: {}
 
+  dockview-core@7.0.4: {}
+
   dockview-react@6.6.1(react@19.2.8):
     dependencies:
       dockview: 6.6.1(react@19.2.8)
@@ -8173,6 +8181,10 @@ snapshots:
     dependencies:
       dockview-core: 6.6.1
       react: 19.2.8
+
+  dockview@7.0.4:
+    dependencies:
+      dockview-core: 7.0.4
 
   dompurify@3.4.13:
     optionalDependencies:
