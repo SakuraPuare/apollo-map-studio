@@ -54,7 +54,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "dockview": "^7.0.0",
-    "dockview-react": "6.6.1",
+    "dockview-react": "7.0.4",
     "immer": "^11.1.8",
     "maplibre-gl": "^5.24.0",
     "nanoid": "^5.1.11",
