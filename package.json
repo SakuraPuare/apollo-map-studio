@@ -57,7 +57,7 @@
     "dockview-react": "6.6.1",
     "immer": "^11.1.8",
     "maplibre-gl": "^5.24.0",
-    "nanoid": "^5.1.11",
+    "nanoid": "^6.0.0",
     "polygon-clipping": "^0.15.7",
     "proj4": "^2.20.8",
     "protobufjs": "^8.6.1",
